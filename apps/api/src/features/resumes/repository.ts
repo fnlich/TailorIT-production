@@ -84,8 +84,14 @@ const SELECT_WITH_FILE = `
  * sent every resume's whole document (35 MB for an account of 5,040 resumes at mix B's size) and normalized each in
  * the API. json_each reads the stored text once and never unescapes a value; a key absent or null normalizes alike;
  * a document that is not an object reads as {} (as JSON.parse's answer normalizes).
+ *
+ * v3.0.1 FIX-PERF2 (PG-LOAD PGL-23): json_each still parsed every document at every list (the column is json, kept as
+ * written: 110 of 149 ms for 5,040 resumes at mix B's size). resumes.list_data holds the same object, written with the
+ * document (migration 0038's trigger, the same expression), so the list reads it and parses nothing; a row without it
+ * (a document json_each will not read) is read as before.
  */
 const LIST_DOCUMENT_SQL = `CASE WHEN r.kind <> 'built' OR r.data IS NULL THEN NULL
+    WHEN r.list_data IS NOT NULL THEN CAST(r.list_data AS text)
     WHEN json_typeof(r.data) <> 'object' THEN '{}'
     ELSE COALESCE((SELECT CAST(json_object_agg(e.key, e.value) AS text) FROM json_each(r.data) e
                    WHERE e.key IN ('name', 'title', 'preferredTemplate', 'templateId', 'markupVersion')), '{}') END`;

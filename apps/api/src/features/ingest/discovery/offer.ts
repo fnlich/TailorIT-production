@@ -21,6 +21,15 @@ import { BOARD_KINDS, boardNameOf, candidateName } from './boards';
 // v30 S2: the board kinds and names moved to boards.ts (re-exported here: job-reviews reads them from this file); the
 // known-source lookup is two index lookups (migration 0020: the name in any case, the board its config names) instead
 // of a scan of every source of the kind, as every signal now offers boards by the thousand.
+//
+// v3.0.1 FIX-PERF2 (PG-LOAD PGL-25, docs/design/part2/measurements.md §10.3): a Workday career site's config names its
+// site by `careerSite` alone ("External", as many tenants name theirs), so the board lookup by SOURCE_BOARD_SQL found
+// every Workday site source for each Workday link (18,067 rows with their config at mix B's size, parsed in JS to keep
+// the one whose name matched); the link sweep spent 612 of its 1,093 s on them and fell behind (PGL-18). A Workday site
+// is now looked up by its tenant and site (WORKDAY_SITE_KEY_SQL, migration 0038's idx_job_sources_workday_site), and
+// offerBoards looks up a whole batch's boards in one statement (sourcesOfBoards), checks the unknown ones' opt-outs in
+// one, and adds or bumps their candidates in one: the link sweep's batch of 1,000 rows made up to three round trips a
+// board. offerToDiscovery is offerBoards of one board.
 
 export { boardNameOf, candidateName } from './boards';
 
@@ -36,10 +45,22 @@ export function aliasOf(kind: JobSourceKind, name: string): string | null {
 
 /**
  * The board a source's config names, in SQL (idx_job_sources_board reads the same expression: 0020, and v30 INT-4's
- * 0028 with S3's keys: a Workday career site's `careerSite` before its `tenant`, a feed's `company`).
+ * 0028 with S3's keys: a Workday career site's `careerSite` before its `tenant`, a feed's `company`). Not for a Workday
+ * career site: its `careerSite` names no board alone (WORKDAY_SITE_KEY_SQL).
  */
 export const SOURCE_BOARD_SQL =
   "lower(COALESCE(config->>'token', config->>'site', config->>'board', config->>'account', config->>'careerSite', config->>'company', config->>'tenant', config->>'host'))";
+
+/**
+ * v3.0.1 FIX-PERF2 (PGL-25): a Workday career site source's tenant and site, in SQL, as migration 0038's partial index
+ * idx_job_sources_workday_site holds them (`WHERE kind = 'workday_site'`; the expressions must stay the same text). The
+ * tenant is the config's, else its host's first label (a tenant's own host names it there: adapters/workdaySite.ts
+ * refuses a config whose tenant is not that label).
+ */
+export const WORKDAY_SITE_KEY_SQL = {
+  tenant: "lower(COALESCE(config->>'tenant', split_part(config->>'host', '.', 1)))",
+  site: "lower(config->>'careerSite')",
+} as const;
 
 /** A job_sources row as the board lookups read it. */
 export interface BoardSourceRow {
@@ -49,21 +70,58 @@ export interface BoardSourceRow {
   config: Record<string, unknown>;
 }
 
-/** Every source of the kind whose name or config names the board, oldest first (Add job's link keepers included). */
-export async function sourcesOfBoard(t: DbQueries, kind: JobSourceKind, name: string): Promise<BoardSourceRow[]> {
-  const rows = await t.all<{ id: number; enabled: boolean; name: string; config: string }>(
-    `SELECT id, enabled, name, config::text AS config FROM job_sources
-     WHERE kind = @kind AND (lower(name) = lower(@name) OR ${SOURCE_BOARD_SQL} = lower(@board)) ORDER BY id`,
-    // A Workday career site's config names its site first: its name, or its site's, finds it. A Personio board on the
-    // .com host names its tenant in `company` (v30 FIX-A).
-    {
-      kind,
-      name,
-      board: kind === 'workday_site' ? name.slice(name.lastIndexOf('/') + 1) : kind === 'personio' ? name.replace(/\.jobs\.personio\.com$/i, '') : name,
-    },
+/** A board to look up: its kind and its name as candidateName keeps it. */
+export interface BoardRef {
+  kind: JobSourceKind;
+  name: string;
+}
+
+/** What a board's lookup compares: the board its config names, or a Workday career site's tenant and site. */
+function lookupKeyOf(kind: JobSourceKind, name: string): { board: string | null; tenant: string | null; site: string | null } {
+  if (kind === 'workday_site') {
+    // <host>/<site> (the tenant is the host's first label) or <host>/recruiting/<tenant>/<site> (boards.ts).
+    const [host, ...path] = name.split('/');
+    const site = path[path.length - 1] ?? '';
+    const tenant = path[0] === 'recruiting' && path.length >= 3 ? path[1]! : (host ?? '').split('.')[0]!;
+    return { board: null, tenant: tenant.toLowerCase(), site: site.toLowerCase() };
+  }
+  // A Personio board on the .com host names its tenant in `company` (v30 FIX-A).
+  return { board: kind === 'personio' ? name.replace(/\.jobs\.personio\.com$/i, '') : name, tenant: null, site: null };
+}
+
+/** A board's key in the maps below (kind and name as kept). */
+const refKey = (kind: JobSourceKind, name: string) => `${kind}\n${name}`;
+
+/**
+ * Every source of each board, the sources whose name or config names it (Add job's link keepers included), oldest
+ * first: one statement for the whole list. Each board finds its sources by three index lookups, at most: its name in
+ * any case (idx_job_sources_name_ci), the board its config names (idx_job_sources_board), and for a Workday career site
+ * its tenant and site (idx_job_sources_workday_site). The board its config names then decides (boardNameOf), as before.
+ */
+export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[]): Promise<Map<string, BoardSourceRow[]>> {
+  const found = new Map<string, BoardSourceRow[]>();
+  if (boards.length === 0) return found;
+  const keyed = boards.map((board, i) => ({ i, kind: board.kind, name: board.name, ...lookupKeyOf(board.kind, board.name) }));
+  const rows = await t.all<{ i: number; id: number; enabled: boolean; name: string; config: string }>(
+    `SELECT b.i, s.id, s.enabled, s.name, s.config::text AS config
+     FROM json_to_recordset(CAST(? AS json)) AS b(i integer, kind text, name text, board text, tenant text, site text)
+     CROSS JOIN LATERAL (
+       SELECT n.id FROM job_sources n WHERE n.kind = b.kind AND lower(n.name) = lower(b.name)
+       UNION
+       SELECT c.id FROM job_sources c
+         WHERE b.board IS NOT NULL AND c.kind = b.kind AND ${SOURCE_BOARD_SQL.replace(/config->>/g, 'c.config->>')} = lower(b.board)
+       UNION
+       SELECT w.id FROM job_sources w
+         WHERE b.site IS NOT NULL AND w.kind = 'workday_site'
+           AND ${WORKDAY_SITE_KEY_SQL.tenant.replace(/config->>/g, 'w.config->>')} = b.tenant
+           AND ${WORKDAY_SITE_KEY_SQL.site.replace(/config->>/g, 'w.config->>')} = b.site
+     ) f
+     JOIN job_sources s ON s.id = f.id
+     ORDER BY b.i, s.id`,
+    [JSON.stringify(keyed)],
   );
-  const found: BoardSourceRow[] = [];
   for (const row of rows) {
+    const board = boards[row.i]!;
     let config: Record<string, unknown> = {};
     try {
       config = JSON.parse(row.config) as Record<string, unknown>;
@@ -71,12 +129,19 @@ export async function sourcesOfBoard(t: DbQueries, kind: JobSourceKind, name: st
       config = {};
     }
     // The board its config names decides; a source whose config names none (an older row) is matched by its name.
-    const named = boardNameOf(kind, config);
-    if ((named ?? row.name).toLowerCase() === name.toLowerCase()) {
-      found.push({ id: row.id, enabled: row.enabled === true, name: row.name, config });
-    }
+    const named = boardNameOf(board.kind, config);
+    if ((named ?? row.name).toLowerCase() !== board.name.toLowerCase()) continue;
+    const key = refKey(board.kind, board.name);
+    const list = found.get(key) ?? [];
+    list.push({ id: row.id, enabled: row.enabled === true, name: row.name, config });
+    found.set(key, list);
   }
   return found;
+}
+
+/** Every source of the kind whose name or config names the board, oldest first (Add job's link keepers included). */
+export async function sourcesOfBoard(t: DbQueries, kind: JobSourceKind, name: string): Promise<BoardSourceRow[]> {
+  return (await sourcesOfBoards(t, [{ kind, name }])).get(refKey(kind, name)) ?? [];
 }
 
 /** Whether a source is only Add job's keeper of a board's links (disabled, marked addedBy 'autofill'): it reads nothing. */
@@ -87,60 +152,121 @@ export async function knownSource(t: DbQueries, kind: JobSourceKind, name: strin
   return (await sourcesOfBoard(t, kind, name)).find((source) => !isLinkKeeper(source))?.id;
 }
 
-/** Whether the board's company opted out, or a career site's domain is on crawl_opt_outs. */
-export async function optedOut(t: DbQueries, kind: JobSourceKind, name: string): Promise<boolean> {
+/** The aliases and domains a board's opt-out is looked for under. */
+function optOutKeysOf(kind: JobSourceKind, name: string): { aliases: string[]; domains: string[] } {
   const alias = aliasOf(kind, name);
-  const aliases = alias ? [alias] : [];
   const domains: string[] = [];
   if (kind === 'career_site') {
     // The host and each parent domain with at least two labels (careers.acme.com: careers.acme.com, acme.com).
     const labels = name.split('.');
     for (let at = 0; at <= labels.length - 2; at += 1) domains.push(labels.slice(at).join('.'));
   }
-  const row = await t.one<{ opted: boolean }>(
-    `SELECT (EXISTS (SELECT 1 FROM company_aliases a JOIN companies c ON c.id = a.company_id
-               WHERE c.do_not_fetch AND ((a.kind = 'board' AND a.value IN (SELECT value FROM ${t.dialect.jsonEach('?')}))
-                 OR (a.kind IN ('domain', 'domain_shared') AND a.value IN (SELECT value FROM ${t.dialect.jsonEach('?')}))))
-             OR EXISTS (SELECT 1 FROM crawl_opt_outs o WHERE o.domain IN (SELECT value FROM ${t.dialect.jsonEach('?')}))) AS opted`,
-    [JSON.stringify(aliases), JSON.stringify(domains), JSON.stringify(domains)],
-  );
-  return row?.opted === true;
+  return { aliases: alias ? [alias] : [], domains };
 }
 
-/** Adds or bumps the candidate (kept `forbidden` when asked); its id and whether it was made now. */
-async function upsertCandidate(
+/** Of `boards`, the indexes of those whose company opted out, or whose career site's domain is on crawl_opt_outs. */
+async function optedOutOf(t: DbQueries, boards: readonly BoardRef[]): Promise<Set<number>> {
+  if (boards.length === 0) return new Set();
+  const keyed = boards.map((board, i) => ({ i, ...optOutKeysOf(board.kind, board.name) }));
+  const rows = await t.all<{ i: number }>(
+    `SELECT x.i FROM json_to_recordset(CAST(? AS json)) AS x(i integer, aliases json, domains json)
+     WHERE EXISTS (SELECT 1 FROM company_aliases a JOIN companies c ON c.id = a.company_id
+             WHERE c.do_not_fetch AND ((a.kind = 'board' AND a.value IN (SELECT value FROM json_array_elements_text(x.aliases)))
+               OR (a.kind IN ('domain', 'domain_shared') AND a.value IN (SELECT value FROM json_array_elements_text(x.domains)))))
+        OR EXISTS (SELECT 1 FROM crawl_opt_outs o WHERE o.domain IN (SELECT value FROM json_array_elements_text(x.domains)))`,
+    [JSON.stringify(keyed)],
+  );
+  return new Set(rows.map((row) => Number(row.i)));
+}
+
+/** Whether the board's company opted out, or a career site's domain is on crawl_opt_outs. */
+export async function optedOut(t: DbQueries, kind: JobSourceKind, name: string): Promise<boolean> {
+  return (await optedOutOf(t, [{ kind, name }])).has(0);
+}
+
+/**
+ * Adds or bumps each board's candidate (kept `forbidden` when asked) in one statement, in (kind, name) order (the
+ * order two batches lock rows in); each one's id and whether it was made now, by its key.
+ */
+async function upsertCandidates(
   t: DbTx,
-  input: DiscoveryOfferInput,
-  name: string,
-  forbidden: boolean,
-): Promise<{ id: number; added: boolean }> {
-  const row = await t.one<{ id: number; added: boolean }>(
+  boards: ReadonlyArray<BoardRef & { forbidden: boolean }>,
+  via: DiscoveryOfferInput['via'],
+  at: string,
+): Promise<Map<string, { id: number; added: boolean }>> {
+  const out = new Map<string, { id: number; added: boolean }>();
+  if (boards.length === 0) return out;
+  const rows = await t.all<{ kind: JobSourceKind; name: string; id: number; added: boolean }>(
     `INSERT INTO job_source_candidates(kind, name, discovered_via, seen_count, first_seen_at, last_seen_at, status, next_check_at)
-     VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+     SELECT x.kind, x.name, CAST(@via AS text), 1, CAST(@at AS timestamptz), CAST(@at AS timestamptz),
+       CASE WHEN x.forbidden THEN 'forbidden' ELSE 'new' END, CASE WHEN x.forbidden THEN NULL ELSE CAST(@at AS timestamptz) END
+     FROM json_to_recordset(CAST(@boards AS json)) AS x(kind text, name text, forbidden boolean)
+     ORDER BY x.kind, x.name
      ON CONFLICT (kind, name) DO UPDATE SET
        seen_count = job_source_candidates.seen_count + 1,
        last_seen_at = GREATEST(job_source_candidates.last_seen_at, excluded.last_seen_at),
        status = CASE WHEN excluded.status = 'forbidden' THEN 'forbidden' ELSE job_source_candidates.status END,
        next_check_at = CASE WHEN excluded.status = 'forbidden' THEN NULL ELSE job_source_candidates.next_check_at END
-     RETURNING id, (xmax = 0) AS added`,
-    [input.kind, name, input.via, input.at, input.at, forbidden ? 'forbidden' : 'new', forbidden ? null : input.at],
+     RETURNING kind, name, id, (xmax = 0) AS added`,
+    { via, at, boards: JSON.stringify(boards.map(({ kind, name, forbidden }) => ({ kind, name, forbidden }))) },
   );
-  return { id: row!.id, added: row!.added === true };
+  for (const row of rows) out.set(refKey(row.kind, row.name), { id: Number(row.id), added: row.added === true });
+  return out;
+}
+
+/**
+ * Offers each board to discovery (see the top), in the caller's transaction: one answer per board, in their order. The
+ * whole list's known sources are one statement, the unknown boards' opt-outs one, their candidates one: a board named
+ * twice is looked up and bumped once (both get its answer).
+ */
+export async function offerBoards(
+  _deps: AppDeps,
+  t: DbTx,
+  boards: readonly BoardRef[],
+  via: DiscoveryOfferInput['via'],
+  at: string,
+): Promise<DiscoveryOfferResult[]> {
+  const names = boards.map((board) => candidateName(board.kind, board.name));
+  const distinct = new Map<string, BoardRef>();
+  boards.forEach((board, i) => {
+    const name = names[i];
+    if (name !== null && name !== undefined) distinct.set(refKey(board.kind, name), { kind: board.kind, name });
+  });
+  const refs = [...distinct.values()];
+  const sources = await sourcesOfBoards(t, refs);
+  const known = new Map<string, number>();
+  for (const ref of refs) {
+    const reading = (sources.get(refKey(ref.kind, ref.name)) ?? []).find((source) => !isLinkKeeper(source));
+    if (reading) known.set(refKey(ref.kind, ref.name), reading.id);
+  }
+  const unknown = refs.filter((ref) => !known.has(refKey(ref.kind, ref.name)));
+  const opted = await optedOutOf(t, unknown);
+  const candidates = await upsertCandidates(
+    t,
+    unknown.map((ref, i) => ({ ...ref, forbidden: opted.has(i) })),
+    via,
+    at,
+  );
+  const forbidden = new Set(unknown.filter((_, i) => opted.has(i)).map((ref) => refKey(ref.kind, ref.name)));
+  // A board named twice in one call is one candidate: its first mention says `added`, a later one `bumped`.
+  const answered = new Set<string>();
+  return boards.map((board, i): DiscoveryOfferResult => {
+    const name = names[i];
+    if (name === null || name === undefined) return { outcome: 'refused', candidateId: null, sourceId: null };
+    const key = refKey(board.kind, name);
+    const sourceId = known.get(key);
+    if (sourceId !== undefined) return { outcome: 'known_source', candidateId: null, sourceId };
+    const candidate = candidates.get(key)!;
+    if (forbidden.has(key)) return { outcome: 'forbidden', candidateId: candidate.id, sourceId: null };
+    const first = !answered.has(key);
+    answered.add(key);
+    return { outcome: candidate.added && first ? 'added' : 'bumped', candidateId: candidate.id, sourceId: null };
+  });
 }
 
 /** Adds a board to job_source_candidates, or bumps it (core/seams.ts OfferToDiscovery; see above). */
-export const offerToDiscovery: OfferToDiscovery = async (_deps: AppDeps, t: DbTx, input: DiscoveryOfferInput): Promise<DiscoveryOfferResult> => {
-  const name = candidateName(input.kind, input.name);
-  if (name === null) return { outcome: 'refused', candidateId: null, sourceId: null };
-  const sourceId = await knownSource(t, input.kind, name);
-  if (sourceId !== undefined) return { outcome: 'known_source', candidateId: null, sourceId };
-  if (await optedOut(t, input.kind, name)) {
-    const { id } = await upsertCandidate(t, input, name, true);
-    return { outcome: 'forbidden', candidateId: id, sourceId: null };
-  }
-  const { id, added } = await upsertCandidate(t, input, name, false);
-  return { outcome: added ? 'added' : 'bumped', candidateId: id, sourceId: null };
-};
+export const offerToDiscovery: OfferToDiscovery = async (deps: AppDeps, t: DbTx, input: DiscoveryOfferInput): Promise<DiscoveryOfferResult> =>
+  (await offerBoards(deps, t, [{ kind: input.kind, name: input.name }], input.via, input.at))[0]!;
 
 /** The kinds a candidate may have: the board kinds and career sites. */
 export const CANDIDATE_KINDS: readonly JobSourceKind[] = [...(Object.keys(BOARD_KINDS) as JobSourceKind[]), 'career_site'];

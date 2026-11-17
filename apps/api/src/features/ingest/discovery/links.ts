@@ -2,7 +2,7 @@ import type { JobSourceDiscoveredVia } from '@tailorit/shared';
 import { constantsOf } from '../../../core/constants/index';
 import { nowIso, type AppDeps } from '../../../core/context';
 import type { DbTx } from '../../../core/db/types';
-import { offerToDiscovery } from './offer';
+import { offerBoards, offerToDiscovery } from './offer';
 import { BOARD_KINDS, boardOfUrl, careerSiteOfUrl, type FoundBoard } from './boards';
 import { lockState, writeState } from './state';
 
@@ -66,18 +66,18 @@ export async function offerLink(deps: AppDeps, t: DbTx, address: string, via: Jo
   return board ? offerToDiscovery(deps, t, { kind: board.kind, name: board.name, via, at }) : null;
 }
 
-/** Offers each distinct board of `addresses` once; answers how many were offered and how many were new candidates. */
+/**
+ * Offers each distinct board of `addresses` once; answers how many were offered and how many were new candidates.
+ * v3.0.1 FIX-PERF2 (PGL-25): the batch's boards in one offer (offerBoards: a few statements for all of them).
+ */
 async function offerAll(deps: AppDeps, t: DbTx, addresses: readonly string[], via: JobSourceDiscoveredVia, at: string, careerSites: boolean) {
   const boards = new Map<string, FoundBoard>();
   for (const address of addresses) {
     const board = boardToOffer(address, careerSites);
     if (board) boards.set(`${board.kind}:${board.name}`, board);
   }
-  let added = 0;
-  for (const board of boards.values()) {
-    if ((await offerToDiscovery(deps, t, { kind: board.kind, name: board.name, via, at })).outcome === 'added') added += 1;
-  }
-  return { offered: boards.size, added };
+  const results = await offerBoards(deps, t, [...boards.values()], via, at);
+  return { offered: boards.size, added: results.filter((result) => result.outcome === 'added').length };
 }
 
 /** One signal's walk: batches after its mark, each batch's offers and the mark moved in one transaction. */

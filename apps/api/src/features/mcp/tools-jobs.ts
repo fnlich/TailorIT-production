@@ -270,12 +270,37 @@ async function matchIds(deps: SearchDeps, built: Built, sort: 'relevance' | 'new
 
 type FacetRows = Array<[string, number]>;
 
+/** v3.0.1 FIX-PERF2 (PGL-21): the facets were counted on a sample of the matches and scaled: each count is about. */
+export interface FacetsAbout {
+  /** The matches the facets counted. */
+  counted: number;
+  /** Of every match (the exact total). */
+  of: number;
+}
+
 interface Aggregate {
   total: number;
   unknown?: Record<string, number>;
   facets?: Record<string, FacetRows>;
   /** The facets were not computed in SEARCH_STATEMENT_TIMEOUT_MS: `total` is the capped count. */
   facetsNotComputed?: true;
+  /** v3.0.1 FIX-PERF2 (PGL-21): the facets are a sample's, scaled. */
+  facetsAbout?: FacetsAbout;
+}
+
+/**
+ * v3.0.1 FIX-PERF2 (PG-LOAD PGL-21, PGL-6): past this many matches the facets count a sample of about this many of them
+ * (every match whose id's hash falls in one bucket of total / FACET_SAMPLE_ROWS) and scale their counts to the total;
+ * the answer says so (`facetsAbout`). The total and the unknowns stay exact.
+ */
+export const FACET_SAMPLE_ROWS = 20_000;
+
+/** A sampled count scaled to every match, to two significant digits (it is about; under 100 as it is). */
+function scaled(n: number, scale: number): number {
+  const value = Math.round(n * scale);
+  if (value < 100) return value;
+  const unit = 10 ** (Math.floor(Math.log10(value)) - 1);
+  return Math.round(value / unit) * unit;
 }
 
 /** PostgreSQL's code for a statement its statement_timeout cancelled. */
@@ -319,6 +344,14 @@ const NO_PLACE = 'CAST(NULL AS text), CAST(NULL AS text), CAST(NULL AS text), CA
  * are GROUP BYs over `m`, joined by UNION ALL: each facet was its own statement that read every match again (640,000
  * rows and 100,000 pages each for a common word at mix B's size, 4-9 s a call), and the statement timeout bounded each
  * statement, not the call. Now SEARCH_STATEMENT_TIMEOUT_MS bounds the whole aggregate.
+ *
+ * v3.0.1 FIX-PERF2 (PG-LOAD PGL-21): the one read was still every facet over every match: 3.4 s for "engineer"
+ * (640,630 matches at mix B's size; the levels unnested and the places joined for each one: 1.4 s and 1.6 s), 2.4-2.7 s
+ * with no words and remote, against 1.5 s. `m` now keeps each match's id and judged flags only (it fits in work_mem),
+ * the totals and unknowns count it exactly (`c`), and the facets count `x`: every match while they are at most
+ * FACET_SAMPLE_ROWS, else the matches whose id's hash falls in one of total / FACET_SAMPLE_ROWS buckets (a sample of
+ * about that many, spread over every company, platform and day as the matches are), each read by its key; the answer
+ * scales the sample's counts to the total and says they are about (`facetsAbout`).
  */
 async function aggregate(deps: SearchDeps, built: Built, facets: readonly JobFacet[], idsTold: number | null): Promise<Aggregate | null> {
   const wanted = [...new Set(facets)];
@@ -339,30 +372,46 @@ async function aggregate(deps: SearchDeps, built: Built, facets: readonly JobFac
   const totalNames = ['total', ...built.judged.map((_, k) => `u${k}`)];
   const shift = offsetMinutes(built.now, built.zone.tz);
   const known = params.array([...EXPERIENCE_LEVELS]);
+  // Each facet counts `x`: the matches (or their sample) with the columns the facets read.
   const branches: Record<JobFacet, () => string> = {
-    company: () => `(SELECT 'company', CAST(m.company_id AS text), count(*), ${NO_PLACE} FROM m WHERE ${matched}
-      GROUP BY m.company_id ORDER BY count(*) DESC, CAST(m.company_id AS text) COLLATE "C" LIMIT ${FACET_TOP})`,
-    platform: () => `SELECT 'platform', m.apply_platform, count(*), ${NO_PLACE} FROM m WHERE ${matched} GROUP BY m.apply_platform`,
-    remote: () => `SELECT 'remote', COALESCE(m.work_arrangement, 'unknown'), count(*), ${NO_PLACE} FROM m WHERE ${matched} GROUP BY 2`,
+    company: () => `(SELECT 'company', CAST(x.company_id AS text), count(*), ${NO_PLACE} FROM x
+      GROUP BY x.company_id ORDER BY count(*) DESC, CAST(x.company_id AS text) COLLATE "C" LIMIT ${FACET_TOP})`,
+    platform: () => `SELECT 'platform', x.apply_platform, count(*), ${NO_PLACE} FROM x GROUP BY x.apply_platform`,
+    remote: () => `SELECT 'remote', COALESCE(x.work_arrangement, 'unknown'), count(*), ${NO_PLACE} FROM x GROUP BY 2`,
     posted: () => `SELECT 'posted',
-      to_char((m.posted_sort AT TIME ZONE 'UTC') + make_interval(mins => CAST(${params.add(shift)} AS integer)), 'YYYY-MM-DD'),
-      count(*), ${NO_PLACE} FROM m WHERE ${matched} GROUP BY 2`,
-    seniority: () => `SELECT 'seniority', lv.key, count(*), ${NO_PLACE} FROM m
-      CROSS JOIN LATERAL (SELECT x FROM unnest(m.experience_levels) x WHERE x = ANY(${known})
-                          UNION ALL SELECT 'unknown' WHERE NOT (m.experience_levels && ${known})) AS lv(key)
-      WHERE ${matched} GROUP BY lv.key`,
+      to_char((x.posted_sort AT TIME ZONE 'UTC') + make_interval(mins => CAST(${params.add(shift)} AS integer)), 'YYYY-MM-DD'),
+      count(*), ${NO_PLACE} FROM x GROUP BY 2`,
+    seniority: () => `SELECT 'seniority', lv.key, count(*), ${NO_PLACE} FROM x
+      CROSS JOIN LATERAL (SELECT y FROM unnest(x.experience_levels) y WHERE y = ANY(${known})
+                          UNION ALL SELECT 'unknown' WHERE NOT (x.experience_levels && ${known})) AS lv(key)
+      GROUP BY lv.key`,
+    // Each one's first place by its key (LIMIT 1: a probe a row, never a join over every place).
     location: () => `SELECT 'location', CAST(NULL AS text), count(*), jl.city, jl.region, jl.country_code, jl.is_remote, max(jl.raw)
-      FROM m LEFT JOIN job_locations jl ON jl.job_id = m.job_id AND jl.position = 0
-      WHERE ${matched} GROUP BY jl.city, jl.region, jl.country_code, jl.is_remote`,
+      FROM x LEFT JOIN LATERAL (SELECT l.city, l.region, l.country_code, l.is_remote, l.raw FROM job_locations l
+                                WHERE l.job_id = x.job_id AND l.position = 0 LIMIT 1) jl ON true
+      GROUP BY jl.city, jl.region, jl.country_code, jl.is_remote`,
   };
+  const sample = params.add(FACET_SAMPLE_ROWS);
+  // The sample: every match while they are at most FACET_SAMPLE_ROWS, else those whose id's hash falls in bucket 0 of
+  // ceil(total / FACET_SAMPLE_ROWS). Each one's facet columns by its key (LIMIT 1: a probe a row, never a read of the
+  // table: the planner cannot know how few rows the sample keeps).
+  const sampleSql = `x AS MATERIALIZED (
+      SELECT r.* FROM c, m
+      CROSS JOIN LATERAL (SELECT s.job_id, s.company_id, s.apply_platform, s.work_arrangement, s.posted_sort, s.experience_levels
+                          FROM job_search s WHERE s.job_id = m.job_id LIMIT 1) r
+      WHERE ${matched} AND (c.total <= ${sample}
+        OR hashint8(m.job_id) % CAST(ceil(c.total / CAST(${sample} AS numeric)) AS integer) = 0)
+    ),`;
+  const counts = [...totalNames.map((name) => `('${name}', c.${name})`), ...(wanted.length > 0 ? ["('counted', (SELECT count(*) FROM x))"] : [])];
   const sql = `WITH m AS MATERIALIZED (
-      SELECT s.job_id, s.company_id, s.apply_platform, s.work_arrangement, s.posted_sort, s.experience_levels${flags.map((flag) => `, ${flag}`).join('')}
-      FROM job_search s WHERE ${base}
-    )
+      SELECT s.job_id${flags.map((flag) => `, ${flag}`).join('')} FROM job_search s WHERE ${base}
+    ),
+    c AS MATERIALIZED (SELECT ${totals.join(', ')} FROM m),
+    ${wanted.length > 0 ? sampleSql : ''}
+    v AS (SELECT v.facet, v.n FROM c CROSS JOIN LATERAL (VALUES ${counts.join(', ')}) AS v(facet, n))
     SELECT v.facet, CAST(NULL AS text) AS key, v.n, CAST(NULL AS text) AS city, CAST(NULL AS text) AS region,
       CAST(NULL AS text) AS country_code, CAST(NULL AS boolean) AS is_remote, CAST(NULL AS text) AS raw
-    FROM (SELECT ${totals.join(', ')} FROM m) c
-    CROSS JOIN LATERAL (VALUES ${totalNames.map((name) => `('${name}', c.${name})`).join(', ')}) AS v(facet, n)
+    FROM v
     ${wanted.map((facet) => `UNION ALL ${branches[facet]()}`).join('\n    ')}`;
   const timeout = constants.get('SEARCH_STATEMENT_TIMEOUT_MS');
   try {
@@ -370,8 +419,16 @@ async function aggregate(deps: SearchDeps, built: Built, facets: readonly JobFac
       async (t) => {
         await t.one("SELECT set_config('statement_timeout', ?, true)", [String(timeout)]);
         const rows = await t.all<AggregateRow>(sql, params.values);
-        const counted = new Map(rows.filter((row) => totalNames.includes(row.facet)).map((row) => [row.facet, Number(row.n)]));
-        const groups = (facet: JobFacet) => rows.filter((row) => row.facet === facet);
+        const counted = new Map(
+          rows.filter((row) => totalNames.includes(row.facet) || row.facet === 'counted').map((row) => [row.facet, Number(row.n)]),
+        );
+        const total = counted.get('total') ?? 0;
+        // A sample's counts, scaled to every match (FACET_SAMPLE_ROWS).
+        const sampled = counted.get('counted') ?? total;
+        const about = wanted.length > 0 && sampled > 0 && sampled < total;
+        const scale = about ? total / sampled : 1;
+        const groups = (facet: JobFacet) =>
+          rows.filter((row) => row.facet === facet).map((row) => ({ ...row, n: about ? scaled(Number(row.n), scale) : Number(row.n) }));
         const out: Record<string, FacetRows> = {};
         for (const facet of wanted) {
           if (facet === 'location') {
@@ -402,9 +459,10 @@ async function aggregate(deps: SearchDeps, built: Built, facets: readonly JobFac
           else out[facet] = topRows(facetRows, facet === 'platform' ? PLATFORMS.length : FACET_TOP);
         }
         return {
-          total: counted.get('total') ?? 0,
+          total,
           ...(built.judged.length > 0 ? { unknown: Object.fromEntries(built.judged.map((filter, k) => [filter.name, counted.get(`u${k}`) ?? 0])) } : {}),
           ...(wanted.length > 0 ? { facets: out } : {}),
+          ...(about ? { facetsAbout: { counted: sampled, of: total } } : {}),
         };
       },
       { label: 'search_jobs facets' },
@@ -586,6 +644,8 @@ export interface SearchAnswer {
   expanded?: Record<string, string[]>;
   /** v3.0 PG-SEARCH: the facets took longer than SEARCH_STATEMENT_TIMEOUT_MS: `total` is the capped count, no facets. */
   facetsNotComputed?: true;
+  /** v3.0.1 FIX-PERF2 (PGL-21): the facets counted a sample of the matches, scaled to all of them: each count is about. */
+  facetsAbout?: FacetsAbout;
 }
 
 /** One page of a set's jobs. */
@@ -628,6 +688,7 @@ export async function searchJobs(deps: SearchDeps, userId: string, args: SearchA
   const extra: Partial<SearchAnswer> = {
     ...(set.total > set.ids.length ? { capped: set.ids.length } : {}),
     ...(counted?.facetsNotComputed ? { facetsNotComputed: true as const } : {}),
+    ...(counted?.facetsAbout ? { facetsAbout: counted.facetsAbout } : {}),
     ...(Object.keys(built.fts.expanded).length > 0 ? { expanded: built.fts.expanded } : {}),
   };
   const unknown = counted?.unknown;
