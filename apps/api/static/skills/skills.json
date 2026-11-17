@@ -1,0 +1,7139 @@
+{
+  "hard": [
+    {
+      "skill": "Bash",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Awk",
+        "awk/sed",
+        "Linux Shell",
+        "Sed",
+        "Shell Scripting"
+      ]
+    },
+    {
+      "skill": "C#",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "C++",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Elixir",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Go",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Go Test"
+      ]
+    },
+    {
+      "skill": "Groovy",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Java",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Jakarta EE",
+        "JDBC"
+      ]
+    },
+    {
+      "skill": "JavaScript",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Kotlin",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Kotlin Multiplatform"
+      ]
+    },
+    {
+      "skill": "Lua",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "MATLAB",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Objective-C",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Perl",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "PHP",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "PowerShell",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Python",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Ruby",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Rust",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Scala",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "SQL",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "PL/SQL",
+        "RDBMS",
+        "Stored Procedures",
+        "T-SQL"
+      ]
+    },
+    {
+      "skill": "Swift",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "TypeScript",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "ABAP",
+      "priority": 5,
+      "category": "Languages"
+    },
+    {
+      "skill": "ActionScript",
+      "priority": 5,
+      "category": "Languages"
+    },
+    {
+      "skill": "Ada",
+      "priority": 5,
+      "category": "Languages"
+    },
+    {
+      "skill": "C",
+      "priority": 5,
+      "category": "Languages"
+    },
+    {
+      "skill": "R",
+      "priority": 5,
+      "category": "Languages",
+      "aliases": [
+        "RStudio"
+      ]
+    },
+    {
+      "skill": "VB.NET",
+      "priority": 5,
+      "category": "Languages"
+    },
+    {
+      "skill": "Ruby on Rails",
+      "priority": 1,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "ActiveJob",
+        "Rails"
+      ]
+    },
+    {
+      "skill": "Angular",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Babel",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Bootstrap",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Chakra UI",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Django",
+      "priority": 2,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Django REST Framework"
+      ]
+    },
+    {
+      "skill": "Emotion",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Express.js",
+      "priority": 2,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Express"
+      ]
+    },
+    {
+      "skill": "FastAPI",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Flask",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "i18next",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "jQuery",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Laravel",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Material UI",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Module Federation",
+      "priority": 2,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Webpack Module Federation"
+      ]
+    },
+    {
+      "skill": "NestJS",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Preact",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "PrimeReact",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "React",
+      "priority": 2,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Formik",
+        "React Hook Form",
+        "React Router",
+        "React Testing Library",
+        "Redux",
+        "Redux Toolkit"
+      ]
+    },
+    {
+      "skill": "Reactive Programming",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Spring Boot",
+      "priority": 2,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Spring",
+        "Spring Batch",
+        "Spring Cloud",
+        "Spring Data",
+        "Spring Integration",
+        "Spring Kafka",
+        "Spring MVC",
+        "Spring Security",
+        "Spring WebFlux"
+      ]
+    },
+    {
+      "skill": "Symfony",
+      "priority": 2,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Vue.js",
+      "priority": 2,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Pinia",
+        "Vue Test Utils",
+        "Vuex"
+      ]
+    },
+    {
+      "skill": "Benchmarking",
+      "priority": 3,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Benchmark Automation",
+        "Performance Baselines"
+      ]
+    },
+    {
+      "skill": "Firebase",
+      "priority": 3,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Cloud Firestore",
+        "Crashlytics",
+        "Firebase Mobile SDK",
+        "Firebase Realtime Database",
+        "Firestore"
+      ]
+    },
+    {
+      "skill": "TanStack Query",
+      "priority": 3,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Cost Optimization",
+      "priority": 4,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Cloud Billing Analysis",
+        "FinOps"
+      ]
+    },
+    {
+      "skill": "Istio",
+      "priority": 4,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Linkerd",
+      "priority": 4,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": ".NET",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        ".NET Core",
+        "ASP.NET",
+        "ASP.NET Core",
+        "Entity Framework"
+      ]
+    },
+    {
+      "skill": "Actix Web",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Actix-web"
+      ]
+    },
+    {
+      "skill": "AG Grid",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Akka",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Alerta",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Alerting",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Allure Reports",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Alpine.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "AMQP",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Analysis",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Anomaly Detection",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Ant Design",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Anycast",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apache Avro",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Avro"
+      ]
+    },
+    {
+      "skill": "Apache Beam",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Beam"
+      ]
+    },
+    {
+      "skill": "Apache Camel",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apache Flink",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Flink"
+      ]
+    },
+    {
+      "skill": "Apache HTTP Server",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apache Hudi",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apache Iceberg",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apache Spark",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "PySpark"
+      ]
+    },
+    {
+      "skill": "Apache Struts",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apache ZooKeeper",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apex",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ApexCharts",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "APM",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Apollo Client",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "App Engine",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "AppArmor",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Appium",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ArangoDB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Assembly",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Astro",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Async Programming",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Async I/O",
+        "Async/Await"
+      ]
+    },
+    {
+      "skill": "Audit Readiness",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Automation",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Axum",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Backbone.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Backend development",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Background Job Processing",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Backpressure",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Backward Compatibility",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Bamboo",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Base64",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Batch Processing",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Bazel",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Beego",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Behave",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "BGP Basics",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "BigTable",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Binary Protocols",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Bluetooth Low Energy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Bosh",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Browser DevTools",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Bulma",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Bun",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Business Intelligence",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "BI Tools"
+      ]
+    },
+    {
+      "skill": "cAdvisor",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CakePHP",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Calico",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Capacitor",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Capacity Planning",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Capacity Forecasting"
+      ]
+    },
+    {
+      "skill": "CatBoost",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Causal Inference",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CDN",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "CDN Integration"
+      ]
+    },
+    {
+      "skill": "Celery",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Celery Beat"
+      ]
+    },
+    {
+      "skill": "Certificate Pinning",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Cgroups",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Control Groups"
+      ]
+    },
+    {
+      "skill": "Change Data Capture",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "CDC"
+      ]
+    },
+    {
+      "skill": "Change Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Chaos Engineering",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Chaos Testing"
+      ]
+    },
+    {
+      "skill": "Chart.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CherryPy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Chroma",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Cilium",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Classification Models",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ClickHouse",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Clojure",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Closures",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Clustering",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CMake",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "COBOL",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CockroachDB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Code Signing",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "App Signing"
+      ]
+    },
+    {
+      "skill": "CodeIgniter",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CoffeeScript",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Common Lisp",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Compliance Automation",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Compression",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Concurrency",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Mutex",
+        "Parallelism",
+        "Threading"
+      ]
+    },
+    {
+      "skill": "Configuration Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Connection Pooling",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Consul",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Containerd",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Copilot",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Cordova",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Core Web Vitals",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CORS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Cosign",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Cosmos DB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Couchbase",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CRI-O",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Cron",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Cron Jobs"
+      ]
+    },
+    {
+      "skill": "Cross-Browser Compatibility",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Cross-Device Testing"
+      ]
+    },
+    {
+      "skill": "Cross-functional Leadership",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Crystal",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CSRF Protection",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "CSRF Prevention",
+        "CSRF Tokens"
+      ]
+    },
+    {
+      "skill": "Cucumber",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "CUDA",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "CUDA Optimization",
+        "GPU Computing"
+      ]
+    },
+    {
+      "skill": "curl",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "D3.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dagster",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dask",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Data Annotation",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Data Cleaning",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Data Governance",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Data Catalog",
+        "Data Lineage"
+      ]
+    },
+    {
+      "skill": "Data Versioning",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Data Visualization",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Databricks",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Databricks SQL"
+      ]
+    },
+    {
+      "skill": "DataGrip",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "DataTables",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "DBeaver",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "DDoS Mitigation",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dead Letter Queue",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Debezium",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Debugging",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Bug Reproduction"
+      ]
+    },
+    {
+      "skill": "Deep Linking",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Defect Triage",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Delphi",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Delta Lake",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Deno",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dependency Injection",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "IoC"
+      ]
+    },
+    {
+      "skill": "Dependency Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Package Management"
+      ]
+    },
+    {
+      "skill": "Deprecation Strategy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Design Systems",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Component Libraries"
+      ]
+    },
+    {
+      "skill": "DHCP",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dimensionality Reduction",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "DNS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Document Conversion",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dramatiq",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Drone CI",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dropwizard",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "DuckDB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Dynatrace",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "eBPF",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "eBPF Basics"
+      ]
+    },
+    {
+      "skill": "Echo",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Edge Computing",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Eleventy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Elm",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Ember",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Engineering Practices",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Envoy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "epoll",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Erlang",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Error Analysis",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "etcd",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Event Sourcing",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Experiment Tracking",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "F#",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Faiss",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Falco",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Falcon",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Fastify",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Fastlane",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Fault Tolerance",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Bulkhead Pattern",
+        "Circuit Breaker",
+        "Circuit Breaker Pattern",
+        "Fallback Strategy",
+        "Resilience Engineering",
+        "Retry Logic"
+      ]
+    },
+    {
+      "skill": "Feature Flags",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Feature Stores",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Feign",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Fiber",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "File Permissions",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Filesystem Types",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Firewall Rules",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Fluentd",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Fluent Bit"
+      ]
+    },
+    {
+      "skill": "Fly.io",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Flyway",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Font Optimization",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Fortran",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Framer Motion",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Fraud Detection Controls",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Full-Text Search",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Functional Programming",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Higher-Order Functions",
+        "Immutability",
+        "Pure Functions"
+      ]
+    },
+    {
+      "skill": "Gatling",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Gatsby",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "GCC/Clang",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "GDPR",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "GDPR Awareness"
+      ]
+    },
+    {
+      "skill": "Generics",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Gin",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "GNU Make",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Makefile"
+      ]
+    },
+    {
+      "skill": "Google Artifact Registry",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Google Composer",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Google Compute Engine",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Google Dataflow",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Google Secret Manager",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Secret Manager"
+      ]
+    },
+    {
+      "skill": "Google Vertex AI",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Google Workflows",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Gradle",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Great Expectations",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Green Plum",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Grype",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "GSAP",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Gunicorn",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Hack",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Hanami",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Hapi.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "HAProxy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Harbor",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "HashiCorp Vault",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Vault"
+      ]
+    },
+    {
+      "skill": "Hashing",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Haskell",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Haystack",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "HBase",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Heroku",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Hibernate",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "JPA"
+      ]
+    },
+    {
+      "skill": "HiBob",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "High Availability",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Multi-region"
+      ]
+    },
+    {
+      "skill": "Highcharts",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Hive",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "HTTP",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "HSTS",
+        "HTTP/1.1",
+        "HTTP/2",
+        "HTTP/3",
+        "HTTP/HTTPS",
+        "HTTPS",
+        "QUIC"
+      ]
+    },
+    {
+      "skill": "Hugo",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "i18n",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "l10n"
+      ]
+    },
+    {
+      "skill": "IBM Db2",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Icinga",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Idempotency",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Image Optimization",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Image Processing",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "In-App Purchases",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Inference Optimization",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Quantization"
+      ]
+    },
+    {
+      "skill": "Ingress",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Input Validation",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Input Sanitization",
+        "Request Validation"
+      ]
+    },
+    {
+      "skill": "Insomnia",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "IntelliJ",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Intrusion Detection",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Intrusion Prevention"
+      ]
+    },
+    {
+      "skill": "io_uring",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Ionic",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "IPC",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ISO 27001",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Jaeger",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "JanusGraph",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "JAX",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Jetty",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "JFrog Artifactory",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Jira",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "JMeter",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Jotai",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "jq",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "JSS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Julia",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "K6",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Kapacitor",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Kernel Tuning",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Kind",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Kitura",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Knex.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Koa.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Kong Gateway",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "KrakenD",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Ktor",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Kubeflow",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Kyverno",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "LabVIEW",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Leaflet",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Least Privilege",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Access Reviews",
+        "Just-in-Time Access",
+        "Privileged Access Controls"
+      ]
+    },
+    {
+      "skill": "Legacy Modernization",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Monolith Modernization",
+        "Strangler Fig"
+      ]
+    },
+    {
+      "skill": "Less",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "LevelDB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Lighthouse",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Linode",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Lit",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "LittleTable",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "LLVM",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Locust",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Log Aggregation",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Log Rotation"
+      ]
+    },
+    {
+      "skill": "Log4j",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Logback",
+        "SLF4J"
+      ]
+    },
+    {
+      "skill": "Logs",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Lombok",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Looker",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Macros",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Mapbox GL JS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MapStruct",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Mass Assignment Protection",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MassTransit",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Master Data Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Materialized Views",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Math",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Matplotlib",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Seaborn"
+      ]
+    },
+    {
+      "skill": "Maven",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MediatR",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Meilisearch",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Mercurial",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Metabase",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Metaprogramming",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MFA/2FA",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "TOTP"
+      ]
+    },
+    {
+      "skill": "Micronaut",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Milvus",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MLflow",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MobX",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Mock Service Worker",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Mocking",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Mocking Frameworks",
+        "Spying",
+        "Stubbing"
+      ]
+    },
+    {
+      "skill": "Model Serving",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Monit",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Monolith",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MQTT",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "MuleSoft",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Multipart Upload Handling",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Namespaces",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Linux Namespaces"
+      ]
+    },
+    {
+      "skill": "NAT",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "NATS",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "NATS JetStream"
+      ]
+    },
+    {
+      "skill": "Netty",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Nexus Repository",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ngrok",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Nim",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "NLTK",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Node.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Nomad",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "NUnit",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Nx",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OCaml",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Offline Sync",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OLAP Systems",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OLTP Systems",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ONNX",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "ONNX Runtime"
+      ]
+    },
+    {
+      "skill": "OOP",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OPA",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OpenCL C",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OpenCV",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OpenID Connect",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "OIDC"
+      ]
+    },
+    {
+      "skill": "OpenLayers",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OpenSearch",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Opsgenie",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "OWASP Top 10",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "OWASP"
+      ]
+    },
+    {
+      "skill": "Packer",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Pagination",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Paging",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Parcel",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Parquet",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Passport.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Password Hashing",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Argon2",
+        "Bcrypt",
+        "Password Storage"
+      ]
+    },
+    {
+      "skill": "Patroni",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "PCI-DSS",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "PCI DSS Awareness"
+      ]
+    },
+    {
+      "skill": "PDF Generation",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "PgBouncer",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Phoenix",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "PHPUnit",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "PII Handling",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Data Masking"
+      ]
+    },
+    {
+      "skill": "PKI",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Certificate Management"
+      ]
+    },
+    {
+      "skill": "Play Framework",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Plotly",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Podman",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Polars",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Polkadot",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Polyrepo Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Pony",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "PostCSS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Postman",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Power BI",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Prefect",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Process Improvement",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Process Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Progressive Web Apps",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "PWA",
+        "Service Workers",
+        "Workbox"
+      ]
+    },
+    {
+      "skill": "Prolog",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Promises",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Protobuf",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Protocol Buffers"
+      ]
+    },
+    {
+      "skill": "Pulumi",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Push Notifications",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "PyCharm",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Pyramid",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Q#",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Qdrant",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "QoS Basics",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Quarkus",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "QUnit",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Racket",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "RAID",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Rancher",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Rate Limiting",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Throttling"
+      ]
+    },
+    {
+      "skill": "Realm",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ReasonML",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Recharts",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Recommendation Systems",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Redshift",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Refactoring",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Reflection",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Regex",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Regression Models",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Relay",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Release Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Changelog Management",
+        "Changelog Writing",
+        "Release Planning",
+        "Semantic Versioning"
+      ]
+    },
+    {
+      "skill": "Remix",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Render",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Report Generation",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Resque",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Reverse Proxy",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Reverse Proxy Configuration"
+      ]
+    },
+    {
+      "skill": "Ribbon",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Risk Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Roadmap Planning",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Robot Framework",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Rocket",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "RocksDB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Rollbar",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Rollup",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "RQ",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "RSpec",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Runbooks",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Runbook Automation"
+      ]
+    },
+    {
+      "skill": "RxJS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SaltStack",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Sanic",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SAS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Scheme",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SCIM",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SciPy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ScyllaDB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Seccomp",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Semaphore",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Serialization",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Deserialization"
+      ]
+    },
+    {
+      "skill": "Serilog",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Server-Sent Events",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "SSE"
+      ]
+    },
+    {
+      "skill": "Server-Side Rendering",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "SSR"
+      ]
+    },
+    {
+      "skill": "Service Level Objectives",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Error Budgets",
+        "Service Level Indicators",
+        "SLO/SLI"
+      ]
+    },
+    {
+      "skill": "Session Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SFTP",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "FTP",
+        "FTP/SFTP"
+      ]
+    },
+    {
+      "skill": "Sidecar Pattern",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Sidekiq",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Signal Handling",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Sinatra",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Single Page Applications",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Single Sign-On",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Site Reliability Engineering",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Smalltalk",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SMTP",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Email Delivery Systems",
+        "IMAP",
+        "POP3",
+        "SMTP Integration"
+      ]
+    },
+    {
+      "skill": "SOAP",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "SOAP Web Services",
+        "WSDL/SOAP"
+      ]
+    },
+    {
+      "skill": "SOC2",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "SOC 2 Awareness"
+      ]
+    },
+    {
+      "skill": "Socket Programming",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Sorbet",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Sourcegraph",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Spark Java",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Spinnaker",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SSH",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SSRF Prevention",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Stakeholder Alignment",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Static Analysis",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Code Quality Gates",
+        "Linting"
+      ]
+    },
+    {
+      "skill": "Static Site Generation",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "SSG"
+      ]
+    },
+    {
+      "skill": "Statistics",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "STOMP",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Storybook",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "strace",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Styled Components",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Subnetting",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "CIDR",
+        "Subnets"
+      ]
+    },
+    {
+      "skill": "Superset",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SVG",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "SVN",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Synthetic Data Generation",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Sysdig",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Systemd",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Tableau",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Tamper Detection",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "TanStack Table",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Tcl",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "TCP/IP",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "IPv4",
+        "IPv6",
+        "TCP",
+        "UDP"
+      ]
+    },
+    {
+      "skill": "TeamCity",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Tech Debt Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Technical Design",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "C4 Model",
+        "Design Docs",
+        "Sequence Diagrams",
+        "Technical Discovery",
+        "Technical Planning"
+      ]
+    },
+    {
+      "skill": "Template Rendering",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "TensorRT",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Thanos",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Three.js",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Thrift",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "TiDB",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Time Series Forecasting",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "TLS",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Mutual TLS",
+        "SSL",
+        "SSL/TLS",
+        "TLS/SSL"
+      ]
+    },
+    {
+      "skill": "TMOS",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Tomcat",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Tornado",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Traceability",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Traefik",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Transaction Management",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "ACID",
+        "ACID Compliance"
+      ]
+    },
+    {
+      "skill": "Transactions",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Triggers",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Trino",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Presto"
+      ]
+    },
+    {
+      "skill": "Triton Inference Server",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Trivy",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Trunk-Based Development",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Turborepo",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Tyk",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Typesense",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "uWSGI",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Vagrant",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Vapor",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Verilog",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Vert.x",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "VHDL",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Vim/Neovim",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Virtual Memory",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "VLAN Basics",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "VPN",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "OpenVPN",
+        "WireGuard"
+      ]
+    },
+    {
+      "skill": "VS Code",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Warp",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Waterfall",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "WCNP",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Web Components",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Shadow DOM"
+      ]
+    },
+    {
+      "skill": "WebAssembly",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "WASM"
+      ]
+    },
+    {
+      "skill": "WebGL",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "WebRTC",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Weights & Biases",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Well-Architected Framework",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "WireMock",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Wireshark",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Packet Analysis"
+      ]
+    },
+    {
+      "skill": "Wolfram Language",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Wrike",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "WSO2",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Xamarin",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "XSS Prevention",
+      "priority": 5,
+      "category": "Frameworks and Libraries",
+      "aliases": [
+        "Output Encoding"
+      ]
+    },
+    {
+      "skill": "XState",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "xUnit",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Yup",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Zabbix",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Zero-Trust",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "ZeroMQ",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Zig",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Zipkin",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Zod",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Zustand",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Zuul",
+      "priority": 5,
+      "category": "Frameworks and Libraries"
+    },
+    {
+      "skill": "Performance Profiling",
+      "priority": 3,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "CPU Profiling",
+        "Flame Graphs",
+        "Memory Profiling"
+      ]
+    },
+    {
+      "skill": "Architecture Decision Records",
+      "priority": 4,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "ADR Writing"
+      ]
+    },
+    {
+      "skill": "Caching",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "Caching Layers",
+        "Caching Strategies",
+        "Caching Strategy",
+        "ETag",
+        "HTTP Caching"
+      ]
+    },
+    {
+      "skill": "Clean Architecture",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "Hexagonal Architecture"
+      ]
+    },
+    {
+      "skill": "CQRS",
+      "priority": 5,
+      "category": "Software Architecture & Design"
+    },
+    {
+      "skill": "Design Patterns",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "Builder Pattern",
+        "Command Pattern",
+        "Decorator Pattern",
+        "Factory Pattern",
+        "GoF Patterns",
+        "Observer Pattern",
+        "Proxy Pattern",
+        "Repository Pattern",
+        "Singleton Pattern",
+        "Strategy Pattern",
+        "Template Method"
+      ]
+    },
+    {
+      "skill": "Distributed Systems",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "CAP Theorem",
+        "Distributed Locking",
+        "Eventual Consistency",
+        "Leader Election",
+        "Raft/Paxos"
+      ]
+    },
+    {
+      "skill": "Domain-Driven Design",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "DDD"
+      ]
+    },
+    {
+      "skill": "Event-driven architecture",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "Event-Driven",
+        "Event-Driven Services"
+      ]
+    },
+    {
+      "skill": "Lakehouse Architecture",
+      "priority": 5,
+      "category": "Software Architecture & Design"
+    },
+    {
+      "skill": "Microservices",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "Microservice architecture",
+        "Microservices architecture"
+      ]
+    },
+    {
+      "skill": "Monorepo",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "Monorepo Management"
+      ]
+    },
+    {
+      "skill": "Multi-Tenant Architecture",
+      "priority": 5,
+      "category": "Software Architecture & Design"
+    },
+    {
+      "skill": "Saga Pattern",
+      "priority": 5,
+      "category": "Software Architecture & Design"
+    },
+    {
+      "skill": "Software architecture",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "Scalability Analysis",
+        "Scalable Systems Design",
+        "System architecture"
+      ]
+    },
+    {
+      "skill": "SOLID Principles",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "DRY",
+        "KISS",
+        "YAGNI"
+      ]
+    },
+    {
+      "skill": "Solid.js",
+      "priority": 5,
+      "category": "Software Architecture & Design",
+      "aliases": [
+        "SolidJS"
+      ]
+    },
+    {
+      "skill": "Solidity",
+      "priority": 5,
+      "category": "Software Architecture & Design"
+    },
+    {
+      "skill": "AWS IAM",
+      "priority": 4,
+      "category": "Security",
+      "aliases": [
+        "IAM",
+        "Identity and Access Management"
+      ]
+    },
+    {
+      "skill": "AWS Inspector",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "AWS KMS",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "AWS Macie",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "AWS Secrets Manager",
+      "priority": 4,
+      "category": "Security",
+      "aliases": [
+        "Secrets Manager"
+      ]
+    },
+    {
+      "skill": "AWS Security Hub",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "AWS Shield",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "AWS WAF",
+      "priority": 4,
+      "category": "Security",
+      "aliases": [
+        "WAF",
+        "Web Application Firewalls"
+      ]
+    },
+    {
+      "skill": "Azure Active Directory",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "Azure Firewall",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "Azure Key Vault",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "Azure Sentinel",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "Cloud Armor",
+      "priority": 4,
+      "category": "Security",
+      "aliases": [
+        "Google Cloud Armor WAF"
+      ]
+    },
+    {
+      "skill": "Google IAM",
+      "priority": 4,
+      "category": "Security"
+    },
+    {
+      "skill": "Abuse Prevention",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Bot Protection"
+      ]
+    },
+    {
+      "skill": "API Security",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Secure API",
+        "Secure API verification",
+        "Secure APIs",
+        "Webhook Security"
+      ]
+    },
+    {
+      "skill": "Application Security",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Secure Coding",
+        "Secure Configuration Review",
+        "Secure SDLC",
+        "Security Champions Programs"
+      ]
+    },
+    {
+      "skill": "Attribute-Based Access Control",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "ABAC"
+      ]
+    },
+    {
+      "skill": "Auth0 SDK",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "Authentication Middleware",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "Authorization Policies",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "Biometric Auth",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "Content Security Policy",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "CSP",
+        "CSP Headers"
+      ]
+    },
+    {
+      "skill": "Cybersecurity",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "Disaster Recovery",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Backup and Recovery"
+      ]
+    },
+    {
+      "skill": "Encryption",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Data Encryption",
+        "Encryption at Rest",
+        "Encryption in Transit"
+      ]
+    },
+    {
+      "skill": "Hardware Security Modules",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "JWT",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "OAuth 2.0",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Bearer Token Authentication",
+        "OAuth",
+        "OAuth2",
+        "PKCE",
+        "Refresh Token Flows",
+        "Token Introspection"
+      ]
+    },
+    {
+      "skill": "Role-Based Access Control",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "RBAC"
+      ]
+    },
+    {
+      "skill": "SAML",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "Secrets Management",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Key Rotation",
+        "Secret Rotation",
+        "Secret Scoping",
+        "Secrets Detection"
+      ]
+    },
+    {
+      "skill": "Secure Cookie Management",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "SameSite Cookies"
+      ]
+    },
+    {
+      "skill": "Security Monitoring",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Threat Hunting Basics"
+      ]
+    },
+    {
+      "skill": "Security Research",
+      "priority": 5,
+      "category": "Security"
+    },
+    {
+      "skill": "Threat Modeling",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Abuse Case Analysis"
+      ]
+    },
+    {
+      "skill": "Vulnerability Scanning",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "Vulnerability Analysis"
+      ]
+    },
+    {
+      "skill": "WebAuthn Awareness",
+      "priority": 5,
+      "category": "Security",
+      "aliases": [
+        "FIDO2 Awareness"
+      ]
+    },
+    {
+      "skill": "Cloud Computing",
+      "priority": 3,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Cloud architecture",
+        "Cloud infrastructure",
+        "Cloud platforms",
+        "Cloud services",
+        "Cloud-Native Development"
+      ]
+    },
+    {
+      "skill": "Google Cloud Platform",
+      "priority": 3,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "GCP"
+      ]
+    },
+    {
+      "skill": "Netlify",
+      "priority": 3,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Amazon CloudFront",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "CloudFront"
+      ]
+    },
+    {
+      "skill": "Amazon EC2",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "EC2"
+      ]
+    },
+    {
+      "skill": "Amazon ECS",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "AWS ECS",
+        "ECS"
+      ]
+    },
+    {
+      "skill": "Amazon EKS",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "EKS"
+      ]
+    },
+    {
+      "skill": "Amazon RDS",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "AWS RDS",
+        "RDS"
+      ]
+    },
+    {
+      "skill": "Amazon Route 53",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Route53"
+      ]
+    },
+    {
+      "skill": "Amazon VPC",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "VPC"
+      ]
+    },
+    {
+      "skill": "Auto Scaling",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Auto-scaling"
+      ]
+    },
+    {
+      "skill": "AWS",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Aws Services"
+      ]
+    },
+    {
+      "skill": "AWS App Runner",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Backup",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Batch",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS CDK",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "CDK"
+      ]
+    },
+    {
+      "skill": "AWS Cognito",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Config",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Control Tower",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Elastic Beanstalk",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Fargate",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Global Accelerator",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Lambda",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Lambda"
+      ]
+    },
+    {
+      "skill": "AWS MSK",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Organizations",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS PrivateLink",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS SAM",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Step Functions",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Systems Manager",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Transit Gateway",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "AWS Trusted Advisor",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure App Service",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure Container Apps",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure Front Door",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure Functions",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Azure Functions Durable"
+      ]
+    },
+    {
+      "skill": "Azure Load Balancer",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure Logic Apps",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure Monitor",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure Policy",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Azure Resource Manager",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Azure Bicep"
+      ]
+    },
+    {
+      "skill": "Azure Virtual Machines",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Cloud CDN",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Cloud DNS",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Cloud Functions",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Cloud Load Balancing",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Cloud Migration",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Lift-and-Shift"
+      ]
+    },
+    {
+      "skill": "Cloud Run",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Cloudflare Pages",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Cloudflare Workers",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Elastic Load Balancing",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Amazon ALB"
+      ]
+    },
+    {
+      "skill": "Infrastructure",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Infrastructure Automation",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Immutable Infrastructure"
+      ]
+    },
+    {
+      "skill": "Load Balancing",
+      "priority": 4,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Multi-cloud",
+      "priority": 4,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Hybrid Cloud",
+        "Multi-Cloud Strategy"
+      ]
+    },
+    {
+      "skill": "Amazon EMR",
+      "priority": 5,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "DigitalOcean",
+      "priority": 5,
+      "category": "Cloud and Infrastructure"
+    },
+    {
+      "skill": "Serverless",
+      "priority": 5,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Serverless Architecture"
+      ]
+    },
+    {
+      "skill": "Vercel",
+      "priority": 5,
+      "category": "Cloud and Infrastructure",
+      "aliases": [
+        "Vercel Edge Functions"
+      ]
+    },
+    {
+      "skill": "Microsoft SQL Server",
+      "priority": 1,
+      "category": "Databases and Storage",
+      "aliases": [
+        "SQL Server"
+      ]
+    },
+    {
+      "skill": "SQL Alchemy",
+      "priority": 1,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Alembic"
+      ]
+    },
+    {
+      "skill": "Amazon DynamoDB",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "AWS DynamoDB",
+        "DynamoDB"
+      ]
+    },
+    {
+      "skill": "AWS Lake Formation",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Azure SQL",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Azure SQL Database"
+      ]
+    },
+    {
+      "skill": "BigQuery",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Cassandra",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Cassandra Query Language"
+      ]
+    },
+    {
+      "skill": "CouchDB",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Database Design",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Data Modeling",
+        "Database schema design",
+        "Denormalization",
+        "ERD",
+        "Normalization",
+        "PostgreSQL schema design",
+        "Schema Design"
+      ]
+    },
+    {
+      "skill": "Database Migration",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Migrations"
+      ]
+    },
+    {
+      "skill": "Database Seeding",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Elasticsearch",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "IndexedDB",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Indexing",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Index Optimization",
+        "Index Tuning"
+      ]
+    },
+    {
+      "skill": "InfluxDB",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Memcached",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "MongoDB",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "MongoDB Aggregation",
+        "Mongoose"
+      ]
+    },
+    {
+      "skill": "MySQL",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "MariaDB",
+        "Pivotal MySQL"
+      ]
+    },
+    {
+      "skill": "Neo4j",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Cypher Query Language"
+      ]
+    },
+    {
+      "skill": "NoSQL",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Oracle Database",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Oracle DB"
+      ]
+    },
+    {
+      "skill": "ORM",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "PostgreSQL",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "PostGIS",
+        "Postgres",
+        "Postgres SQL"
+      ]
+    },
+    {
+      "skill": "Prisma",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Prisma Migrate"
+      ]
+    },
+    {
+      "skill": "Query Optimization",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Explain Analyze",
+        "Query Planning",
+        "Query Tuning"
+      ]
+    },
+    {
+      "skill": "Redis",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Redis Cluster",
+        "Redis Sentinel",
+        "Redis Streams",
+        "RedisInsight"
+      ]
+    },
+    {
+      "skill": "Replication",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Logical Replication",
+        "Read Replicas"
+      ]
+    },
+    {
+      "skill": "Reverse ETL",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Room Database",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Schema Registry",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Schema Validation",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Schema Validation Testing"
+      ]
+    },
+    {
+      "skill": "Sequelize",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Sharding",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Partitioning"
+      ]
+    },
+    {
+      "skill": "Solr",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "TimescaleDB",
+      "priority": 3,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Timescale Continuous Aggregates"
+      ]
+    },
+    {
+      "skill": "TypeORM",
+      "priority": 3,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Amazon S3",
+      "priority": 4,
+      "category": "Databases and Storage",
+      "aliases": [
+        "AWS S3",
+        "S3"
+      ]
+    },
+    {
+      "skill": "AWS Athena",
+      "priority": 4,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "AWS Glue",
+      "priority": 4,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Azure Blob Storage",
+      "priority": 4,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Blob Storage"
+      ]
+    },
+    {
+      "skill": "Azure Data Factory",
+      "priority": 4,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Azure Synapse Analytics",
+      "priority": 4,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Cloud Spanner",
+      "priority": 4,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Spanner"
+      ]
+    },
+    {
+      "skill": "Cloud SQL",
+      "priority": 4,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Cloud Storage",
+      "priority": 4,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "Amazon Aurora",
+      "priority": 5,
+      "category": "Databases and Storage",
+      "aliases": [
+        "Aurora"
+      ]
+    },
+    {
+      "skill": "Amazon ElastiCache",
+      "priority": 5,
+      "category": "Databases and Storage",
+      "aliases": [
+        "ElastiCache"
+      ]
+    },
+    {
+      "skill": "SQLite",
+      "priority": 5,
+      "category": "Databases and Storage"
+    },
+    {
+      "skill": "AWS CloudFormation",
+      "priority": 3,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "CloudFormation"
+      ]
+    },
+    {
+      "skill": "Terraform",
+      "priority": 3,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "HCL",
+        "Terragrunt"
+      ]
+    },
+    {
+      "skill": "Ansible",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "ArgoCD",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Argo CD"
+      ]
+    },
+    {
+      "skill": "AWS CodeBuild",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "AWS CodeDeploy",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "AWS CodePipeline",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Azure DevOps",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Azure Pipelines"
+      ]
+    },
+    {
+      "skill": "Azure Kubernetes Service",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "AKS"
+      ]
+    },
+    {
+      "skill": "Blue-Green Deployment",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Blue-Green"
+      ]
+    },
+    {
+      "skill": "Canary Deployment",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Canary Analysis"
+      ]
+    },
+    {
+      "skill": "Chef",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "CI/CD",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Mobile CI/CD"
+      ]
+    },
+    {
+      "skill": "Cloud Build",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Docker",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Containerization",
+        "Docker Compose",
+        "Dockerfile"
+      ]
+    },
+    {
+      "skill": "Flux CD",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Flux"
+      ]
+    },
+    {
+      "skill": "GitLab CI/CD",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "GitLab CI"
+      ]
+    },
+    {
+      "skill": "Google Kubernetes Engine",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "GKE"
+      ]
+    },
+    {
+      "skill": "Helm",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "Helmfile"
+      ]
+    },
+    {
+      "skill": "Kubernetes",
+      "priority": 4,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "K3s",
+        "K9s",
+        "K9s/Lens",
+        "kubectl",
+        "Kustomize",
+        "Minikube"
+      ]
+    },
+    {
+      "skill": "OpenShift",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Puppet",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Rolling Deployment",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Zero-Downtime Deployment",
+      "priority": 4,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "CircleCI",
+      "priority": 5,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "DevOps",
+      "priority": 5,
+      "category": "DevOps and CI/CD",
+      "aliases": [
+        "DevSecOps"
+      ]
+    },
+    {
+      "skill": "GitHub Actions",
+      "priority": 5,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "GitOps",
+      "priority": 5,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Jenkins",
+      "priority": 5,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Travis CI",
+      "priority": 5,
+      "category": "DevOps and CI/CD"
+    },
+    {
+      "skill": "Observability",
+      "priority": 3,
+      "category": "Observability and Monitoring",
+      "aliases": [
+        "Database Observability",
+        "Golden Signals Monitoring",
+        "Metrics Collection"
+      ]
+    },
+    {
+      "skill": "AWS CloudTrail",
+      "priority": 4,
+      "category": "Observability and Monitoring",
+      "aliases": [
+        "CloudTrail"
+      ]
+    },
+    {
+      "skill": "AWS X-Ray",
+      "priority": 4,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Cloud Logging",
+      "priority": 4,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Cloud Monitoring",
+      "priority": 4,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "CloudWatch",
+      "priority": 4,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Datadog",
+      "priority": 4,
+      "category": "Observability and Monitoring",
+      "aliases": [
+        "Datadog APM"
+      ]
+    },
+    {
+      "skill": "ELK Stack",
+      "priority": 4,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Grafana",
+      "priority": 4,
+      "category": "Observability and Monitoring",
+      "aliases": [
+        "Grafana Mimir",
+        "Grafana Tempo",
+        "Loki",
+        "Promtail"
+      ]
+    },
+    {
+      "skill": "New Relic",
+      "priority": 4,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Prometheus",
+      "priority": 4,
+      "category": "Observability and Monitoring",
+      "aliases": [
+        "Alertmanager",
+        "Blackbox Exporter",
+        "Node Exporter"
+      ]
+    },
+    {
+      "skill": "VictoriaMetrics",
+      "priority": 4,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Audit Logging",
+      "priority": 5,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Distributed Tracing",
+      "priority": 5,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Error Monitoring",
+      "priority": 5,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "OpenTelemetry",
+      "priority": 5,
+      "category": "Observability and Monitoring",
+      "aliases": [
+        "OpenTelemetry SDK"
+      ]
+    },
+    {
+      "skill": "PagerDuty",
+      "priority": 5,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Sentry",
+      "priority": 5,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Splunk",
+      "priority": 5,
+      "category": "Observability and Monitoring"
+    },
+    {
+      "skill": "Synthetic Monitoring",
+      "priority": 5,
+      "category": "Observability and Monitoring",
+      "aliases": [
+        "REST API monitoring"
+      ]
+    },
+    {
+      "skill": "SQL Injection Prevention",
+      "priority": 1,
+      "category": "Testing and Quality",
+      "aliases": [
+        "SQL Injection"
+      ]
+    },
+    {
+      "skill": "Test Automation",
+      "priority": 1,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Automated testing",
+        "Python test automation"
+      ]
+    },
+    {
+      "skill": "Blockchain",
+      "priority": 2,
+      "category": "Testing and Quality",
+      "aliases": [
+        "DeFi",
+        "UTXO",
+        "Web3"
+      ]
+    },
+    {
+      "skill": "Chai",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Cypress",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Jest",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "JUnit",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Mocha",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Playwright",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Pytest",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Selenium",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Supply Chain Security",
+      "priority": 2,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Dependency Scanning",
+        "SBOM",
+        "SBOM Management",
+        "SLSA Awareness",
+        "Software Composition Analysis"
+      ]
+    },
+    {
+      "skill": "TestNG",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Vitest",
+      "priority": 2,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Performance Testing",
+      "priority": 3,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Load Testing",
+        "Scalability Testing",
+        "Soak Testing",
+        "Spike Testing",
+        "Stress Testing"
+      ]
+    },
+    {
+      "skill": "Puppeteer",
+      "priority": 4,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "A/B Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "A/B Experiment Analysis"
+      ]
+    },
+    {
+      "skill": "Acceptance Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "User Acceptance Testing"
+      ]
+    },
+    {
+      "skill": "Accessibility Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Accessibility Testing Automation",
+        "Mobile Accessibility",
+        "WCAG Compliance"
+      ]
+    },
+    {
+      "skill": "API Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "API automation",
+        "REST API testing"
+      ]
+    },
+    {
+      "skill": "Boundary Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Edge case testing"
+      ]
+    },
+    {
+      "skill": "Code Coverage",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Coverage Analysis"
+      ]
+    },
+    {
+      "skill": "Component Testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Concurrency Testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Contract Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Contract Mocking"
+      ]
+    },
+    {
+      "skill": "Data Quality Monitoring",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Data Validation"
+      ]
+    },
+    {
+      "skill": "End-to-End Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "E2E Testing",
+        "Web application testing",
+        "Web testing"
+      ]
+    },
+    {
+      "skill": "Flaky Tests",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Functional Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Manual functional testing"
+      ]
+    },
+    {
+      "skill": "Fuzz Testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Integration Testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Jasmine",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Minitest",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Mutation Testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Penetration Testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Property-Based Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Property Testing"
+      ]
+    },
+    {
+      "skill": "Regression Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Sanity Testing",
+        "Smoke Testing"
+      ]
+    },
+    {
+      "skill": "Risk-based testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Security testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "DAST",
+        "Dynamic Application Security Testing",
+        "IAST",
+        "SAST",
+        "SAST/DAST",
+        "Security Regression Testing",
+        "Static Application Security Testing"
+      ]
+    },
+    {
+      "skill": "Snapshot Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Golden File Testing"
+      ]
+    },
+    {
+      "skill": "Software testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Product Quality",
+        "Quality Assurance Process",
+        "Test Pyramid",
+        "Testing"
+      ]
+    },
+    {
+      "skill": "Test Containers",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Test Data Management",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Test Fixtures"
+      ]
+    },
+    {
+      "skill": "Test-Driven Development",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "TDD"
+      ]
+    },
+    {
+      "skill": "Unit Testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "unittest",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "User experience testing",
+      "priority": 5,
+      "category": "Testing and Quality"
+    },
+    {
+      "skill": "Visual Regression Testing",
+      "priority": 5,
+      "category": "Testing and Quality",
+      "aliases": [
+        "Visual Regression"
+      ]
+    },
+    {
+      "skill": "Amazon API Gateway",
+      "priority": 4,
+      "category": "APIs and Integration",
+      "aliases": [
+        "API gateway",
+        "API Gateways"
+      ]
+    },
+    {
+      "skill": "AWS AppSync",
+      "priority": 4,
+      "category": "APIs and Integration"
+    },
+    {
+      "skill": "Azure API Management",
+      "priority": 4,
+      "category": "APIs and Integration",
+      "aliases": [
+        "API management"
+      ]
+    },
+    {
+      "skill": "Analytics Integration",
+      "priority": 5,
+      "category": "APIs and Integration"
+    },
+    {
+      "skill": "API design",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "API development",
+        "API Versioning",
+        "APIs",
+        "Backend APIs",
+        "HTTP APIs",
+        "Search APIs"
+      ]
+    },
+    {
+      "skill": "API integration",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "API integrations"
+      ]
+    },
+    {
+      "skill": "Apigee",
+      "priority": 5,
+      "category": "APIs and Integration"
+    },
+    {
+      "skill": "AsyncAPI",
+      "priority": 5,
+      "category": "APIs and Integration"
+    },
+    {
+      "skill": "GraphQL",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "GraphQL API"
+      ]
+    },
+    {
+      "skill": "gRPC",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "gRPC Services"
+      ]
+    },
+    {
+      "skill": "OpenAPI",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "API Contracts",
+        "API Documentation",
+        "OpenAPI Specification",
+        "Swagger"
+      ]
+    },
+    {
+      "skill": "REST",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "REST API",
+        "REST API Development",
+        "RESTful API",
+        "RESTful services"
+      ]
+    },
+    {
+      "skill": "Service Mesh",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "Service Mesh Integration"
+      ]
+    },
+    {
+      "skill": "Webhooks",
+      "priority": 5,
+      "category": "APIs and Integration"
+    },
+    {
+      "skill": "WebSockets",
+      "priority": 5,
+      "category": "APIs and Integration",
+      "aliases": [
+        "WebSocket Protocol",
+        "WebSocket Servers"
+      ]
+    },
+    {
+      "skill": "Agile Development",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology",
+      "aliases": [
+        "Extreme Programming",
+        "Lean Software Development",
+        "SAFe Awareness"
+      ]
+    },
+    {
+      "skill": "ATDD",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology"
+    },
+    {
+      "skill": "BDD",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology",
+      "aliases": [
+        "Behavior-Driven Development"
+      ]
+    },
+    {
+      "skill": "Incident Response",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology",
+      "aliases": [
+        "Postmortem Analysis",
+        "Security Incident Triage"
+      ]
+    },
+    {
+      "skill": "Kanban",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology"
+    },
+    {
+      "skill": "Pair Programming",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology",
+      "aliases": [
+        "Mob Programming"
+      ]
+    },
+    {
+      "skill": "Root Cause Analysis",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology"
+    },
+    {
+      "skill": "Scrum",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology",
+      "aliases": [
+        "Backlog Grooming",
+        "Sprint Planning",
+        "Story Estimation"
+      ]
+    },
+    {
+      "skill": "Technical Documentation",
+      "priority": 5,
+      "category": "Engineering Practices & Methodology",
+      "aliases": [
+        "Knowledge Base Maintenance",
+        "README Authoring",
+        "RFC Writing"
+      ]
+    },
+    {
+      "skill": "Data Formats (JSON/XML)",
+      "priority": 3,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "ETL Pipelines",
+      "priority": 3,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "ETL Orchestration",
+        "File Processing Pipelines"
+      ]
+    },
+    {
+      "skill": "AWS EventBridge",
+      "priority": 4,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Azure Event Grid",
+      "priority": 4,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Azure Event Hubs",
+      "priority": 4,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "Event Hub"
+      ]
+    },
+    {
+      "skill": "Azure Service Bus",
+      "priority": 4,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "Service Bus"
+      ]
+    },
+    {
+      "skill": "Cloud IoT integration",
+      "priority": 4,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Google Cloud Pub/Sub",
+      "priority": 4,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Amazon Kinesis",
+      "priority": 5,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "Kinesis"
+      ]
+    },
+    {
+      "skill": "Amazon SNS",
+      "priority": 5,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "SNS"
+      ]
+    },
+    {
+      "skill": "Amazon SQS",
+      "priority": 5,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "SQS"
+      ]
+    },
+    {
+      "skill": "Apache Airflow",
+      "priority": 5,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "Airflow"
+      ]
+    },
+    {
+      "skill": "Apache Kafka",
+      "priority": 5,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "Kafka",
+        "Kafka Streams"
+      ]
+    },
+    {
+      "skill": "Data Warehousing",
+      "priority": 5,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "dbt",
+      "priority": 5,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Pub/Sub",
+      "priority": 5,
+      "category": "Data Engineering & Streaming",
+      "aliases": [
+        "Message Consumers",
+        "Pub/Sub Patterns",
+        "Queuing"
+      ]
+    },
+    {
+      "skill": "RabbitMQ",
+      "priority": 5,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Snowflake",
+      "priority": 5,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Streams",
+      "priority": 5,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "Value Stream Mapping",
+      "priority": 5,
+      "category": "Data Engineering & Streaming"
+    },
+    {
+      "skill": "LangChain",
+      "priority": 2,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "LlamaIndex",
+      "priority": 2,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "NumPy",
+      "priority": 2,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Pandas",
+      "priority": 2,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "PyTorch",
+      "priority": 2,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "scikit-learn",
+      "priority": 2,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "TensorFlow",
+      "priority": 2,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "Keras"
+      ]
+    },
+    {
+      "skill": "Hugging Face Transformers",
+      "priority": 3,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "HuggingFace"
+      ]
+    },
+    {
+      "skill": "Sentence Transformers",
+      "priority": 3,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "AI/ML",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Bull/BullMQ",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Computer Vision",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Embeddings",
+      "priority": 5,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "Vector Embeddings"
+      ]
+    },
+    {
+      "skill": "Feature Engineering",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Fine-Tuning",
+      "priority": 5,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "LoRA Fine-Tuning",
+        "PEFT",
+        "RLHF Awareness"
+      ]
+    },
+    {
+      "skill": "Jupyter",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "LightGBM",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "LLM",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "LocalStorage",
+      "priority": 5,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "SessionStorage"
+      ]
+    },
+    {
+      "skill": "MLOps",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Model Monitoring",
+      "priority": 5,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "Data Drift Detection",
+        "LLM Observability",
+        "Model Drift Detection"
+      ]
+    },
+    {
+      "skill": "Natural Language Processing",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "pgvector",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Pinecone",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Prompt Engineering",
+      "priority": 5,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "Prompt Evaluation"
+      ]
+    },
+    {
+      "skill": "RAG",
+      "priority": 5,
+      "category": "AI/ML & Data Science",
+      "aliases": [
+        "Retrieval-Augmented Generation"
+      ]
+    },
+    {
+      "skill": "spaCy",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Vector",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Vector Search",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "vLLM",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Weaviate",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "XGBoost",
+      "priority": 5,
+      "category": "AI/ML & Data Science"
+    },
+    {
+      "skill": "Bitbucket",
+      "priority": 5,
+      "category": "Version Control & Collaboration"
+    },
+    {
+      "skill": "Git",
+      "priority": 5,
+      "category": "Version Control & Collaboration",
+      "aliases": [
+        "Branching Strategy",
+        "Conventional Commits",
+        "Git Flow",
+        "GitFlow",
+        "Merge Conflict Resolution",
+        "Pull Requests"
+      ]
+    },
+    {
+      "skill": "GitHub",
+      "priority": 5,
+      "category": "Version Control & Collaboration"
+    },
+    {
+      "skill": "GitLab",
+      "priority": 5,
+      "category": "Version Control & Collaboration"
+    },
+    {
+      "skill": "Network Security",
+      "priority": 4,
+      "category": "Operating Systems & Platforms"
+    },
+    {
+      "skill": "Network Troubleshooting",
+      "priority": 4,
+      "category": "Operating Systems & Platforms",
+      "aliases": [
+        "Network Latency"
+      ]
+    },
+    {
+      "skill": "Linux",
+      "priority": 5,
+      "category": "Operating Systems & Platforms",
+      "aliases": [
+        "Alpine Linux",
+        "CentOS",
+        "Debian",
+        "Linux Administration",
+        "Red Hat Enterprise Linux",
+        "Ubuntu",
+        "Unix/Linux"
+      ]
+    },
+    {
+      "skill": "Nginx",
+      "priority": 5,
+      "category": "Operating Systems & Platforms",
+      "aliases": [
+        "Nginix",
+        "NGINX Unit"
+      ]
+    },
+    {
+      "skill": "Unix",
+      "priority": 5,
+      "category": "Operating Systems & Platforms"
+    },
+    {
+      "skill": "ESLint",
+      "priority": 2,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Next.js",
+      "priority": 2,
+      "category": "Frontend & UI/UX Development",
+      "aliases": [
+        "Incremental Static Regeneration",
+        "NextAuth.js"
+      ]
+    },
+    {
+      "skill": "Prettier",
+      "priority": 2,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Sass",
+      "priority": 2,
+      "category": "Frontend & UI/UX Development",
+      "aliases": [
+        "SASS/SCSS",
+        "SCSS"
+      ]
+    },
+    {
+      "skill": "Tailwind CSS",
+      "priority": 2,
+      "category": "Frontend & UI/UX Development",
+      "aliases": [
+        "Tailwind"
+      ]
+    },
+    {
+      "skill": "Vite",
+      "priority": 2,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Webpack",
+      "priority": 2,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Backend for Frontend",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development",
+      "aliases": [
+        "BFF Pattern"
+      ]
+    },
+    {
+      "skill": "Build Caching",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Buildkite",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Canvas API",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "esbuild",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Figma",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Front-end",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Headless UI",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Intersection Observer API",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Liquibase",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "MediaRecorder API",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Micro Frontends",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development",
+      "aliases": [
+        "Micro-frontends"
+      ]
+    },
+    {
+      "skill": "Nuxt.js",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Radix UI",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Reproducible Builds",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Requirements Analysis",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Resize Observer API",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Responsive Design",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "SELinux",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "shadcn/ui",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Svelte",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development",
+      "aliases": [
+        "SvelteKit"
+      ]
+    },
+    {
+      "skill": "tmux",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "UI/UX",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Web Animations API",
+      "priority": 5,
+      "category": "Frontend & UI/UX Development"
+    },
+    {
+      "skill": "Dart",
+      "priority": 1,
+      "category": "Mobile Development"
+    },
+    {
+      "skill": "React Native",
+      "priority": 2,
+      "category": "Mobile Development",
+      "aliases": [
+        "Expo"
+      ]
+    },
+    {
+      "skill": "Mobile Performance Optimization",
+      "priority": 3,
+      "category": "Mobile Development"
+    },
+    {
+      "skill": "Android",
+      "priority": 4,
+      "category": "Mobile Development",
+      "aliases": [
+        "Android Development",
+        "Android SDK",
+        "Google Play Deployment",
+        "Jetpack Compose"
+      ]
+    },
+    {
+      "skill": "iOS Development",
+      "priority": 4,
+      "category": "Mobile Development",
+      "aliases": [
+        "App Store Deployment",
+        "Core Data",
+        "SwiftUI",
+        "TestFlight",
+        "UIKit"
+      ]
+    },
+    {
+      "skill": "BIOS/UEFI",
+      "priority": 5,
+      "category": "Mobile Development"
+    },
+    {
+      "skill": "Flutter",
+      "priority": 5,
+      "category": "Mobile Development"
+    },
+    {
+      "skill": "Mobile Analytics",
+      "priority": 5,
+      "category": "Mobile Development"
+    },
+    {
+      "skill": "Mobile app architecture",
+      "priority": 5,
+      "category": "Mobile Development"
+    },
+    {
+      "skill": "Mobile app testing",
+      "priority": 5,
+      "category": "Mobile Development",
+      "aliases": [
+        "Mobile UI Testing"
+      ]
+    },
+    {
+      "skill": "Nagios",
+      "priority": 5,
+      "category": "Mobile Development"
+    }
+  ],
+  "soft": [
+    "Ability to prioritize",
+    "Abstraction",
+    "Accountability",
+    "Accountability to the team",
+    "Accountable change management",
+    "Accountable coaching",
+    "Accountable conflict mediation",
+    "Accountable decision ownership",
+    "Accountable direction setting",
+    "Accountable incident leadership",
+    "Accountable leadership",
+    "Accountable mentoring",
+    "Accountable priority setting",
+    "Accountable team support",
+    "Accuracy",
+    "Active Listening",
+    "Adaptability",
+    "Adaptable",
+    "Adaptation to new processes",
+    "Adaptation to new teams",
+    "Adaptation to new tools",
+    "Adaptation to team norms",
+    "Advisory mindset",
+    "Agenda Setting",
+    "Agility",
+    "Ambition",
+    "Analytical",
+    "Analytical ambiguity management",
+    "Analytical constraint handling",
+    "Analytical decision making",
+    "Analytical issue triage",
+    "Analytical option assessment",
+    "Analytical problem solving",
+    "Analytical root-cause analysis",
+    "Analytical scenario analysis",
+    "Analytical thinking",
+    "Analytical tradeoff evaluation",
+    "Analytical troubleshooting",
+    "Approachability",
+    "Articulate",
+    "Assertiveness",
+    "Asynchronous collaboration",
+    "Attention to detail",
+    "Audience-aware communication",
+    "Balancing",
+    "Belonging",
+    "Bias for action",
+    "Big Picture Thinking",
+    "Brainstorming",
+    "Business Acumen",
+    "Business empathy",
+    "Business thinking",
+    "Business Writing",
+    "Business-aware communication",
+    "Business-aware decision making",
+    "Business-aware delivery",
+    "Business-aware expectation setting",
+    "Business-aware planning",
+    "Business-aware prioritization",
+    "Business-aware problem solving",
+    "Business-aware relationship management",
+    "Business-aware support",
+    "Business-aware thinking",
+    "Calm change management",
+    "Calm coaching",
+    "Calm conflict mediation",
+    "Calm decision ownership",
+    "Calm direction setting",
+    "Calm incident leadership",
+    "Calm leadership",
+    "Calm mentoring",
+    "Calm priority setting",
+    "Calm team support",
+    "Careful deadline awareness",
+    "Careful delivery management",
+    "Careful follow-through",
+    "Careful planning",
+    "Careful prioritization",
+    "Careful quality control",
+    "Careful risk tracking",
+    "Careful task ownership",
+    "Careful time use",
+    "Careful work organization",
+    "Change leadership",
+    "Change Management",
+    "Charisma",
+    "Chat communication",
+    "Civic Engagement",
+    "Clarifying ambiguity",
+    "Clear decision summaries",
+    "Clear follow-up messages",
+    "Clear handoff notes",
+    "Clear meeting contributions",
+    "Clear non-technical explanations",
+    "Clear risk explanations",
+    "Clear status updates",
+    "Clear technical explanations",
+    "Clear verbal communication",
+    "Clear verbal updates",
+    "Clear written communication",
+    "Clear written updates",
+    "Client alignment",
+    "Client briefing",
+    "Client collaboration",
+    "Client communication",
+    "Client coordination",
+    "Client expectation setting",
+    "Client facing",
+    "Client follow-up",
+    "Client issue handling",
+    "Client Relations",
+    "Client relationship management",
+    "Client trust building",
+    "Co-creation",
+    "Coachability",
+    "Coaching",
+    "Collaboration",
+    "Collaboration under pressure",
+    "Collaborative ambiguity management",
+    "Collaborative constraint handling",
+    "Collaborative decision making",
+    "Collaborative issue triage",
+    "Collaborative mindset",
+    "Collaborative option assessment",
+    "Collaborative problem solving",
+    "Collaborative root-cause analysis",
+    "Collaborative scenario analysis",
+    "Collaborative tradeoff evaluation",
+    "Collaborative troubleshooting",
+    "Comfort with Ambiguity",
+    "Comfortable with ambiguity",
+    "Commercial Awareness",
+    "Commitment",
+    "Commitment management",
+    "Common sense",
+    "Communication",
+    "Communication skills",
+    "Community Building",
+    "Compassion",
+    "Complex Problem Solving",
+    "Compliance awareness",
+    "Composure",
+    "Compromise",
+    "Concentration",
+    "Concise communication",
+    "Concise decision summaries",
+    "Concise follow-up messages",
+    "Concise handoff notes",
+    "Concise meeting contributions",
+    "Concise non-technical explanations",
+    "Concise risk explanations",
+    "Concise status updates",
+    "Concise technical explanations",
+    "Concise verbal updates",
+    "Concise written updates",
+    "Confidence",
+    "Confidence without arrogance",
+    "Confident decision summaries",
+    "Confident follow-up messages",
+    "Confident handoff notes",
+    "Confident meeting contributions",
+    "Confident non-technical explanations",
+    "Confident risk explanations",
+    "Confident status updates",
+    "Confident technical explanations",
+    "Confident verbal updates",
+    "Confident written updates",
+    "Confidentiality",
+    "Conflict de-escalation",
+    "Conflict Management",
+    "Conflict mediation",
+    "Conflict resolution",
+    "Consensus building",
+    "Consistency",
+    "Consistency of values",
+    "Consistent deadline awareness",
+    "Consistent delivery management",
+    "Consistent follow-through",
+    "Consistent planning",
+    "Consistent prioritization",
+    "Consistent quality control",
+    "Consistent risk tracking",
+    "Consistent task ownership",
+    "Consistent time use",
+    "Consistent work organization",
+    "Constructive Criticism",
+    "Constructive feedback",
+    "Consultative communication",
+    "Consultative decision making",
+    "Consultative delivery",
+    "Consultative expectation setting",
+    "Consultative planning",
+    "Consultative prioritization",
+    "Consultative problem solving",
+    "Consultative relationship management",
+    "Consultative support",
+    "Consultative thinking",
+    "Context sharing",
+    "Contingency planning",
+    "Continuous adaptation",
+    "Continuous change response",
+    "Continuous context switching",
+    "Continuous improvement",
+    "Continuous knowledge transfer",
+    "Continuous learning",
+    "Continuous process improvement",
+    "Continuous retrospective learning",
+    "Continuous skill growth",
+    "Continuous tool adoption",
+    "Copywriting",
+    "cost-effective",
+    "Creative ambiguity management",
+    "Creative constraint handling",
+    "Creative decision making",
+    "Creative issue triage",
+    "Creative option assessment",
+    "Creative problem solving",
+    "Creative root-cause analysis",
+    "Creative scenario analysis",
+    "Creative solutions",
+    "Creative thinking",
+    "Creative tradeoff evaluation",
+    "Creative troubleshooting",
+    "Creativity",
+    "Credibility",
+    "Credit sharing",
+    "Crisis communication",
+    "Crisis Management",
+    "Critical thinking",
+    "Cross-cultural communication",
+    "Cross-functional Collaboration",
+    "Cross-functional communication",
+    "Cross-functional leadership",
+    "Cross-team alignment",
+    "Cross-team briefing",
+    "Cross-team collaboration",
+    "Cross-team communication",
+    "Cross-team coordination",
+    "Cross-team expectation setting",
+    "Cross-team follow-up",
+    "Cross-team issue handling",
+    "Cross-team relationship management",
+    "Cross-team trust building",
+    "Cultural Awareness",
+    "Curating knowledge",
+    "Curiosity",
+    "Curiosity-driven adaptation",
+    "Curiosity-driven change response",
+    "Curiosity-driven context switching",
+    "Curiosity-driven exploration",
+    "Curiosity-driven improvement",
+    "Curiosity-driven knowledge transfer",
+    "Curiosity-driven learning",
+    "Curiosity-driven process improvement",
+    "Curiosity-driven retrospective learning",
+    "Curiosity-driven skill growth",
+    "Curiosity-driven tool adoption",
+    "Customer alignment",
+    "Customer briefing",
+    "Customer collaboration",
+    "Customer communication",
+    "Customer coordination",
+    "Customer education",
+    "Customer empathy",
+    "Customer expectation setting",
+    "Customer Focus",
+    "Customer follow-up",
+    "Customer issue handling",
+    "Customer Needs",
+    "Customer relationship management",
+    "Customer Success",
+    "Customer trust building",
+    "Customer-first mindset",
+    "Customer-focused communication",
+    "Customer-focused decision making",
+    "Customer-focused delivery",
+    "Customer-focused expectation setting",
+    "Customer-focused planning",
+    "Customer-focused prioritization",
+    "Customer-focused problem solving",
+    "Customer-focused relationship management",
+    "Customer-focused support",
+    "Customer-focused thinking",
+    "Customer-informed adaptation",
+    "Customer-informed change response",
+    "Customer-informed context switching",
+    "Customer-informed improvement",
+    "Customer-informed knowledge transfer",
+    "Customer-informed learning",
+    "Customer-informed process improvement",
+    "Customer-informed retrospective learning",
+    "Customer-informed skill growth",
+    "Customer-informed tool adoption",
+    "Data Interpretation",
+    "Data-driven adaptation",
+    "Data-driven change response",
+    "Data-driven context switching",
+    "Data-driven improvement",
+    "Data-driven knowledge transfer",
+    "Data-driven learning",
+    "Data-driven process improvement",
+    "Data-driven retrospective learning",
+    "Data-driven skill growth",
+    "Data-driven tool adoption",
+    "Data-informed ambiguity management",
+    "Data-informed constraint handling",
+    "Data-informed decision making",
+    "Data-informed issue triage",
+    "Data-informed option assessment",
+    "Data-informed problem solving",
+    "Data-informed root-cause analysis",
+    "Data-informed scenario analysis",
+    "Data-informed thinking",
+    "Data-informed tradeoff evaluation",
+    "Data-informed troubleshooting",
+    "De-escalation",
+    "Deadline management",
+    "Dealing with difficult customers",
+    "Decision analysis",
+    "Decision communication",
+    "Decision follow-through",
+    "Decision framing",
+    "Decision Making",
+    "Decision quality",
+    "Decision transparency",
+    "Decisive change management",
+    "Decisive coaching",
+    "Decisive conflict mediation",
+    "Decisive decision ownership",
+    "Decisive direction setting",
+    "Decisive incident leadership",
+    "Decisive leadership",
+    "Decisive mentoring",
+    "Decisive priority setting",
+    "Decisive team support",
+    "Decisiveness",
+    "Delegation",
+    "Delivering under ambiguity",
+    "Delivering under constraints",
+    "Dependability",
+    "Design thinking",
+    "Detail Orientation",
+    "Determination",
+    "Diligence",
+    "Diplomacy",
+    "Direction setting",
+    "Disciplined deadline awareness",
+    "Disciplined delivery management",
+    "Disciplined follow-through",
+    "Disciplined planning",
+    "Disciplined prioritization",
+    "Disciplined quality control",
+    "Disciplined risk tracking",
+    "Disciplined task ownership",
+    "Disciplined time use",
+    "Disciplined work organization",
+    "Discretion",
+    "Diversity & Inclusion",
+    "Documentation",
+    "Documentation discipline",
+    "Documentation habits",
+    "Doing the right thing under pressure",
+    "Driven mindset",
+    "Eager to learn",
+    "Editing",
+    "Effective communication",
+    "Efficiency",
+    "Efficiency mindset",
+    "Email etiquette",
+    "Emotional Intelligence",
+    "Empathetic communication",
+    "Empathetic decision summaries",
+    "Empathetic follow-up messages",
+    "Empathetic handoff notes",
+    "Empathetic meeting contributions",
+    "Empathetic non-technical explanations",
+    "Empathetic risk explanations",
+    "Empathetic status updates",
+    "Empathetic technical explanations",
+    "Empathetic verbal updates",
+    "Empathetic written updates",
+    "Empathy",
+    "Empowerment",
+    "Energy",
+    "Enthusiasm",
+    "Entrepreneurial",
+    "Entrepreneurial Thinking",
+    "Equity Mindset",
+    "ES6",
+    "Escalation calmness",
+    "Escalation judgment",
+    "Escalation management",
+    "Ethical communication",
+    "Ethical judgment",
+    "Ethical Leadership",
+    "Evidence-based ambiguity management",
+    "Evidence-based constraint handling",
+    "Evidence-based decision making",
+    "Evidence-based issue triage",
+    "Evidence-based option assessment",
+    "Evidence-based problem solving",
+    "Evidence-based root-cause analysis",
+    "Evidence-based scenario analysis",
+    "Evidence-based tradeoff evaluation",
+    "Evidence-based troubleshooting",
+    "Excellent adaptability",
+    "Excellent boundary setting",
+    "Excellent energy management",
+    "Excellent focus management",
+    "Excellent judgment",
+    "Excellent ownership mindset",
+    "Excellent professional presence",
+    "Excellent self-management",
+    "Excellent stress management",
+    "Excellent work ethic",
+    "Execution",
+    "Execution discipline",
+    "Executive alignment",
+    "Executive briefing",
+    "Executive collaboration",
+    "Executive communication",
+    "Executive coordination",
+    "Executive expectation setting",
+    "Executive follow-up",
+    "Executive issue handling",
+    "Executive Presence",
+    "Executive relationship management",
+    "Executive trust building",
+    "Expectation management",
+    "Expectation management with customers",
+    "Expectation setting",
+    "Experimentation",
+    "Experimentation mindset",
+    "Extreme ownership",
+    "Facilitation",
+    "Facilitation of group discussion",
+    "Fairness",
+    "Fast adaptation",
+    "Fast change response",
+    "Fast context switching",
+    "Fast improvement",
+    "Fast knowledge transfer",
+    "Fast learning",
+    "Fast process improvement",
+    "Fast retrospective learning",
+    "Fast skill growth",
+    "Fast tool adoption",
+    "Feedback Delivery",
+    "Feedback Reception",
+    "Feedback-driven adaptation",
+    "Feedback-driven change response",
+    "Feedback-driven context switching",
+    "Feedback-driven improvement",
+    "Feedback-driven knowledge transfer",
+    "Feedback-driven learning",
+    "Feedback-driven process improvement",
+    "Feedback-driven retrospective learning",
+    "Feedback-driven skill growth",
+    "Feedback-driven tool adoption",
+    "Flexibility",
+    "Focus",
+    "Focused deadline awareness",
+    "Focused delivery management",
+    "Focused follow-through",
+    "Focused planning",
+    "Focused prioritization",
+    "Focused quality control",
+    "Focused risk tracking",
+    "Focused task ownership",
+    "Focused time use",
+    "Focused work organization",
+    "Follow-through",
+    "Follow-up discipline",
+    "Forecasting",
+    "Foresight",
+    "Frugality",
+    "Global Mindset",
+    "Goal Setting",
+    "Goal-oriented",
+    "Good adaptability",
+    "Good boundary setting",
+    "Good energy management",
+    "Good focus management",
+    "Good judgment",
+    "Good ownership mindset",
+    "Good professional presence",
+    "Good self-management",
+    "Good stress management",
+    "Good work ethic",
+    "Gravitas",
+    "Great communicator",
+    "Grit",
+    "Growth mindset",
+    "Handling customer objections",
+    "Hands-on adaptation",
+    "Hands-on change management",
+    "Hands-on change response",
+    "Hands-on coaching",
+    "Hands-on conflict mediation",
+    "Hands-on context switching",
+    "Hands-on decision ownership",
+    "Hands-on direction setting",
+    "Hands-on improvement",
+    "Hands-on incident leadership",
+    "Hands-on knowledge transfer",
+    "Hands-on leadership",
+    "Hands-on learning",
+    "Hands-on mentoring",
+    "Hands-on priority setting",
+    "Hands-on process improvement",
+    "Hands-on retrospective learning",
+    "Hands-on skill growth",
+    "Hands-on team support",
+    "Hands-on tool adoption",
+    "Healthy disagreement",
+    "Helping unblock others",
+    "High adaptability",
+    "High boundary setting",
+    "High energy management",
+    "High focus management",
+    "High judgment",
+    "High ownership mentality",
+    "High ownership mindset",
+    "High professional presence",
+    "High self-management",
+    "High stress management",
+    "High work ethic",
+    "Highly organized",
+    "Honesty",
+    "Humility",
+    "Humor",
+    "Hypothesis-driven ambiguity management",
+    "Hypothesis-driven constraint handling",
+    "Hypothesis-driven decision making",
+    "Hypothesis-driven issue triage",
+    "Hypothesis-driven option assessment",
+    "Hypothesis-driven problem solving",
+    "Hypothesis-driven root-cause analysis",
+    "Hypothesis-driven scenario analysis",
+    "Hypothesis-driven thinking",
+    "Hypothesis-driven tradeoff evaluation",
+    "Hypothesis-driven troubleshooting",
+    "Ideation",
+    "Improvement mindset",
+    "Impulse Control",
+    "Incident communication",
+    "Incident leadership",
+    "Inclusive change management",
+    "Inclusive coaching",
+    "Inclusive conflict mediation",
+    "Inclusive decision ownership",
+    "Inclusive direction setting",
+    "Inclusive incident leadership",
+    "Inclusive leadership",
+    "Inclusive mentoring",
+    "Inclusive priority setting",
+    "Inclusive team support",
+    "Inclusiveness",
+    "Inclusivity",
+    "Independent adaptation",
+    "Independent ambiguity management",
+    "Independent change response",
+    "Independent constraint handling",
+    "Independent context switching",
+    "Independent decision making",
+    "Independent improvement",
+    "Independent issue triage",
+    "Independent knowledge transfer",
+    "Independent learning",
+    "Independent mindset",
+    "Independent option assessment",
+    "Independent problem solving",
+    "Independent process improvement",
+    "Independent retrospective learning",
+    "Independent root-cause analysis",
+    "Independent scenario analysis",
+    "Independent skill growth",
+    "Independent tool adoption",
+    "Independent tradeoff evaluation",
+    "Independent troubleshooting",
+    "Independent work",
+    "Influence",
+    "Influence without authority",
+    "Influencing direction",
+    "Information Processing",
+    "Information sharing",
+    "Initiative",
+    "Innovation",
+    "Innovation mindset",
+    "Innovative Thinking",
+    "Insight Generation",
+    "Inspiration",
+    "Institutional memory",
+    "Integrity",
+    "Intellectual honesty",
+    "Intellectual Humility",
+    "Interpersonal Skills",
+    "Interview communication",
+    "Intrapreneurship",
+    "Investigative thinking",
+    "Issue triage",
+    "Iterative adaptation",
+    "Iterative change response",
+    "Iterative context switching",
+    "Iterative improvement",
+    "Iterative knowledge transfer",
+    "Iterative learning",
+    "Iterative process improvement",
+    "Iterative retrospective learning",
+    "Iterative skill growth",
+    "Iterative tool adoption",
+    "Judgment",
+    "Knowledge Retention",
+    "Knowledge sharing",
+    "Knowledge Transfer",
+    "KPI Tracking",
+    "Lateral Thinking",
+    "Lead-by-example mindset",
+    "Leadership",
+    "Leadership alignment",
+    "Leadership briefing",
+    "Leadership collaboration",
+    "Leadership communication",
+    "Leadership coordination",
+    "Leadership expectation setting",
+    "Leadership follow-up",
+    "Leadership issue handling",
+    "Leadership relationship management",
+    "Leadership trust building",
+    "Lean Thinking",
+    "Learning agility",
+    "Learning from customers",
+    "Learning from data",
+    "Learning from feedback",
+    "Learning from incidents",
+    "Learning from mistakes",
+    "Learning from peers",
+    "Listening",
+    "Listening for intent",
+    "Listening to customer pain points",
+    "Logical reasoning",
+    "Long-term thinking",
+    "Manager alignment",
+    "Manager briefing",
+    "Manager collaboration",
+    "Manager communication",
+    "Manager coordination",
+    "Manager expectation setting",
+    "Manager follow-up",
+    "Manager issue handling",
+    "Manager relationship management",
+    "Manager trust building",
+    "Managing competing priorities",
+    "Market Awareness",
+    "Mature adaptability",
+    "Mature boundary setting",
+    "Mature energy management",
+    "Mature focus management",
+    "Mature judgment",
+    "Mature ownership mindset",
+    "Mature professional presence",
+    "Mature self-management",
+    "Mature stress management",
+    "Mature work ethic",
+    "Maturity",
+    "Mediation",
+    "Meeting facilitation",
+    "Meeting Management",
+    "Meeting note taking",
+    "Mentor mindset",
+    "Mentoring",
+    "Mentorship",
+    "Metric orientation",
+    "Metrics-driven Thinking",
+    "Milestone tracking",
+    "Mindfulness",
+    "Mission driven",
+    "Moderation",
+    "Moral Reasoning",
+    "Morale building",
+    "Motivated problem solver",
+    "Motivation",
+    "Motivation to grow",
+    "Multitasking",
+    "Needs discovery",
+    "Needs-aware communication",
+    "Needs-aware decision making",
+    "Needs-aware delivery",
+    "Needs-aware expectation setting",
+    "Needs-aware planning",
+    "Needs-aware prioritization",
+    "Needs-aware problem solving",
+    "Needs-aware relationship management",
+    "Needs-aware support",
+    "Needs-aware thinking",
+    "Negotiation",
+    "Network building",
+    "Networking",
+    "Non-technical communication",
+    "Note-taking discipline",
+    "Objectivity",
+    "OKR Management",
+    "Onboarding",
+    "Onboarding support",
+    "Open-mindedness",
+    "Openness",
+    "Openness to change",
+    "Operational leadership",
+    "Operational rigor",
+    "Operational Thinking",
+    "Optimism",
+    "Organization",
+    "Organizational awareness",
+    "Organized deadline awareness",
+    "Organized delivery management",
+    "Organized follow-through",
+    "Organized planning",
+    "Organized prioritization",
+    "Organized quality control",
+    "Organized risk tracking",
+    "Organized task ownership",
+    "Organized time use",
+    "Organized work organization",
+    "Outcome orientation",
+    "Outcome-focused communication",
+    "Outcome-focused decision making",
+    "Outcome-focused delivery",
+    "Outcome-focused expectation setting",
+    "Outcome-focused planning",
+    "Outcome-focused prioritization",
+    "Outcome-focused problem solving",
+    "Outcome-focused relationship management",
+    "Outcome-focused support",
+    "Outcome-focused thinking",
+    "Outreach",
+    "Ownership",
+    "Ownership of outcomes",
+    "Ownership-driven approach",
+    "Owning mistakes",
+    "Pairing effectively",
+    "Partner alignment",
+    "Partner briefing",
+    "Partner collaboration",
+    "Partner communication",
+    "Partner coordination",
+    "Partner expectation setting",
+    "Partner follow-up",
+    "Partner issue handling",
+    "Partner relationship management",
+    "Partner trust building",
+    "Partnership building",
+    "Partnership with clients",
+    "Passion",
+    "Patience",
+    "Patience under Pressure",
+    "Pattern recognition",
+    "Peer alignment",
+    "Peer briefing",
+    "Peer collaboration",
+    "Peer communication",
+    "Peer coordination",
+    "Peer expectation setting",
+    "Peer follow-up",
+    "Peer issue handling",
+    "Peer mentoring",
+    "Peer relationship management",
+    "Peer support",
+    "Peer trust building",
+    "People leadership",
+    "People Management",
+    "Performance coaching",
+    "Performance Management",
+    "Performance-focused",
+    "Persistence",
+    "Persuasion",
+    "Persuasive decision summaries",
+    "Persuasive follow-up messages",
+    "Persuasive handoff notes",
+    "Persuasive meeting contributions",
+    "Persuasive non-technical explanations",
+    "Persuasive risk explanations",
+    "Persuasive status updates",
+    "Persuasive technical explanations",
+    "Persuasive verbal updates",
+    "Persuasive written updates",
+    "Planning",
+    "Politeness",
+    "Positive attitude",
+    "Positive Reinforcement",
+    "Positivity",
+    "Postmortem participation",
+    "Practical ambiguity management",
+    "Practical constraint handling",
+    "Practical deadline awareness",
+    "Practical decision making",
+    "Practical delivery management",
+    "Practical follow-through",
+    "Practical issue triage",
+    "Practical option assessment",
+    "Practical planning",
+    "Practical prioritization",
+    "Practical problem solving",
+    "Practical quality control",
+    "Practical risk tracking",
+    "Practical root-cause analysis",
+    "Practical scenario analysis",
+    "Practical task ownership",
+    "Practical time use",
+    "Practical tradeoff evaluation",
+    "Practical troubleshooting",
+    "Practical work organization",
+    "Pragmatic change management",
+    "Pragmatic coaching",
+    "Pragmatic conflict mediation",
+    "Pragmatic decision ownership",
+    "Pragmatic direction setting",
+    "Pragmatic incident leadership",
+    "Pragmatic leadership",
+    "Pragmatic mentoring",
+    "Pragmatic priority setting",
+    "Pragmatic team support",
+    "Pragmatism",
+    "Precision",
+    "Presentation",
+    "Presentation skills",
+    "Pressure Handling",
+    "Prioritization",
+    "Prioritization under pressure",
+    "Proactive ambiguity management",
+    "Proactive constraint handling",
+    "Proactive deadline awareness",
+    "Proactive decision making",
+    "Proactive delivery management",
+    "Proactive follow-through",
+    "Proactive issue triage",
+    "Proactive option assessment",
+    "Proactive planning",
+    "Proactive prioritization",
+    "Proactive problem solving",
+    "Proactive quality control",
+    "Proactive risk tracking",
+    "Proactive root-cause analysis",
+    "Proactive scenario analysis",
+    "Proactive task ownership",
+    "Proactive time use",
+    "Proactive tradeoff evaluation",
+    "Proactive troubleshooting",
+    "Proactive work organization",
+    "Proactiveness",
+    "Problem decomposition",
+    "Problem ownership with customers",
+    "Problem Solving",
+    "Process discipline",
+    "Process Improvement",
+    "Process improvement mindset",
+    "Process Orientation",
+    "Product thinking",
+    "Productivity",
+    "Professional boundaries",
+    "Professional boundary setting",
+    "Professional courtesy",
+    "Professional energy management",
+    "Professional focus management",
+    "Professional judgment",
+    "Professional ownership mindset",
+    "Professional presence",
+    "Professional professional presence",
+    "Professional self-management",
+    "Professional stress management",
+    "Professional work ethic",
+    "Professionalism",
+    "Program leadership",
+    "Progress visibility",
+    "Project leadership",
+    "Proofreading",
+    "Prototyping Mindset",
+    "Psychological Safety",
+    "Psychological safety awareness",
+    "Public speaking",
+    "Purpose-driven",
+    "Quality Focus",
+    "Quality mindset",
+    "Quality-focused communication",
+    "Quality-focused decision making",
+    "Quality-focused delivery",
+    "Quality-focused expectation setting",
+    "Quality-focused planning",
+    "Quality-focused prioritization",
+    "Quality-focused problem solving",
+    "Quality-focused relationship management",
+    "Quality-focused support",
+    "Quality-focused thinking",
+    "Question framing",
+    "Rapport Building",
+    "Receiving feedback well",
+    "Receptiveness to feedback",
+    "Recognition",
+    "Recognition of others",
+    "Reflection after delivery",
+    "Relationship building",
+    "Relationship Management",
+    "Reliability",
+    "Reliability to teammates",
+    "Reliable deadline awareness",
+    "Reliable delivery management",
+    "Reliable follow-through",
+    "Reliable planning",
+    "Reliable prioritization",
+    "Reliable quality control",
+    "Reliable risk tracking",
+    "Reliable task ownership",
+    "Reliable time use",
+    "Reliable work organization",
+    "Remote Collaboration",
+    "Remote communication",
+    "Remote-first culture",
+    "Report Writing",
+    "Requirements clarification",
+    "Research Skills",
+    "Resilience",
+    "Resilience under uncertainty",
+    "Reskilling",
+    "Resource planning",
+    "Resourcefulness",
+    "Respect",
+    "Respect for commitments",
+    "Respect for privacy",
+    "respectful",
+    "Respectful decision summaries",
+    "Respectful follow-up messages",
+    "Respectful handoff notes",
+    "Respectful meeting contributions",
+    "Respectful non-technical explanations",
+    "Respectful risk explanations",
+    "Respectful status updates",
+    "Respectful technical explanations",
+    "Respectful verbal updates",
+    "Respectful written updates",
+    "Respectfulness",
+    "Responsibility",
+    "Responsibility with sensitive information",
+    "Responsiveness",
+    "Responsiveness to customer needs",
+    "Results-driven",
+    "Retrospective participation",
+    "Risk analysis",
+    "Risk awareness",
+    "Risk mitigation",
+    "Roadmap communication",
+    "Root Cause Analysis",
+    "Root-cause thinking",
+    "Scenario planning",
+    "Scheduling",
+    "Scope control",
+    "Scrappiness",
+    "Self-awareness",
+    "Self-directed",
+    "Self-directed adaptation",
+    "Self-directed change response",
+    "Self-directed context switching",
+    "Self-directed improvement",
+    "Self-directed knowledge transfer",
+    "Self-directed learning",
+    "Self-directed process improvement",
+    "Self-directed retrospective learning",
+    "Self-directed skill growth",
+    "Self-directed tool adoption",
+    "Self-direction",
+    "Self-driven",
+    "Self-improvement",
+    "Self-motivated",
+    "Self-motivation",
+    "Self-reflection",
+    "Self-regulation",
+    "Sense-making",
+    "Sensitivity to user frustration",
+    "Servant change management",
+    "Servant coaching",
+    "Servant conflict mediation",
+    "Servant decision ownership",
+    "Servant direction setting",
+    "Servant incident leadership",
+    "Servant leadership",
+    "Servant mentoring",
+    "Servant priority setting",
+    "Servant team support",
+    "Service orientation",
+    "Service-minded communication",
+    "Service-minded decision making",
+    "Service-minded delivery",
+    "Service-minded expectation setting",
+    "Service-minded planning",
+    "Service-minded prioritization",
+    "Service-minded problem solving",
+    "Service-minded relationship management",
+    "Service-minded support",
+    "Service-minded thinking",
+    "Shared ownership",
+    "Short-term prioritization",
+    "Simplification",
+    "Situational leadership",
+    "Social Awareness",
+    "Social Responsibility",
+    "Solution framing",
+    "Solutions-oriented communication",
+    "Solutions-oriented decision making",
+    "Solutions-oriented delivery",
+    "Solutions-oriented expectation setting",
+    "Solutions-oriented planning",
+    "Solutions-oriented prioritization",
+    "Solutions-oriented problem solving",
+    "Solutions-oriented relationship management",
+    "Solutions-oriented support",
+    "Solutions-oriented thinking",
+    "Sound adaptability",
+    "Sound boundary setting",
+    "Sound energy management",
+    "Sound focus management",
+    "Sound judgment",
+    "Sound ownership mindset",
+    "Sound professional presence",
+    "Sound self-management",
+    "Sound stress management",
+    "Sound work ethic",
+    "Speaking up respectfully",
+    "Sponsorship",
+    "Stakeholder alignment",
+    "Stakeholder briefing",
+    "Stakeholder collaboration",
+    "Stakeholder communication",
+    "Stakeholder coordination",
+    "Stakeholder expectation setting",
+    "Stakeholder follow-up",
+    "Stakeholder issue handling",
+    "Stakeholder Management",
+    "Stakeholder relationship management",
+    "Stakeholder trust building",
+    "Status reporting",
+    "Steady deadline awareness",
+    "Steady delivery management",
+    "Steady follow-through",
+    "Steady planning",
+    "Steady prioritization",
+    "Steady quality control",
+    "Steady risk tracking",
+    "Steady task ownership",
+    "Steady time use",
+    "Steady work organization",
+    "Storytelling",
+    "Strategic Alignment",
+    "Strategic analysis",
+    "Strategic change management",
+    "Strategic coaching",
+    "Strategic conflict mediation",
+    "Strategic decision ownership",
+    "Strategic direction setting",
+    "Strategic incident leadership",
+    "Strategic leadership",
+    "Strategic mentoring",
+    "Strategic priority setting",
+    "Strategic team support",
+    "Strategic thinking",
+    "Stress Management",
+    "Strong adaptability",
+    "Strong analytical skills",
+    "Strong boundary setting",
+    "Strong communication skills",
+    "Strong deadline awareness",
+    "Strong delivery management",
+    "Strong energy management",
+    "Strong focus management",
+    "Strong follow-through",
+    "Strong judgment",
+    "Strong ownership mindset",
+    "Strong planning",
+    "Strong prioritization",
+    "Strong problem-solving skills",
+    "Strong professional presence",
+    "Strong quality control",
+    "Strong risk tracking",
+    "Strong self-management",
+    "Strong stress management",
+    "Strong task ownership",
+    "Strong time use",
+    "Strong work ethic",
+    "Strong work organization",
+    "Structured ambiguity management",
+    "Structured constraint handling",
+    "Structured decision making",
+    "Structured decision summaries",
+    "Structured execution",
+    "Structured follow-up messages",
+    "Structured handoff notes",
+    "Structured issue triage",
+    "Structured meeting contributions",
+    "Structured non-technical explanations",
+    "Structured option assessment",
+    "Structured problem solving",
+    "Structured risk explanations",
+    "Structured root-cause analysis",
+    "Structured scenario analysis",
+    "Structured status updates",
+    "Structured technical explanations",
+    "Structured thinking",
+    "Structured tradeoff evaluation",
+    "Structured troubleshooting",
+    "Structured verbal updates",
+    "Structured written updates",
+    "Succession mindset",
+    "Summarization",
+    "Support-mindedness",
+    "Supportive change management",
+    "Supportive coaching",
+    "Supportive conflict mediation",
+    "Supportive decision ownership",
+    "Supportive direction setting",
+    "Supportive incident leadership",
+    "Supportive leadership",
+    "Supportive mentoring",
+    "Supportive priority setting",
+    "Supportive team support",
+    "Sustainability Mindset",
+    "Synthesis",
+    "Systems analysis",
+    "Systems thinking",
+    "Tact",
+    "Talent development",
+    "Task management",
+    "Teaching others",
+    "Team Building",
+    "Team Leadership",
+    "Team motivation",
+    "Teamwork",
+    "Technical communication",
+    "Technical leadership",
+    "Technical Writing",
+    "Tenacity",
+    "Thinking outside the box",
+    "Thoroughness",
+    "Thoughtful decision summaries",
+    "Thoughtful follow-up messages",
+    "Thoughtful handoff notes",
+    "Thoughtful meeting contributions",
+    "Thoughtful non-technical explanations",
+    "Thoughtful risk explanations",
+    "Thoughtful status updates",
+    "Thoughtful technical explanations",
+    "Thoughtful verbal updates",
+    "Thoughtful written updates",
+    "Time management",
+    "Timely decision summaries",
+    "Timely follow-up messages",
+    "Timely handoff notes",
+    "Timely meeting contributions",
+    "Timely non-technical explanations",
+    "Timely risk explanations",
+    "Timely status updates",
+    "Timely technical explanations",
+    "Timely verbal updates",
+    "Timely written updates",
+    "Tolerance for Uncertainty",
+    "Tradeoff analysis",
+    "Training",
+    "Translating technical topics for customers",
+    "Transparency",
+    "Transparency about risks",
+    "Transparent change management",
+    "Transparent coaching",
+    "Transparent conflict mediation",
+    "Transparent decision ownership",
+    "Transparent decision summaries",
+    "Transparent direction setting",
+    "Transparent follow-up messages",
+    "Transparent handoff notes",
+    "Transparent incident leadership",
+    "Transparent leadership",
+    "Transparent meeting contributions",
+    "Transparent mentoring",
+    "Transparent non-technical explanations",
+    "Transparent priority setting",
+    "Transparent risk explanations",
+    "Transparent status updates",
+    "Transparent team support",
+    "Transparent technical explanations",
+    "Transparent verbal updates",
+    "Transparent written updates",
+    "Troubleshooting",
+    "Troubleshooting mindset",
+    "Trust building",
+    "Trustworthiness",
+    "Upskilling",
+    "Urgency with judgment",
+    "User empathy",
+    "User-centered thinking",
+    "User-focused communication",
+    "User-focused decision making",
+    "User-focused delivery",
+    "User-focused expectation setting",
+    "User-focused planning",
+    "User-focused prioritization",
+    "User-focused problem solving",
+    "User-focused relationship management",
+    "User-focused support",
+    "User-focused thinking",
+    "Value orientation",
+    "Value-oriented communication",
+    "Value-oriented decision making",
+    "Value-oriented delivery",
+    "Value-oriented expectation setting",
+    "Value-oriented planning",
+    "Value-oriented prioritization",
+    "Value-oriented problem solving",
+    "Value-oriented relationship management",
+    "Value-oriented support",
+    "Value-oriented thinking",
+    "Values-driven",
+    "Vendor alignment",
+    "Vendor briefing",
+    "Vendor collaboration",
+    "Vendor communication",
+    "Vendor coordination",
+    "Vendor expectation setting",
+    "Vendor follow-up",
+    "Vendor issue handling",
+    "Vendor relationship management",
+    "Vendor trust building",
+    "Verbal Communication",
+    "Vision setting",
+    "Visionary Leadership",
+    "Volunteer Mindset",
+    "Warmth",
+    "Willingness to Learn",
+    "Work Ethic",
+    "Work planning",
+    "Working across time zones",
+    "Working with design partners",
+    "Working with distributed teams",
+    "Working with operations partners",
+    "Working with product partners",
+    "Working with QA partners",
+    "Working with security partners",
+    "Working with support teams",
+    "Workshop Facilitation",
+    "Written Communication",
+    "Zoom In / Zoom Out"
+  ]
+}

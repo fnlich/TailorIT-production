@@ -1,0 +1,478 @@
+import { z } from 'zod';
+import { messageError } from '../constants/public/defaults';
+import { IsoDate, IsoDateTime } from '../core/list';
+import {
+  adminBulkIds,
+  adminBulkResultSchema,
+  AdminCursorSchema,
+  AdminPageSizeSchema,
+  AdminQueryFlagSchema,
+  adminQueryList,
+} from '../reviews/bulk';
+import { JOB_SOURCE_KINDS } from './kinds';
+import {
+  CRAWL_HOST_HOLD_REASONS,
+  JOB_SOURCE_CANDIDATE_STATUSES,
+  JOB_SOURCE_DISCOVERED_VIA,
+  JOB_SOURCE_PURGE_REASONS,
+  JOB_SOURCE_PURGE_STATES,
+  JOB_SOURCE_ROBOTS_STATUSES,
+  JOB_SOURCE_RUN_STATUSES,
+  JOB_SOURCE_RUN_TRIGGERS,
+  JOB_SOURCE_TERMS_STATUSES,
+  JOB_SOURCE_TIERS,
+  SITE_ROBOTS_STATUSES,
+} from './states';
+
+// v30 CT: the admin pages of job sourcing at scale (docs/design/part2/12-job-sourcing.md §9.8, SP\p2\PLAN.md S1-API
+// and S1-WEB): Sources at 80,000 rows (filters, paging, bulk), the per-host page (hold, failures, robots file, content
+// signals), run history, the candidate funnel, purges by source, and the daily report with its alarms. S1-API names the
+// routes; these are their bodies and answers.
+
+const Id = z.number().int().positive();
+/** A host name as the reader keeps it: lower case, no scheme, port or path. */
+const HostSchema = z
+  .string()
+  .max(253)
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/);
+const SearchText = z.string().trim().max(200, messageError('MSG_TEXT_TOO_LONG', { max: 200 }));
+
+// Sources ------------------------------------------------------------------------------------------------------------
+
+/** The orders of Admin › Sources. */
+export const ADMIN_SOURCE_SORTS = ['next_run', 'last_run', 'name', 'open_jobs', 'failures'] as const;
+export type AdminSourceSort = (typeof ADMIN_SOURCE_SORTS)[number];
+
+/** Admin › Sources' query string: search (name or host), filters (each a list; [] is any), order and page. */
+export const AdminSourcesQuerySchema = z.object({
+  q: SearchText.optional(),
+  kind: adminQueryList(z.enum(JOB_SOURCE_KINDS), JOB_SOURCE_KINDS.length),
+  tier: adminQueryList(z.enum(JOB_SOURCE_TIERS), JOB_SOURCE_TIERS.length),
+  terms: adminQueryList(z.enum(JOB_SOURCE_TERMS_STATUSES), JOB_SOURCE_TERMS_STATUSES.length),
+  robots: adminQueryList(z.enum(JOB_SOURCE_ROBOTS_STATUSES), JOB_SOURCE_ROBOTS_STATUSES.length),
+  discoveredVia: adminQueryList(z.enum(JOB_SOURCE_DISCOVERED_VIA), JOB_SOURCE_DISCOVERED_VIA.length),
+  enabled: z.enum(['all', 'enabled', 'disabled']).default('all'),
+  /** Only sources failing now (a failure in their last run, or the failing tier). */
+  failing: AdminQueryFlagSchema,
+  host: HostSchema.optional(),
+  companyId: z.coerce.number().int().positive().optional(),
+  sort: z.enum(ADMIN_SOURCE_SORTS).default('next_run'),
+  cursor: AdminCursorSchema.optional(),
+  limit: AdminPageSizeSchema,
+});
+export type AdminSourcesQuery = z.infer<typeof AdminSourcesQuerySchema>;
+
+/** One row of Admin › Sources (job_sources with 12 §12.1's columns). */
+export const AdminSourceRowSchema = z.object({
+  id: z.number().int(),
+  kind: z.enum(JOB_SOURCE_KINDS),
+  kindLabel: z.string(),
+  name: z.string(),
+  host: z.string().nullable(),
+  companyId: z.number().int().nullable(),
+  companyName: z.string().nullable(),
+  enabled: z.boolean(),
+  tier: z.enum(JOB_SOURCE_TIERS),
+  termsStatus: z.enum(JOB_SOURCE_TERMS_STATUSES),
+  robotsStatus: z.enum(JOB_SOURCE_ROBOTS_STATUSES),
+  discoveredVia: z.enum(JOB_SOURCE_DISCOVERED_VIA).nullable(),
+  nextRunAt: IsoDateTime.nullable(),
+  lastRunAt: IsoDateTime.nullable(),
+  lastSuccessAt: IsoDateTime.nullable(),
+  /** The last complete listing (or 304): when its live links were verified. */
+  lastCompleteAt: IsoDateTime.nullable(),
+  lastStatus: z.string().nullable(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  /** Open jobs as of the last complete run. */
+  openJobs: z.number().int().nonnegative(),
+  /** False when its kind, its contract or its host's content signal forbids sending its postings to AI. */
+  aiInput: z.boolean(),
+  /** A worker holds its run now (lease_until in the future). */
+  running: z.boolean(),
+});
+export type AdminSourceRow = z.infer<typeof AdminSourceRowSchema>;
+
+/** Admin › Sources' page: the rows, every match counted, and the next page's cursor while more follow. */
+export const AdminSourcesListSchema = z.object({
+  items: z.array(AdminSourceRowSchema),
+  total: z.number().int().nonnegative(),
+  nextCursor: AdminCursorSchema.optional(),
+});
+export type AdminSourcesList = z.infer<typeof AdminSourcesListSchema>;
+
+/** What a bulk action does to the chosen sources: enable, disable, or make them due now. */
+export const ADMIN_SOURCE_BULK_ACTIONS = ['enable', 'disable', 'run_now'] as const;
+export type AdminSourceBulkAction = (typeof ADMIN_SOURCE_BULK_ACTIONS)[number];
+export const AdminSourcesBulkBodySchema = z.object({ action: z.enum(ADMIN_SOURCE_BULK_ACTIONS), ids: adminBulkIds(Id) });
+export type AdminSourcesBulkBody = z.infer<typeof AdminSourcesBulkBodySchema>;
+/** Each source's outcome: done, or skipped (already so, forbidden by its terms or robots, gone) with why. */
+export const ADMIN_SOURCE_BULK_OUTCOMES = ['done', 'skipped', 'failed'] as const;
+export const AdminSourcesBulkResultSchema = adminBulkResultSchema(ADMIN_SOURCE_BULK_OUTCOMES);
+export type AdminSourcesBulkResult = z.infer<typeof AdminSourcesBulkResultSchema>;
+
+// Runs ---------------------------------------------------------------------------------------------------------------
+
+/** One run of a source (job_source_runs). */
+export const JobSourceRunSchema = z.object({
+  id: z.number().int(),
+  sourceId: z.number().int(),
+  sourceKind: z.enum(JOB_SOURCE_KINDS),
+  sourceName: z.string(),
+  trigger: z.enum(JOB_SOURCE_RUN_TRIGGERS),
+  status: z.enum(JOB_SOURCE_RUN_STATUSES),
+  startedAt: IsoDateTime,
+  finishedAt: IsoDateTime.nullable(),
+  httpStatus: z.number().int().nullable(),
+  bytesFetched: z.number().int().nonnegative().nullable(),
+  /** The HTTP requests the run made. */
+  requests: z.number().int().nonnegative(),
+  fetched: z.number().int().nonnegative(),
+  created: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  unchanged: z.number().int().nonnegative(),
+  deactivated: z.number().int().nonnegative(),
+  reopened: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  errorCode: z.string().nullable(),
+  error: z.string().nullable(),
+  /**
+   * v30 INT-3 (S1-WEB's edit B): the source's kind in words as the API names it ("Google Sheet" for a sheet's CSV
+   * source, else the kind's label). Absent: read JOB_SOURCE_KIND_LABEL.
+   */
+  sourceKindLabel: z.string().optional(),
+});
+export type JobSourceRun = z.infer<typeof JobSourceRunSchema>;
+
+/** The run history's query string. */
+export const AdminRunsQuerySchema = z.object({
+  sourceId: z.coerce.number().int().positive().optional(),
+  kind: adminQueryList(z.enum(JOB_SOURCE_KINDS), JOB_SOURCE_KINDS.length),
+  status: adminQueryList(z.enum(JOB_SOURCE_RUN_STATUSES), JOB_SOURCE_RUN_STATUSES.length),
+  cursor: AdminCursorSchema.optional(),
+  limit: AdminPageSizeSchema,
+});
+export type AdminRunsQuery = z.infer<typeof AdminRunsQuerySchema>;
+export const AdminRunsListSchema = z.object({ items: z.array(JobSourceRunSchema), nextCursor: AdminCursorSchema.optional() });
+
+// Hosts --------------------------------------------------------------------------------------------------------------
+
+/** A host's robots.txt as the reader keeps it (site_robots), used at most a day. */
+export const SiteRobotsSchema = z.object({
+  host: z.string(),
+  fetchedAt: IsoDateTime,
+  status: z.enum(SITE_ROBOTS_STATUSES),
+  httpStatus: z.number().int().nullable(),
+  crawlDelaySeconds: z.number().int().nonnegative().nullable(),
+  /** The Content-Signal lines as written. */
+  contentSignals: z.string().nullable(),
+  /** False when they say ai-input=no; null when they say nothing. */
+  aiInput: z.boolean().nullable(),
+  sitemaps: z.array(z.string()),
+  /** The file itself, for the host page. */
+  rules: z.string().nullable(),
+});
+export type SiteRobots = z.infer<typeof SiteRobotsSchema>;
+
+/** One host the readers pace (crawl_hosts), with its sources. */
+export const AdminHostRowSchema = z.object({
+  host: z.string(),
+  minIntervalMs: z.number().int().nonnegative(),
+  nextSlotAt: IsoDateTime,
+  holdUntil: IsoDateTime.nullable(),
+  holdReason: z.enum(CRAWL_HOST_HOLD_REASONS).nullable(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  /** The last answer's HTTP status. */
+  lastStatus: z.number().int().nullable(),
+  updatedAt: IsoDateTime,
+  sources: z.number().int().nonnegative(),
+  failingSources: z.number().int().nonnegative(),
+  /** Its registrable domain is on the opt-out list: neither reader reads it. */
+  optedOut: z.boolean(),
+});
+export type AdminHostRow = z.infer<typeof AdminHostRowSchema>;
+
+/** The per-host page: the row and its robots.txt. */
+export const AdminHostSchema = AdminHostRowSchema.extend({ robots: SiteRobotsSchema.nullable() });
+export type AdminHost = z.infer<typeof AdminHostSchema>;
+
+export const AdminHostsQuerySchema = z.object({
+  q: SearchText.optional(),
+  held: AdminQueryFlagSchema,
+  failing: AdminQueryFlagSchema,
+  cursor: AdminCursorSchema.optional(),
+  limit: AdminPageSizeSchema,
+});
+export type AdminHostsQuery = z.infer<typeof AdminHostsQuerySchema>;
+export const AdminHostsListSchema = z.object({
+  items: z.array(AdminHostRowSchema),
+  total: z.number().int().nonnegative(),
+  nextCursor: AdminCursorSchema.optional(),
+});
+
+/** An admin holds a host for some hours (reason `admin`), or releases its hold. */
+export const AdminHostHoldBodySchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('hold'), hours: z.number().int().min(1).max(720) }),
+  z.object({ action: z.literal('release') }),
+]);
+export type AdminHostHoldBody = z.infer<typeof AdminHostHoldBodySchema>;
+
+// Candidates ---------------------------------------------------------------------------------------------------------
+
+// v30 S2
+/** Why discovery's validation reads nothing now. */
+export const DISCOVERY_OFF_REASONS = ['identity', 'ingest_off'] as const;
+export type DiscoveryOffReason = (typeof DISCOVERY_OFF_REASONS)[number];
+export const DISCOVERY_OFF_LABEL: Record<DiscoveryOffReason, string> = {
+  identity: 'Off until BOT_USER_AGENT names the public bot page and a role mailbox',
+  ingest_off: 'Off while INGEST_ENABLED is false',
+};
+// end v30 S2
+
+/** A board or site found but not yet a source (job_source_candidates): a count, never a user id. */
+export const JobSourceCandidateSchema = z.object({
+  id: z.number().int(),
+  kind: z.enum(JOB_SOURCE_KINDS),
+  name: z.string(),
+  discoveredVia: z.enum(JOB_SOURCE_DISCOVERED_VIA),
+  seenCount: z.number().int().nonnegative(),
+  firstSeenAt: IsoDateTime,
+  lastSeenAt: IsoDateTime,
+  status: z.enum(JOB_SOURCE_CANDIDATE_STATUSES),
+  attempts: z.number().int().nonnegative(),
+  nextCheckAt: IsoDateTime.nullable(),
+  /** The source it became. */
+  sourceId: z.number().int().nullable(),
+  // v30 S2: what its validation found (migration 0020) and, once a source, that board's measures (12 §5.2).
+  /** Its last validation read. */
+  checkedAt: IsoDateTime.nullable().optional(),
+  /** Open postings its validation found. */
+  openJobs: z.number().int().nonnegative().nullable().optional(),
+  /** Why its last validation failed (a 404, a robots.txt refusal, a 5xx), in the reader's words. */
+  lastError: z.string().nullable().optional(),
+  /** The source it became: its name, whether it runs, its open jobs now and how long its jobs stay open (median days). */
+  sourceName: z.string().nullable().optional(),
+  sourceEnabled: z.boolean().nullable().optional(),
+  sourceOpenJobs: z.number().int().nonnegative().nullable().optional(),
+  openLifeDays: z.number().nonnegative().nullable().optional(),
+  // end v30 S2
+});
+export type JobSourceCandidate = z.infer<typeof JobSourceCandidateSchema>;
+
+export const AdminCandidatesQuerySchema = z.object({
+  q: SearchText.optional(),
+  kind: adminQueryList(z.enum(JOB_SOURCE_KINDS), JOB_SOURCE_KINDS.length),
+  status: adminQueryList(z.enum(JOB_SOURCE_CANDIDATE_STATUSES), JOB_SOURCE_CANDIDATE_STATUSES.length),
+  discoveredVia: adminQueryList(z.enum(JOB_SOURCE_DISCOVERED_VIA), JOB_SOURCE_DISCOVERED_VIA.length),
+  cursor: AdminCursorSchema.optional(),
+  limit: AdminPageSizeSchema,
+});
+export type AdminCandidatesQuery = z.infer<typeof AdminCandidatesQuerySchema>;
+
+/** The candidate funnel: candidates by status and by how they were found, and today's validations. */
+export const CandidateFunnelSchema = z.object({
+  byStatus: z.array(z.object({ status: z.enum(JOB_SOURCE_CANDIDATE_STATUSES), count: z.number().int().nonnegative() })),
+  byVia: z.array(z.object({ discoveredVia: z.enum(JOB_SOURCE_DISCOVERED_VIA), count: z.number().int().nonnegative() })),
+  validatedToday: z.number().int().nonnegative(),
+  // v30 S2: whether validation reads now (and why not), the day's cap, the measure owner question 17 waits for, and
+  // Common Crawl's progress.
+  validation: z
+    .object({
+      /** Validation reads boards now. */
+      on: z.boolean(),
+      /** Why not: BOT_USER_AGENT is a placeholder, or INGEST_ENABLED is off. */
+      reason: z.enum(DISCOVERY_OFF_REASONS).nullable(),
+      /** DISCOVERY_VALIDATIONS_PER_DAY. */
+      cap: z.number().int().nonnegative(),
+      /** Reads made today (UTC). */
+      usedToday: z.number().int().nonnegative(),
+      /** Kinds with candidates that validation does not read yet (no adapter, terms not recorded, or switched off). */
+      waitingKinds: z.array(z.enum(JOB_SOURCE_KINDS)),
+    })
+    .optional(),
+  /** Shared companies with open jobs and no known board (name probes' measure: owner question 17). */
+  companiesWithoutBoard: z.number().int().nonnegative().optional(),
+  /** DISCOVERY_PROBES_PER_HOST_PER_DAY (0: name probes off). */
+  probesPerHost: z.number().int().nonnegative().optional(),
+  commonCrawl: z
+    .object({
+      crawl: z.string().nullable(),
+      done: z.boolean(),
+      /** The query read now (of `queries`). */
+      query: z.number().int().nonnegative(),
+      queries: z.number().int().nonnegative(),
+      finishedAt: IsoDateTime.nullable(),
+    })
+    .optional(),
+  // end v30 S2
+});
+export type CandidateFunnel = z.infer<typeof CandidateFunnelSchema>;
+
+export const AdminCandidatesListSchema = z.object({
+  items: z.array(JobSourceCandidateSchema),
+  total: z.number().int().nonnegative(),
+  funnel: CandidateFunnelSchema,
+  nextCursor: AdminCursorSchema.optional(),
+});
+
+/** What a bulk action does to chosen candidates: validate them at the next chance, or drop them for good. */
+export const ADMIN_CANDIDATE_BULK_ACTIONS = ['retry', 'drop'] as const;
+export const AdminCandidatesBulkBodySchema = z.object({ action: z.enum(ADMIN_CANDIDATE_BULK_ACTIONS), ids: adminBulkIds(Id) });
+export type AdminCandidatesBulkBody = z.infer<typeof AdminCandidatesBulkBodySchema>;
+export const AdminCandidatesBulkResultSchema = adminBulkResultSchema(ADMIN_SOURCE_BULK_OUTCOMES);
+export type AdminCandidatesBulkResult = z.infer<typeof AdminCandidatesBulkResultSchema>;
+
+// v30 S2: an admin's own boards (12 §4.1 signal 7: a list of board addresses or names, made candidates), and the
+// measures by board kind (12 §5.2, §11 phase 2: boards, open jobs per board, new postings a month, open life).
+
+/** The most entries one Add boards takes (one request). */
+export const ADMIN_CANDIDATES_ADD_MAX = 200;
+/** An admin's boards: board addresses (any posting's or board's page) or names, with their kind for a bare name. */
+export const AdminCandidatesAddBodySchema = z.object({
+  entries: z.array(z.string().trim().min(1).max(2048)).min(1).max(ADMIN_CANDIDATES_ADD_MAX),
+  /** The kind of a bare name (an address names its own). */
+  kind: z.enum(JOB_SOURCE_KINDS).optional(),
+});
+export type AdminCandidatesAddBody = z.infer<typeof AdminCandidatesAddBodySchema>;
+/** What each entry did: a candidate added or seen again, a board a source reads already, an opted-out company's, none. */
+export const ADMIN_CANDIDATE_ADD_OUTCOMES = ['added', 'bumped', 'known_source', 'forbidden', 'refused'] as const;
+export type AdminCandidateAddOutcome = (typeof ADMIN_CANDIDATE_ADD_OUTCOMES)[number];
+export const AdminCandidatesAddResultSchema = z.object({
+  results: z
+    .array(
+      z.object({
+        entry: z.string(),
+        outcome: z.enum(ADMIN_CANDIDATE_ADD_OUTCOMES),
+        kind: z.enum(JOB_SOURCE_KINDS).nullable(),
+        name: z.string().nullable(),
+        candidateId: z.number().int().nullable(),
+        sourceId: z.number().int().nullable(),
+        /** v30 FIX-A (REV-UX UX-17): why a `refused` entry names no board TailorIT reads (optional). */
+        reason: z.string().max(300).optional(),
+      }),
+    )
+    .max(ADMIN_CANDIDATES_ADD_MAX),
+  counts: z.partialRecord(z.enum(ADMIN_CANDIDATE_ADD_OUTCOMES), z.number().int().nonnegative()),
+});
+export type AdminCandidatesAddResult = z.infer<typeof AdminCandidatesAddResultSchema>;
+
+/** One board kind's measures, from the last daily pass over its enabled sources. */
+export const DiscoveryKindMeasureSchema = z.object({
+  kind: z.enum(JOB_SOURCE_KINDS),
+  /** Enabled sources (boards) of the kind. */
+  sources: z.number().int().nonnegative(),
+  boardsWithOpenJobs: z.number().int().nonnegative(),
+  openJobs: z.number().int().nonnegative(),
+  /** Open jobs per board with open jobs. */
+  openJobsPerBoard: z.number().nonnegative().nullable(),
+  /** Postings first seen in the last 30 days, per board. */
+  newPostingsPerBoardPerMonth: z.number().nonnegative().nullable(),
+  /** Jobs closed in the last 90 days, and how long they were open (days): the median of the boards' medians, the mean. */
+  closed90d: z.number().int().nonnegative(),
+  openLifeDaysMedian: z.number().nonnegative().nullable(),
+  openLifeDaysMean: z.number().nonnegative().nullable(),
+  measuredAt: IsoDateTime.nullable(),
+});
+export type DiscoveryKindMeasure = z.infer<typeof DiscoveryKindMeasureSchema>;
+export const DiscoveryMeasuresSchema = z.object({ byKind: z.array(DiscoveryKindMeasureSchema) });
+export type DiscoveryMeasures = z.infer<typeof DiscoveryMeasuresSchema>;
+// end v30 S2
+
+// Purges by source ---------------------------------------------------------------------------------------------------
+
+/**
+ * A purge by source (11 §8.5), of one source or of every source of a company. It closes the jobs only that source
+ * lists and deletes their raw payloads; with `deleteTexts`, their texts too, except the text of a job an application
+ * names, which only `deleteAppliedTexts` (a contract that demands it) deletes.
+ */
+export const JobSourcePurgeRequestSchema = z
+  .object({
+    sourceId: Id.optional(),
+    companyId: Id.optional(),
+    reason: z.enum(JOB_SOURCE_PURGE_REASONS),
+    deleteTexts: z.boolean(),
+    deleteAppliedTexts: z.boolean().default(false),
+  })
+  .superRefine((purge, ctx) => {
+    if ((purge.sourceId === undefined) === (purge.companyId === undefined)) {
+      ctx.addIssue({ code: 'custom', path: ['sourceId'], message: 'Name a source or a company, not both' });
+    }
+    if (purge.deleteAppliedTexts && !(purge.deleteTexts && purge.reason === 'contract_end')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['deleteAppliedTexts'],
+        message: "Applied jobs' texts go only when a contract demands it, with the other texts",
+      });
+    }
+  });
+export type JobSourcePurgeRequest = z.infer<typeof JobSourcePurgeRequestSchema>;
+
+/** A purge's row (job_source_purges): what it was asked to do, and its counts so far. */
+export const JobSourcePurgeSchema = z.object({
+  id: z.number().int(),
+  sourceId: z.number().int().nullable(),
+  sourceName: z.string().nullable(),
+  companyId: z.number().int().nullable(),
+  companyName: z.string().nullable(),
+  reason: z.enum(JOB_SOURCE_PURGE_REASONS),
+  deleteTexts: z.boolean(),
+  deleteAppliedTexts: z.boolean(),
+  /** The admin who asked, by email; null for an opt-out's own purge or a deleted account. */
+  requestedBy: z.string().nullable(),
+  state: z.enum(JOB_SOURCE_PURGE_STATES),
+  jobsClosed: z.number().int().nonnegative(),
+  textsDeleted: z.number().int().nonnegative(),
+  rawDeleted: z.number().int().nonnegative(),
+  textsKeptForApplications: z.number().int().nonnegative(),
+  createdAt: IsoDateTime,
+  finishedAt: IsoDateTime.nullable(),
+});
+export type JobSourcePurge = z.infer<typeof JobSourcePurgeSchema>;
+
+export const AdminPurgesQuerySchema = z.object({
+  state: adminQueryList(z.enum(JOB_SOURCE_PURGE_STATES), JOB_SOURCE_PURGE_STATES.length),
+  cursor: AdminCursorSchema.optional(),
+  limit: AdminPageSizeSchema,
+});
+export const AdminPurgesListSchema = z.object({ items: z.array(JobSourcePurgeSchema), nextCursor: AdminCursorSchema.optional() });
+
+// The daily report ---------------------------------------------------------------------------------------------------
+
+/**
+ * The daily report's alarms (12 §9.8): a host failing too many of its requests in a day; a kind's open jobs dropping
+ * by too large a share in a day (a broken adapter); a kind with no new jobs for days. Their thresholds are S1's.
+ */
+export const SOURCING_ALARM_KINDS = ['host_failing', 'kind_dropped', 'kind_quiet'] as const;
+export type SourcingAlarmKind = (typeof SOURCING_ALARM_KINDS)[number];
+export const SourcingAlarmSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('host_failing'), host: z.string(), failureShare: z.number().min(0).max(1) }),
+  z.object({ kind: z.literal('kind_dropped'), sourceKind: z.enum(JOB_SOURCE_KINDS), dropShare: z.number().min(0).max(1) }),
+  z.object({ kind: z.literal('kind_quiet'), sourceKind: z.enum(JOB_SOURCE_KINDS), days: z.number().int().nonnegative() }),
+]);
+export type SourcingAlarm = z.infer<typeof SourcingAlarmSchema>;
+
+/** One day's sourcing (12 §9.8): runs and 304s, jobs by kind, failures by host, the candidates, the alarms. */
+export const SourcingDailyReportSchema = z.object({
+  day: IsoDate,
+  runs: z.number().int().nonnegative(),
+  notModifiedRuns: z.number().int().nonnegative(),
+  failedRuns: z.number().int().nonnegative(),
+  byKind: z.array(
+    z.object({
+      kind: z.enum(JOB_SOURCE_KINDS),
+      runs: z.number().int().nonnegative(),
+      notModified: z.number().int().nonnegative(),
+      created: z.number().int().nonnegative(),
+      updated: z.number().int().nonnegative(),
+      closed: z.number().int().nonnegative(),
+      reopened: z.number().int().nonnegative(),
+      openJobs: z.number().int().nonnegative(),
+      /** The change in open jobs since the day before (negative: fewer). */
+      openJobsChange: z.number().int(),
+    }),
+  ),
+  /** The hosts with failures, most failures first. */
+  hosts: z.array(z.object({ host: z.string(), requests: z.number().int().nonnegative(), failures: z.number().int().nonnegative() })),
+  candidates: z.object({ found: z.number().int().nonnegative(), validated: z.number().int().nonnegative() }),
+  alarms: z.array(SourcingAlarmSchema),
+});
+export type SourcingDailyReport = z.infer<typeof SourcingDailyReportSchema>;

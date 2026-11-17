@@ -1,0 +1,751 @@
+import { z } from 'zod';
+import {
+  AdminSourceRowSchema,
+  IsoDateTime,
+  JOB_SOURCE_KIND_LABEL,
+  JobSourceRunSchema,
+  SHEET_SOURCE_LABEL,
+  SheetSourceConfigSchema,
+  type AdminRunsQuery,
+  type AdminSourceRow,
+  type AdminSourcesBulkBody,
+  type AdminSourcesBulkResult,
+  type AdminSourcesQuery,
+  type JobSourceKind,
+} from '@tailorit/shared';
+import { decodeCursor, encodeCursor, likeText, Where } from '../../core/admin/index';
+import { careerHostOfConfig } from './career/config'; // v30 S5
+import { optedOutSources } from './opt-out-gate'; // v30 FIX-A
+import type { DbQueries, SqlParams } from '../../core/db/types';
+import { validationFailed } from '../../core/http/errors';
+import { isWorkdayHost } from './adapters/workday'; // v30 S3
+import {
+  RUN_STATUSES,
+  RUN_TRIGGERS,
+  SCHEDULED_KINDS,
+  SOURCE_KINDS,
+  SOURCE_KIND_LABEL,
+  UNRUN_KINDS,
+  type RunStatus,
+  type RunTrigger,
+  type SourceKind,
+  type SourceRecord,
+} from './types';
+
+// job_sources and job_source_runs as the admin console sees them. The admin DTOs live here (the shared package has no
+// admin contracts); apps/web/src/features/settings/admin/types.ts mirrors them. v3.0 D2-C: through the async client
+// (`deps.db` or a transaction's handle).
+//
+// v30 S1-API (12-job-sourcing.md §9.3, §9.8; 11-database.md §5.3): v2.0's `schedule` is gone (migration 0013). A new
+// source gets its host (hostOf: crawl_hosts' and site_robots' key), its kind's recorded terms (KIND_TERMS: the owner's
+// rule, only allowed sources run), `not_applicable` robots for a kind that reads no outside host, and (a kind the
+// worker runs) next_run_at = now: the worker reads it at once, then at its tier's cadence. Admin › Sources pages
+// 80,000 rows with filters and a keyset cursor (listAdminSources, CT's AdminSourcesQuery), and acts on up to 100 at
+// once (bulkSources). Each row also carries the v2.0 console's keys (config, job counts, latest run) until S1-WEB's
+// console replaces it.
+
+/** A job_sources row as stored. */
+export interface SourceRow {
+  id: number;
+  kind: SourceKind;
+  name: string;
+  config: string;
+  company_id: number | null;
+  /** A flag: boolean on PostgreSQL. */
+  enabled: boolean | number;
+  deactivate_missing: boolean | number;
+  last_run_at: string | null;
+  last_success_at: string | null;
+  last_status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  // v30 S1-API: the Part 2 columns (11 §5.3).
+  host?: string | null;
+  tier?: string;
+  next_run_at?: string | null;
+  priority?: number;
+  terms_status?: string;
+  robots_status?: string;
+  etag?: string | null;
+  last_modified?: string | null;
+  last_complete_at?: string | null;
+  last_change_at?: string | null;
+  consecutive_failures?: number;
+  open_jobs?: number;
+  lease_until?: string | null;
+  ai_input?: boolean;
+  discovered_via?: string | null;
+}
+
+/** A flag column as read (boolean on PostgreSQL) as a boolean. */
+const flagOf = (value: boolean | number) => value === true || value === 1;
+
+/** A source's config column as an object ({} when it is not one). */
+function configOf(text: string | null | undefined): Record<string, unknown> {
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** How a source's kind reads in the console: "Google Sheet" for a csv source that holds a copy of a sheet tab. */
+export function kindLabelOf(kind: SourceKind, config: Record<string, unknown>): string {
+  if (kind === 'csv' && SheetSourceConfigSchema.safeParse(config.sheet).success) return SHEET_SOURCE_LABEL;
+  return SOURCE_KIND_LABEL[kind] ?? JOB_SOURCE_KIND_LABEL[kind as JobSourceKind] ?? kind;
+}
+
+export function toSourceRecord(row: SourceRow): SourceRecord {
+  return {
+    id: row.id,
+    kind: row.kind,
+    name: row.name,
+    config: configOf(row.config),
+    companyId: row.company_id,
+    enabled: flagOf(row.enabled),
+    deactivateMissing: flagOf(row.deactivate_missing),
+    lastRunAt: row.last_run_at,
+    lastSuccessAt: row.last_success_at,
+    lastStatus: row.last_status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    host: row.host ?? null,
+    tier: row.tier ?? 'normal',
+    nextRunAt: row.next_run_at ?? null,
+    priority: row.priority ?? 0,
+    termsStatus: row.terms_status ?? 'unchecked',
+    robotsStatus: row.robots_status ?? 'unchecked',
+    etag: row.etag ?? null,
+    lastModified: row.last_modified ?? null,
+    lastCompleteAt: row.last_complete_at ?? null,
+    lastChangeAt: row.last_change_at ?? null,
+    consecutiveFailures: row.consecutive_failures ?? 0,
+    openJobs: row.open_jobs ?? 0,
+    leaseUntil: row.lease_until ?? null,
+    aiInput: row.ai_input ?? true,
+    discoveredVia: row.discovered_via ?? null,
+  };
+}
+
+const SOURCE_BY_ID_SQL = 'SELECT * FROM job_sources WHERE id = ?';
+const SOURCE_BY_NAME_SQL = 'SELECT * FROM job_sources WHERE kind = ? AND name = ?';
+const FIRST_OF_KIND_SQL = 'SELECT * FROM job_sources WHERE kind = ? ORDER BY id LIMIT 1';
+
+export async function getSourceRecord(db: DbQueries, id: number): Promise<SourceRecord | null> {
+  const row = await db.one<SourceRow>(SOURCE_BY_ID_SQL, [id]);
+  return row ? toSourceRecord(row) : null;
+}
+
+export async function findSourceRecord(db: DbQueries, kind: SourceKind, name: string): Promise<SourceRecord | null> {
+  const row = await db.one<SourceRow>(SOURCE_BY_NAME_SQL, [kind, name]);
+  return row ? toSourceRecord(row) : null;
+}
+
+/** Every source, newest first (a few dozen in tests and scripts; Admin › Sources pages them: listAdminSources). */
+export async function listSourceRecords(db: DbQueries): Promise<SourceRecord[]> {
+  return (await db.all<SourceRow>('SELECT * FROM job_sources ORDER BY created_at DESC, id DESC')).map(toSourceRecord);
+}
+
+/** The first source of a kind (the oldest), whatever its name: the job pages' one source. */
+export async function firstSourceOfKind(db: DbQueries, kind: SourceKind): Promise<SourceRecord | null> {
+  const row = await db.one<SourceRow>(FIRST_OF_KIND_SQL, [kind]);
+  return row ? toSourceRecord(row) : null;
+}
+
+/**
+ * The csv source that holds a copy of this sheet tab, matched by spreadsheet and tab id rather than by name (renaming
+ * the spreadsheet or the tab changes the default name, not the tab).
+ */
+export async function findSheetSource(db: DbQueries, spreadsheetId: string, gid: number): Promise<SourceRecord | null> {
+  const d = db.dialect;
+  const rows = await db.all<SourceRow>(
+    `SELECT * FROM job_sources WHERE kind = 'csv' AND ${d.jsonText('config', '$.sheet.spreadsheetId')} = ? ` +
+      `AND CAST(${d.jsonText('config', '$.sheet.gid')} AS INTEGER) = ? ORDER BY id`,
+    [spreadsheetId, gid],
+  );
+  return rows.map(toSourceRecord).find((source) => SheetSourceConfigSchema.safeParse(source.config.sheet).success) ?? null;
+}
+
+// ------------------------------------------------------------------------------------------------- a new source
+
+export interface NewSource {
+  kind: SourceKind;
+  name: string;
+  config: Record<string, unknown>;
+  enabled?: boolean;
+  deactivateMissing?: boolean;
+}
+
+/**
+ * The host a source's reads go to, from its kind and config (migration 0013 writes the same for older rows): the four
+ * board APIs' hosts; null for a kind with no outside read or whose host differs per posting (Workday: the tenant's
+ * hosts, read one posting at a time).
+ */
+export function hostOf(kind: string, config: Record<string, unknown>): string | null {
+  switch (kind) {
+    case 'greenhouse':
+      return 'boards-api.greenhouse.io';
+    case 'lever':
+      return typeof config.region === 'string' && config.region.toLowerCase() === 'eu' ? 'api.eu.lever.co' : 'api.lever.co';
+    case 'ashby':
+      return 'api.ashbyhq.com';
+    case 'workable':
+      return 'apply.workable.com';
+    // v30 S3
+    case 'workday_site':
+    case 'personio':
+    case 'recruitee':
+    case 'breezy':
+    case 'bamboohr':
+      return feedHostOf(kind, config);
+    // v30 S4: the feeds' API hosts (12 §3.6-3.7).
+    case 'usajobs':
+      return 'data.usajobs.gov';
+    case 'himalayas':
+      return 'himalayas.app';
+    case 'jobicy':
+      return 'jobicy.com';
+    // v30 S5: a career site's own host (its config's host, as career/config.ts reads it).
+    case 'career_site':
+      return careerHostOfConfig(config);
+    default:
+      return null;
+  }
+}
+
+/** v30 S3: a company's name on a feed host, one DNS label ("acme-robotics"), as its adapter normalised it. */
+const FEED_COMPANY = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * v30 S3 (12 §3.2-3.3): a Workday career site's tenant host (config `host`), or a feed's company host (config `company`,
+ * and Personio's `domain`, `de` or `com`); null when the config names none TailorIT reads.
+ */
+export function feedHostOf(kind: string, config: Record<string, unknown>): string | null {
+  if (kind === 'workday_site') {
+    const host = typeof config.host === 'string' ? config.host.trim().toLowerCase() : '';
+    return isWorkdayHost(host) ? host : null;
+  }
+  const company = typeof config.company === 'string' ? config.company.trim().toLowerCase() : '';
+  if (!FEED_COMPANY.test(company)) return null;
+  if (kind === 'personio') return `${company}.jobs.personio.${config.domain === 'com' ? 'com' : 'de'}`;
+  if (kind === 'recruitee') return `${company}.recruitee.com`;
+  if (kind === 'breezy') return `${company}.breezy.hr`;
+  if (kind === 'bamboohr') return `${company}.bamboohr.com`;
+  return null;
+}
+
+/**
+ * The terms recorded for each kind TailorIT reads today (12 §3.1, §3.11, read 2026-11-14: "use"): the owner's rule
+ * that only sources allowing automated access run. A kind not listed starts `unchecked` and never runs until an admin
+ * (or its package) records its terms.
+ */
+export const KIND_TERMS: Partial<Record<string, { status: 'allowed' | 'allowed_with_conditions'; url: string | null }>> = {
+  greenhouse: { status: 'allowed', url: 'https://developers.greenhouse.io/job-board.html' },
+  lever: { status: 'allowed', url: 'https://github.com/lever/postings-api' },
+  ashby: { status: 'allowed', url: 'https://developers.ashbyhq.com/docs/public-job-posting-api' },
+  workable: { status: 'allowed', url: 'https://workable.readme.io/reference/jobs' },
+  workday: { status: 'allowed', url: null },
+  ft_lake: { status: 'allowed', url: null },
+  csv: { status: 'allowed', url: null },
+  json: { status: 'allowed', url: null },
+  seed: { status: 'allowed', url: null },
+  page: { status: 'allowed', url: null },
+  ext_page: { status: 'allowed', url: null },
+  // v30 S3 (12 §3.2-3.3; the docs read 2026-11-16, SP\p2\build\S3.md): a Workday career site's own sitemap (the owner's
+  // answer to question 11: sitemaps only) and per-posting reads; Personio's documented XML feed, which the employer turns
+  // on; Recruitee's documented careers API, open until 2027-02-10 (then each employer's token: the adapter stops). Breezy
+  // and BambooHR are undocumented: no entry, so `unchecked`, never run until an admin records their terms.
+  workday_site: { status: 'allowed', url: null },
+  personio: { status: 'allowed', url: 'https://developer.personio.de/v1.0/reference/get_xml' },
+  recruitee: { status: 'allowed_with_conditions', url: 'https://docs.recruitee.com/reference/offers' },
+  // v30 S4 (12 §3.6-3.7, read 2026-11-14): USAJOBS' public data may be stored and republished for commercial use (a
+  // credit is encouraged); Himalayas and Jobicy allow commercial display and storage with a visible credit and their
+  // own apply links (Himalayas: expired jobs removed, never passed on to aggregators; Jobicy: one read an hour).
+  usajobs: { status: 'allowed', url: 'https://developer.usajobs.gov/guides/terms-of-service' },
+  himalayas: { status: 'allowed_with_conditions', url: 'https://himalayas.app/docs/remote-jobs-api' },
+  jobicy: { status: 'allowed_with_conditions', url: 'https://jobicy.com/jobs-rss-feed' },
+  // v30 S5: career sites' own terms cannot be read site by site (12 §3.4): reading them at all waits for the owner's
+  // lawyer's view (SITE_READER_CAREER_PAGES, off), and robots.txt decides every read.
+  career_site: { status: 'allowed_with_conditions', url: null },
+};
+
+/** Kinds that read no outside host: robots.txt does not apply (12 §1: keyed APIs are `not_applicable` too). */
+export const NO_ROBOTS_KINDS: readonly string[] = [
+  'ft_lake',
+  'csv',
+  'json',
+  'seed',
+  'page',
+  'ext_page',
+  'workday',
+  // v30 S4: a keyed API (12 §1: data.usajobs.gov's `Disallow: /` is for crawlers; the key's terms govern).
+  'usajobs',
+];
+
+/** The columns a new source's row is made with (newSourceValues' order): autofill/sources.ts makes rows the same way. */
+export const NEW_SOURCE_COLUMNS =
+  'job_sources(kind, name, config, enabled, deactivate_missing, host, terms_status, terms_url, terms_checked_at, ' +
+  'robots_status, next_run_at, created_at, updated_at)';
+/** NEW_SOURCE_COLUMNS' placeholders. */
+export const NEW_SOURCE_PLACEHOLDERS = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+
+/** The values of a new source's row, in NEW_SOURCE_COLUMNS' order. */
+export function newSourceValues(source: NewSource, now: string) {
+  const terms = KIND_TERMS[source.kind];
+  const enabled = source.enabled !== false;
+  return [
+    source.kind,
+    source.name,
+    JSON.stringify(source.config),
+    // Flags bound as booleans (decision K).
+    enabled,
+    // An upload adds jobs; a later upload of another file must not close the first one's.
+    source.deactivateMissing ?? !['csv', 'json'].includes(source.kind),
+    hostOf(source.kind, source.config),
+    terms?.status ?? 'unchecked',
+    terms?.url ?? null,
+    terms ? now : null,
+    NO_ROBOTS_KINDS.includes(source.kind) ? 'not_applicable' : 'unchecked',
+    // A kind the worker runs is due at once (once its robots.txt verdict is in: scheduler.ts).
+    enabled && SCHEDULED_KINDS.includes(source.kind) ? now : null,
+    now,
+    now,
+  ];
+}
+
+/**
+ * Adds the source, or answers null when its kind and name are taken (UNIQUE(kind, name): two requests adding one name at
+ * once make one source). The caller decides: a 409, or the source that holds the name.
+ */
+export async function insertSource(db: DbQueries, source: NewSource, now: string): Promise<SourceRecord | null> {
+  const row = await db.one<SourceRow>(
+    `INSERT INTO ${NEW_SOURCE_COLUMNS} VALUES (${NEW_SOURCE_PLACEHOLDERS}) ON CONFLICT(kind, name) DO NOTHING RETURNING *`,
+    newSourceValues(source, now),
+  );
+  return row ? toSourceRecord(row) : null;
+}
+
+// ------------------------------------------------------------------------------------------------- admin DTOs
+
+export const SourceRunSummarySchema = z.object({
+  id: z.number().int(),
+  status: z.enum(RUN_STATUSES),
+  trigger: z.enum(RUN_TRIGGERS),
+  startedAt: IsoDateTime,
+  finishedAt: IsoDateTime.nullable(),
+  fetched: z.number().int(),
+  created: z.number().int(),
+  updated: z.number().int(),
+  unchanged: z.number().int(),
+  deactivated: z.number().int(),
+  failed: z.number().int(),
+  error: z.string().nullable(),
+});
+export type SourceRunSummary = z.infer<typeof SourceRunSummarySchema>;
+
+/**
+ * One source as Admin › Sources shows it: CT's row (AdminSourceRowSchema), the v2.0 console's keys (its config, job
+ * counts and latest run) and, for one source, its terms and pace.
+ */
+export const AdminSourceSchema = AdminSourceRowSchema.extend({
+  kind: z.enum(SOURCE_KINDS),
+  config: z.record(z.string(), z.unknown()),
+  deactivateMissing: z.boolean(),
+  createdAt: IsoDateTime.nullable(),
+  updatedAt: IsoDateTime.nullable(),
+  /** Jobs this source links to, and how many of them are live. */
+  jobCount: z.number().int(),
+  activeJobCount: z.number().int(),
+  lastRun: SourceRunSummarySchema.nullable(),
+  termsUrl: z.string().nullable().optional(),
+  termsNote: z.string().nullable().optional(),
+  termsCheckedAt: IsoDateTime.nullable().optional(),
+  robotsCheckedAt: IsoDateTime.nullable().optional(),
+  priority: z.number().int().optional(),
+  /** The tier's cadence, in hours (job_sources.cadence). */
+  cadenceHours: z.number().nonnegative().optional(),
+});
+export type AdminSource = z.infer<typeof AdminSourceSchema>;
+
+/** One run (CT's JobSourceRunSchema) with the v2.0 console's kind label. */
+export const AdminRunSchema = JobSourceRunSchema.extend({
+  status: z.enum(RUN_STATUSES),
+  trigger: z.enum(RUN_TRIGGERS),
+  sourceKind: z.enum(SOURCE_KINDS),
+  /** "Greenhouse", "CSV import", "Google Sheet"... (kindLabelOf). */
+  sourceKindLabel: z.string(),
+});
+export type AdminRun = z.infer<typeof AdminRunSchema>;
+
+export const AdminRunDetailSchema = AdminRunSchema.extend({ log: z.array(z.string()) });
+export type AdminRunDetail = z.infer<typeof AdminRunDetailSchema>;
+
+interface RunRow {
+  id: number;
+  source_id: number;
+  trigger: RunTrigger;
+  status: RunStatus;
+  started_at: string;
+  finished_at: string | null;
+  http_status: number | null;
+  bytes_fetched: number | null;
+  requests: number | null;
+  fetched: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  deactivated: number;
+  reopened: number | null;
+  failed: number;
+  error_code: string | null;
+  error: string | null;
+  log: string | null;
+  kind?: SourceKind;
+  name?: string;
+  /** The source's config (joined in by the run queries, for its kind label). */
+  config?: string;
+}
+
+function toRunSummary(row: RunRow): SourceRunSummary {
+  return {
+    id: row.id,
+    status: row.status,
+    trigger: row.trigger,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    fetched: row.fetched ?? 0,
+    created: row.created ?? 0,
+    updated: row.updated ?? 0,
+    unchanged: row.unchanged ?? 0,
+    deactivated: row.deactivated ?? 0,
+    failed: row.failed ?? 0,
+    error: row.error,
+  };
+}
+
+function toAdminRun(row: RunRow): AdminRun {
+  const kind = row.kind ?? 'seed';
+  return {
+    ...toRunSummary(row),
+    sourceId: row.source_id,
+    sourceKind: kind,
+    sourceKindLabel: kindLabelOf(kind, configOf(row.config)),
+    sourceName: row.name ?? '',
+    httpStatus: row.http_status,
+    bytesFetched: row.bytes_fetched,
+    requests: row.requests ?? 0,
+    reopened: row.reopened ?? 0,
+    errorCode: row.error_code,
+  };
+}
+
+/** A source row with the company's name and the job counts the v2.0 console shows. */
+type ListedRow = SourceRow & {
+  company_name: string | null;
+  cadence_hours: number | null;
+  terms_url: string | null;
+  terms_note: string | null;
+  terms_checked_at: string | null;
+  robots_checked_at: string | null;
+};
+
+const LISTED_COLUMNS =
+  's.*, c.name AS company_name, extract(epoch from s.cadence) / 3600 AS cadence_hours';
+const LISTED_FROM = 'job_sources s LEFT JOIN companies c ON c.id = s.company_id';
+
+/** Each source's job counts and latest run, for the rows of one page (read through job_source_links' key and the runs index). */
+async function extrasOf(db: DbQueries, ids: readonly number[]) {
+  if (ids.length === 0) return { counts: new Map<number, { total: number; live: number }>(), latest: new Map<number, SourceRunSummary>() };
+  const list = ids.join(',');
+  const counts = new Map(
+    (
+      await db.all<{ source_id: number; total: number; live: number }>(
+        'SELECT l.source_id, count(*) AS total, count(*) FILTER (WHERE j.active) AS live FROM job_source_links l ' +
+          'JOIN jobs j ON j.id = l.job_id WHERE l.source_id = ANY(CAST(string_to_array(?, \',\') AS bigint[])) GROUP BY l.source_id',
+        [list],
+      )
+    ).map((row) => [row.source_id, row]),
+  );
+  const latest = new Map(
+    (
+      await db.all<RunRow>(
+        'SELECT r.* FROM unnest(CAST(string_to_array(?, \',\') AS bigint[])) AS s(id) JOIN LATERAL (SELECT x.* FROM job_source_runs x ' +
+          'WHERE x.source_id = s.id ORDER BY x.started_at DESC, x.id DESC LIMIT 1) r ON true',
+        [list],
+      )
+    ).map((row) => [row.source_id, toRunSummary(row)]),
+  );
+  return { counts, latest };
+}
+
+function toAdminRow(row: ListedRow, at: string): AdminSourceRow {
+  const source = toSourceRecord(row);
+  return {
+    id: source.id,
+    kind: source.kind,
+    kindLabel: kindLabelOf(source.kind, source.config),
+    name: source.name,
+    host: source.host ?? null,
+    companyId: source.companyId,
+    companyName: row.company_name,
+    enabled: source.enabled,
+    tier: (source.tier ?? 'normal') as AdminSourceRow['tier'],
+    termsStatus: (source.termsStatus ?? 'unchecked') as AdminSourceRow['termsStatus'],
+    robotsStatus: (source.robotsStatus ?? 'unchecked') as AdminSourceRow['robotsStatus'],
+    discoveredVia: (source.discoveredVia ?? null) as AdminSourceRow['discoveredVia'],
+    nextRunAt: source.nextRunAt ?? null,
+    lastRunAt: source.lastRunAt,
+    lastSuccessAt: source.lastSuccessAt,
+    lastCompleteAt: source.lastCompleteAt ?? null,
+    lastStatus: source.lastStatus,
+    consecutiveFailures: source.consecutiveFailures ?? 0,
+    openJobs: source.openJobs ?? 0,
+    aiInput: source.aiInput ?? true,
+    running: source.leaseUntil !== null && source.leaseUntil !== undefined && Date.parse(source.leaseUntil) > Date.parse(at),
+  };
+}
+
+function toAdminSource(
+  row: ListedRow,
+  at: string,
+  count: { total: number; live: number } | undefined,
+  lastRun: SourceRunSummary | null,
+  runningHere: boolean,
+  detail: boolean,
+): AdminSource {
+  const base = toAdminRow(row, at);
+  const source = toSourceRecord(row);
+  return {
+    ...base,
+    kind: source.kind,
+    running: base.running || runningHere,
+    config: source.config,
+    deactivateMissing: source.deactivateMissing,
+    createdAt: source.createdAt,
+    updatedAt: source.updatedAt,
+    jobCount: count?.total ?? 0,
+    activeJobCount: count?.live ?? 0,
+    lastRun,
+    ...(detail
+      ? {
+          termsUrl: row.terms_url,
+          termsNote: row.terms_note,
+          termsCheckedAt: row.terms_checked_at,
+          robotsCheckedAt: row.robots_checked_at,
+          priority: source.priority ?? 0,
+          cadenceHours: row.cadence_hours === null ? 0 : Math.round(Number(row.cadence_hours) * 100) / 100,
+        }
+      : {}),
+  };
+}
+
+/** Admin › Sources' orders: the column, its direction, and whether it holds NULLs (sorted last). */
+const SORTS: Record<AdminSourcesQuery['sort'], { column: string; desc: boolean; nullable: boolean }> = {
+  next_run: { column: 's.next_run_at', desc: false, nullable: true },
+  last_run: { column: 's.last_run_at', desc: true, nullable: true },
+  name: { column: 's.name', desc: false, nullable: false },
+  open_jobs: { column: 's.open_jobs', desc: true, nullable: false },
+  failures: { column: 's.consecutive_failures', desc: true, nullable: false },
+};
+
+const STALE_CURSOR = 'This list changed. Load it again from the top.';
+
+/** The keyset condition after a cursor's row for a sort (NULLs last, the id breaking ties in the sort's direction). */
+function afterSorted(sort: (typeof SORTS)[keyof typeof SORTS], cursor: string): { sql: string; params: Record<string, unknown> } {
+  const { k, id } = decodeCursor(cursor, STALE_CURSOR);
+  if (typeof id !== 'number' || (k !== null && typeof k !== 'string' && typeof k !== 'number')) throw validationFailed(STALE_CURSOR);
+  const past = sort.desc ? '<' : '>';
+  const key = sort.nullable && typeof k === 'string' ? `CAST(@cursorKey AS timestamptz)` : '@cursorKey';
+  if (k === null) return { sql: `(${sort.column} IS NULL AND s.id ${past} @cursorId)`, params: { cursorId: id } };
+  const sql =
+    `(${sort.column} ${past} ${key} OR (${sort.column} = ${key} AND s.id ${past} @cursorId)` +
+    `${sort.nullable ? ` OR ${sort.column} IS NULL` : ''})`;
+  return { sql, params: { cursorKey: k, cursorId: id } };
+}
+
+/** A list filter's values as one text parameter (`= ANY(string_to_array(...))`): the values are closed lists. */
+const listParam = (values: readonly string[]) => values.join(',');
+
+/**
+ * Admin › Sources at 80,000 rows (12 §9.8): searched by name or host, filtered (kind, tier, terms, robots, how found,
+ * enabled, failing, host, company), counted, ordered (next run by default, idx_job_sources_next_run) and paged by a
+ * keyset cursor. `runningHere`: the sources this process runs now (the rest by their lease).
+ */
+export async function listAdminSources(
+  db: DbQueries,
+  query: AdminSourcesQuery,
+  at: string,
+  runningHere: (id: number) => boolean = () => false,
+): Promise<{ items: AdminSource[]; total: number; nextCursor?: string }> {
+  const where = new Where();
+  if (query.q) where.add("(s.name ILIKE @q ESCAPE '\\' OR s.host ILIKE @q ESCAPE '\\')", { q: likeText(query.q) });
+  if (query.kind.length) where.add("s.kind = ANY(string_to_array(@kinds, ','))", { kinds: listParam(query.kind) });
+  if (query.tier.length) where.add("s.tier = ANY(string_to_array(@tiers, ','))", { tiers: listParam(query.tier) });
+  if (query.terms.length) where.add("s.terms_status = ANY(string_to_array(@terms, ','))", { terms: listParam(query.terms) });
+  if (query.robots.length) where.add("s.robots_status = ANY(string_to_array(@robots, ','))", { robots: listParam(query.robots) });
+  if (query.discoveredVia.length) {
+    where.add("s.discovered_via = ANY(string_to_array(@via, ','))", { via: listParam(query.discoveredVia) });
+  }
+  if (query.enabled !== 'all') where.add(query.enabled === 'enabled' ? 's.enabled' : 'NOT s.enabled');
+  if (query.failing) where.add("(s.consecutive_failures > 0 OR s.tier = 'failing')");
+  if (query.host) where.add('s.host = @host', { host: query.host });
+  if (query.companyId) where.add('s.company_id = @companyId', { companyId: query.companyId });
+  const total = (await db.one<{ n: number }>(`SELECT count(*) AS n FROM job_sources s ${where.sql()}`, where.params as SqlParams))?.n ?? 0;
+
+  const sort = SORTS[query.sort];
+  if (query.cursor) {
+    const after = afterSorted(sort, query.cursor);
+    where.add(after.sql, after.params);
+  }
+  const direction = sort.desc ? 'DESC' : 'ASC';
+  const rows = await db.all<ListedRow>(
+    `SELECT ${LISTED_COLUMNS} FROM ${LISTED_FROM} ${where.sql()} ` +
+      `ORDER BY ${sort.column} ${direction}${sort.nullable ? ' NULLS LAST' : ''}, s.id ${direction} LIMIT @limit`,
+    { ...where.params, limit: query.limit + 1 } as SqlParams,
+  );
+  const page = rows.slice(0, query.limit);
+  const { counts, latest } = await extrasOf(
+    db,
+    page.map((row) => row.id),
+  );
+  const items = page.map((row) => toAdminSource(row, at, counts.get(row.id), latest.get(row.id) ?? null, runningHere(row.id), false));
+  if (rows.length <= query.limit || page.length === 0) return { items, total };
+  const last = page[page.length - 1]!;
+  // The sort column's value on the last row ("s.next_run_at" -> next_run_at), and its id.
+  const value = (last as unknown as Record<string, string | number | null | undefined>)[sort.column.slice(2)];
+  return { items, total, nextCursor: encodeCursor({ k: value ?? null, id: last.id }) };
+}
+
+/** One source for the admin (its row, job counts, latest run, terms and pace), or null. */
+export async function adminSource(db: DbQueries, id: number, running: boolean, at = new Date().toISOString()): Promise<AdminSource | null> {
+  const row = await db.one<ListedRow>(`SELECT ${LISTED_COLUMNS} FROM ${LISTED_FROM} WHERE s.id = ?`, [id]);
+  if (!row) return null;
+  const { counts, latest } = await extrasOf(db, [id]);
+  return toAdminSource(row, at, counts.get(id), latest.get(id) ?? null, running, true);
+}
+
+/**
+ * Runs, newest first (CT's AdminRunsQuery: a source, kinds, statuses), a page at a time; the cursor is the last run's
+ * id. `before` (a run id) is v2.0's cursor and still read.
+ */
+export async function adminRuns(
+  db: DbQueries,
+  options: { sourceId?: number; limit: number; before?: number; kind?: readonly string[]; status?: readonly string[]; cursor?: string },
+): Promise<{ items: AdminRun[]; nextCursor?: string }> {
+  const where = new Where();
+  if (options.sourceId !== undefined) where.add('r.source_id = @sourceId', { sourceId: options.sourceId });
+  if (options.kind?.length) where.add("s.kind = ANY(string_to_array(@kinds, ','))", { kinds: listParam(options.kind) });
+  if (options.status?.length) where.add("r.status = ANY(string_to_array(@statuses, ','))", { statuses: listParam(options.status) });
+  let before = options.before;
+  if (options.cursor !== undefined) {
+    before = Number(options.cursor);
+    if (!Number.isSafeInteger(before) || before <= 0) throw validationFailed(STALE_CURSOR);
+  }
+  if (before !== undefined) where.add('r.id < @before', { before });
+  const rows = await db.all<RunRow>(
+    'SELECT r.*, s.kind AS kind, s.name AS name, s.config AS config FROM job_source_runs r JOIN job_sources s ON s.id = r.source_id ' +
+      `${where.sql()} ORDER BY r.id DESC LIMIT @limit`,
+    { ...where.params, limit: options.limit + 1 } as SqlParams,
+  );
+  const items = rows.slice(0, options.limit).map(toAdminRun);
+  return rows.length > options.limit ? { items, nextCursor: String(items[items.length - 1]!.id) } : { items };
+}
+
+/** The run history's query (CT's AdminRunsQuery) for adminRuns. */
+export const runsOptionsOf = (query: AdminRunsQuery) => ({
+  sourceId: query.sourceId,
+  kind: query.kind,
+  status: query.status,
+  cursor: query.cursor,
+  limit: query.limit,
+});
+
+const RUN_SQL =
+  'SELECT r.*, s.kind AS kind, s.name AS name, s.config AS config FROM job_source_runs r JOIN job_sources s ON s.id = r.source_id WHERE r.id = ?';
+
+function toRunDetail(row: RunRow): AdminRunDetail {
+  return { ...toAdminRun(row), log: (row.log ?? '').split('\n').filter(Boolean) };
+}
+
+export async function adminRun(db: DbQueries, id: number): Promise<AdminRunDetail | null> {
+  const row = await db.one<RunRow>(RUN_SQL, [id]);
+  return row ? toRunDetail(row) : null;
+}
+
+// ------------------------------------------------------------------------------------------------- bulk actions
+
+/** The words of a bulk row that was skipped. */
+const SKIP_WORDS = {
+  gone: 'That source no longer exists.',
+  already_enabled: 'It is on already.',
+  already_disabled: 'It is off already.',
+  never_run: 'This kind of source is never run, so it cannot be turned on or run.',
+  disabled: 'It is off: turn it on first.',
+  terms: 'Its terms do not allow automated access yet.',
+  robots: "Its host's robots.txt does not allow it (or has not been read yet).",
+  not_scheduled: 'This kind of source runs only by hand (Run now).',
+  /** v30 FIX-A: its company opted out (the words are MSG_INGEST_SOURCE_OPTED_OUT's, given by the route). */
+  opted_out: "This source's company asked TailorIT not to read its jobs.",
+} as const;
+
+/**
+ * Admin › Sources' bulk actions on up to 100 sources (12 §9.8): turn them on or off, or make them due now (the worker
+ * runs them next, under each host's pace; nothing runs in the request). One UPDATE per action, each row answered.
+ */
+export async function bulkSources(
+  db: DbQueries,
+  body: AdminSourcesBulkBody,
+  now: string,
+  optedOutWords: string = SKIP_WORDS.opted_out,
+): Promise<{ ids: number[]; body: AdminSourcesBulkResult }> {
+  // v30 FIX-A (SEC-2, BEH-3): enable and run now skip a source whose company opted out (opt-out-gate.ts).
+  const optedOut = body.action === 'disable' ? new Set<number>() : await optedOutSources(db, body.ids);
+  const rows = new Map(
+    (await db.all<SourceRow>("SELECT * FROM job_sources WHERE id = ANY(CAST(string_to_array(?, ',') AS bigint[]))", [body.ids.join(',')])).map(
+      (row) => [row.id, toSourceRecord(row)],
+    ),
+  );
+  const results: AdminSourcesBulkResult['results'] = [];
+  const chosen: number[] = [];
+  for (const id of body.ids) {
+    const source = rows.get(id);
+    const skip = (why: keyof typeof SKIP_WORDS) =>
+      results.push({ id, outcome: 'skipped', message: why === 'opted_out' ? optedOutWords : SKIP_WORDS[why] });
+    if (!source) skip('gone');
+    else if (optedOut.has(id) && !(body.action === 'enable' && source.enabled)) skip('opted_out');
+    else if (body.action === 'enable') {
+      if (UNRUN_KINDS.includes(source.kind)) skip('never_run');
+      else if (source.enabled) skip('already_enabled');
+      else chosen.push(id);
+    } else if (body.action === 'disable') {
+      if (!source.enabled) skip('already_disabled');
+      else chosen.push(id);
+    } else if (UNRUN_KINDS.includes(source.kind)) skip('never_run');
+    else if (!SCHEDULED_KINDS.includes(source.kind)) skip('not_scheduled');
+    else if (!source.enabled) skip('disabled');
+    else if (!['allowed', 'allowed_with_conditions'].includes(source.termsStatus ?? '')) skip('terms');
+    else if (!['allowed', 'not_applicable'].includes(source.robotsStatus ?? '')) skip('robots');
+    else chosen.push(id);
+  }
+  if (chosen.length > 0) {
+    const sql =
+      body.action === 'enable'
+        ? // A source turned on is due at once (a kind the worker runs).
+          `UPDATE job_sources SET enabled = true, updated_at = @now, next_run_at = CASE WHEN kind = ANY(string_to_array(@scheduled, ','))
+             THEN LEAST(COALESCE(next_run_at, CAST(@now AS timestamptz)), CAST(@now AS timestamptz)) ELSE next_run_at END
+           WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))`
+        : body.action === 'disable'
+          ? "UPDATE job_sources SET enabled = false, updated_at = @now WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))"
+          : "UPDATE job_sources SET next_run_at = CAST(@now AS timestamptz) WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))";
+    await db.run(sql, { now, ids: chosen.join(','), scheduled: SCHEDULED_KINDS.join(',') });
+    for (const id of chosen) results.push({ id, outcome: 'done' });
+  }
+  // In the request's order.
+  const order = new Map(body.ids.map((id, index) => [id, index]));
+  results.sort((a, b) => order.get(a.id as number)! - order.get(b.id as number)!);
+  const counts: AdminSourcesBulkResult['counts'] = {};
+  for (const result of results) counts[result.outcome] = (counts[result.outcome] ?? 0) + 1;
+  return { ids: chosen, body: { results, counts } };
+}

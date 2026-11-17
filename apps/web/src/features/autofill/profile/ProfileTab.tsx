@@ -1,0 +1,548 @@
+'use client';
+
+import type {
+  AutofillProfileEnvelope,
+  AutofillResumeList,
+  AutofillSensitiveEnvelope,
+} from '@tailorit/shared/autofill';
+import { isResumeTemplateId, RESUME_TEMPLATES } from '@tailorit/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
+import { Button } from '@/components/ui/Button';
+import { Notice } from '@/components/ui/Notice';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { useToast } from '@/components/ui/Toast';
+import { ApiError, userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
+import {
+  autofillKeys,
+  fetchAutofillProfile,
+  fetchAutofillResumes,
+  fetchAutofillSeed,
+  fetchAutofillSensitive,
+  saveAutofillProfile,
+} from '../api';
+import { cleanDraft, type AutofillDraft } from '../draft';
+import { SectionHeadingLevel } from '../Section';
+import { validateAutofillProfile } from '../validate';
+import { ProfileFormProvider, useProfileFormState } from './form';
+import { CertificationsSection, EducationSection, ExperienceSection, LanguagesSkillsSection } from './HistorySections';
+import { ContactSection, LinksSection, NameSection } from './PersonalSections';
+import { ImportStep, OtherStepsNotice, ProfileStepper, ReviewStep, StepHeader, WizardFooter } from './ProfileWizard';
+import {
+  AnythingElseSection,
+  OnceChecklistSection,
+  OtherQuestionsSection,
+  ResumeSection,
+  ScreeningSection,
+  SelfIdentificationSection,
+  WorkAuthorizationSection,
+} from './QuestionSections';
+import { SectionLinkContext } from './sectionLink';
+import { LetterTemplateSection, ResumeTemplateSection, useLetterTemplates } from './TemplateSections';
+import {
+  messagesIn,
+  messagesUpTo,
+  neighbourStep,
+  planAdvance,
+  planSave,
+  readWizardStep,
+  stepOfSection,
+  stepsWithMessages,
+  type SummaryNames,
+  type WizardStepId,
+} from './wizard';
+
+/**
+ * What outlives the form between saves: a save gives both queries new data, and the form starts again from it (a new
+ * mount), so where focus goes next is kept here, above it.
+ */
+interface WizardMemory {
+  /** The step whose heading (or `anchor`'s card) takes focus once it shows. */
+  focus: WizardStepId | null;
+  anchor: string | null;
+}
+
+/**
+ * Settings › Autofill › Profile (v1.4 E, decision 19): the answers the extension fills applications with, both parts
+ * saved together, as a step-by-step wizard like jobright.ai's profile onboarding. The step is in the address
+ * (`&step=`); a profile never saved starts on the import, one already saved on the Review.
+ */
+export function ProfileTab() {
+  const profile = useQuery({ queryKey: autofillKeys.profile, queryFn: ({ signal }) => fetchAutofillProfile(signal) });
+  const sensitive = useQuery({ queryKey: autofillKeys.sensitive, queryFn: ({ signal }) => fetchAutofillSensitive(signal) });
+  const resumes = useQuery({ queryKey: autofillKeys.resumes, queryFn: ({ signal }) => fetchAutofillResumes(signal) });
+  const memoryRef = useRef<WizardMemory>({ focus: null, anchor: null });
+  const [savedThisVisit, setSavedThisVisit] = useState(false);
+
+  const reload = () => {
+    void profile.refetch();
+    void sensitive.refetch();
+  };
+
+  if (profile.isError || sensitive.isError) {
+    return (
+      <Notice
+        tone="error"
+        title="Your autofill profile could not be loaded"
+        action={
+          <Button variant="outline" size="sm" onClick={reload}>
+            Try again
+          </Button>
+        }
+      >
+        {userMessage(profile.error ?? sensitive.error, 'Please try again in a moment.')}
+      </Notice>
+    );
+  }
+  if (profile.isPending || sensitive.isPending) return <ProfileSkeleton />;
+  return (
+    <ProfileForm
+      // A save (or a reload after a conflict) gives both queries new data: the form starts again from it.
+      key={`${profile.dataUpdatedAt}:${sensitive.dataUpdatedAt}`}
+      profile={profile.data}
+      sensitive={sensitive.data}
+      resumes={resumes.data ?? null}
+      onReload={reload}
+      memoryRef={memoryRef}
+      savedThisVisit={savedThisVisit}
+      onSaved={() => setSavedThisVisit(true)}
+    />
+  );
+}
+
+/** What a save does once it is through. */
+type AfterSave = { kind: 'move'; to: WizardStepId } | { kind: 'exit' } | { kind: 'stay' };
+
+interface SaveRequest {
+  draft: AutofillDraft;
+  from: WizardStepId;
+  after: AfterSave;
+}
+
+function ProfileForm({
+  profile,
+  sensitive,
+  resumes,
+  onReload,
+  memoryRef,
+  savedThisVisit,
+  onSaved,
+}: {
+  profile: AutofillProfileEnvelope;
+  sensitive: AutofillSensitiveEnvelope;
+  resumes: AutofillResumeList | null;
+  onReload: () => void;
+  memoryRef: RefObject<WizardMemory>;
+  savedThisVisit: boolean;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const { t } = usePublicConstants();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const initial = useMemo<AutofillDraft>(
+    () => ({ profile: profile.profile, sensitive: sensitive.sensitive }),
+    [profile, sensitive],
+  );
+  const [state, dispatch] = useProfileFormState(initial);
+  // Bumped by Discard, so the fields' own state (a value set aside, half-typed chips) starts again too.
+  const [generation, setGeneration] = useState(0);
+  const [formError, setFormError] = useState<string | null>(null);
+  // The page's own checks refused the last move or save: the notice above the footer counts this step's fields.
+  const [checksRefused, setChecksRefused] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [pickedResume, setPickedResume] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  // The two parts load apart: a save is made from the older revision, so either one being stale is refused.
+  const revision = Math.min(profile.revision, sensitive.revision);
+  const step = readWizardStep(searchParams.get('step'), revision);
+  const dirty = JSON.stringify(state.draft) !== JSON.stringify(initial);
+  const seedResumeId = pickedResume ?? resumes?.defaultResumeId ?? resumes?.items[0]?.id ?? null;
+  const errorSteps = stepsWithMessages(Object.keys(state.errors));
+
+  /** Goes to a step (and a card on it): the address says which, and its heading (or the card) takes focus. */
+  const goTo = useCallback(
+    (next: WizardStepId, anchor: string | null = null) => {
+      memoryRef.current = { focus: next, anchor };
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', 'profile');
+      params.set('step', next);
+      router.replace(`${pathname}?${params.toString()}${anchor ? `#${anchor}` : ''}`, { scroll: false });
+    },
+    [memoryRef, pathname, router, searchParams],
+  );
+
+  // The step (or the card) asked for takes focus once it shows; a step shown on arrival is left alone. The step's top
+  // comes into view when Next was pressed at the bottom of a long step.
+  useEffect(() => {
+    const wanted = memoryRef.current;
+    if (wanted.focus !== step) return;
+    const card = wanted.anchor ? document.getElementById(wanted.anchor) : null;
+    if (card) {
+      card.scrollIntoView({ block: 'start' });
+      card.focus({ preventScroll: true });
+    } else {
+      const top = topRef.current;
+      if (top && top.getBoundingClientRect().top < 72) top.scrollIntoView({ block: 'start' });
+      headingRef.current?.focus({ preventScroll: true });
+    }
+    // Next's save mounts the form again with the saved data, maybe just after this: that mount takes focus too (this
+    // heading is then gone). Only then is the move done.
+    const timer = window.setTimeout(() => {
+      if (memoryRef.current === wanted) memoryRef.current = { focus: null, anchor: null };
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [step, memoryRef]);
+
+  // An "Answer" link: the card's step, then the card. On this step already: straight to the card.
+  const linkToSection = useCallback(
+    (section: string) => {
+      const target = stepOfSection(section);
+      if (target && target !== step) {
+        goTo(target, section);
+        return;
+      }
+      const card = document.getElementById(section);
+      if (!card) return;
+      window.history.replaceState(window.history.state, '', `#${section}`);
+      card.scrollIntoView({ block: 'start' });
+      card.focus({ preventScroll: true });
+    },
+    [goTo, step],
+  );
+
+  const save = useMutation({
+    mutationFn: ({ draft }: SaveRequest) =>
+      saveAutofillProfile({ revision, profile: draft.profile, sensitive: draft.sensitive }),
+    onSuccess: (saved, { draft, from, after }) => {
+      const flagged = saved.anythingElseFlaggedLines.length > 0;
+      if (after.kind === 'move') {
+        // A note that now states a sensitive answer: the step stays, so its warning is read.
+        const noteChanged = draft.profile.anythingElse !== initial.profile.anythingElse;
+        if (from === 'questions' && flagged && noteChanged) {
+          toast.info('Saved. Check your note', 'Some lines of it state a sensitive answer, so the AI never reads them.');
+        } else {
+          goTo(after.to);
+        }
+      } else {
+        toast.success(
+          'Autofill profile saved',
+          flagged && after.kind === 'stay' ? 'Some lines of your note state a sensitive answer: see Questions & preferences.' : undefined,
+        );
+        if (after.kind === 'exit') goTo('review');
+      }
+      onSaved();
+      queryClient.setQueryData<AutofillProfileEnvelope>(autofillKeys.profile, {
+        apiVersion: profile.apiVersion,
+        revision: saved.revision,
+        updatedAt: saved.updatedAt,
+        profile: saved.profile,
+        anythingElseFlaggedLines: saved.anythingElseFlaggedLines,
+      });
+      queryClient.setQueryData<AutofillSensitiveEnvelope>(autofillKeys.sensitive, {
+        apiVersion: sensitive.apiVersion,
+        revision: saved.revision,
+        updatedAt: saved.updatedAt,
+        // The Settings session always gets the sensitive part back; a token without profile:sensitive does not.
+        sensitive: saved.sensitive ?? draft.sensitive,
+      });
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === 'revision_conflict') {
+        setConflict(true);
+        return;
+      }
+      if (error instanceof ApiError && error.fields) {
+        dispatch({ type: 'refused', messages: error.fields });
+        setAttempts((count) => count + 1);
+      }
+      setFormError(userMessage(error, 'Your autofill profile could not be saved. Please try again.'));
+    },
+  });
+
+  const fill = useMutation({
+    mutationFn: (resumeId: string | null) =>
+      queryClient.fetchQuery({
+        queryKey: autofillKeys.seed(resumeId),
+        queryFn: ({ signal }) => fetchAutofillSeed(resumeId, signal),
+        staleTime: 0,
+      }),
+    // Merged in the reducer, into the draft as it stands now.
+    onSuccess: (seed) => dispatch({ type: 'fill', seed }),
+    onError: (error) => toast.error('Your resume could not be read', userMessage(error)),
+  });
+
+  // Each fill is announced once: showing a toast changes `toast` itself, which runs this effect again.
+  const { lastFill } = state;
+  const announcedFill = useRef(lastFill);
+  useEffect(() => {
+    if (!lastFill || announcedFill.current === lastFill) return;
+    announcedFill.current = lastFill;
+    const from = lastFill.label ? `"${lastFill.label}"` : 'your settings';
+    if (lastFill.count === 0) toast.info('Nothing to fill', `Every field ${from} covers already has an answer.`);
+    else toast.success(`Filled ${lastFill.count} ${lastFill.count === 1 ? 'field' : 'fields'} from ${from}`, 'Check them in the next steps.');
+  }, [lastFill, toast]);
+
+  // After a refused move or save, bring the first field with a message on this step into view.
+  useEffect(() => {
+    if (attempts === 0) return;
+    const first = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"], [data-field-error]');
+    if (!first) return;
+    first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (first.matches('input, textarea, button')) first.focus({ preventScroll: true });
+  }, [attempts]);
+
+  /** The draft as it would be saved, and the page's own checks of all of it. */
+  const check = () => {
+    setFormError(null);
+    setChecksRefused(false);
+    setConflict(false);
+    const cleaned = cleanDraft(state.draft);
+    dispatch({ type: 'cleaned', draft: cleaned });
+    const messages = validateAutofillProfile(
+      cleaned,
+      (max) => t('MSG_TEXT_TOO_LONG', { max }),
+      (max) => t('MSG_LIST_TOO_LONG', { max }),
+    );
+    const changed = JSON.stringify(cleaned) !== JSON.stringify(initial);
+    return { cleaned, messages, changed };
+  };
+
+  const refuse = (messages: Record<string, string>) => {
+    dispatch({ type: 'refused', messages });
+    setChecksRefused(true);
+    setAttempts((value) => value + 1);
+  };
+
+  /** Next: this step's checks, then a save of the draft with the profile's revision, then the next step. */
+  const advance = (to: WizardStepId) => {
+    const { cleaned, messages, changed } = check();
+    const plan = planAdvance({ from: step, to, dirty: changed, messages });
+    switch (plan.kind) {
+      case 'fix-here':
+        // This step's fields and the earlier steps': the steps not reached yet are checked when they are.
+        refuse(messagesUpTo(step, messages));
+        return;
+      case 'move':
+        goTo(plan.to);
+        return;
+      case 'save':
+        save.mutate({ draft: cleaned, from: step, after: { kind: 'move', to: plan.to } });
+        return;
+      case 'move-unsaved':
+        // The later step's messages wait for it; the draft is saved once it passes.
+        dispatch({ type: 'refused', messages });
+        goTo(plan.to);
+        return;
+      case 'fix-elsewhere':
+        refuse(messages);
+        return;
+    }
+  };
+
+  /** Save & exit (and the Review's Save changes): the whole draft is checked and saved, then the Review shows. */
+  const saveAll = (after: AfterSave) => {
+    const { cleaned, messages, changed } = check();
+    const plan = planSave({ from: step, dirty: changed, messages });
+    switch (plan.kind) {
+      case 'fix-here':
+      case 'fix-elsewhere':
+        refuse(messages);
+        return;
+      case 'nothing':
+        if (after.kind === 'exit') goTo('review');
+        return;
+      case 'save':
+        save.mutate({ draft: cleaned, from: step, after });
+        return;
+    }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (save.isPending) return;
+    if (step === 'review') saveAll({ kind: 'stay' });
+    else advance(neighbourStep(step, 1) ?? 'review');
+  };
+
+  const back = () => {
+    const previous = neighbourStep(step, -1);
+    if (previous) goTo(previous);
+  };
+
+  // A dot goes to its step at once, the draft kept as it is (unsaved changes stay marked): Next is what saves.
+  const select = (target: WizardStepId) => {
+    if (target !== step) goTo(target);
+  };
+
+  const discard = () => {
+    dispatch({ type: 'discard', draft: initial });
+    setGeneration((value) => value + 1);
+    setFormError(null);
+    setChecksRefused(false);
+    setConflict(false);
+  };
+
+  // Counted from this step's messages still shown, so an edit or a fill that clears the last one takes the notice away.
+  const needChange = checksRefused ? Object.keys(messagesIn(step, state.errors)).length : 0;
+  const otherSteps = errorSteps.filter((other) => other !== step && other !== 'review');
+
+  const letterTemplates = useLetterTemplates();
+  const names: SummaryNames = {
+    resume: (id) => resumes?.items.find((resume) => resume.id === id)?.label ?? null,
+    resumeTemplate: (id) => (isResumeTemplateId(id) ? RESUME_TEMPLATES[id].name : null),
+    letterTemplate: (id) => letterTemplates.data?.items.find((template) => template.id === id)?.name ?? null,
+  };
+
+  let content: ReactNode;
+  switch (step) {
+    case 'import':
+      content = (
+        <ImportStep
+          resumes={resumes}
+          seedResumeId={seedResumeId}
+          onPickResume={setPickedResume}
+          filling={fill.isPending}
+          busy={save.isPending}
+          onFill={() => fill.mutate(seedResumeId)}
+          notes={state.notes}
+        />
+      );
+      break;
+    case 'personal':
+      content = (
+        <>
+          <NameSection />
+          <ContactSection />
+          <LinksSection />
+        </>
+      );
+      break;
+    case 'education':
+      content = <EducationSection />;
+      break;
+    case 'experience':
+      content = <ExperienceSection />;
+      break;
+    case 'skills':
+      content = (
+        <>
+          <LanguagesSkillsSection />
+          <CertificationsSection />
+        </>
+      );
+      break;
+    case 'authorization':
+      content = (
+        <>
+          <OnceChecklistSection />
+          <WorkAuthorizationSection />
+          <SelfIdentificationSection />
+        </>
+      );
+      break;
+    case 'questions':
+      content = (
+        <>
+          <OtherQuestionsSection />
+          <ScreeningSection />
+          {/* The saved note and its flagged lines, from the last save or the page's load. */}
+          <AnythingElseSection flagged={{ note: profile.profile.anythingElse, lines: profile.anythingElseFlaggedLines }} />
+        </>
+      );
+      break;
+    case 'documents':
+      content = (
+        <>
+          <ResumeSection resumes={resumes} />
+          <ResumeTemplateSection />
+          <LetterTemplateSection />
+        </>
+      );
+      break;
+    case 'review':
+      content = <ReviewStep draft={state.draft} errorSteps={errorSteps} names={names} onEdit={(target) => goTo(target)} />;
+      break;
+  }
+
+  return (
+    <ProfileFormProvider state={state} dispatch={dispatch} busy={save.isPending}>
+      <SectionLinkContext.Provider value={linkToSection}>
+        <SectionHeadingLevel.Provider value={3}>
+          <form ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-profile-wizard={step}>
+            <div ref={topRef} className="scroll-mt-20">
+              <ProfileStepper current={step} draft={state.draft} errorSteps={errorSteps} onSelect={select} />
+            </div>
+            <StepHeader step={step} headingRef={headingRef} />
+
+            <div key={generation} className="flex flex-col gap-6">
+              {content}
+            </div>
+
+            {conflict && (
+              <Notice
+                tone="warning"
+                title="This profile changed in another tab."
+                action={
+                  <Button variant="outline" size="sm" onClick={onReload}>
+                    Reload
+                  </Button>
+                }
+              >
+                Reload it to see those changes. The changes made here are not saved.
+              </Notice>
+            )}
+            {needChange > 0 && (
+              <Notice tone="error">
+                {needChange === 1 ? 'One field needs a change before this can be saved.' : `${needChange} fields need a change before this can be saved.`}
+              </Notice>
+            )}
+            <OtherStepsNotice steps={otherSteps} onGo={(target) => goTo(target)} />
+            {formError && <Notice tone="error">{formError}</Notice>}
+
+            <WizardFooter
+              step={step}
+              dirty={dirty}
+              saving={save.isPending}
+              savedThisVisit={savedThisVisit}
+              onBack={back}
+              onDiscard={discard}
+              onSaveAndExit={() => saveAll({ kind: 'exit' })}
+            />
+          </form>
+        </SectionHeadingLevel.Provider>
+      </SectionLinkContext.Provider>
+    </ProfileFormProvider>
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading your autofill profile">
+      <div className="flex items-center justify-between gap-2">
+        {Array.from({ length: 9 }, (_, index) => (
+          <Skeleton key={index} className="size-7" rounded="full" />
+        ))}
+      </div>
+      <Skeleton className="h-7 w-64" />
+      {[0, 1].map((index) => (
+        <div key={index} className="rounded-surface border border-border bg-surface p-6 shadow-soft">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="mt-2 h-4 w-72" />
+          <div className="mt-6 grid gap-5 sm:grid-cols-2">
+            <Skeleton className="h-9 w-full" rounded="control" />
+            <Skeleton className="h-9 w-full" rounded="control" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

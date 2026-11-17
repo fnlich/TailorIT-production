@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# builds and caches
+.next/
+.next-*/
+dist/
+out/
+.turbo/
+.cache/
+*.tsbuildinfo
+
+# environment (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Google credentials: the service account key the Google Sheet import reads (GOOGLE_SERVICE_ACCOUNT_KEY_FILE)
+service-account-key.json
+*.service-account.json
+google-oauth-credentials.json
+
+# local data (DATA_DIR defaults outside the repo, but guard anyway)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# Next regenerates it on every dev/build run (it imports generated route types)
+apps/web/next-env.d.ts

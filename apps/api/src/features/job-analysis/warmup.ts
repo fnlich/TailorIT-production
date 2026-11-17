@@ -1,0 +1,54 @@
+import { createBackgroundGate } from '../../ai/background';
+import type { AppDeps } from '../../core/context';
+import { JOB_ANALYSIS_PROMPT_VERSION } from '../../ai/prompts/job-analysis/job-analysis';
+import { jobStatsJoin } from '../jobs/stats';
+import { jobTextJoin } from '../jobs/text';
+import type { JobAnalysisServiceInternals } from './service';
+
+// Optional AI warm-up for lazy mode (AI_JOB_ANALYSIS=lazy with AI_JOB_ANALYSIS_WARMUP_PER_HOUR > 0; off by default):
+// every 60/N minutes, the most-viewed live job without an AI analysis gets one, on the background slot, only when no
+// other job analysis is waiting and the background gate is open (no AI hold, no usage warning). In the other modes
+// the add-time backlog (./backlog.ts) does this work.
+// v3.0 PG-F: the text's length is job_texts.text_chars (features/jobs/text.ts's join), not jobs.description_text.
+// v30 DB-JOBS: "most viewed" reads job_stats.views (features/jobs/stats.ts), not the dropped jobs.view_count.
+
+export interface Warmup {
+  /** One warm-up step now (tests; the timer calls it). Answers the job queued, or null. */
+  tick(): Promise<number | null>;
+  stop(): void;
+}
+
+export function startJobAnalysisWarmup(
+  deps: AppDeps,
+  service: Pick<JobAnalysisServiceInternals, 'enqueue'>,
+  options: { timers?: boolean } = {},
+): Warmup {
+  const perHour = deps.config.ai.warmupPerHour;
+  const enabled = perHour > 0 && deps.config.ai.jobAnalysis === 'lazy' && deps.config.ai.enabled && deps.config.ai.backgroundSlots > 0;
+  const gate = createBackgroundGate(deps);
+  const busySql = "SELECT count(*) AS n FROM ai_tasks WHERE kind = 'job_analysis' AND status IN ('queued', 'running')";
+  const candidatesSql =
+    `SELECT j.id FROM jobs j ${jobTextJoin('j', 'jt')} ${jobStatsJoin('j', 'js')} WHERE j.active AND j.ai_input AND jt.text_chars >= 200 AND NOT EXISTS ` +
+    "(SELECT 1 FROM job_analyses a WHERE a.content_hash = j.content_hash AND a.source = 'ai' AND a.version = ?) " +
+    'ORDER BY coalesce(js.views, 0) DESC, j.posted_at DESC, j.id DESC LIMIT 25';
+
+  const tick = async (): Promise<number | null> => {
+    if (!enabled) return null;
+    try {
+      if (((await deps.db.one<{ n: number }>(busySql))?.n ?? 0) > 0 || !gate.allowed().ok) return null;
+      for (const { id } of await deps.db.all<{ id: number }>(candidatesSql, [JOB_ANALYSIS_PROMPT_VERSION])) {
+        if (await service.enqueue(id, 'background')) return id;
+      }
+    } catch (error) {
+      deps.log.warn('[job-analysis] warm-up step failed', error);
+    }
+    return null;
+  };
+
+  if (!enabled || options.timers === false) return { tick, stop: () => {} };
+  const everyMs = Math.max(60_000, Math.round(3_600_000 / perHour));
+  const timer = setInterval(() => void tick(), everyMs);
+  timer.unref?.();
+  deps.log.info(`[job-analysis] AI warm-up: ${perHour} job(s) an hour, most viewed first`);
+  return { tick, stop: () => clearInterval(timer) };
+}

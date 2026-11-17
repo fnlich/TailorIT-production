@@ -1,0 +1,45 @@
+{
+  "name": "tailorit",
+  "private": true,
+  "description": "TailorIT: a self-hosted job search, job tracker and documents app",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24.11 <25"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:webpack": "node scripts/dev.mjs --webpack",
+    "build": "npm run build -w @tailorit/api && npm run build -w @tailorit/web",
+    "start": "node scripts/start.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:migrate": "node scripts/run-api-script.mjs db:migrate",
+    "db:backup": "node scripts/db-backup.mjs",
+    "db:partitions": "node scripts/run-api-script.mjs db:partitions",
+    "ingest:worker": "node scripts/run-api-script.mjs ingest:worker",
+    "refdata:build": "node scripts/run-api-script.mjs refdata:build",
+    "refdata:match": "node scripts/run-api-script.mjs refdata:match",
+    "refdata:coverage": "node scripts/run-api-script.mjs refdata:coverage",
+    "doctor": "node scripts/doctor.mjs",
+    "setup:browser": "node scripts/install-browser.mjs",
+    "resumes:upgrade": "node scripts/run-api-script.mjs resumes:upgrade"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "24.19.2",
+    "eslint": "9.39.5",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true,
+    "@embedded-postgres/windows-x64@18.6.0-beta.19": true
+  }
+}

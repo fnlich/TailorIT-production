@@ -1,0 +1,2047 @@
+{
+  "groups": [
+    {
+      "name": "Languages",
+      "categories": [
+        "Languages"
+      ]
+    },
+    {
+      "name": "Cloud and Infrastructure",
+      "categories": [
+        "Cloud",
+        "Containers",
+        "Infrastructure as Code",
+        "Web Servers",
+        "Operating Systems"
+      ]
+    },
+    {
+      "name": "Build and Release",
+      "categories": [
+        "CI/CD",
+        "Artifact Management",
+        "Build Tools",
+        "Version Control"
+      ]
+    },
+    {
+      "name": "Monitoring",
+      "categories": [
+        "Monitoring"
+      ]
+    },
+    {
+      "name": "Data Platforms",
+      "categories": [
+        "Databases",
+        "Messaging",
+        "Data Engineering"
+      ]
+    },
+    {
+      "name": "Data Science",
+      "categories": [
+        "Machine Learning",
+        "Data Analysis"
+      ]
+    },
+    {
+      "name": "Development",
+      "categories": [
+        "Backend",
+        "Frontend",
+        "Mobile",
+        "APIs"
+      ]
+    },
+    {
+      "name": "Security and Compliance",
+      "categories": [
+        "Security",
+        "Compliance"
+      ]
+    },
+    {
+      "name": "Testing and Quality",
+      "categories": [
+        "Testing",
+        "Code Quality"
+      ]
+    },
+    {
+      "name": "Tools",
+      "categories": [
+        "Collaboration"
+      ]
+    }
+  ],
+  "hard": [
+    {
+      "skill": "Bash",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Awk",
+        "Sed",
+        "awk/sed",
+        "Linux Shell",
+        "Shell Scripting"
+      ]
+    },
+    {
+      "skill": "C",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "C#",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "C++",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Go",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Go Test",
+        "Golang"
+      ]
+    },
+    {
+      "skill": "Java",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Jakarta EE",
+        "JDBC",
+        "Hibernate",
+        "JPA"
+      ]
+    },
+    {
+      "skill": "JavaScript",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Kotlin",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "Kotlin Multiplatform"
+      ]
+    },
+    {
+      "skill": "PHP",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "PHPUnit"
+      ]
+    },
+    {
+      "skill": "PowerShell",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Python",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "SQL Alchemy",
+        "SQLAlchemy",
+        "Alembic"
+      ]
+    },
+    {
+      "skill": "Ruby",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Rust",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Scala",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "SQL",
+      "priority": 1,
+      "category": "Languages",
+      "aliases": [
+        "PL/SQL",
+        "T-SQL"
+      ]
+    },
+    {
+      "skill": "Swift",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "TypeScript",
+      "priority": 1,
+      "category": "Languages"
+    },
+    {
+      "skill": "Dart",
+      "priority": 2,
+      "category": "Languages"
+    },
+    {
+      "skill": "Elixir",
+      "priority": 2,
+      "category": "Languages"
+    },
+    {
+      "skill": "Groovy",
+      "priority": 2,
+      "category": "Languages"
+    },
+    {
+      "skill": "Lua",
+      "priority": 2,
+      "category": "Languages"
+    },
+    {
+      "skill": "MATLAB",
+      "priority": 2,
+      "category": "Languages"
+    },
+    {
+      "skill": "Objective-C",
+      "priority": 2,
+      "category": "Languages"
+    },
+    {
+      "skill": "Perl",
+      "priority": 2,
+      "category": "Languages"
+    },
+    {
+      "skill": "R",
+      "priority": 2,
+      "category": "Languages",
+      "aliases": [
+        "RStudio"
+      ]
+    },
+    {
+      "skill": "Clojure",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "COBOL",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "Erlang",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "F#",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "Haskell",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "Julia",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "Solidity",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "VB.NET",
+      "priority": 3,
+      "category": "Languages"
+    },
+    {
+      "skill": "AWS",
+      "priority": 1,
+      "category": "Cloud",
+      "aliases": [
+        "Amazon Web Services",
+        "AWS IAM",
+        "IAM",
+        "AWS Inspector",
+        "AWS KMS",
+        "AWS Macie",
+        "AWS Secrets Manager",
+        "AWS Security Hub",
+        "AWS Shield",
+        "AWS WAF",
+        "Amazon CloudFront",
+        "CloudFront",
+        "Amazon EC2",
+        "EC2",
+        "Amazon ECS",
+        "AWS ECS",
+        "ECS",
+        "Amazon EKS",
+        "EKS",
+        "Amazon RDS",
+        "AWS RDS",
+        "RDS",
+        "Amazon Route 53",
+        "Route53",
+        "Route 53",
+        "Amazon VPC",
+        "VPC",
+        "AWS App Runner",
+        "AWS Backup",
+        "AWS Batch",
+        "AWS CDK",
+        "CDK",
+        "AWS Cognito",
+        "AWS Config",
+        "AWS Control Tower",
+        "AWS Elastic Beanstalk",
+        "AWS Fargate",
+        "Fargate",
+        "AWS Global Accelerator",
+        "AWS Lambda",
+        "Lambda",
+        "AWS MSK",
+        "AWS Organizations",
+        "AWS PrivateLink",
+        "AWS SAM",
+        "AWS Step Functions",
+        "AWS Systems Manager",
+        "AWS Transit Gateway",
+        "AWS Trusted Advisor",
+        "Elastic Load Balancing",
+        "Amazon ALB",
+        "ALB",
+        "Amazon EMR",
+        "Amazon DynamoDB",
+        "AWS DynamoDB",
+        "DynamoDB",
+        "AWS Lake Formation",
+        "Amazon S3",
+        "AWS S3",
+        "S3",
+        "AWS Athena",
+        "AWS Glue",
+        "Amazon Aurora",
+        "Aurora",
+        "Amazon ElastiCache",
+        "ElastiCache",
+        "Amazon Redshift",
+        "Redshift",
+        "AWS CloudFormation",
+        "CloudFormation",
+        "AWS CodeBuild",
+        "AWS CodeDeploy",
+        "AWS CodePipeline",
+        "AWS CloudTrail",
+        "CloudTrail",
+        "AWS X-Ray",
+        "CloudWatch",
+        "Amazon CloudWatch",
+        "Amazon API Gateway",
+        "AWS AppSync",
+        "AWS EventBridge",
+        "Amazon Kinesis",
+        "Kinesis",
+        "Amazon SNS",
+        "SNS",
+        "Amazon SQS",
+        "SQS"
+      ]
+    },
+    {
+      "skill": "Azure",
+      "priority": 1,
+      "category": "Cloud",
+      "aliases": [
+        "Microsoft Azure",
+        "Azure Active Directory",
+        "Entra ID",
+        "Azure Firewall",
+        "Azure Key Vault",
+        "Azure Sentinel",
+        "Azure App Service",
+        "Azure Container Apps",
+        "Azure Front Door",
+        "Azure Functions",
+        "Azure Functions Durable",
+        "Azure Load Balancer",
+        "Azure Logic Apps",
+        "Azure Monitor",
+        "Azure Policy",
+        "Azure Resource Manager",
+        "Azure Bicep",
+        "Bicep",
+        "Azure Virtual Machines",
+        "Azure SQL",
+        "Azure SQL Database",
+        "Azure Blob Storage",
+        "Blob Storage",
+        "Azure Data Factory",
+        "Azure Synapse Analytics",
+        "Azure DevOps",
+        "Azure Pipelines",
+        "Azure Repos",
+        "Azure Kubernetes Service",
+        "AKS",
+        "Azure API Management",
+        "Azure Event Grid",
+        "Azure Event Hubs",
+        "Event Hub",
+        "Azure Service Bus",
+        "Service Bus",
+        "Cosmos DB",
+        "Azure Cosmos DB"
+      ]
+    },
+    {
+      "skill": "GCP",
+      "priority": 1,
+      "category": "Cloud",
+      "aliases": [
+        "Google Cloud Platform",
+        "Google Cloud",
+        "Cloud Armor",
+        "Google Cloud Armor WAF",
+        "Google IAM",
+        "Google Cloud CDN",
+        "Google Cloud DNS",
+        "Google Cloud Functions",
+        "Google Cloud Load Balancing",
+        "Cloud Run",
+        "Google Cloud Run",
+        "App Engine",
+        "Google App Engine",
+        "Google Artifact Registry",
+        "Artifact Registry",
+        "Google Composer",
+        "Cloud Composer",
+        "Google Compute Engine",
+        "Compute Engine",
+        "Google Dataflow",
+        "Cloud Dataflow",
+        "Google Secret Manager",
+        "Google Vertex AI",
+        "Vertex AI",
+        "Google Workflows",
+        "BigQuery",
+        "BigTable",
+        "Cloud Spanner",
+        "Spanner",
+        "Google Cloud SQL",
+        "Google Cloud Storage",
+        "Cloud Build",
+        "Google Cloud Build",
+        "Google Kubernetes Engine",
+        "GKE",
+        "Google Cloud Logging",
+        "Google Cloud Monitoring",
+        "Google Cloud Pub/Sub",
+        "Cloud Pub/Sub",
+        "Apigee",
+        "Looker"
+      ]
+    },
+    {
+      "skill": "Cloudflare",
+      "priority": 2,
+      "category": "Cloud",
+      "aliases": [
+        "Cloudflare Pages",
+        "Cloudflare Workers"
+      ]
+    },
+    {
+      "skill": "Firebase",
+      "priority": 2,
+      "category": "Cloud",
+      "aliases": [
+        "Cloud Firestore",
+        "Firestore",
+        "Firebase Realtime Database",
+        "Crashlytics",
+        "Firebase Mobile SDK"
+      ]
+    },
+    {
+      "skill": "Vercel",
+      "priority": 3,
+      "category": "Cloud",
+      "aliases": [
+        "Vercel Edge Functions"
+      ]
+    },
+    {
+      "skill": "Netlify",
+      "priority": 3,
+      "category": "Cloud"
+    },
+    {
+      "skill": "Heroku",
+      "priority": 3,
+      "category": "Cloud"
+    },
+    {
+      "skill": "DigitalOcean",
+      "priority": 3,
+      "category": "Cloud"
+    },
+    {
+      "skill": "Kubernetes",
+      "priority": 1,
+      "category": "Containers",
+      "aliases": [
+        "K8s",
+        "K3s",
+        "K9s",
+        "K9s/Lens",
+        "kubectl",
+        "Kustomize",
+        "Minikube"
+      ]
+    },
+    {
+      "skill": "Docker",
+      "priority": 1,
+      "category": "Containers",
+      "aliases": [
+        "Docker Compose",
+        "Dockerfile",
+        "Podman",
+        "Containerd",
+        "CRI-O"
+      ]
+    },
+    {
+      "skill": "Helm",
+      "priority": 1,
+      "category": "Containers",
+      "aliases": [
+        "Helmfile"
+      ]
+    },
+    {
+      "skill": "OpenShift",
+      "priority": 2,
+      "category": "Containers"
+    },
+    {
+      "skill": "Istio",
+      "priority": 2,
+      "category": "Containers"
+    },
+    {
+      "skill": "Consul",
+      "priority": 2,
+      "category": "Containers"
+    },
+    {
+      "skill": "Rancher",
+      "priority": 3,
+      "category": "Containers"
+    },
+    {
+      "skill": "Linkerd",
+      "priority": 3,
+      "category": "Containers"
+    },
+    {
+      "skill": "Envoy",
+      "priority": 3,
+      "category": "Containers"
+    },
+    {
+      "skill": "Cilium",
+      "priority": 3,
+      "category": "Containers"
+    },
+    {
+      "skill": "Calico",
+      "priority": 3,
+      "category": "Containers"
+    },
+    {
+      "skill": "Nomad",
+      "priority": 3,
+      "category": "Containers"
+    },
+    {
+      "skill": "Terraform",
+      "priority": 1,
+      "category": "Infrastructure as Code",
+      "aliases": [
+        "HCL",
+        "Terragrunt"
+      ]
+    },
+    {
+      "skill": "Ansible",
+      "priority": 1,
+      "category": "Infrastructure as Code"
+    },
+    {
+      "skill": "Pulumi",
+      "priority": 2,
+      "category": "Infrastructure as Code"
+    },
+    {
+      "skill": "Chef",
+      "priority": 2,
+      "category": "Infrastructure as Code"
+    },
+    {
+      "skill": "Puppet",
+      "priority": 2,
+      "category": "Infrastructure as Code"
+    },
+    {
+      "skill": "SaltStack",
+      "priority": 3,
+      "category": "Infrastructure as Code"
+    },
+    {
+      "skill": "Packer",
+      "priority": 3,
+      "category": "Infrastructure as Code"
+    },
+    {
+      "skill": "Vagrant",
+      "priority": 3,
+      "category": "Infrastructure as Code"
+    },
+    {
+      "skill": "Nginx",
+      "priority": 1,
+      "category": "Web Servers",
+      "aliases": [
+        "Nginix",
+        "NGINX Unit"
+      ]
+    },
+    {
+      "skill": "Apache HTTP Server",
+      "priority": 2,
+      "category": "Web Servers",
+      "aliases": [
+        "Apache httpd",
+        "httpd"
+      ]
+    },
+    {
+      "skill": "HAProxy",
+      "priority": 2,
+      "category": "Web Servers"
+    },
+    {
+      "skill": "Tomcat",
+      "priority": 3,
+      "category": "Web Servers",
+      "aliases": [
+        "Apache Tomcat"
+      ]
+    },
+    {
+      "skill": "Traefik",
+      "priority": 3,
+      "category": "Web Servers"
+    },
+    {
+      "skill": "Kong Gateway",
+      "priority": 3,
+      "category": "Web Servers",
+      "aliases": [
+        "Kong"
+      ]
+    },
+    {
+      "skill": "Linux",
+      "priority": 1,
+      "category": "Operating Systems",
+      "aliases": [
+        "Alpine Linux",
+        "CentOS",
+        "Debian",
+        "Linux Administration",
+        "Red Hat Enterprise Linux",
+        "RHEL",
+        "Ubuntu",
+        "Unix/Linux",
+        "Unix",
+        "Systemd"
+      ]
+    },
+    {
+      "skill": "Windows Server",
+      "priority": 2,
+      "category": "Operating Systems",
+      "aliases": [
+        "Windows Server Administration",
+        "Active Directory"
+      ]
+    },
+    {
+      "skill": "CI/CD",
+      "priority": 1,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "Jenkins",
+      "priority": 1,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "GitHub Actions",
+      "priority": 1,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "GitLab CI/CD",
+      "priority": 1,
+      "category": "CI/CD",
+      "aliases": [
+        "GitLab CI"
+      ]
+    },
+    {
+      "skill": "ArgoCD",
+      "priority": 1,
+      "category": "CI/CD",
+      "aliases": [
+        "Argo CD"
+      ]
+    },
+    {
+      "skill": "CircleCI",
+      "priority": 2,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "Flux CD",
+      "priority": 2,
+      "category": "CI/CD",
+      "aliases": [
+        "Flux"
+      ]
+    },
+    {
+      "skill": "Travis CI",
+      "priority": 3,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "TeamCity",
+      "priority": 3,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "Bamboo",
+      "priority": 3,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "Buildkite",
+      "priority": 3,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "Spinnaker",
+      "priority": 3,
+      "category": "CI/CD"
+    },
+    {
+      "skill": "JFrog Artifactory",
+      "priority": 2,
+      "category": "Artifact Management",
+      "aliases": [
+        "Artifactory",
+        "JFrog Xray",
+        "JFrog Platform"
+      ]
+    },
+    {
+      "skill": "Nexus Repository",
+      "priority": 3,
+      "category": "Artifact Management",
+      "aliases": [
+        "Sonatype Nexus",
+        "Nexus"
+      ]
+    },
+    {
+      "skill": "Harbor",
+      "priority": 3,
+      "category": "Artifact Management"
+    },
+    {
+      "skill": "Gradle",
+      "priority": 2,
+      "category": "Build Tools"
+    },
+    {
+      "skill": "Maven",
+      "priority": 2,
+      "category": "Build Tools",
+      "aliases": [
+        "Apache Maven"
+      ]
+    },
+    {
+      "skill": "Bazel",
+      "priority": 3,
+      "category": "Build Tools"
+    },
+    {
+      "skill": "CMake",
+      "priority": 3,
+      "category": "Build Tools"
+    },
+    {
+      "skill": "GNU Make",
+      "priority": 3,
+      "category": "Build Tools",
+      "aliases": [
+        "Makefile"
+      ]
+    },
+    {
+      "skill": "Git",
+      "priority": 1,
+      "category": "Version Control",
+      "aliases": [
+        "GitHub",
+        "GitLab",
+        "Bitbucket"
+      ]
+    },
+    {
+      "skill": "Prometheus",
+      "priority": 1,
+      "category": "Monitoring",
+      "aliases": [
+        "Alertmanager",
+        "Blackbox Exporter",
+        "Node Exporter",
+        "Thanos"
+      ]
+    },
+    {
+      "skill": "Grafana",
+      "priority": 1,
+      "category": "Monitoring",
+      "aliases": [
+        "Loki",
+        "Grafana Loki",
+        "Grafana Mimir",
+        "Grafana Tempo",
+        "Promtail"
+      ]
+    },
+    {
+      "skill": "Datadog",
+      "priority": 1,
+      "category": "Monitoring",
+      "aliases": [
+        "Datadog APM"
+      ]
+    },
+    {
+      "skill": "Splunk",
+      "priority": 1,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "ELK Stack",
+      "priority": 1,
+      "category": "Monitoring",
+      "aliases": [
+        "ELK",
+        "Logstash",
+        "Kibana"
+      ]
+    },
+    {
+      "skill": "New Relic",
+      "priority": 2,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "Dynatrace",
+      "priority": 2,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "OpenTelemetry",
+      "priority": 2,
+      "category": "Monitoring",
+      "aliases": [
+        "OpenTelemetry SDK",
+        "OTel"
+      ]
+    },
+    {
+      "skill": "PagerDuty",
+      "priority": 2,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "Sentry",
+      "priority": 2,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "Jaeger",
+      "priority": 3,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "Fluentd",
+      "priority": 3,
+      "category": "Monitoring",
+      "aliases": [
+        "Fluent Bit"
+      ]
+    },
+    {
+      "skill": "Opsgenie",
+      "priority": 3,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "Nagios",
+      "priority": 3,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "Zabbix",
+      "priority": 3,
+      "category": "Monitoring"
+    },
+    {
+      "skill": "PostgreSQL",
+      "priority": 1,
+      "category": "Databases",
+      "aliases": [
+        "Postgres",
+        "PostGIS",
+        "Postgres SQL",
+        "PgBouncer",
+        "Patroni",
+        "pgvector"
+      ]
+    },
+    {
+      "skill": "MySQL",
+      "priority": 1,
+      "category": "Databases",
+      "aliases": [
+        "MariaDB",
+        "Pivotal MySQL"
+      ]
+    },
+    {
+      "skill": "Microsoft SQL Server",
+      "priority": 1,
+      "category": "Databases",
+      "aliases": [
+        "SQL Server",
+        "MSSQL"
+      ]
+    },
+    {
+      "skill": "MongoDB",
+      "priority": 1,
+      "category": "Databases",
+      "aliases": [
+        "Mongoose"
+      ]
+    },
+    {
+      "skill": "Redis",
+      "priority": 1,
+      "category": "Databases",
+      "aliases": [
+        "Redis Cluster",
+        "Redis Sentinel",
+        "Redis Streams",
+        "RedisInsight"
+      ]
+    },
+    {
+      "skill": "Elasticsearch",
+      "priority": 1,
+      "category": "Databases",
+      "aliases": [
+        "OpenSearch"
+      ]
+    },
+    {
+      "skill": "Oracle Database",
+      "priority": 2,
+      "category": "Databases",
+      "aliases": [
+        "Oracle DB"
+      ]
+    },
+    {
+      "skill": "Cassandra",
+      "priority": 2,
+      "category": "Databases",
+      "aliases": [
+        "Cassandra Query Language",
+        "Apache Cassandra"
+      ]
+    },
+    {
+      "skill": "Neo4j",
+      "priority": 2,
+      "category": "Databases",
+      "aliases": [
+        "Cypher Query Language"
+      ]
+    },
+    {
+      "skill": "SQLite",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "IBM Db2",
+      "priority": 3,
+      "category": "Databases",
+      "aliases": [
+        "Db2"
+      ]
+    },
+    {
+      "skill": "Memcached",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "CouchDB",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "Couchbase",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "CockroachDB",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "Solr",
+      "priority": 3,
+      "category": "Databases",
+      "aliases": [
+        "Apache Solr"
+      ]
+    },
+    {
+      "skill": "InfluxDB",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "TimescaleDB",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "ClickHouse",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "Liquibase",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "Flyway",
+      "priority": 3,
+      "category": "Databases"
+    },
+    {
+      "skill": "DuckDB",
+      "priority": 4,
+      "category": "Databases"
+    },
+    {
+      "skill": "Apache Kafka",
+      "priority": 1,
+      "category": "Messaging",
+      "aliases": [
+        "Kafka",
+        "Kafka Streams",
+        "Kafka Connect",
+        "Schema Registry",
+        "Confluent"
+      ]
+    },
+    {
+      "skill": "RabbitMQ",
+      "priority": 2,
+      "category": "Messaging"
+    },
+    {
+      "skill": "MQTT",
+      "priority": 3,
+      "category": "Messaging"
+    },
+    {
+      "skill": "NATS",
+      "priority": 3,
+      "category": "Messaging",
+      "aliases": [
+        "NATS JetStream"
+      ]
+    },
+    {
+      "skill": "Apache Airflow",
+      "priority": 1,
+      "category": "Data Engineering",
+      "aliases": [
+        "Airflow"
+      ]
+    },
+    {
+      "skill": "Apache Spark",
+      "priority": 1,
+      "category": "Data Engineering",
+      "aliases": [
+        "Spark",
+        "PySpark"
+      ]
+    },
+    {
+      "skill": "Snowflake",
+      "priority": 2,
+      "category": "Data Engineering"
+    },
+    {
+      "skill": "Databricks",
+      "priority": 2,
+      "category": "Data Engineering",
+      "aliases": [
+        "Databricks SQL"
+      ]
+    },
+    {
+      "skill": "Apache Flink",
+      "priority": 2,
+      "category": "Data Engineering",
+      "aliases": [
+        "Flink"
+      ]
+    },
+    {
+      "skill": "Apache Hadoop",
+      "priority": 2,
+      "category": "Data Engineering",
+      "aliases": [
+        "Hadoop",
+        "HDFS",
+        "Hive",
+        "HBase",
+        "MapReduce"
+      ]
+    },
+    {
+      "skill": "dbt",
+      "priority": 2,
+      "category": "Data Engineering"
+    },
+    {
+      "skill": "Trino",
+      "priority": 3,
+      "category": "Data Engineering",
+      "aliases": [
+        "Presto"
+      ]
+    },
+    {
+      "skill": "Apache Beam",
+      "priority": 3,
+      "category": "Data Engineering",
+      "aliases": [
+        "Beam"
+      ]
+    },
+    {
+      "skill": "Delta Lake",
+      "priority": 3,
+      "category": "Data Engineering"
+    },
+    {
+      "skill": "Apache Iceberg",
+      "priority": 3,
+      "category": "Data Engineering",
+      "aliases": [
+        "Iceberg"
+      ]
+    },
+    {
+      "skill": "Debezium",
+      "priority": 3,
+      "category": "Data Engineering"
+    },
+    {
+      "skill": "Dagster",
+      "priority": 3,
+      "category": "Data Engineering"
+    },
+    {
+      "skill": "Prefect",
+      "priority": 3,
+      "category": "Data Engineering"
+    },
+    {
+      "skill": "Parquet",
+      "priority": 3,
+      "category": "Data Engineering",
+      "aliases": [
+        "Apache Parquet"
+      ]
+    },
+    {
+      "skill": "Apache Avro",
+      "priority": 3,
+      "category": "Data Engineering",
+      "aliases": [
+        "Avro"
+      ]
+    },
+    {
+      "skill": "PyTorch",
+      "priority": 1,
+      "category": "Machine Learning"
+    },
+    {
+      "skill": "TensorFlow",
+      "priority": 1,
+      "category": "Machine Learning",
+      "aliases": [
+        "Keras"
+      ]
+    },
+    {
+      "skill": "scikit-learn",
+      "priority": 1,
+      "category": "Machine Learning",
+      "aliases": [
+        "sklearn"
+      ]
+    },
+    {
+      "skill": "Hugging Face Transformers",
+      "priority": 2,
+      "category": "Machine Learning",
+      "aliases": [
+        "HuggingFace",
+        "Hugging Face"
+      ]
+    },
+    {
+      "skill": "LangChain",
+      "priority": 2,
+      "category": "Machine Learning"
+    },
+    {
+      "skill": "XGBoost",
+      "priority": 3,
+      "category": "Machine Learning",
+      "aliases": [
+        "LightGBM",
+        "CatBoost"
+      ]
+    },
+    {
+      "skill": "OpenCV",
+      "priority": 3,
+      "category": "Machine Learning"
+    },
+    {
+      "skill": "LlamaIndex",
+      "priority": 3,
+      "category": "Machine Learning"
+    },
+    {
+      "skill": "CUDA",
+      "priority": 3,
+      "category": "Machine Learning"
+    },
+    {
+      "skill": "Pandas",
+      "priority": 1,
+      "category": "Data Analysis"
+    },
+    {
+      "skill": "NumPy",
+      "priority": 1,
+      "category": "Data Analysis",
+      "aliases": [
+        "SciPy"
+      ]
+    },
+    {
+      "skill": "Jupyter",
+      "priority": 2,
+      "category": "Data Analysis",
+      "aliases": [
+        "Jupyter Notebooks"
+      ]
+    },
+    {
+      "skill": "Tableau",
+      "priority": 2,
+      "category": "Data Analysis"
+    },
+    {
+      "skill": "Power BI",
+      "priority": 2,
+      "category": "Data Analysis"
+    },
+    {
+      "skill": "Matplotlib",
+      "priority": 3,
+      "category": "Data Analysis",
+      "aliases": [
+        "Seaborn"
+      ]
+    },
+    {
+      "skill": ".NET",
+      "priority": 1,
+      "category": "Backend",
+      "aliases": [
+        ".NET Core",
+        "ASP.NET",
+        "ASP.NET Core",
+        "Entity Framework",
+        "Xamarin",
+        "NUnit",
+        "xUnit"
+      ]
+    },
+    {
+      "skill": "Node.js",
+      "priority": 1,
+      "category": "Backend",
+      "aliases": [
+        "Express.js",
+        "Express",
+        "NestJS",
+        "Fastify",
+        "Koa.js",
+        "Hapi.js",
+        "Prisma",
+        "Prisma Migrate",
+        "TypeORM",
+        "Sequelize",
+        "Knex.js",
+        "Bull/BullMQ",
+        "Passport.js"
+      ]
+    },
+    {
+      "skill": "Spring Boot",
+      "priority": 1,
+      "category": "Backend",
+      "aliases": [
+        "Spring",
+        "Spring Batch",
+        "Spring Cloud",
+        "Spring Data",
+        "Spring Integration",
+        "Spring Kafka",
+        "Spring MVC",
+        "Spring Security",
+        "Spring WebFlux"
+      ]
+    },
+    {
+      "skill": "Django",
+      "priority": 1,
+      "category": "Backend",
+      "aliases": [
+        "Django REST Framework"
+      ]
+    },
+    {
+      "skill": "Flask",
+      "priority": 1,
+      "category": "Backend"
+    },
+    {
+      "skill": "FastAPI",
+      "priority": 1,
+      "category": "Backend"
+    },
+    {
+      "skill": "Ruby on Rails",
+      "priority": 1,
+      "category": "Backend",
+      "aliases": [
+        "Rails",
+        "ActiveJob",
+        "Sidekiq",
+        "Resque",
+        "RSpec",
+        "Minitest"
+      ]
+    },
+    {
+      "skill": "Laravel",
+      "priority": 2,
+      "category": "Backend"
+    },
+    {
+      "skill": "Quarkus",
+      "priority": 3,
+      "category": "Backend"
+    },
+    {
+      "skill": "Celery",
+      "priority": 3,
+      "category": "Backend",
+      "aliases": [
+        "Celery Beat"
+      ]
+    },
+    {
+      "skill": "Symfony",
+      "priority": 3,
+      "category": "Backend"
+    },
+    {
+      "skill": "React",
+      "priority": 1,
+      "category": "Frontend",
+      "aliases": [
+        "React Router",
+        "Redux",
+        "Redux Toolkit",
+        "Formik",
+        "React Hook Form",
+        "React Testing Library",
+        "Material UI",
+        "MUI",
+        "Chakra UI",
+        "Ant Design",
+        "PrimeReact",
+        "Radix UI",
+        "shadcn/ui",
+        "Headless UI",
+        "Styled Components",
+        "TanStack Query",
+        "TanStack Table",
+        "MobX",
+        "Zustand",
+        "Jotai",
+        "Recharts",
+        "Framer Motion",
+        "Remix",
+        "Gatsby",
+        "Preact"
+      ]
+    },
+    {
+      "skill": "Next.js",
+      "priority": 1,
+      "category": "Frontend",
+      "aliases": [
+        "NextAuth.js"
+      ]
+    },
+    {
+      "skill": "Angular",
+      "priority": 1,
+      "category": "Frontend",
+      "aliases": [
+        "RxJS"
+      ]
+    },
+    {
+      "skill": "Vue.js",
+      "priority": 1,
+      "category": "Frontend",
+      "aliases": [
+        "Vuex",
+        "Pinia",
+        "Vue Test Utils",
+        "Nuxt.js"
+      ]
+    },
+    {
+      "skill": "Tailwind CSS",
+      "priority": 1,
+      "category": "Frontend",
+      "aliases": [
+        "Tailwind"
+      ]
+    },
+    {
+      "skill": "Svelte",
+      "priority": 2,
+      "category": "Frontend",
+      "aliases": [
+        "SvelteKit"
+      ]
+    },
+    {
+      "skill": "jQuery",
+      "priority": 2,
+      "category": "Frontend"
+    },
+    {
+      "skill": "Bootstrap",
+      "priority": 2,
+      "category": "Frontend"
+    },
+    {
+      "skill": "Sass",
+      "priority": 2,
+      "category": "Frontend",
+      "aliases": [
+        "SCSS",
+        "SASS/SCSS"
+      ]
+    },
+    {
+      "skill": "Webpack",
+      "priority": 2,
+      "category": "Frontend",
+      "aliases": [
+        "Module Federation",
+        "Webpack Module Federation",
+        "Babel"
+      ]
+    },
+    {
+      "skill": "Vite",
+      "priority": 2,
+      "category": "Frontend",
+      "aliases": [
+        "esbuild",
+        "Rollup"
+      ]
+    },
+    {
+      "skill": "Figma",
+      "priority": 2,
+      "category": "Frontend"
+    },
+    {
+      "skill": "Storybook",
+      "priority": 3,
+      "category": "Frontend"
+    },
+    {
+      "skill": "D3.js",
+      "priority": 3,
+      "category": "Frontend"
+    },
+    {
+      "skill": "Three.js",
+      "priority": 3,
+      "category": "Frontend"
+    },
+    {
+      "skill": "React Native",
+      "priority": 1,
+      "category": "Mobile",
+      "aliases": [
+        "Expo"
+      ]
+    },
+    {
+      "skill": "Flutter",
+      "priority": 1,
+      "category": "Mobile"
+    },
+    {
+      "skill": "Android",
+      "priority": 1,
+      "category": "Mobile",
+      "aliases": [
+        "Android SDK",
+        "Jetpack Compose",
+        "Room Database"
+      ]
+    },
+    {
+      "skill": "iOS",
+      "priority": 1,
+      "category": "Mobile",
+      "aliases": [
+        "iOS Development",
+        "SwiftUI",
+        "UIKit",
+        "Core Data",
+        "TestFlight"
+      ]
+    },
+    {
+      "skill": "Ionic",
+      "priority": 3,
+      "category": "Mobile",
+      "aliases": [
+        "Cordova",
+        "Capacitor"
+      ]
+    },
+    {
+      "skill": "Fastlane",
+      "priority": 3,
+      "category": "Mobile"
+    },
+    {
+      "skill": "REST",
+      "priority": 1,
+      "category": "APIs",
+      "aliases": [
+        "REST API",
+        "REST APIs",
+        "REST API Development",
+        "RESTful API",
+        "RESTful services"
+      ]
+    },
+    {
+      "skill": "GraphQL",
+      "priority": 1,
+      "category": "APIs",
+      "aliases": [
+        "GraphQL API",
+        "Apollo Client",
+        "Apollo"
+      ]
+    },
+    {
+      "skill": "gRPC",
+      "priority": 2,
+      "category": "APIs",
+      "aliases": [
+        "gRPC Services"
+      ]
+    },
+    {
+      "skill": "OpenAPI",
+      "priority": 2,
+      "category": "APIs",
+      "aliases": [
+        "OpenAPI Specification",
+        "Swagger"
+      ]
+    },
+    {
+      "skill": "WebSockets",
+      "priority": 2,
+      "category": "APIs",
+      "aliases": [
+        "WebSocket",
+        "WebSocket Protocol",
+        "WebSocket Servers"
+      ]
+    },
+    {
+      "skill": "Protobuf",
+      "priority": 3,
+      "category": "APIs",
+      "aliases": [
+        "Protocol Buffers"
+      ]
+    },
+    {
+      "skill": "SOAP",
+      "priority": 3,
+      "category": "APIs",
+      "aliases": [
+        "SOAP Web Services",
+        "WSDL/SOAP",
+        "WSDL"
+      ]
+    },
+    {
+      "skill": "MuleSoft",
+      "priority": 3,
+      "category": "APIs"
+    },
+    {
+      "skill": "HashiCorp Vault",
+      "priority": 1,
+      "category": "Security",
+      "aliases": [
+        "Vault"
+      ]
+    },
+    {
+      "skill": "OAuth",
+      "priority": 2,
+      "category": "Security",
+      "aliases": [
+        "OAuth2",
+        "PKCE",
+        "OpenID Connect",
+        "OIDC"
+      ]
+    },
+    {
+      "skill": "SAML",
+      "priority": 2,
+      "category": "Security"
+    },
+    {
+      "skill": "JWT",
+      "priority": 2,
+      "category": "Security"
+    },
+    {
+      "skill": "LDAP",
+      "priority": 2,
+      "category": "Security"
+    },
+    {
+      "skill": "TLS",
+      "priority": 2,
+      "category": "Security",
+      "aliases": [
+        "SSL",
+        "SSL/TLS",
+        "TLS/SSL",
+        "Mutual TLS",
+        "mTLS"
+      ]
+    },
+    {
+      "skill": "OWASP",
+      "priority": 2,
+      "category": "Security",
+      "aliases": [
+        "OWASP  Top 10"
+      ]
+    },
+    {
+      "skill": "VPN",
+      "priority": 3,
+      "category": "Security",
+      "aliases": [
+        "OpenVPN",
+        "WireGuard"
+      ]
+    },
+    {
+      "skill": "Auth0",
+      "priority": 3,
+      "category": "Security",
+      "aliases": [
+        "Auth0 SDK"
+      ]
+    },
+    {
+      "skill": "SELinux",
+      "priority": 3,
+      "category": "Security"
+    },
+    {
+      "skill": "Trivy",
+      "priority": 3,
+      "category": "Security"
+    },
+    {
+      "skill": "Falco",
+      "priority": 3,
+      "category": "Security"
+    },
+    {
+      "skill": "Kyverno",
+      "priority": 3,
+      "category": "Security"
+    },
+    {
+      "skill": "OPA",
+      "priority": 3,
+      "category": "Security",
+      "aliases": [
+        "Open Policy Agent"
+      ]
+    },
+    {
+      "skill": "Wireshark",
+      "priority": 3,
+      "category": "Security"
+    },
+    {
+      "skill": "Cosign",
+      "priority": 4,
+      "category": "Security",
+      "aliases": [
+        "Sigstore"
+      ]
+    },
+    {
+      "skill": "SOC2",
+      "priority": 2,
+      "category": "Compliance",
+      "aliases": [
+        "SOC 2"
+      ]
+    },
+    {
+      "skill": "PCI-DSS",
+      "priority": 2,
+      "category": "Compliance",
+      "aliases": [
+        "PCI DSS"
+      ]
+    },
+    {
+      "skill": "ISO 27001",
+      "priority": 2,
+      "category": "Compliance"
+    },
+    {
+      "skill": "HIPAA",
+      "priority": 2,
+      "category": "Compliance"
+    },
+    {
+      "skill": "GDPR",
+      "priority": 3,
+      "category": "Compliance"
+    },
+    {
+      "skill": "Jest",
+      "priority": 1,
+      "category": "Testing"
+    },
+    {
+      "skill": "Cypress",
+      "priority": 1,
+      "category": "Testing"
+    },
+    {
+      "skill": "Playwright",
+      "priority": 1,
+      "category": "Testing"
+    },
+    {
+      "skill": "Selenium",
+      "priority": 1,
+      "category": "Testing"
+    },
+    {
+      "skill": "JUnit",
+      "priority": 1,
+      "category": "Testing",
+      "aliases": [
+        "TestNG"
+      ]
+    },
+    {
+      "skill": "Pytest",
+      "priority": 1,
+      "category": "Testing",
+      "aliases": [
+        "unittest"
+      ]
+    },
+    {
+      "skill": "Vitest",
+      "priority": 2,
+      "category": "Testing"
+    },
+    {
+      "skill": "Mocha",
+      "priority": 2,
+      "category": "Testing",
+      "aliases": [
+        "Chai"
+      ]
+    },
+    {
+      "skill": "Puppeteer",
+      "priority": 2,
+      "category": "Testing"
+    },
+    {
+      "skill": "Cucumber",
+      "priority": 2,
+      "category": "Testing"
+    },
+    {
+      "skill": "JMeter",
+      "priority": 2,
+      "category": "Testing",
+      "aliases": [
+        "Apache JMeter"
+      ]
+    },
+    {
+      "skill": "Postman",
+      "priority": 2,
+      "category": "Testing"
+    },
+    {
+      "skill": "Jasmine",
+      "priority": 3,
+      "category": "Testing"
+    },
+    {
+      "skill": "Robot Framework",
+      "priority": 3,
+      "category": "Testing"
+    },
+    {
+      "skill": "Appium",
+      "priority": 3,
+      "category": "Testing"
+    },
+    {
+      "skill": "Test Containers",
+      "priority": 3,
+      "category": "Testing",
+      "aliases": [
+        "Testcontainers"
+      ]
+    },
+    {
+      "skill": "K6",
+      "priority": 3,
+      "category": "Testing"
+    },
+    {
+      "skill": "Gatling",
+      "priority": 3,
+      "category": "Testing"
+    },
+    {
+      "skill": "SonarQube",
+      "priority": 2,
+      "category": "Code Quality"
+    },
+    {
+      "skill": "ESLint",
+      "priority": 2,
+      "category": "Code Quality",
+      "aliases": [
+        "Prettier"
+      ]
+    },
+    {
+      "skill": "Jira",
+      "priority": 2,
+      "category": "Collaboration",
+      "aliases": [
+        "Confluence"
+      ]
+    }
+  ],
+  "soft": [
+    "Accountability",
+    "Active Listening",
+    "Adaptability",
+    "Analytical thinking",
+    "Asynchronous collaboration",
+    "Business Acumen",
+    "Client communication",
+    "Coaching",
+    "Collaboration",
+    "Communication",
+    "Conflict Management",
+    "Conflict mediation",
+    "Conflict resolution",
+    "Consensus building",
+    "Constructive feedback",
+    "Continuous learning",
+    "Creativity",
+    "Critical thinking",
+    "Cross-cultural communication",
+    "Cross-functional Collaboration",
+    "Cross-functional communication",
+    "Cross-team collaboration",
+    "Customer communication",
+    "Customer Focus",
+    "Deadline management",
+    "Decision Making",
+    "Delegation",
+    "Dependability",
+    "Diplomacy",
+    "Documentation",
+    "Emotional Intelligence",
+    "Empathy",
+    "Executive communication",
+    "Expectation management",
+    "Facilitation",
+    "Flexibility",
+    "Goal Setting",
+    "Influence without authority",
+    "Initiative",
+    "Integrity",
+    "Interpersonal Skills",
+    "Knowledge sharing",
+    "Leadership",
+    "Managing competing priorities",
+    "Meeting facilitation",
+    "Mentoring",
+    "Mentorship",
+    "Multitasking",
+    "Negotiation",
+    "Ownership",
+    "Patience",
+    "Peer mentoring",
+    "People Management",
+    "Presentation skills",
+    "Prioritization",
+    "Problem Solving",
+    "Professionalism",
+    "Public speaking",
+    "Relationship building",
+    "Relationship Management",
+    "Remote Collaboration",
+    "Resourcefulness",
+    "Responsibility",
+    "Self-awareness",
+    "Stakeholder communication",
+    "Stakeholder Management",
+    "Strategic thinking",
+    "Stress Management",
+    "Systems thinking",
+    "Team Building",
+    "Team Leadership",
+    "Teamwork",
+    "Technical communication",
+    "Technical leadership",
+    "Technical Writing",
+    "Time management",
+    "Verbal Communication",
+    "Workshop Facilitation",
+    "Written Communication"
+  ]
+}
