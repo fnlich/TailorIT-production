@@ -34,8 +34,11 @@ export const IMPORT_FIELD_LABEL: Record<ImportField, string> = {
   id: 'Job id',
 };
 
-/** Fields a row must have to become a job. */
-export const REQUIRED_IMPORT_FIELDS: readonly ImportField[] = ['title', 'company', 'url'];
+/**
+ * Fields a row must have to be read. v31 LINK2: an import is a list of links: only the link is needed (TailorIT reads
+ * each posting from it); the other columns may be mapped, and are ignored.
+ */
+export const REQUIRED_IMPORT_FIELDS: readonly ImportField[] = ['url'];
 
 /** A mapping as a request sends it: any of the fields, each a column name or null. */
 export const ImportMappingInputSchema = z.partialRecord(z.enum(IMPORT_FIELDS), z.string().max(300).nullable());

@@ -75,14 +75,14 @@ function FolderGlyph({ tile, size = 'md' }: { tile: FolderTile; size?: 'sm' | 'm
     <span
       aria-hidden="true"
       className={clsx(
-        'relative flex shrink-0 items-center justify-center bg-primary-container text-primary-ink',
-        small ? 'size-8 rounded-[8px]' : 'size-12 rounded-[12px]',
+        'relative flex shrink-0 items-center justify-center bg-primary-soft text-primary',
+        small ? 'size-8 rounded-control' : 'size-12 rounded-card',
       )}
     >
       <FolderSimpleIcon size={small ? 18 : 26} weight="fill" />
       <span
         className={clsx(
-          'absolute flex items-center justify-center rounded-full border-2 border-surface bg-primary-ink text-white',
+          'absolute flex items-center justify-center rounded-full border-2 border-surface bg-primary text-on-primary',
           small ? '-right-1 -bottom-1 size-4' : '-right-1 -bottom-1 size-5',
         )}
       >
@@ -92,30 +92,39 @@ function FolderGlyph({ tile, size = 'md' }: { tile: FolderTile; size?: 'sm' | 'm
   );
 }
 
-/** One folder in the Grid view: a card whose name is its link, stretched over the card. */
+/**
+ * One folder in the Grid view (v31 FIX-DOCS): a tile with the folder's picture and how many it holds (large, in the
+ * measurement face) on top, then its name (the link, stretched over the tile), what it keeps and when it last changed.
+ */
 function FolderCard({ tile, href, now }: { tile: FolderTile; href: string; now: number }) {
   return (
     <article
       data-folder-tile={tile.key}
       className={clsx(
-        'group relative flex min-h-[104px] items-center gap-4 rounded-surface border border-border bg-surface py-4 pr-4 pl-4 shadow-soft',
-        'transition-[border-color,box-shadow,transform] duration-150 ease-out-soft hover:-translate-y-0.5 hover:border-control-hover hover:shadow-popover',
+        'group relative flex h-full min-h-40 flex-col rounded-card border border-border bg-surface p-4 shadow-card',
+        'transition-[border-color,box-shadow] duration-150 ease-out-soft hover:border-control-hover hover:shadow-popover',
         'has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-offset-[3px] has-[a:focus-visible]:outline-focus',
       )}
     >
-      <FolderGlyph tile={tile} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <h3 className="truncate text-base leading-6 font-semibold text-foreground [font-variant-numeric:tabular-nums]">
-          <Link href={href} scroll={false} className="after:absolute after:inset-0 after:rounded-[inherit] focus-visible:outline-none">
-            {tile.name}
-          </Link>
-        </h3>
-        <p className="truncate text-[13px] leading-5 text-muted-foreground">{tile.hint}</p>
-        <p className="mt-1 truncate text-[13px] leading-5 font-medium text-foreground" data-folder-meta="">
-          {tileMeta(tile, now)}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <FolderGlyph tile={tile} />
+        <span aria-hidden="true" className="num text-[28px] leading-8 text-foreground">
+          {tile.count}
+        </span>
       </div>
-      <CaretRightIcon size={16} aria-hidden="true" className="shrink-0 text-subtle-foreground transition-colors group-hover:text-primary-ink" />
+      <h3 className="mt-4 truncate text-[15px] leading-6 font-semibold text-foreground tabular-nums">
+        <Link href={href} scroll={false} className="after:absolute after:inset-0 after:rounded-[inherit] focus-visible:outline-none">
+          {tile.name}
+        </Link>
+      </h3>
+      <p className="line-clamp-2 text-[13px] leading-5 text-muted-foreground">{tile.hint}</p>
+      <p
+        className="mt-auto flex items-center justify-between gap-2 border-t border-divider-soft pt-2.5 text-[13px] leading-5 font-medium text-foreground"
+        data-folder-meta=""
+      >
+        <span className="truncate">{tileMeta(tile, now)}</span>
+        <CaretRightIcon size={16} aria-hidden="true" className="shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+      </p>
     </article>
   );
 }
@@ -152,7 +161,7 @@ export function FolderTiles({
                 href={hrefOf(tile.location)}
                 scroll={false}
                 data-folder-link={tile.key}
-                className="truncate text-sm font-semibold text-foreground hover:underline hover:underline-offset-2 [font-variant-numeric:tabular-nums]"
+                className="truncate text-sm font-semibold text-foreground tabular-nums hover:underline hover:underline-offset-2"
               >
                 {tile.name}
               </Link>
@@ -190,7 +199,7 @@ export function FolderTiles({
     );
   }
   return (
-    <ul aria-label={label} className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <ul aria-label={label} className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {tiles.map((tile) => (
         <li key={tile.key} className="min-w-0">
           <FolderCard tile={tile} href={hrefOf(tile.location)} now={now} />
@@ -244,7 +253,7 @@ export function FolderHeader({
               <li key={crumb.label} className="flex min-w-0 items-center gap-1.5">
                 {index > 0 && <CaretRightIcon size={12} aria-hidden="true" className="shrink-0 text-subtle-foreground" />}
                 {crumb.current ? (
-                  <span aria-current="page" className="truncate font-semibold text-foreground [font-variant-numeric:tabular-nums]">
+                  <span aria-current="page" className="truncate font-semibold text-foreground tabular-nums">
                     {crumb.label}
                   </span>
                 ) : (
@@ -263,13 +272,13 @@ export function FolderHeader({
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h2
+          <h3
             ref={headingRef}
             tabIndex={-1}
-            className="truncate text-xl leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none [font-variant-numeric:tabular-nums]"
+            className="truncate text-[15px] leading-6 font-semibold text-foreground tabular-nums outline-none"
           >
             {searching ? 'Results from all folders' : title}
-          </h2>
+          </h3>
           <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
             {searching ? `Clear the search to go back to ${title}.` : summary}
           </p>
@@ -310,8 +319,8 @@ export function FolderPathLink({
       title={`Open ${path}`}
       className="inline-flex max-w-full min-w-0 items-center gap-1 text-muted-foreground hover:text-foreground hover:underline hover:underline-offset-2"
     >
-      <FolderSimpleIcon size={13} weight="fill" aria-hidden="true" className="shrink-0 text-primary-ink" />
-      <span className="truncate [font-variant-numeric:tabular-nums]">{path}</span>
+      <FolderSimpleIcon size={13} weight="fill" aria-hidden="true" className="shrink-0 text-primary" />
+      <span className="truncate tabular-nums">{path}</span>
     </Link>
   );
 }

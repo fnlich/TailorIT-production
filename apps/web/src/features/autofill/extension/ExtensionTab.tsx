@@ -131,7 +131,7 @@ export function ExtensionTab({
               disabled={connect.isPending}
               onCheckedChange={onIncludeSensitiveChange}
             />
-            <p className="pl-[28px] text-[13px] leading-5 text-muted-foreground">
+            <p className="pl-7 text-[13px] leading-5 text-muted-foreground">
               Without it, the extension leaves those questions for you to answer on each form, and cannot change those
               answers in your profile.
             </p>
@@ -143,7 +143,7 @@ export function ExtensionTab({
               disabled={connect.isPending}
               onCheckedChange={onAllowSignInChange}
             />
-            <p className="pl-[28px] text-[13px] leading-5 text-muted-foreground">
+            <p className="pl-7 text-[13px] leading-5 text-muted-foreground">
               With it, the extension can read your saved job-site password (Settings › Autofill › Job-site sign-in) and
               type it into a job site&apos;s sign-in form when its Sign-in mode is Auto; where you have no account yet,
               it may create one with that email and password. Use a password you use only for job sites. Without it,

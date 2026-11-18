@@ -4,6 +4,7 @@ import { PUBLIC_CONSTANT_SPECS } from '../constants/public/specs';
 import { IsoDate, IsoDateTime, listResponse } from '../core/list';
 import { JobKeywordsSchema, JobTermsSchema, LevelMatchSchema, MatchResultSchema } from '../match/schemas';
 import { EMPLOYMENT_TYPES, EXPERIENCE_LEVELS, LEADERSHIP, SALARY_PERIODS, WORK_ARRANGEMENTS } from './enums';
+import { JobVerificationSchema } from './add'; // v31 LINK
 import { JobsQuerySchema } from './query';
 import { COMPANY_SIZE_IDS, JOB_REPORT_REASONS } from './taxonomy';
 
@@ -148,6 +149,12 @@ export const JobSummarySchema = z.object({
   /** The credit line the job's source asks for on its card (S4), or null; absent from an API older than v3.0. */
   credit: JobCreditSchema.nullable().optional(),
   // end v30 CT
+  /**
+   * v31 LINK: a job others do not see, and why (21-jobs-from-links.md §6): `waiting_admin` (TailorIT read it; an admin's
+   * approval comes next) or `private_unverified` (TailorIT could not read its link: the viewer's own). Absent for a job
+   * everyone sees.
+   */
+  verification: JobVerificationSchema.optional(),
 });
 export type JobSummary = z.infer<typeof JobSummarySchema>;
 

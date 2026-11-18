@@ -8,6 +8,7 @@ import { CheckCircleIcon, ClockIcon, HandPointingIcon, InfoIcon, WarningCircleIc
 // v30 ST0: a queue row's state line, from the Queue pane's rows (features/auto-apply/QueuePane.tsx, v2.0): the state's
 // icon, its words (a STATE_* constant), and a detail after a middle dot, coloured by its tone. The icons are the Queue
 // pane's set, by name, so a row says which one it shows and the pane draws it.
+// v31 AUTO: the tones are the v3.1 status tokens (warning and danger as text on a white row; info for the info icon).
 
 /** The state icons, by name (the Queue pane's StateIcon). */
 export const STATE_ICON_NAMES = ['spinner', 'clock', 'pulse', 'check', 'x', 'warning', 'hand', 'info', 'dot'] as const;
@@ -18,10 +19,10 @@ export const STATE_ICONS: Record<StateIconName, ReactNode> = {
   clock: <ClockIcon size={14} aria-hidden="true" />,
   pulse: <span aria-hidden="true" className="inline-block size-2.5 rounded-full bg-primary motion-safe:animate-pulse" />,
   check: <CheckCircleIcon size={14} weight="fill" className="text-success" aria-hidden="true" />,
-  x: <XCircleIcon size={14} className="text-destructive" aria-hidden="true" />,
-  warning: <WarningCircleIcon size={14} className="text-amber-foreground" aria-hidden="true" />,
-  hand: <HandPointingIcon size={14} className="text-amber-foreground" aria-hidden="true" />,
-  info: <InfoIcon size={14} className="text-primary-ink" aria-hidden="true" />,
+  x: <XCircleIcon size={14} className="text-danger" aria-hidden="true" />,
+  warning: <WarningCircleIcon size={14} className="text-warning" aria-hidden="true" />,
+  hand: <HandPointingIcon size={14} className="text-warning" aria-hidden="true" />,
+  info: <InfoIcon size={14} className="text-info" aria-hidden="true" />,
   dot: <span aria-hidden="true" className="inline-block size-2 rounded-full bg-primary" />,
 };
 
@@ -44,7 +45,7 @@ export function StateLine({ icon, text, detail, tone = 'muted' }: StateLineProps
         {text}
       </span>{' '}
       {detail && (
-        <span className={clsx(tone === 'warning' ? 'text-amber-foreground' : tone === 'error' ? 'text-[#b42625]' : 'text-muted-foreground')}>
+        <span className={clsx(tone === 'warning' ? 'text-warning' : tone === 'error' ? 'text-danger' : 'text-muted-foreground')}>
           · {detail}
         </span>
       )}

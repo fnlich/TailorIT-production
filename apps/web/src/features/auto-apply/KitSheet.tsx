@@ -65,7 +65,7 @@ export function KitSheet({ item, open, onOpenChange, onMarkApplied }: KitSheetPr
       onOpenChange={onOpenChange}
       title={(row) => `${row.title} at ${row.company}`}
       description="Everything prepared for this application, ready to copy."
-      className="sm:max-w-[480px]!"
+      className="sm:max-w-120!"
     >
       {(row) => <KitBody item={row} onMarkApplied={onMarkApplied} />}
     </RowDetailSheet>

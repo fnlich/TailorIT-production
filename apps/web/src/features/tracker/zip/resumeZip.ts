@@ -141,7 +141,7 @@ function isPassing(error: unknown): boolean {
 }
 
 export interface ZipRun {
-  /** The Manage jobs selection, or null for every Saved application. */
+  /** The Select applications selection, or null for every Saved application. */
   ids: readonly string[] | null;
   /** Each status the server reports while it builds. */
   onProgress?: (build: ResumeZipBuild) => void;

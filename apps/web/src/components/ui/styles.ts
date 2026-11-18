@@ -1,6 +1,7 @@
 /*
- * Class strings shared by the kit's floating surfaces (Simplify's menus: white at 96% with a blur, 1px outline at 6%
- * black, `0 10px 15px -3px #0000000f`, radius 10, rows radius 6 with a 6% black highlight).
+ * Class strings shared by the kit's floating surfaces (v3.1 "Denim & Tape"): white popups with a 1 px border, radius
+ * 10 and the short cool popover shadow; rows radius 6 that light up in the denim soft tone; group labels in small
+ * spaced capitals.
  */
 
 export const POPUP_MOTION =
@@ -8,8 +9,8 @@ export const POPUP_MOTION =
   'data-starting-style:scale-[0.97] data-starting-style:opacity-0 data-ending-style:scale-[0.97] data-ending-style:opacity-0';
 
 export const MENU_SURFACE =
-  'rounded-menu bg-white/[0.96] p-1.5 text-sm text-foreground shadow-menu outline outline-1 outline-black/[0.06] ' +
-  'backdrop-blur-md focus-visible:outline-black/[0.06] ' +
+  'rounded-popup border border-border bg-surface p-1 text-sm text-foreground shadow-popover outline-none ' +
+  'focus-visible:outline-none ' +
   POPUP_MOTION;
 
 /**
@@ -18,18 +19,20 @@ export const MENU_SURFACE =
  * same property must never be combined.
  */
 export const MENU_ROW_BASE =
-  'flex min-h-8 w-full cursor-default select-none items-center gap-2.5 rounded-menu-row px-1.5 py-1.5 text-left text-sm leading-5 ' +
+  'flex min-h-8 w-full cursor-default select-none items-center gap-2.5 rounded-menu-row px-2 py-1.5 text-left text-sm leading-5 ' +
   'outline-none data-disabled:cursor-not-allowed data-disabled:opacity-45 [&_svg]:shrink-0';
 
-export const MENU_ROW = `${MENU_ROW_BASE} data-highlighted:bg-hover`;
+export const MENU_ROW = `${MENU_ROW_BASE} data-highlighted:bg-primary-soft`;
 
-export const MENU_GROUP_LABEL = 'px-1.5 pt-1.5 pb-1 text-xs leading-4 font-medium text-muted-foreground select-none';
+export const MENU_GROUP_LABEL =
+  'px-2 pt-2 pb-1 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase select-none';
 
-export const MENU_SEPARATOR = 'mx-1.5 my-1.5 h-px bg-border';
+export const MENU_SEPARATOR = '-mx-1 my-1 h-px bg-border';
 
-/** Popovers (date picker, filter panels): radius 14 and the popover shadow. */
+/** Popovers (date picker, filter panels): the popup surface without the menu's padding. */
 export const POPOVER_SURFACE =
-  'rounded-popup bg-surface text-sm text-foreground shadow-popover outline outline-1 outline-black/[0.06] ' + POPUP_MOTION;
+  'rounded-popup border border-border bg-surface text-sm text-foreground shadow-popover outline-none focus-visible:outline-none ' +
+  POPUP_MOTION;
 
-/** Stacking order: sticky header 30, dialogs 50, floating layers (menus, popovers, selects) 60, tooltips 70. */
+/** Stacking order: sticky top bar 30, the sidebar drawer and dialogs 50, floating layers (menus, popovers) 60, tooltips 70. */
 export const Z_FLOATING = 'z-[60]';

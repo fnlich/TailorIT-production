@@ -43,7 +43,7 @@ export function PurchaseActionBody({
             <EnvelopeIcon size={16} className="shrink-0 text-muted-foreground" />
             <a
               href={`mailto:${email}`}
-              className="min-w-0 text-sm leading-5 font-semibold break-all text-primary-ink underline-offset-2 hover:underline"
+              className="min-w-0 text-sm leading-5 font-semibold break-all text-primary underline-offset-2 hover:underline"
             >
               {email}
             </a>

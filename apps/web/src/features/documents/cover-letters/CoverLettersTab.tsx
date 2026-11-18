@@ -1,5 +1,6 @@
 'use client';
 
+import { EnvelopeSimpleIcon } from '@phosphor-icons/react/EnvelopeSimple';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -26,7 +27,9 @@ import {
   uploadLetter,
 } from '../../letter-editor/data';
 import { EyeIcon } from '../../letter-editor/icons';
-import { UploadButton } from '../../letter-editor/UploadButton';
+import { useLetterUpload } from '../../letter-editor/UploadButton';
+import { useRegisterUpload } from '../headerUpload'; // v31 FIX-DOCS
+import { usePublicConstants } from '@/lib/constants';
 import {
   DocumentCard,
   DocumentCollection,
@@ -38,6 +41,7 @@ import {
   RenameDialog,
   TableRowActions,
   TextCell,
+  deleteOneWords,
   thumbKey,
   type ActionMenuItem,
   type DocumentColumn,
@@ -45,15 +49,15 @@ import {
 import { LetterPreviewDialog } from '../preview/LetterPreviewDialog';
 
 /*
- * Documents › Cover Letters: Simplify's table (screenshot 4: Name + Generated / Uploaded badge, Created, Last Edited,
- * ✎ Edit + More ⌄; "{n} selected" with bulk Delete, Upload, Search) plus a thumbnail grid of each letter's first page
- * (US Letter), with a Grid | List toggle (in the Resumes tab's order) remembered in this browser. List is the default,
- * as in Simplify.
+ * Documents › Cover letters: the documents table (Name + Generated / Uploaded badge, Created, Edited, ✎ and ⋮;
+ * "{n} selected" with bulk Delete, Search) plus a thumbnail grid of each letter's first page (US Letter), with a Grid |
+ * List toggle remembered in this browser. List is the default. v31 FIX-DOCS: the page header's Upload uploads a letter
+ * here; the words are the constants'.
  */
 
 const NOUN = { one: 'cover letter', many: 'cover letters' };
 
-/** "Generated" / "Uploaded", in Simplify's light badge: under the name in the table, under the title on a card. */
+/** "Generated" / "Uploaded", as a kit tag: under the name in the table, under the title on a card. */
 function originBadge(letter: CoverLetterSummary) {
   const label = LETTER_ORIGIN_BADGE[letter.origin];
   return label ? <Badge>{label}</Badge> : null;
@@ -64,6 +68,7 @@ export function CoverLettersTab() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const now = useNow();
+  const { t } = usePublicConstants();
   const query = useQuery({ queryKey: letterKeys.all, queryFn: fetchLetters });
   const letters = query.data?.items ?? [];
 
@@ -72,6 +77,15 @@ export function CoverLettersTab() {
   const [deleting, setDeleting] = useState<CoverLetterSummary | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: letterKeys.all });
+  // v31 FIX-DOCS: the page header's Upload: a letter file, opened in the editor once read.
+  const letterUpload = useLetterUpload({
+    upload: uploadLetter,
+    onUploaded: (letter) => {
+      void refresh();
+      router.push(`/cover-letter/${letter.id}`);
+    },
+  });
+  useRegisterUpload('cover-letters', letterUpload.open, letterUpload.busy);
 
   const download = async (letter: CoverLetterSummary, format: 'pdf' | 'docx') => {
     try {
@@ -106,7 +120,7 @@ export function CoverLettersTab() {
     },
     {
       key: 'edited',
-      header: 'Last Edited',
+      header: 'Edited',
       track: 'minmax(0,0.97fr)',
       cell: (letter) => <TextCell>{relativeTime(letter.lastEditedAt, now)}</TextCell>,
     },
@@ -124,6 +138,7 @@ export function CoverLettersTab() {
         getId={(letter) => letter.id}
         getLabel={(letter) => letter.title}
         searchFields={(letter) => [letter.title, letter.companyName, letter.jobTitle]}
+        searchPlaceholder="Search cover letters"
         views={['grid', 'list']}
         defaultView="list"
         viewStorageKey="tailorit.documents.coverLetters.view"
@@ -158,7 +173,7 @@ export function CoverLettersTab() {
           />
         )}
         newTile={
-          <NewTile kind="cover-letter" label="New cover letter" hint="Create and customize with AI" href="/cover-letter/new" page={PAGE_LETTER} />
+          <NewTile kind="cover-letter" label="New cover letter" hint={t('LABEL_DOCS_NEW_LETTER_HINT')} href="/cover-letter/new" page={PAGE_LETTER} />
         }
         selectable
         onBulkDelete={async (ids) => {
@@ -167,15 +182,6 @@ export function CoverLettersTab() {
           await refresh();
           toast.success(`Deleted ${deleted} ${deleted === 1 ? 'cover letter' : 'cover letters'}`);
         }}
-        toolbarExtras={
-          <UploadButton
-            upload={uploadLetter}
-            onUploaded={(letter) => {
-              void refresh();
-              router.push(`/cover-letter/${letter.id}`);
-            }}
-          />
-        }
         loading={query.isPending}
         error={
           query.isError ? (
@@ -193,16 +199,20 @@ export function CoverLettersTab() {
           ) : undefined
         }
         empty={{
-          title: 'Create your first cover letter!',
-          description: 'Get started with a personalized cover letter that highlights your qualifications.',
+          // v31 FIX-DOCS (REQ-3): the constants' words.
+          title: t('MSG_DOCS_LETTERS_EMPTY_TITLE'),
+          description: t('MSG_DOCS_LETTERS_EMPTY_TEXT'),
+          icon: <EnvelopeSimpleIcon size={24} />,
           action: (
-            <Link href="/cover-letter/new" className={buttonClasses()}>
+            <Link href="/cover-letter/new" className={buttonClasses()} data-new-fallback="cover-letter">
               <PlusIcon size={16} />
-              New Cover Letter
+              New cover letter
             </Link>
           ),
         }}
       />
+
+      {letterUpload.input}
 
       {viewing && (
         <LetterPreviewDialog
@@ -216,7 +226,7 @@ export function CoverLettersTab() {
       <RenameDialog
         open={renaming !== null}
         onOpenChange={(open) => !open && setRenaming(null)}
-        title="Change cover letter name"
+        title={t('LABEL_DOCS_RENAME_TITLE', { noun: NOUN.one })}
         initialValue={renaming?.title ?? ''}
         validate={validateLetterTitle}
         maxLength={200}
@@ -230,8 +240,7 @@ export function CoverLettersTab() {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete Cover Letter"
-        description="Are you sure you want to delete this cover letter? You won't be able to undo this action."
+        {...deleteOneWords(deleting?.title ?? '', NOUN, t)}
         confirmLabel="Delete"
         busyLabel="Deleting..."
         onConfirm={async () => {

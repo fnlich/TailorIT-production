@@ -77,11 +77,11 @@ export function ResumeAnalysisPanel({ resumeId }: { resumeId: string }) {
       aria-labelledby={headingId}
       data-resume-analysis={query.data ? (query.data.refining ? 'reading' : query.data.source) : undefined}
       className={clsx(
-        'mt-6 scroll-mt-20 rounded-surface border border-border bg-surface p-6 shadow-soft sm:p-8',
+        'mt-6 scroll-mt-20 rounded-card border border-border bg-surface p-6 shadow-card sm:p-8',
         'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
       )}
     >
-      <h2 id={headingId} className="text-lg leading-7 font-semibold text-foreground">
+      <h2 id={headingId} className="text-heading font-semibold text-foreground">
         What TailorIT read from this resume
       </h2>
       <p className="mt-1 text-sm leading-5 text-muted-foreground">Used to pick your best resume for each job you save.</p>
@@ -101,7 +101,7 @@ const NOTE_ICON: Record<AnalysisNoteKind, ReactNode> = {
 const NOTE_TONE: Record<AnalysisNoteKind, string> = {
   reading: 'text-primary-ink',
   waiting: 'text-muted-foreground',
-  failed: 'text-amber-foreground',
+  failed: 'text-warning',
   ai: 'text-primary-ink',
   quick: 'text-muted-foreground',
 };
@@ -147,7 +147,7 @@ function Reading({ view }: { view: ResumeAnalysisView }) {
 
 function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-2 border-t border-border py-4 last:pb-0 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-6">
+    <div className="grid gap-2 border-t border-divider-soft py-4 last:pb-0 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-6">
       <h3 className="text-sm leading-6 font-semibold text-foreground">{label}</h3>
       <div className="min-w-0">{children}</div>
     </div>

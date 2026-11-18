@@ -14,7 +14,7 @@ import { templatePreviewBlocks, type PreviewBlock } from './previewBlocks';
  */
 
 const PAPER =
-  'h-full overflow-y-auto overscroll-contain rounded-[6px] bg-white px-5 py-4 text-[13px] leading-[1.55] text-foreground shadow-soft';
+  'h-full overflow-y-auto overscroll-contain rounded-control bg-surface px-5 py-4 text-[13px] leading-[1.55] text-foreground shadow-card';
 
 const ALIGN_CLASS: Record<PreviewBlock['align'], string> = {
   left: 'text-left',
@@ -23,10 +23,10 @@ const ALIGN_CLASS: Record<PreviewBlock['align'], string> = {
   justify: 'text-justify',
 };
 
-/** The chip the editor draws for a variable (4px radius, 1px 6px, 0.85em, 500, #e9f6ff on #016094). */
+/** The chip the editor draws for a variable (radius 4, 1px 6px, 0.85em, 500, primary ink on primary soft). */
 function Chip({ name }: { name: string }) {
   return (
-    <span className="mx-px rounded-[4px] bg-sky px-1.5 py-px text-[0.85em] font-medium whitespace-nowrap text-sky-foreground">
+    <span className="mx-px rounded-tag bg-primary-soft px-1.5 py-px text-[0.85em] font-medium whitespace-nowrap text-primary-ink">
       {`{{${name}}}`}
     </span>
   );
@@ -114,7 +114,7 @@ function NoTemplateOutline() {
       <p className="text-center text-[15px] font-bold">Your name</p>
       <p className="text-center text-muted-foreground">Phone | Email | LinkedIn</p>
       <p className="mt-4">Dear Hiring Manager,</p>
-      <p className="mt-3 rounded-[4px] border border-dashed border-control-strong px-3 py-2 font-sans text-[12.5px] leading-5 text-muted-foreground">
+      <p className="stitch mt-3 rounded-tag px-3 py-2 font-sans text-xs leading-5 text-muted-foreground">
         Three or four paragraphs, written by AI from your resume for this job, the description you paste and any custom
         prompt.
       </p>

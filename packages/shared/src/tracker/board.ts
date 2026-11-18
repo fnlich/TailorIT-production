@@ -1,6 +1,6 @@
 import { APPLICATION_STATUSES, STATUS_INFO, isApplicationStatus, type ApplicationStatus } from './statuses';
 
-// Board column visibility (Simplify's `columnStatus`, kept in localStorage): a column is forced (always shown),
+// Board column visibility (`columnStatus`, kept in localStorage): a column is forced (always shown),
 // default (shown only while it has cards) or hidden. Hiding a column sets `hidden`; ticking it in "Visible columns", or
 // moving a card into it, sets `forced`.
 

@@ -20,22 +20,23 @@ export interface NewTileProps {
 }
 
 /**
- * The dashed page-sized tile first in a grid (free_tailor's "New resume"), in Simplify's colours: a #ccf6ff circle
- * with a teal plus, a dashed border that turns teal on hover. `data-new-tile` is the focus fallback after a delete.
+ * The tile first in a grid ("New resume"): a stitch (dashed) outline on white with a 48 px denim-soft tile holding a
+ * plus; on hover the stitch turns denim over a denim wash and the tile fills. It is as tall as the row's documents (a
+ * page's proportions at the least). `data-new-tile` is the focus fallback after a delete.
  */
 export function NewTile({ kind, label, hint, href, onClick, blockedReason, page = PAGE_A4, className }: NewTileProps) {
   const classes = clsx(
-    'group flex w-full flex-col items-center justify-center gap-3 rounded-[14px] border-2 border-dashed border-control-strong p-4 text-center',
+    'group stitch flex h-full w-full flex-col items-center justify-center gap-3 rounded-card bg-surface p-4 text-center',
     'transition-colors duration-150 focus-visible:outline-offset-[3px]',
     blockedReason ? 'cursor-not-allowed opacity-55' : 'hover:border-primary hover:bg-primary-50',
     className,
   );
   const content = (
     <>
-      <span className="flex size-14 items-center justify-center rounded-full bg-primary-container text-primary-ink transition-colors group-hover:bg-primary group-hover:text-white">
-        <PlusIcon size={26} weight="bold" />
+      <span className="flex size-12 items-center justify-center rounded-card bg-primary-soft text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary">
+        <PlusIcon size={24} weight="bold" />
       </span>
-      <span className="text-base font-semibold text-foreground">{label}</span>
+      <span className="text-[15px] leading-5 font-semibold text-foreground">{label}</span>
       {hint && <span className="text-[13px] text-muted-foreground">{hint}</span>}
     </>
   );

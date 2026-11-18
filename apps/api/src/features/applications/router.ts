@@ -63,6 +63,7 @@ import {
   type CreateOptions,
 } from './service';
 import { emptyStatusCounts, getDetail, loadOwnedRow, loadQuestions } from './store';
+import { trackerEntryOfLink } from '../jobs/add/tracker'; // v31 LINK
 
 // Job tracker applications (/api/applications). Owned by work package T (see docs/ARCHITECTURE.md §6).
 //
@@ -239,7 +240,8 @@ export function createApplicationsRouter(deps: AppDeps): Router {
 
   router.post('/', async (req, res) => {
     const user = userOf(req);
-    const asked = parseInput(CreateApplicationBodySchema, req.body, 'application');
+    // v31 LINK: an entry added with a posting's link is the job TailorIT reads from it, when it can (jobs/add/tracker.ts).
+    const asked = await trackerEntryOfLink(deps, user.id, parseInput(CreateApplicationBodySchema, req.body, 'application'));
     // A page job an upgrade closed is saved as the shared job it gave way to (audit D4).
     const current = asked.jobId === undefined ? null : await currentJobId(deps, user.id, asked.jobId);
     if (asked.jobId !== undefined && current === null) throw notFound('That job');

@@ -2,12 +2,13 @@
 
 import type { ReactNode } from 'react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { bulkDeleteSentence, titleCase } from './gallery';
+import { usePublicConstants } from '@/lib/constants';
+import { bulkDeleteWords } from './gallery';
 import type { Noun } from './types';
 
 /**
- * Simplify's bulk delete confirmation: "Delete Resumes" / "Delete Cover Letters" / "Delete Templates", the
- * sentence above, an optional note ("1 default resume will be skipped") and the button "Delete Bulk".
+ * The bulk delete confirmation (v31 FIX-DOCS, the constants' words): "Delete 3 resumes?", "They leave your documents
+ * for good. This can't be undone.", an optional note ("1 default resume will be skipped") and the button "Delete 3".
  */
 export function BulkDeleteDialog({
   open,
@@ -25,13 +26,15 @@ export function BulkDeleteDialog({
   /** Resolve when the documents are gone; reject to keep the dialog open with the error shown. */
   onConfirm: () => Promise<void> | void;
 }) {
+  const { t } = usePublicConstants();
+  const words = bulkDeleteWords(count, noun, t);
   return (
     <ConfirmDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Delete ${titleCase(noun.many)}`}
-      description={bulkDeleteSentence(count, noun)}
-      confirmLabel="Delete Bulk"
+      title={words.title}
+      description={words.description}
+      confirmLabel={words.confirm}
       busyLabel="Deleting..."
       tone="destructive"
       onConfirm={onConfirm}

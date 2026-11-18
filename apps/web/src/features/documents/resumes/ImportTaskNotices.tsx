@@ -105,7 +105,7 @@ function ImportTaskNotice({ taskId, label, onDismiss }: { taskId: string; label:
     );
   }
   return (
-    <div role="status" className="flex items-center gap-3 rounded-control bg-sky px-3.5 py-3 text-sm text-sky-foreground">
+    <div role="status" className="flex items-center gap-3 rounded-control border-l-[3px] border-info bg-info-soft px-3.5 py-3 text-sm text-info-ink">
       <Spinner size={16} />
       <span className="min-w-0 flex-1">
         <span className="font-semibold">Making an editable copy of {label}.</span>{' '}

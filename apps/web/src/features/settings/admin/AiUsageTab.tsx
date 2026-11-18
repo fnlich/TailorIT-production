@@ -25,7 +25,7 @@ const WINDOW_ITEMS = [
   { value: '30', label: '30 days' },
 ] as const satisfies ReadonlyArray<{ value: UsageWindow; label: string }>;
 
-const numeric = 'w-24 text-right tabular-nums';
+const numeric = 'w-24';
 
 /** The table's columns: the task and its models, its calls, the tokens by kind, the cache hit rate and the cost. */
 const COLUMNS: readonly AdminColumn<AiUsageRow>[] = [
@@ -41,14 +41,14 @@ const COLUMNS: readonly AdminColumn<AiUsageRow>[] = [
       </div>
     ),
   },
-  { key: 'calls', header: 'Calls', cell: (row) => callsLine(row), className: 'w-36 whitespace-nowrap tabular-nums' },
-  { key: 'input', header: 'Input', cell: (row) => formatTokens(row.inputTokens), className: numeric },
-  { key: 'read', header: 'Cache read', cell: (row) => formatTokens(row.cacheReadTokens), className: numeric },
-  { key: 'write', header: 'Cache write', cell: (row) => formatTokens(row.cacheWriteTokens), className: numeric },
-  { key: 'output', header: 'Output', cell: (row) => formatTokens(row.outputTokens), className: numeric },
-  { key: 'rate', header: 'Cache hit', cell: (row) => formatRate(row.cacheHitRate), className: numeric },
-  { key: 'cached', header: 'From cache', cell: (row) => row.cachedItems.toLocaleString('en-US'), className: numeric },
-  { key: 'cost', header: 'API price', cell: (row) => formatCost(row.costUsd), className: numeric },
+  { key: 'calls', header: 'Calls', cell: (row) => callsLine(row), className: 'w-36 whitespace-nowrap', numeric: true },
+  { key: 'input', header: 'Input', cell: (row) => formatTokens(row.inputTokens), className: numeric, numeric: true },
+  { key: 'read', header: 'Cache read', cell: (row) => formatTokens(row.cacheReadTokens), className: numeric, numeric: true },
+  { key: 'write', header: 'Cache write', cell: (row) => formatTokens(row.cacheWriteTokens), className: numeric, numeric: true },
+  { key: 'output', header: 'Output', cell: (row) => formatTokens(row.outputTokens), className: numeric, numeric: true },
+  { key: 'rate', header: 'Cache hit', cell: (row) => formatRate(row.cacheHitRate), className: numeric, numeric: true },
+  { key: 'cached', header: 'From cache', cell: (row) => row.cachedItems.toLocaleString('en-US'), className: numeric, numeric: true },
+  { key: 'cost', header: 'API price', cell: (row) => formatCost(row.costUsd), className: numeric, numeric: true },
 ];
 
 /**

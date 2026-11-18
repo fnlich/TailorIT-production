@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
 import { APPLICATION_STATUSES, STATUS_INFO, type ApplicationStatus, type TrackerTab, type TrackerView } from '@tailorit/shared';
 import { Button } from '@/components/ui/Button';
 import { PrepareButton } from '../../prepare/PrepareButton';
@@ -27,8 +28,9 @@ import { LIMIT_COPY } from '@/components/limits/copy';
 import { StatusIcon } from '../status';
 
 /**
- * Row 1: Active (N) | Archived (N) and "+ Add application" (a "+" alone on phones, where the label does not fit
- * beside the tabs). The counts show once they are known, never a "(0)" that is only loading.
+ * v31 FIX-DOCS: Active | Archived, each with its count in a small badge once it is known (never a "0" that is only
+ * loading; the tab is named by what it shows, "Active 27"), and "+ Add application" when the page puts it here (a "+" alone on phones; the Tracker page puts it in its
+ * page header).
  */
 export function TabsRow({
   tab,
@@ -39,63 +41,87 @@ export function TabsRow({
   tab: TrackerTab;
   counts: { active: number; archived: number } | undefined;
   onTabChange: (tab: TrackerTab) => void;
-  onAdd: () => void;
+  onAdd?: () => void;
 }) {
+  const label = (word: string, count: number | undefined) =>
+    count === undefined ? (
+      word
+    ) : (
+      <>
+        {word}
+        <span className="num inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-muted px-1.5 text-[11px] leading-none text-muted-foreground in-data-active:bg-primary-soft in-data-active:text-primary-ink">
+          {count}
+        </span>
+      </>
+    );
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-3 max-sm:w-full">
       <SegmentedControl
         aria-label="Applications"
+        // On a phone the two segments share the row.
+        className="max-sm:w-full"
+        listClassName="max-sm:flex max-sm:w-full max-sm:[&>*]:flex-1"
         value={tab}
         onValueChange={onTabChange}
         items={[
-          { value: 'active', label: counts ? `Active (${counts.active})` : 'Active' },
-          { value: 'archived', label: counts ? `Archived (${counts.archived})` : 'Archived' },
+          { value: 'active', label: label('Active', counts?.active) },
+          { value: 'archived', label: label('Archived', counts?.archived) },
         ]}
       />
-      <Button icon={<PlusIcon size={16} weight="bold" />} className="max-sm:w-9" onClick={onAdd}>
-        <span className="max-sm:sr-only">Add application</span>
-      </Button>
+      {onAdd && (
+        <Button icon={<PlusIcon size={16} weight="bold" />} className="max-sm:w-9" onClick={onAdd}>
+          <span className="max-sm:sr-only">Add application</span>
+        </Button>
+      )}
     </div>
   );
 }
 
-/** Row 2: search, Board | List | Chart, Options. */
+/**
+ * v31 FIX-DOCS: the tracker's one toolbar row: the search (left, taking the room), Active | Archived, Board | List |
+ * Chart, then "Filter and sort" and the ⋯ of the tracker's actions. On a phone the search takes the first row.
+ */
 export function SearchRow({
   view,
   search,
   onSearchChange,
   onViewChange,
+  tabs,
   options,
 }: {
   view: TrackerView;
   search: string;
   onSearchChange: (value: string) => void;
   onViewChange: (view: TrackerView) => void;
+  /** Active | Archived (TabsRow). */
+  tabs?: ReactNode;
   options: ReactNode;
 }) {
+  const { t } = usePublicConstants();
   return (
-    <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
+    <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
       {view === 'chart' ? (
-        <div className="hidden flex-1 sm:block" />
+        <div className="hidden flex-1 lg:block" />
       ) : (
         <SearchPill
           value={search}
           onValueChange={onSearchChange}
-          placeholder="Search for roles or companies"
-          className="w-full min-w-0 sm:flex-1"
+          placeholder={t('LABEL_TRACKER_SEARCH')}
+          className="w-full min-w-0 lg:min-w-56 lg:flex-1"
         />
       )}
+      {tabs}
       <SegmentedControl
         aria-label="Tracker view"
         value={view}
         onValueChange={onViewChange}
         items={[
-          { value: 'board', label: 'Board', icon: <KanbanIcon size={16} /> },
-          { value: 'list', label: 'List', icon: <RowsIcon size={16} /> },
-          { value: 'chart', label: 'Chart', icon: <ChartLineIcon size={16} /> },
+          { value: 'board', label: <span className="max-sm:sr-only">Board</span>, icon: <KanbanIcon size={16} /> },
+          { value: 'list', label: <span className="max-sm:sr-only">List</span>, icon: <RowsIcon size={16} /> },
+          { value: 'chart', label: <span className="max-sm:sr-only">Chart</span>, icon: <ChartLineIcon size={16} /> },
         ]}
       />
-      {options}
+      <div className="ml-auto flex items-center gap-2">{options}</div>
     </div>
   );
 }
@@ -149,11 +175,12 @@ export function PrepareBar({
   pending: boolean;
   onDone: () => void;
 }) {
+  const { t } = usePublicConstants();
   return (
     <div
       role="toolbar"
       aria-label="Choose saved jobs to Prepare & Queue"
-      className="flex min-h-9 flex-wrap items-center gap-3 rounded-full border border-border bg-surface py-1 pr-1.5 pl-4 shadow-soft"
+      className="flex min-h-11 flex-wrap items-center gap-3 rounded-card border border-primary-200 bg-primary-50 py-1.5 pr-1.5 pl-3.5 shadow-card"
     >
       <Checkbox
         checked={allSelected && total > 0}
@@ -163,7 +190,7 @@ export function PrepareBar({
         onCheckedChange={(next) => onSelectAll(next)}
       />
       <span className="text-sm font-medium text-foreground" aria-live="polite">
-        {selectedLabel(count)}
+        {selectedLabel(count, t)}
       </span>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <PrepareButton count={count} disabled={count === 0} loading={pending} onClick={onPrepare} />
@@ -177,30 +204,20 @@ export function PrepareBar({
 
 export type BulkKind = 'archive' | 'unarchive' | 'delete' | { status: ApplicationStatus };
 
-const CONFIRM: Record<'archive' | 'unarchive' | 'delete', { title: string; description: string; label: string; tone: 'primary' | 'destructive' }> = {
-  delete: {
-    title: 'Delete Applications',
-    description: "Are you sure you want to delete all these applications? You won't be able to undo this action.",
-    label: 'Delete',
-    tone: 'destructive',
-  },
-  archive: {
-    title: 'Archive Applications',
-    description: 'Are you sure you want to archive all these applications?',
-    label: 'Archive',
-    tone: 'primary',
-  },
-  unarchive: {
-    title: 'Unarchive Applications',
-    description: 'Are you sure you want to unarchive all these applications?',
-    label: 'Unarchive',
-    tone: 'primary',
-  },
+/** v31 FIX-DOCS: the bulk confirmations' words keys (the constants; {count} the applications, {stage} a stage). */
+const CONFIRM: Record<
+  'archive' | 'unarchive' | 'delete',
+  { title: PublicMessageKey; description: PublicMessageKey; label: string; tone: 'primary' | 'destructive' }
+> = {
+  delete: { title: 'MSG_TRACKER_DELETE_MANY_TITLE', description: 'MSG_TRACKER_DELETE_MANY_TEXT', label: 'Delete', tone: 'destructive' },
+  archive: { title: 'MSG_TRACKER_ARCHIVE_MANY_TITLE', description: 'MSG_TRACKER_ARCHIVE_MANY_TEXT', label: 'Archive', tone: 'primary' },
+  unarchive: { title: 'MSG_TRACKER_RESTORE_MANY_TITLE', description: 'MSG_TRACKER_RESTORE_MANY_TEXT', label: 'Restore', tone: 'primary' },
 };
 
 /**
- * "Manage jobs": the select-mode bar with its bulk actions and Simplify's confirmations, and "Build resumes" (a zip of
- * the selected applications' resumes; like every action here it needs a selection).
+ * "Select applications" (v31 FIX-DOCS; was "Manage jobs"): the select-mode bar with its bulk actions (Archive, Restore,
+ * Delete, Move to stage) and their confirmations in the constants' words, and "Build resumes" (a zip of the selected
+ * applications' resumes; like every action here it needs a selection).
  */
 export function ManageBar({
   tab,
@@ -228,23 +245,29 @@ export function ManageBar({
   onDone: () => void;
 }) {
   const [pending, setPending] = useState<BulkKind | null>(null);
+  const { t } = usePublicConstants();
   const none = count === 0;
   const confirm =
     pending === null
       ? null
       : typeof pending === 'object'
         ? {
-            title: 'Warning',
-            description: `Are you sure you want to update the status of these ${count} applications?`,
-            label: 'Update',
+            title: t('MSG_TRACKER_MOVE_MANY_TITLE', { count, stage: STATUS_INFO[pending.status].label }),
+            description: t('MSG_TRACKER_MOVE_MANY_TEXT', { stage: STATUS_INFO[pending.status].label }),
+            label: 'Move',
             tone: 'primary' as const,
           }
-        : CONFIRM[pending];
+        : {
+            title: t(CONFIRM[pending].title, { count }),
+            description: t(CONFIRM[pending].description, { count }),
+            label: CONFIRM[pending].label,
+            tone: CONFIRM[pending].tone,
+          };
   return (
     <div
       role="toolbar"
-      aria-label="Manage jobs"
-      className="flex min-h-9 flex-wrap items-center gap-3 rounded-full border border-border bg-surface py-1 pr-1.5 pl-4 shadow-soft"
+      aria-label={t('LABEL_TRACKER_SELECT')}
+      className="flex min-h-11 flex-wrap items-center gap-3 rounded-card border border-primary-200 bg-primary-50 py-1.5 pr-1.5 pl-3.5 shadow-card"
     >
       <Checkbox
         checked={allSelected && total > 0}
@@ -254,7 +277,7 @@ export function ManageBar({
         onCheckedChange={(next) => onSelectAll(next)}
       />
       <span className="text-sm font-medium text-foreground" aria-live="polite">
-        {selectedLabel(count)}
+        {selectedLabel(count, t)}
       </span>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <Button
@@ -273,7 +296,7 @@ export function ManageBar({
           disabled={none || tab === 'active'}
           onClick={() => setPending('unarchive')}
         >
-          Unarchive
+          Restore
         </Button>
         <Button variant="destructive-outline" size="sm" icon={<TrashIcon size={14} />} disabled={none} onClick={() => setPending('delete')}>
           Delete
@@ -283,7 +306,7 @@ export function ManageBar({
             disabled={none}
             render={<Button variant="outline" size="sm" trailingIcon={<CaretDownIcon size={12} />} />}
           >
-            Update Status
+            {t('LABEL_TRACKER_MOVE_TO_STAGE')}
           </MenuTrigger>
           <MenuContent width="w-52" align="end">
             {APPLICATION_STATUSES.map((status) => (

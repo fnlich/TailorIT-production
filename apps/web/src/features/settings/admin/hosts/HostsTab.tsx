@@ -111,8 +111,9 @@ export function HostsTab() {
     {
       key: 'failures',
       header: 'Failures in a row',
-      className: 'w-36 tabular-nums',
-      cell: (host) => <span className={clsx(host.consecutiveFailures > 0 && 'font-semibold text-[#c62a29]')}>{host.consecutiveFailures}</span>,
+      className: 'w-36',
+      numeric: true,
+      cell: (host) => <span className={clsx(host.consecutiveFailures > 0 && 'text-danger')}>{host.consecutiveFailures}</span>,
     },
     { key: 'last', header: 'Last answer', className: 'w-28 tabular-nums', cell: (host) => lastStatusText(host.lastStatus) },
     {

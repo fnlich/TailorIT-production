@@ -1,4 +1,4 @@
-import { normalizeCompanyName, normalizeJobTitle, STATUS, type CreateApplicationBody } from '@tailorit/shared';
+import { canonicalJobUrl, normalizeCompanyName, normalizeJobTitle, STATUS, type CreateApplicationBody } from '@tailorit/shared';
 import {
   addablePosting,
   type AddablePosting,
@@ -9,6 +9,7 @@ import {
 import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/types';
 import { AppError } from '../../core/http/errors';
+import { refuse } from '../../core/http/refuse'; // v31 LINK
 import { bestResumes, SINGLE_SAVE_MATCH_BUDGET_MS } from '../applications/resume-choice';
 import { createApplication, wantsResumeMatch, type CreateOptions } from '../applications/service';
 import { IngestHttpError } from '../ingest/http';
@@ -19,6 +20,10 @@ import { RobotsRefusal } from '../ingest/robots';
 import { requireIngest } from '../ingest/service';
 import { IngestError, type SourceRecord } from '../ingest/types';
 import { holdNewJob, noteHeldAdd } from '../job-reviews/new-jobs'; // v30 X1-API
+import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
+import { readPageToSharedJob } from '../jobs/add/page'; // v31 LINK
+import { readWaitsForAdmin, settleHeldAfterRead } from '../jobs/add/held'; // v31 FIX-LINK
+import { REVIEW_HELD_SQL } from '../jobs/add/review-held'; // v31 FIX-LINK (a leaf: the SQL below is built at load)
 import { aliasValueHash } from './alias-key';
 import { jobPlaces, placesMeet } from './places';
 import { insertSourceIfNameFree, sourcesOfKind } from './sources';
@@ -218,10 +223,13 @@ async function readAndStore(
       throw new AppError('internal', 'TailorIT could not save this posting. Please try again.');
     }
     const created = outcome.counts.created > 0;
-    // v30 X1-API (14 §4.1): a posting new to TailorIT from a board no enabled source runs is held for review (out of
-    // every search, its review opened), in this transaction; an enabled source's posting is public at once (its next
-    // run would list it anyway).
-    if (created && !source.enabled) await holdNewJob(t, link.job_id, now);
+    // v31 LINK (D1): TailorIT read the posting itself, so it is published at once; only while an admin approves new
+    // jobs by hand (NEW_JOBS_ADMIN_APPROVAL) is a posting new to TailorIT from a board no enabled source runs held for
+    // review (out of every search, its review opened), in this transaction; an enabled source's posting is public at
+    // once (its next run lists it anyway). v3.0 held every such posting.
+    if (created && readWaitsForAdmin(deps, { page: false, sourceEnabled: source.enabled })) await holdNewJob(t, link.job_id, now);
+    // v31 FIX-LINK (BEH-4): a read that landed on a job the legacy pass holds settles it (jobs/add/held.ts).
+    else if (!created) await settleHeldAfterRead(deps, t, link.job_id, { page: false, sourceEnabled: source.enabled, at: now });
     return { jobId: link.job_id, created };
   }, { label: 'autofill add job' });
 }
@@ -310,13 +318,18 @@ export async function linkHandAddedEntry(
  * v30 X1-API (14 §4.1): a held job of the page's ATS posting, which the lookup does not show this account (the held rule:
  * another account's add made it, and only its adders see it). Add job lands on it as the store's dedupe would, without
  * reading the board again; the account's report row and tracker entry then follow (saveToTracker).
+ *
+ * v31 FIX-LINK (REV-BEH BEH-2): only a job a review holds (another account's add made it: its `new_job` review), by a
+ * live link of its board: never one the legacy pass holds (it is settled only by a real read: jobs/add/legacy.ts), never
+ * by a link its board no longer lists (the posting may have closed).
  */
 export const HELD_SOURCE_LINK_SQL = `SELECT l.job_id, s.config
        FROM job_source_links l JOIN job_sources s ON s.id = l.source_id JOIN jobs j ON j.id = l.job_id
        WHERE s.kind = ? AND l.source_job_id = ? AND j.owner_user_id IS NULL AND j.held_since IS NOT NULL
-       ORDER BY (l.missing_since IS NULL) DESC, j.active DESC, l.last_seen_at DESC LIMIT 20`;
+         AND l.missing_since IS NULL AND ${REVIEW_HELD_SQL}
+       ORDER BY j.active DESC, l.last_seen_at DESC LIMIT 20`;
 
-async function heldJobOf(deps: Pick<AppDeps, 'db'>, page: PageReading): Promise<JobMatch | null> {
+export async function heldJobOf(deps: Pick<AppDeps, 'db'>, page: PageReading): Promise<JobMatch | null> {
   const ats = page.ats;
   if (!ats || !SOURCE_BOARD[ats.kind]) return null;
   return sourceLinkMatch(ats, await deps.db.all<SourceLinkRow>(HELD_SOURCE_LINK_SQL, [ats.kind, ats.externalId]));
@@ -415,7 +428,15 @@ function furtherAlong(a: EntryRank, b: EntryRank): boolean {
  * shared job, or another posting. v3.0 D2-B: it holds the person's lock (the page job's link and entries are theirs),
  * so two upgrades at once never move the same rows twice.
  */
-export async function upgradeOwnPageJob(deps: AppDeps, userId: string, ownedJobId: number, sharedJobId: number): Promise<boolean> {
+export async function upgradeOwnPageJob(
+  deps: AppDeps,
+  userId: string,
+  ownedJobId: number,
+  sharedJobId: number,
+  // v31 LINK: the shared job was read now from the page job's own link (a retried read, a review approved): it is the
+  // same posting by that link, whatever titles the person's browser captured.
+  options: { sameLink?: boolean } = {},
+): Promise<boolean> {
   if (ownedJobId === sharedJobId) return false;
   let chosenAgain = 0;
   const upgraded = await deps.db.atomic(async (t) => {
@@ -424,7 +445,9 @@ export async function upgradeOwnPageJob(deps: AppDeps, userId: string, ownedJobI
     const shared = await upgradeFacts(t, sharedJobId);
     if (!owned || owned.owner_user_id !== userId || !shared || shared.owner_user_id !== null) return false;
     if (owned.superseded_by !== null) return owned.superseded_by === sharedJobId;
-    if (!(await isSamePosting(deps, owned, shared))) return false;
+    if (!options.sameLink && !(await isSamePosting(deps, owned, shared))) return false;
+    // v31 LINK: the page job's "Couldn't verify" row goes with it (it is read now).
+    await t.run('DELETE FROM job_verifications WHERE job_id = ?', [ownedJobId]);
     const now = nowIso(deps);
     const d = t.dialect;
     const posting = sharedIdentity(shared);
@@ -586,17 +609,22 @@ async function openHeldJobOf(deps: Pick<AppDeps, 'db'>, posting: AddablePosting)
   return null;
 }
 
-/** The read of `posting`, shared with an add of the same posting already under way (an open held job is not read again). */
+/**
+ * The read of `posting`, shared with an add of the same posting already under way (an open held job is not read again).
+ * v31 FIX-LINK (BEH-2): `fresh` reads the board whatever job holds the posting (the legacy pass's reads, Retry read).
+ */
 export function readShared(
   deps: AppDeps,
   posting: AddablePosting,
   inFlight: InFlight,
+  options: { fresh?: boolean } = {},
 ): Promise<{ jobId: number; created: boolean }> {
-  const key = `${posting.kind}:${posting.region}:${posting.board.toLowerCase()}:${posting.externalId.toLowerCase()}`;
+  const key = `${posting.kind}:${posting.region}:${posting.board.toLowerCase()}:${posting.externalId.toLowerCase()}${options.fresh ? ':fresh' : ''}`;
   let reading = inFlight.postings.get(key);
   if (!reading) {
-    reading = openHeldJobOf(deps, posting)
-      .then((held) => (held !== null ? { jobId: held, created: false } : readAndStore(deps, posting, inFlight.boards)))
+    const held = options.fresh ? Promise.resolve(null) : openHeldJobOf(deps, posting);
+    reading = held
+      .then((found) => (found !== null ? { jobId: found, created: false } : readAndStore(deps, posting, inFlight.boards)))
       .finally(() => inFlight.postings.delete(key));
     inFlight.postings.set(key, reading);
   }
@@ -624,10 +652,22 @@ export async function addJob(
   let job = (await findPageJob(deps, userId, page)) ?? (await heldJobOf(deps, page));
   let created = false;
   if (!job) {
-    if (!posting) throw new AppError('unsupported', UNSUPPORTED);
-    const stored = await readShared(deps, posting, inFlight);
-    job = { id: stored.jobId, matchedBy: 'source_link' };
-    created = stored.created;
+    if (posting) {
+      const stored = await readShared(deps, posting, inFlight);
+      job = { id: stored.jobId, matchedBy: 'source_link' };
+      created = stored.created;
+    } else {
+      // v31 LINK (D3): a page no ATS API reads is read for its own schema.org JobPosting (jobs/add/page.ts); a page
+      // TailorIT cannot read is refused as before (the extension then adds it from the page's text: From page).
+      const link = canonicalJobUrl(request.url);
+      const readable = link !== null && !page.linkedIn && !isRefusedPageHost(new URL(link).hostname);
+      const read = readable ? await readPageToSharedJob(deps, link) : null;
+      // The page TailorIT read says its posting has closed (404, 410, or a past validThrough).
+      if (read?.kind === 'closed') throw refuse(deps, 'not_found', 'MSG_JOB_ADD_REFUSED_CLOSED');
+      if (read?.kind !== 'shared') throw new AppError('unsupported', UNSUPPORTED);
+      job = { id: read.jobId, matchedBy: 'source_link' };
+      created = read.created;
+    }
   } else if (posting && ((await isClosed(deps, job.id)) || (await isOwnPageJob(deps, userId, job.id)))) {
     // A closed job is read again (a posting listed again reopens), and so is the person's own job made from the page's
     // text while the ATS would not give the posting: read now, the posting takes its place when it is the page job's own

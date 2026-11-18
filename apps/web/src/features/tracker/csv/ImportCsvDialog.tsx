@@ -32,7 +32,7 @@ import { statusOptions } from '../status';
 
 type Step = 'file' | 'header' | 'map' | 'companies' | 'statuses' | 'jobTypes' | 'importing' | 'done';
 
-/** The checks between "Map your columns" and the import, in Simplify's order; each one only when the file needs it. */
+/** The checks between "Map your columns" and the import, in this order; each one only when the file needs it. */
 const REVIEW_STEPS = ['companies', 'statuses', 'jobTypes'] as const;
 type ReviewStep = (typeof REVIEW_STEPS)[number];
 
@@ -136,7 +136,7 @@ function mappedRows(rows: readonly string[][], mapping: Record<TrackerImportFiel
 }
 
 /**
- * Simplify's "Import Applications from CSV": choose the file, pick the header row, map the columns (two required,
+ * "Import applications from a spreadsheet" (v31 FIX-DOCS: MSG_TRACKER_IMPORT_TITLE): choose the file, pick the header row, map the columns (two required,
  * six optional, any of them a custom value), review the companies TailorIT does not know, map the status words and
  * job types the import cannot read, then import in batches. A batch that fails waits for Retry or Skip; the summary
  * names every row that was not imported.
@@ -421,7 +421,7 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
         onOpenChange(next);
       }}
     >
-      <DialogContent title="Import Applications from CSV" size="xl" className="sm:max-w-3xl">
+      <DialogContent title={t('MSG_TRACKER_IMPORT_TITLE')} size="xl" className="sm:max-w-3xl">
         <div className="mt-5 flex min-h-0 flex-col gap-4 overflow-y-auto">
           {step === 'file' && (
             <div
@@ -432,11 +432,11 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
               className={clsx(
-                'flex flex-col items-center justify-center gap-3 rounded-surface border-2 border-dashed px-6 py-12 text-center transition-colors',
-                dragging ? 'border-primary-ink bg-primary/5' : 'border-control-strong bg-surface-low',
+                'flex flex-col items-center justify-center gap-3 rounded-card border-[1.5px] border-dashed px-6 py-12 text-center transition-colors',
+                dragging ? 'border-primary bg-primary-50' : 'paper-grid border-border-strong bg-surface',
               )}
             >
-              <span className="flex size-12 items-center justify-center rounded-full bg-primary-container text-primary-ink">
+              <span className="flex size-12 items-center justify-center rounded-card bg-primary-soft text-primary">
                 <FileCsvIcon size={24} />
               </span>
               <Button icon={<UploadSimpleIcon size={16} />} onClick={() => input.current?.click()}>
@@ -493,7 +493,7 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
                     <div key={field.key} className="grid items-center gap-2 sm:grid-cols-[11rem_1fr_1fr]">
                       <span className="text-sm font-medium text-foreground">
                         {field.label}
-                        {field.required && <span className="ml-0.5 text-[#c62a29]">*</span>}
+                        {field.required && <span className="ml-0.5 text-danger">*</span>}
                       </span>
                       <Select
                         aria-label={`${field.label} column`}
@@ -621,12 +621,12 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
           {step === 'importing' && (
             <div className="flex flex-col items-center gap-3 py-10" role="status">
               {failedBatch ? (
-                <WarningCircleIcon size={28} weight="fill" className="text-amber-foreground" />
+                <WarningCircleIcon size={28} weight="fill" className="text-warning" />
               ) : (
                 <Spinner size={24} />
               )}
               <p className="text-sm font-medium text-foreground">{failedBatch ? 'Import paused' : 'Processing rows...'}</p>
-              <p className="text-sm text-muted-foreground tabular-nums">
+              <p className="num text-sm text-muted-foreground">
                 {progress.done} of {progress.total}
               </p>
             </div>
@@ -641,15 +641,15 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
           {step === 'done' && outcome && (
             <div className="flex flex-col items-center gap-3 py-6 text-center">
               {outcome.notImported.length > 0 ? (
-                <span className="flex size-12 items-center justify-center rounded-full bg-amber text-amber-foreground">
+                <span className="flex size-12 items-center justify-center rounded-card bg-warning-soft text-warning">
                   <WarningCircleIcon size={26} weight="fill" />
                 </span>
               ) : (
-                <span className="flex size-12 items-center justify-center rounded-full bg-success-container text-success">
+                <span className="flex size-12 items-center justify-center rounded-card bg-success-soft text-success">
                   <CheckCircleIcon size={26} weight="fill" />
                 </span>
               )}
-              <h3 className="text-lg font-semibold text-foreground">{outcome.stopped ? 'Import Stopped' : 'Import Complete'}</h3>
+              <h3 className="font-display text-lg leading-6 font-semibold text-foreground">{outcome.stopped ? 'Import Stopped' : 'Import Complete'}</h3>
               {outcome.notImported.length === 0 ? (
                 <p className="text-sm text-muted-foreground">All {outcome.imported} applications imported successfully!</p>
               ) : (

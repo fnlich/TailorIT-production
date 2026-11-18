@@ -4,6 +4,7 @@ import { clsx } from 'clsx';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { PAGE_GUTTER } from '@/components/shell/layout';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { TabPanel } from '@/components/ui/SegmentedControl';
 import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { AnswersTab } from './answers/AnswersTab';
@@ -52,31 +53,30 @@ export function AutofillSettingsPage() {
   };
 
   return (
-    <div className={clsx('mx-auto w-full max-w-[880px] pt-9 pb-20', PAGE_GUTTER)}>
-      <h1 className="text-[30px] leading-10 font-bold tracking-[-0.01em] text-foreground">Autofill</h1>
-      <p className="mt-2 text-base text-muted-foreground">
-        The answers the TailorIT extension fills job applications with, the ones it saved for you, the job-site sign-in
-        it may use, and the browsers it is connected in.
-      </p>
+    <div className={clsx('mx-auto w-full max-w-[880px] pt-7 pb-20', PAGE_GUTTER)}>
+      <PageHeader
+        title="Autofill"
+        description="The answers the TailorIT extension fills job applications with, the ones it saved for you, the job-site sign-in it may use, and the browsers it is connected in."
+      />
       <UnderlineTabs
         aria-label="Autofill sections"
         items={AUTOFILL_TABS}
         value={tab}
         onValueChange={(next) => replace({ tab: next, connect: null })}
         size="md"
-        className="mt-8"
+        className="mt-6"
       >
         {/* Kept mounted, so switching tabs never loses unsaved changes. */}
-        <TabPanel value="profile" className="mt-8" keepMounted>
+        <TabPanel value="profile" className="mt-6" keepMounted>
           <ProfileTab />
         </TabPanel>
-        <TabPanel value="answers" className="mt-8">
+        <TabPanel value="answers" className="mt-6">
           <AnswersTab />
         </TabPanel>
-        <TabPanel value="sign-in" className="mt-8">
+        <TabPanel value="sign-in" className="mt-6">
           <SignInTab />
         </TabPanel>
-        <TabPanel value="extension" className="mt-8">
+        <TabPanel value="extension" className="mt-6">
           <ExtensionTab
             pairingState={state}
             focusConnect={searchParams.get('connect') === '1'}

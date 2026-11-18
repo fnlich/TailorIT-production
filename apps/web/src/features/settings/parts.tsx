@@ -1,11 +1,15 @@
 import { clsx } from 'clsx';
 import { useId, type ReactNode } from 'react';
 // Relative, not '@/': the web tests draw these views.
+import { Card } from '../../components/ui/Card';
 import { Chip } from '../../components/ui/Chip';
 import { CheckIcon } from '../../components/ui/icons';
 import { Switch } from '../../components/ui/Switch';
 
-/** A Settings card: its title, one line under it, then its content. `id` is its anchor (/settings#prepare). */
+/**
+ * A Settings card: its title (the section-heading style), one line under it, then its content, on a white `Card`.
+ * `id` is its anchor (/settings#prepare); the anchor lands right under the 56 px top bar (`scroll-mt-topbar`).
+ */
 export function Section({
   title,
   description,
@@ -23,20 +27,22 @@ export function Section({
   className?: string;
 }) {
   return (
-    <section
+    <Card
+      as="section"
+      padding="none"
       id={id}
-      className={clsx('scroll-mt-[79px] rounded-surface border border-border bg-surface p-6 shadow-soft', className)}
+      className={clsx('scroll-mt-topbar p-5 sm:p-6', className)}
       aria-label={title}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <h2 className="text-base leading-6 font-semibold text-foreground">{title}</h2>
-          <div className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{description}</div>
+          <h2 className="text-heading font-semibold text-foreground">{title}</h2>
+          <div className="mt-1 text-[13px] leading-5 text-muted-foreground">{description}</div>
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
       <div className="mt-5">{children}</div>
-    </section>
+    </Card>
   );
 }
 
@@ -137,10 +143,10 @@ export function ChoiceGroup<V extends string>({
   );
 }
 
-/** "120 / 1000", in the warning colour past the limit. */
+/** "120 / 1000" in the measurement face, red and bold past the limit. */
 export function CharacterCount({ length, max }: { length: number; max: number }) {
   return (
-    <span className={clsx('tabular-nums', length > max && 'font-semibold text-[#c62a29]')} data-count={length}>
+    <span className={clsx('num', length > max && 'font-semibold text-danger')} data-count={length}>
       {length} / {max}
     </span>
   );

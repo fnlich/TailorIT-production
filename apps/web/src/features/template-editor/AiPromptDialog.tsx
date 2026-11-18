@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Textarea } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 
-/** "✨ AI Prompt": extra context for generating a letter from this template (at most 1,000 characters, counted). */
+/** "✨ AI notes" (v31 FIX-DOCS: LABEL_LETTER_AI_NOTES): extra context for generating a letter from this template (at most 1,000 characters, counted). */
 export function AiPromptDialog({
   open,
   onOpenChange,
@@ -40,6 +41,7 @@ function PromptForm({
   onSave: (prompt: string) => Promise<void>;
   onClose: () => void;
 }) {
+  const { t } = usePublicConstants();
   const [text, setText] = useState(value);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +63,7 @@ function PromptForm({
   };
 
   return (
-    <DialogContent title="AI Prompt" description={AI_PROMPT_HINT} size="lg">
+    <DialogContent title={t('LABEL_LETTER_AI_NOTES')} description={AI_PROMPT_HINT} size="lg">
       <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-2">
         <Textarea
           aria-label="AI prompt"
@@ -73,7 +75,7 @@ function PromptForm({
           placeholder="For example: Keep the tone warm and mention a specific project from my resume."
           onChange={(event) => setText(event.target.value)}
         />
-        <p className={tooLong ? 'text-right text-xs text-[#c62a29]' : 'text-right text-xs text-muted-foreground'} aria-live="polite">
+        <p className={tooLong ? 'num text-right text-xs text-danger' : 'num text-right text-xs text-muted-foreground'} aria-live="polite">
           {text.length}/{AI_PROMPT_MAX}
         </p>
         {error && <Notice tone="error">{error}</Notice>}

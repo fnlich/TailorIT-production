@@ -63,7 +63,7 @@ export function AnswersTab() {
         description={DESCRIPTION}
         action={
           answers.data && items.length > 0 ? (
-            <span className="shrink-0 text-[13px] leading-5 text-muted-foreground tabular-nums">
+            <span className="num shrink-0 text-[13px] leading-5 text-muted-foreground">
               {items.length} of {answers.data.limit}
             </span>
           ) : undefined

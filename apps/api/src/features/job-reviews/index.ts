@@ -3,6 +3,7 @@ import type { Feature } from '../../core/feature';
 import { JOB_REVIEWS_DAILY } from './housekeeping';
 import { RECHECK_PASS_EVERY_MS, runAutoSweep, runRecheckPass } from './rechecks';
 import { createReviewFlagsRouter, createReviewRouter } from './router';
+import { runsPaused } from '../ingest/pause-state'; // v31 RUNS
 
 // v30 X1-API: the extension's closed-link reports and new jobs, and Admin › Review (docs/design/part2/14-extension-
 // reports.md §3-§7; the build plan's §9). The module map:
@@ -16,7 +17,10 @@ import { createReviewFlagsRouter, createReviewRouter } from './router';
 // - admin.ts, flags.ts, service.ts, router.ts: Admin › Review's API (the Flags lane replaces Admin › Reports');
 // - housekeeping.ts: expiry and pruning (Feature.daily); seam.ts: jobReviews (core/seams.ts).
 
-/** The worker hook: a pass of the re-check queue and of the automatic rules' sweep every RECHECK_PASS_EVERY_MS. */
+/**
+ * The worker hook: a pass of the re-check queue and of the automatic rules' sweep every RECHECK_PASS_EVERY_MS. v31 RUNS:
+ * none while an admin paused every run (the re-checks read the reported postings' hosts: the worker's outside work).
+ */
 function startReviewWorker(deps: AppDeps): () => void {
   let running = false;
   let sweepAfter = 0;
@@ -24,6 +28,7 @@ function startReviewWorker(deps: AppDeps): () => void {
     if (running) return;
     running = true;
     try {
+      if (await runsPaused(deps)) return; // v31 RUNS
       const checked = await runRecheckPass(deps);
       const swept = await runAutoSweep(deps, sweepAfter);
       sweepAfter = swept.lastId;

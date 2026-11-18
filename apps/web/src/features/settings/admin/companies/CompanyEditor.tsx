@@ -182,7 +182,7 @@ export function CompanyEditor({
               if (entries.length === 0) return null;
               return (
                 <EditorSection key={group.id} title={group.title}>
-                  <ul className="divide-y divide-border" aria-label={group.title}>
+                  <ul className="divide-y divide-divider-soft" aria-label={group.title}>
                     {entries.map((entry) => (
                       <FieldRow
                         key={entry.field}
@@ -294,7 +294,7 @@ function AliasesSection({ company }: { company: AdminCompany }) {
       {company.aliases.length === 0 ? (
         <p className="text-sm text-muted-foreground">No keys yet.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-border rounded-control border border-border" aria-label="Keys">
+        <ul className="flex flex-col divide-y divide-divider-soft rounded-card border border-border" aria-label="Keys">
           {company.aliases.map((alias) => (
             <li key={`${alias.kind}:${alias.value}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm" data-company-alias={alias.kind}>
               <span className="min-w-0 break-all">
@@ -324,7 +324,7 @@ function SourcesSection({ company }: { company: AdminCompany }) {
       {company.sources.length === 0 ? (
         <p className="text-sm text-muted-foreground">No source has been read yet.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-border rounded-control border border-border" aria-label="Sources">
+        <ul className="flex flex-col divide-y divide-divider-soft rounded-card border border-border" aria-label="Sources">
           {company.sources.map((source) => (
             <li key={source.id} className="flex flex-col gap-1 px-3 py-2.5 text-sm" data-company-source={source.id}>
               <span className="flex flex-wrap items-center justify-between gap-2">

@@ -302,12 +302,18 @@ export interface RecheckPostingResult {
 export type RecheckPosting = (deps: AppDeps, input: RecheckPostingInput) => Promise<RecheckPostingResult>;
 
 /** What the shared reader reads for (each behind its admin switch, owner question 8). */
-export const SITE_READ_PURPOSES = ['company_site', 'career_page'] as const;
+export const SITE_READ_PURPOSES = [
+  'company_site',
+  'career_page',
+  // v31 LINK (D3): an added job's own page, read once for its schema.org JobPosting (ADD_JOB_PAGE_READ, and the
+  // identity guard's `add_page` kind).
+  'add_page',
+] as const;
 export type SiteReadPurpose = (typeof SITE_READ_PURPOSES)[number];
 
 /** Why the shared reader read nothing (nothing was sent for the first four). */
 export const SITE_READ_REFUSALS = [
-  /** SITE_READER_COMPANY_SITES / SITE_READER_CAREER_PAGES is off (both are, by default). */
+  /** SITE_READER_COMPANY_SITES / SITE_READER_CAREER_PAGES is off (both are, by default); v31 LINK: ADD_JOB_PAGE_READ. */
   'switch_off',
   /** BOT_USER_AGENT is a placeholder (assertNewReadAllowed). */
   'identity_placeholder',

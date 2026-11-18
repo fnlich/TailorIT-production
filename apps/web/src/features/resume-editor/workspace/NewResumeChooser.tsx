@@ -21,6 +21,7 @@ import { Button, buttonClasses } from '@/components/ui/Button';
 import { CaretDownIcon, UploadSimpleIcon } from '@/components/ui/icons';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/Menu';
 import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { RESUMES_TAB_HREF, newResumeHref, resumeEditorHref } from '../api';
 import { usePublicConstants } from '@/lib/constants';
@@ -43,13 +44,13 @@ function TemplateCard({ templateId }: { templateId: ResumeTemplateId }) {
   return (
     <Link
       href={newResumeHref(templateId)}
-      className="group flex flex-col gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="group flex flex-col gap-3 rounded-card outline-none focus-visible:ring-2 focus-visible:ring-primary"
       data-template-card={templateId}
     >
       <div
         className={clsx(
-          'relative w-full overflow-hidden rounded-lg border border-border bg-white transition-shadow',
-          'group-hover:shadow-md group-focus-visible:shadow-md',
+          'relative w-full overflow-hidden rounded-card border border-border bg-surface shadow-card transition-[box-shadow,border-color]',
+          'group-hover:border-primary-200 group-hover:shadow-popover group-focus-visible:shadow-popover',
         )}
         style={{ aspectRatio: `${page.widthPx} / ${page.heightPx}` }}
       >
@@ -150,14 +151,12 @@ export function NewResumeChooser() {
   return (
     <>
       <EditorBar name="New resume" documentsHref={RESUMES_TAB_HREF} />
-      <main className={clsx('mx-auto w-full max-w-6xl py-10', PAGE_GUTTER)}>
-        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">Start building a resume</h1>
-            <p className="mt-1 text-[15px] text-muted-foreground">Choose a design you like. You can switch it any time.</p>
-          </div>
-          {menu}
-        </div>
+      <main className={clsx('mx-auto w-full max-w-6xl pt-7 pb-10', PAGE_GUTTER)}>
+        <PageHeader
+          title="Start building a resume"
+          description="Choose a design you like. You can switch it any time."
+          actions={menu}
+        />
         {resumeGate.info && ( // v20 P8
           <LimitNotice limit={resumeGate.info} className="mt-6">
             A new resume can&apos;t be saved until you have fewer resumes. Delete some in Documents first.

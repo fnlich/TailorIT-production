@@ -41,7 +41,7 @@ const BarButton = forwardRef<HTMLButtonElement, BarButtonProps>(function BarButt
       ref={ref}
       type={type ?? 'button'}
       className={clsx(
-        'flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] leading-4 font-medium',
+        'flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-control text-[11px] leading-4 font-medium',
         'text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary active:bg-hover',
         'disabled:pointer-events-none disabled:opacity-40',
       )}
@@ -91,7 +91,7 @@ export function PhoneBottomBar({ session, canvas, previewing, onPreview, onDownl
         aria-label="Editor actions"
         className={clsx(
           'fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface px-2 pb-[env(safe-area-inset-bottom)]',
-          'shadow-[0_-1px_3px_rgba(17,24,39,0.06)]',
+          'shadow-[0_-1px_3px_var(--color-hover)]',
         )}
         data-phone-bar=""
       >

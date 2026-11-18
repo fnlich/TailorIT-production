@@ -1,8 +1,7 @@
 'use client';
 
-import type { PrepareSettings } from '@tailorit/shared/prepare';
+import type { PrepareAllPlan, PrepareSettings } from '@tailorit/shared/prepare';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
 import { useCallback, useRef, useState, type ReactElement } from 'react';
 import { useLimitDialog } from '@/components/limits';
 import { useToast } from '@/components/ui/Toast';
@@ -11,15 +10,20 @@ import { ApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { redirectToLogin } from '@/lib/navigation';
 import { invalidateApplications } from '../tracker/data';
-import { fetchPrepareSettings, prepareKeys, savePrepareSettings, startPrepare } from './api';
-import { announcement, FILTERS_HREF, prepareResultCopy, type PreparedJobName } from './copy';
+import { fetchPrepareAllPlan, fetchPrepareSettings, prepareKeys, savePrepareSettings, startPrepare, startPrepareAll } from './api';
+import { announcement, CHANGE_FILTERS, PREPARE_ALL_NONE, prepareResultCopy, type PreparedJobName } from './copy';
+import { PrepareAllConfirmDialog } from './PrepareAllConfirmDialog';
 import { PrepareConfirmDialog } from './PrepareConfirmDialog';
+import { PrepareFiltersDialog } from './PrepareFiltersDialog';
 
 // v2.0: Prepare & Queue as one action every screen shares (the Auto-apply page's Saved pane and Queue pane, the
 // Tracker's "Prepare & Queue jobs" and its card menu): the first-time confirm (unless "Don't show this again" was
 // ticked, stored on the server), POST /api/prepare, the result toast and live line, the limit and refusal dialog
 // (useLimitDialog), and the reads it changes: the Auto-apply panes, the Tracker, the kits and the account
 // (invalidateAccount after every Prepare).
+// v31 AUTO: beside it, the filters dialog (openFilters: the Auto-apply page's Filters button and every "Change
+// filters", in place of the link to Settings › Prepare & Queue) and Prepare All (D10: its plan, its confirm with the
+// count and the AI budget, POST /api/prepare/all), which the dialog's "Filter and Prepare" starts too.
 
 /** The Auto-apply page's queries (the Saved and Queue panes, the kits): all start with this. */
 export const AUTO_APPLY_QUERY_ROOT = ['auto-apply'] as const;
@@ -36,12 +40,27 @@ export interface PrepareRequest {
   onDone?: () => void;
 }
 
+/** v31 AUTO: Prepare All's request. */
+export interface PrepareAllRequest {
+  /** The titles and companies the caller knows, for the toast's words. */
+  names?: ReadonlyMap<string, PreparedJobName>;
+}
+
 export interface PrepareAndQueue {
   /** Starts Prepare & Queue for the saved jobs (the confirm first, unless the person turned it off). */
   prepare: (request: PrepareRequest) => void;
   /** The saved jobs a request is in flight for (their buttons show the spinner). */
   pending: ReadonlySet<string>;
-  /** The confirm, the limit dialog and the live line: render once. */
+  /**
+   * v31 AUTO (D10): Prepare All, every saved job in To prepare that passes the filters (the server chooses): its plan,
+   * then its confirm (always: it can start many at once), then the start.
+   */
+  prepareAll: (request?: PrepareAllRequest) => void;
+  /** Prepare All is reading its plan, asking, or starting (its button shows the spinner). */
+  allPending: boolean;
+  /** v31 AUTO: opens the filters dialog (Only Filter, Filter and Prepare). */
+  openFilters: () => void;
+  /** The confirms, the filters dialog, the limit dialog and the live line: render once. */
   elements: ReactElement;
 }
 
@@ -93,7 +112,6 @@ export function focusBack(origin: FocusOrigin | null): HTMLElement | true {
 export function usePrepareAndQueue(): PrepareAndQueue {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const router = useRouter();
   const limits = useLimitDialog();
   const { t } = usePublicConstants();
   const [pending, setPending] = useState<ReadonlySet<string>>(NO_IDS);
@@ -104,6 +122,26 @@ export function usePrepareAndQueue(): PrepareAndQueue {
   const [live, setLive] = useState('');
   /** The pressed button and its row, for the confirm's final focus. */
   const origin = useRef<FocusOrigin | null>(null);
+  // v31 AUTO: the filters dialog and Prepare All.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  /** The button that opened the filters dialog (focus goes back to it). */
+  const filtersOrigin = useRef<FocusOrigin | null>(null);
+  /**
+   * Filter and Prepare handed on to Prepare All: the closing filters dialog leaves focus alone (its confirm takes it,
+   * or, when none opens, Prepare All puts it back on the button that opened the filters).
+   */
+  const handingOn = useRef(false);
+  const [allPlan, setAllPlan] = useState<PrepareAllPlan | null>(null);
+  const [allPending, setAllPending] = useState(false);
+  const allBusy = useRef(false);
+  const allOrigin = useRef<FocusOrigin | null>(null);
+  const allNames = useRef<ReadonlyMap<string, PreparedJobName> | undefined>(undefined);
+
+  const openFilters = useCallback(() => {
+    filtersOrigin.current = focusOrigin();
+    handingOn.current = false;
+    setFiltersOpen(true);
+  }, []);
 
   const refreshAfter = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: AUTO_APPLY_QUERY_ROOT });
@@ -124,7 +162,7 @@ export function usePrepareAndQueue(): PrepareAndQueue {
           title: copy.title,
           description: copy.description,
           timeout: RESULT_TOAST_MS,
-          action: copy.filtered ? { label: 'Change filters', onClick: () => router.push(FILTERS_HREF) } : undefined,
+          action: copy.filtered ? { label: CHANGE_FILTERS, onClick: openFilters } : undefined,
         });
         setLive(announcement(copy));
         request.onDone?.();
@@ -142,7 +180,7 @@ export function usePrepareAndQueue(): PrepareAndQueue {
         refreshAfter();
       }
     },
-    [limits, refreshAfter, router, t, toast],
+    [limits, openFilters, refreshAfter, t, toast],
   );
 
   const prepare = useCallback(
@@ -173,6 +211,97 @@ export function usePrepareAndQueue(): PrepareAndQueue {
     [queryClient, send],
   );
 
+  const endAll = useCallback(() => {
+    allBusy.current = false;
+    setAllPending(false);
+  }, []);
+
+  /** No confirm opened after Filter and Prepare: focus goes back to the button that opened the filters. */
+  const refocusAfterHandOn = useCallback(() => {
+    if (!handingOn.current) return;
+    handingOn.current = false;
+    const target = focusBack(allOrigin.current);
+    if (target instanceof HTMLElement) target.focus();
+  }, []);
+
+  const prepareAll = useCallback(
+    (request: PrepareAllRequest = {}, from?: FocusOrigin | null) => {
+      if (allBusy.current) return;
+      allBusy.current = true;
+      allOrigin.current = from === undefined ? focusOrigin() : from;
+      allNames.current = request.names;
+      setAllPending(true);
+      void (async () => {
+        try {
+          const plan = await fetchPrepareAllPlan();
+          if (plan.taking > 0) {
+            // The confirm asks (and takes focus); it ends the request when it closes.
+            handingOn.current = false;
+            setAllPlan(plan);
+            return;
+          }
+          if (plan.held) {
+            toast.info(PREPARE_ALL_NONE.heldTitle, plan.held.message);
+            setLive(`${PREPARE_ALL_NONE.heldTitle}. ${plan.held.message}`);
+          } else {
+            toast.toast({
+              type: 'info',
+              title: PREPARE_ALL_NONE.title,
+              description: PREPARE_ALL_NONE.description,
+              action: { label: CHANGE_FILTERS, onClick: openFilters },
+            });
+            setLive(`${PREPARE_ALL_NONE.title}. ${PREPARE_ALL_NONE.description}`);
+          }
+        } catch (error) {
+          if (error instanceof ApiError && error.isSessionExpired) {
+            redirectToLogin();
+            return;
+          }
+          if (!limits.show(error)) toast.error('Prepare All did not start', userMessage(error, 'Please try again.'));
+        }
+        endAll();
+        refocusAfterHandOn();
+      })();
+    },
+    [endAll, limits, openFilters, refocusAfterHandOn, toast],
+  );
+
+  /**
+   * The confirm's Continue: POST /api/prepare/all with the jobs the confirm named (v31 FIX-AUTH, BEH-8: no other
+   * starts), then the result toast; a limit opens its dialog.
+   */
+  const confirmAll = useCallback(async (applicationIds: readonly string[]) => {
+    try {
+      const answer = await startPrepareAll(applicationIds);
+      if (answer.results.length === 0) {
+        toast.info(PREPARE_ALL_NONE.title, PREPARE_ALL_NONE.description);
+        setLive(`${PREPARE_ALL_NONE.title}. ${PREPARE_ALL_NONE.description}`);
+        return;
+      }
+      const copy = prepareResultCopy(answer, (id) => allNames.current?.get(id), (reason) => t('MSG_FILTERED', { reason }));
+      const description = [copy.description, answer.held?.message].filter(Boolean).join(' ') || undefined;
+      toast.toast({
+        type: copy.tone,
+        title: copy.title,
+        description,
+        timeout: RESULT_TOAST_MS,
+        action: copy.filtered ? { label: CHANGE_FILTERS, onClick: openFilters } : undefined,
+      });
+      setLive(announcement({ ...copy, description }));
+    } catch (error) {
+      if (error instanceof ApiError && error.isSessionExpired) {
+        redirectToLogin();
+        return;
+      }
+      // A refusal (the AI usage, the resume limit) closes the confirm and opens the limit dialog; anything else stays
+      // in the confirm, in its words (the queue full).
+      if (limits.show(error)) return;
+      throw error;
+    } finally {
+      refreshAfter();
+    }
+  }, [limits, openFilters, refreshAfter, t, toast]);
+
   const elements = (
     <>
       <PrepareConfirmDialog
@@ -197,6 +326,25 @@ export function usePrepareAndQueue(): PrepareAndQueue {
           void send(request);
         }}
       />
+      <PrepareFiltersDialog
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        onFilterAndPrepare={() => {
+          handingOn.current = true;
+          prepareAll({}, filtersOrigin.current);
+        }}
+        finalFocus={() => (handingOn.current || allBusy.current ? false : focusBack(filtersOrigin.current))}
+      />
+      <PrepareAllConfirmDialog
+        plan={allPlan}
+        onOpenChange={(open) => {
+          if (open) return;
+          setAllPlan(null);
+          endAll();
+        }}
+        onConfirm={() => confirmAll(allPlan?.applicationIds ?? [])}
+        finalFocus={() => focusBack(allOrigin.current)}
+      />
       {limits.dialog}
       <p className="sr-only" role="status" aria-live="polite" data-prepare-live="">
         {live}
@@ -204,5 +352,5 @@ export function usePrepareAndQueue(): PrepareAndQueue {
     </>
   );
 
-  return { prepare, pending, elements };
+  return { prepare, pending, prepareAll, allPending, openFilters, elements };
 }

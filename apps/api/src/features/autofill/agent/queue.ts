@@ -28,6 +28,7 @@ import { nowIso, type AppDeps } from '../../../core/context';
 import type { Dialect } from '../../../core/db/dialect';
 import { notFound } from '../../../core/http/errors';
 import { refuse } from '../../../core/http/refuse';
+import { notifyAutoApplyResult } from '../../notifications/emitters'; // v31 NOTIFY
 import {
   allowanceOf,
   dailyLimitOf,
@@ -459,7 +460,7 @@ export async function leaveRunsOf(deps: Deps, userId: string, tokenId: string): 
  * Submit was pressed (API 8's `submitPressed`) and settles the run's daily use in the same transaction (reservations.ts:
  * a sent form, or Submit pressed without the confirmation seen, keeps it; anything else gives it back).
  */
-export async function finishRun(deps: Deps, userId: string, id: string, body: AutofillAgentResultBody): Promise<void> {
+export async function finishRun(deps: ClaimDeps, userId: string, id: string, body: AutofillAgentResultBody): Promise<void> {
   const now = nowIso(deps);
   await deps.db.tx(
     async (t) => {
@@ -479,6 +480,8 @@ export async function finishRun(deps: Deps, userId: string, id: string, body: Au
         ],
       );
       await settleReservation(deps, id, settlementOfResult(body), resultSettleReason(body));
+      // v31 NOTIFY: sent, needs you, or failed, in this transaction (never throws).
+      await notifyAutoApplyResult(deps, { userId, queueId: id, state: body.state });
     },
     { label: 'finishRun' },
   );

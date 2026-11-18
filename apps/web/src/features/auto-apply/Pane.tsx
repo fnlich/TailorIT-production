@@ -10,6 +10,7 @@ import { supportKind, supportText } from './copy';
 // v2.0: the support icon, the at-a-glance difference between the jobs the extension fills and the manual ones. v30
 // ST0: the panes' chrome (Pane) and their hooks (useRowFocus, ROW_ACTION, useReducedMotion, useThrottled) moved,
 // unchanged, to components/queue, the queue-style panes' base.
+// v31 AUTO: a 28 px icon tile on the v3.1 tokens: denim-soft for the robot, warning-soft for the hand.
 
 /**
  * The robot (the extension fills it) or the hand (applied to by hand), with its words as tooltip and name. Not a tab
@@ -27,8 +28,8 @@ export function SupportIcon({ support, id, className }: { support: SavedJobSuppo
         aria-label={words}
         data-support={supportKind(support)}
         className={clsx(
-          'inline-flex size-7 shrink-0 items-center justify-center rounded-full outline-offset-1',
-          supportKind(support) === 'manual' ? 'bg-amber text-amber-foreground' : 'bg-primary-container text-primary-ink',
+          'inline-flex size-7 shrink-0 items-center justify-center rounded-control outline-offset-1',
+          supportKind(support) === 'manual' ? 'bg-warning-soft text-warning-ink' : 'bg-primary-soft text-primary-ink',
           className,
         )}
       >

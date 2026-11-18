@@ -63,10 +63,11 @@ export const SOURCE_SORT_LABEL: Record<AdminSourceSort, string> = {
 
 export const SOURCE_SORT_OPTIONS = ADMIN_SOURCE_SORTS.map((value) => ({ value, label: `Sort: ${SOURCE_SORT_LABEL[value]}` }));
 
+/** v31 RUNS: an off source is "Disabled" (Paused is an admin's pause of its runs). */
 export const SOURCE_ENABLED_LABEL: Record<SourceEnabledFilter, string> = {
-  all: 'Enabled and paused',
+  all: 'Enabled and disabled',
   enabled: 'Enabled',
-  disabled: 'Paused',
+  disabled: 'Disabled',
 };
 
 /** The query string of a page: the filters CT reads, the lists as repeated keys, empty ones left out. */

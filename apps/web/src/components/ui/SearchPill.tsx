@@ -15,8 +15,8 @@ export interface SearchPillProps extends Omit<InputHTMLAttributes<HTMLInputEleme
 }
 
 /**
- * Simplify's search: a white rounded-full field with a magnifier ("Find your dream role", "Search for roles or
- * companies"), 36 px tall, #e8e8e8 border, soft shadow.
+ * The search field: a 36 px white box (radius 6, the strong border) with a magnifier ("Search sources by name or host",
+ * "Search apps"); focus turns it denim with the soft halo, like every field.
  */
 export const SearchPill = forwardRef<HTMLInputElement, SearchPillProps>(function SearchPill(
   { value, onValueChange, label, clearable = true, placeholder = 'Search', className, ...rest },
@@ -26,7 +26,7 @@ export const SearchPill = forwardRef<HTMLInputElement, SearchPillProps>(function
   useImperativeHandle(ref, () => input.current as HTMLInputElement);
   return (
     <div className={clsx('relative flex h-9 min-w-0 items-center', className)}>
-      <MagnifyingGlassIcon className="pointer-events-none absolute left-3.5 text-muted-foreground" size={16} />
+      <MagnifyingGlassIcon className="pointer-events-none absolute left-3 text-muted-foreground" size={16} />
       <input
         ref={input}
         type="search"
@@ -37,8 +37,8 @@ export const SearchPill = forwardRef<HTMLInputElement, SearchPillProps>(function
         aria-label={label ?? placeholder}
         onChange={(event) => onValueChange(event.target.value)}
         className={clsx(
-          'h-9 w-full min-w-0 rounded-full border border-border bg-surface pr-9 pl-9 text-[15px] text-foreground shadow-soft',
-          'outline-none transition-[border-color] duration-150 hover:border-control-hover focus:border-control-focus focus-visible:outline-none',
+          'h-9 w-full min-w-0 rounded-control border border-border-strong bg-surface pr-9 pl-9 text-sm text-foreground shadow-control',
+          'outline-none transition-[border-color,box-shadow] duration-150 hover:border-control-hover focus:border-primary focus:shadow-focus focus-visible:outline-none',
           '[&::-webkit-search-cancel-button]:appearance-none',
         )}
         {...rest}
@@ -51,7 +51,7 @@ export const SearchPill = forwardRef<HTMLInputElement, SearchPillProps>(function
             onValueChange('');
             input.current?.focus();
           }}
-          className="absolute right-2 inline-flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground"
+          className="absolute right-2 inline-flex size-6 items-center justify-center rounded-tag text-muted-foreground hover:bg-hover hover:text-foreground"
         >
           <XIcon size={14} />
         </button>

@@ -18,8 +18,9 @@ export function variableHint(name: string): { title: string; text: string } {
 }
 
 /**
- * The dark hover hint over a `{{VARIABLE}}` chip (Simplify shows the variable's description). Chips are plain DOM
- * node views, so this listens on the editor's root instead of wrapping each chip.
+ * The dark hover hint over a `{{VARIABLE}}` chip: the variable's label and description, in the kit tooltip's look
+ * (dark denim, white text). Chips are plain DOM node views, so this listens on the editor's root instead of wrapping
+ * each chip.
  */
 export function VariableHoverHint({ root }: { root: HTMLElement | null }) {
   const [hint, setHint] = useState<Hint | null>(null);
@@ -57,11 +58,11 @@ export function VariableHoverHint({ root }: { root: HTMLElement | null }) {
     <div
       role="tooltip"
       data-variable-hint=""
-      className="pointer-events-none fixed z-[70] max-w-xs -translate-x-1/2 -translate-y-full rounded-[8px] bg-foreground px-2.5 py-1.5 text-xs leading-4 font-medium text-white shadow-popover"
+      className="pointer-events-none fixed z-[70] max-w-xs -translate-x-1/2 -translate-y-full rounded-control bg-sidebar px-2.5 py-1.5 text-xs leading-4 font-medium text-sidebar-strong shadow-popover"
       style={{ left: hint.left, top: hint.top - 8 }}
     >
       <span className="block font-semibold">{title}</span>
-      <span className="block font-normal text-white/85">{text}</span>
+      <span className="block font-normal text-sidebar-foreground">{text}</span>
     </div>,
     document.body,
   );

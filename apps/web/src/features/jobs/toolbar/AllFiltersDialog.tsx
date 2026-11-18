@@ -40,7 +40,7 @@ import { CategoryPicker } from './CategoryFilter';
 import { LocationFields } from './LocationFilter';
 import { useDebouncedValue } from './useDebouncedValue';
 
-/** The pay periods the Minimum salary slider offers, with each one's range (Simplify: $0–$400k a year). */
+/** The pay periods the Minimum salary slider offers, with each one's range ($0–$400k a year). */
 const PAY_PERIODS: Array<{ value: SalaryPeriod; label: string; max: number; step: number }> = [
   { value: 'year', label: 'Yearly', max: 400_000, step: 10_000 },
   { value: 'month', label: 'Monthly', max: 35_000, step: 500 },
@@ -133,7 +133,7 @@ function CompanyPicker({ chosen, onChange }: { chosen: readonly string[]; onChan
 }
 
 /**
- * Simplify's "All filters": every filter of the page, grouped (Role, Location, Compensation, Company, Your profile,
+ * "All filters": every filter of the page, grouped (Role, Location, Compensation, Company, Your profile,
  * Preferences). Changes are a draft until "Show N jobs" applies them; a filter only appears when the data has
  * values for it.
  */
@@ -182,7 +182,6 @@ export function AllFiltersDialog({
         <IconButton
           label="All filters"
           variant="outline"
-          shape="round"
           icon={<FunnelSimpleIcon size={18} />}
           onClick={() => {
             setDraft(query);

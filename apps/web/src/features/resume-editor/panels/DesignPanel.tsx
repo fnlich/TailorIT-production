@@ -56,13 +56,13 @@ function Steps({
             aria-label={`${label} ${index + 1} of ${count}`}
             onClick={() => onChange(index)}
             className={clsx(
-              'h-2.5 flex-1 rounded-full transition-colors',
-              index <= value ? 'bg-primary' : 'bg-control hover:bg-control-hover',
+              'h-2.5 flex-1 rounded-tag transition-colors',
+              index <= value ? 'bg-primary' : 'bg-border-strong hover:bg-control-hover',
             )}
           />
         ))}
       </div>
-      <div className="flex justify-between text-[12px] text-muted-foreground">
+      <div className="flex justify-between text-xs text-muted-foreground">
         <span>{from}</span>
         <span>{to}</span>
       </div>
@@ -121,11 +121,11 @@ export function DesignPanel({ document, store, onClose }: { document: ResumeDocu
                   title={preset.label}
                   onClick={() => store.setDesign({ colors: { primary: preset.primary, secondary: preset.secondary } })}
                   className={clsx(
-                    'flex h-9 items-center justify-center rounded-full border-2',
-                    chosen ? 'border-primary' : 'border-transparent hover:border-border',
+                    'flex h-9 items-center justify-center rounded-control border-2',
+                    chosen ? 'border-primary bg-primary-50' : 'border-transparent hover:border-border-strong',
                   )}
                 >
-                  <span className="flex h-6 w-6 overflow-hidden rounded-full">
+                  <span className="flex h-6 w-6 overflow-hidden rounded-tag">
                     <span className="h-full w-1/2" style={{ backgroundColor: preset.primary }} />
                     <span className="h-full w-1/2" style={{ backgroundColor: preset.secondary }} />
                   </span>
@@ -140,7 +140,7 @@ export function DesignPanel({ document, store, onClose }: { document: ResumeDocu
                   type="color"
                   value={colors[key]}
                   onChange={(event) => setColor(key, event.target.value)}
-                  className="h-7 w-9 cursor-pointer rounded border border-border bg-transparent"
+                  className="h-7 w-9 cursor-pointer rounded-tag border border-border-strong bg-transparent"
                 />
                 {key === 'primary' ? 'Primary' : 'Secondary'}
               </label>
@@ -161,8 +161,8 @@ export function DesignPanel({ document, store, onClose }: { document: ResumeDocu
                   aria-checked={chosen}
                   onClick={() => store.setDesign({ fontPair: pair.id })}
                   className={clsx(
-                    'flex flex-col items-start rounded-lg border px-3 py-2 text-left',
-                    chosen ? 'border-primary bg-primary-50' : 'border-border hover:bg-hover',
+                    'flex flex-col items-start rounded-control border px-3 py-2 text-left',
+                    chosen ? 'border-primary bg-primary-soft' : 'border-border hover:bg-surface-low',
                   )}
                 >
                   <span className="text-[15px] font-semibold text-foreground" style={{ fontFamily: pair.heading.stack }}>
@@ -217,13 +217,13 @@ export function DesignPanel({ document, store, onClose }: { document: ResumeDocu
                   aria-label={`Main column ${main}%`}
                   onClick={() => store.setDesign({ columnRatio: index })}
                   className={clsx(
-                    'flex h-12 gap-1 rounded-md border p-1.5',
-                    ratioIndex === index ? 'border-primary' : 'border-border hover:bg-hover',
+                    'flex h-12 gap-1 rounded-control border p-1.5',
+                    ratioIndex === index ? 'border-primary bg-primary-50' : 'border-border hover:bg-surface-low',
                     spec.side?.position === 'left' && 'flex-row-reverse',
                   )}
                 >
-                  <span className="h-full rounded-sm bg-control-strong" style={{ width: `${main}%` }} />
-                  <span className="h-full flex-1 rounded-sm bg-control" />
+                  <span className="h-full rounded-tag bg-control-strong" style={{ width: `${main}%` }} />
+                  <span className="h-full flex-1 rounded-tag bg-border-strong" />
                 </button>
               );
             })}
@@ -243,8 +243,8 @@ export function DesignPanel({ document, store, onClose }: { document: ResumeDocu
                   aria-checked={chosen}
                   onClick={() => store.setDesign({ background: id })}
                   className={clsx(
-                    'h-10 rounded-md border text-[13px]',
-                    chosen ? 'border-primary text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
+                    'h-10 rounded-control border text-[13px]',
+                    chosen ? 'border-primary bg-primary-soft font-medium text-primary-ink' : 'border-border text-muted-foreground hover:bg-surface-low',
                   )}
                 >
                   {id === 'none' ? 'None' : (BACKGROUND_NAMES[id] ?? id)}

@@ -145,7 +145,7 @@ function OptionsEditor({
           />
         </div>
       ))}
-      {error ? <p className="text-[13px] leading-5 text-[#c62a29]">{error}</p> : null}
+      {error ? <p className="text-[13px] leading-5 text-danger">{error}</p> : null}
       <p className="text-[13px] leading-5 text-muted-foreground">{hint}</p>
       <div>
         <Button

@@ -35,6 +35,8 @@ export const NEW_READ_KINDS = [
   'refdata_lookup',
   /** E2: logo.dev (13 §3.3). */
   'logo_dev',
+  /** v31 LINK (D3): an added job's own page, read for its schema.org JobPosting through the shared reader. */
+  'add_page',
 ] as const;
 export type NewReadKind = (typeof NEW_READ_KINDS)[number];
 

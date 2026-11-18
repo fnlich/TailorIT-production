@@ -18,6 +18,7 @@ import {
 } from '@tailorit/shared/letters';
 import { EditorBar, EditorBarButton } from '@/components/shell/EditorBar';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DownloadSimpleIcon, FileTextIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
@@ -43,11 +44,13 @@ import { LetterEditor } from '../letter-editor/LetterEditor';
 import { saveStatusText, useAutosave } from '../letter-editor/useAutosave';
 import { GenerateDialog } from './GenerateDialog';
 import { PlaceholderBanner, ReplacePlaceholderDialog } from './PlaceholderBanner';
+import { usePublicConstants } from '@/lib/constants';
+import { deleteOneWords } from '@/features/documents/core';
 
 /*
- * The cover letter editor (/cover-letter/[id]): EditorBar (rename, save status, Export Cover Letter, ☰), Simplify's
- * toolbar over the paper, autosave 1 s after typing, the amber "Almost there" banner for {{TAGS}} left in the letter,
- * and "Generate a Tailored Cover Letter" (opens by itself while the letter is empty).
+ * The cover letter editor (/cover-letter/[id]): EditorBar (rename, save status, Export Cover Letter, ☰), the
+ * formatting toolbar over the paper, autosave 1 s after typing, the "Almost there" warning banner for {{TAGS}} left
+ * in the letter, and "Generate a Tailored Cover Letter" (opens by itself while the letter is empty).
  */
 
 const DOCUMENTS_HREF = '/documents?tab=cover-letters';
@@ -77,7 +80,7 @@ export function CoverLetterEditorPage({ letterId }: { letterId: string }) {
       <>
         <EditorBar name="Cover letter" documentsHref={DOCUMENTS_HREF} />
         <main className="flex flex-1 items-start justify-center px-4 py-16">
-          <div className="w-full max-w-lg rounded-surface border border-border bg-surface shadow-soft">
+          <Card padding="none" className="w-full max-w-lg">
             <EmptyState
               icon={<FileTextIcon size={22} />}
               title={missing ? 'This cover letter was not found' : 'This cover letter could not be opened'}
@@ -88,7 +91,7 @@ export function CoverLetterEditorPage({ letterId }: { letterId: string }) {
                 </Link>
               }
             />
-          </div>
+          </Card>
         </main>
       </>
     );
@@ -98,6 +101,7 @@ export function CoverLetterEditorPage({ letterId }: { letterId: string }) {
 
 function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
   const router = useRouter();
+  const { t } = usePublicConstants();
   const queryClient = useQueryClient();
   const toast = useToast();
   const now = useNow();
@@ -210,8 +214,7 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
         actions={
           <>
             <EditorBarButton
-              label="Export Cover Letter"
-              shortLabel="Export"
+              label={t('LABEL_LETTER_DOWNLOAD')}
               icon={<DownloadSimpleIcon size={16} />}
               loading={exporting === 'pdf'}
               onClick={() => void exportAs('pdf')}
@@ -292,8 +295,7 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Delete Cover Letter"
-        description="Are you sure you want to delete this cover letter? You won't be able to undo this action."
+        {...deleteOneWords(letter.title, { one: 'cover letter', many: 'cover letters' }, t)}
         confirmLabel="Delete"
         busyLabel="Deleting..."
         onConfirm={async () => {

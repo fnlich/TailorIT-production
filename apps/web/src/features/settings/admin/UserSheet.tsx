@@ -178,7 +178,7 @@ export function UserSheet({
 function SheetSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section aria-label={title}>
-      <h3 className="mb-3 text-sm leading-5 font-semibold text-foreground">{title}</h3>
+      <h3 className="mb-3 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{title}</h3>
       {children}
     </section>
   );
@@ -355,7 +355,7 @@ function HistorySection({ userId }: { userId: string }) {
         <p className="text-sm text-muted-foreground">No changes yet.</p>
       ) : (
         <>
-          <ul className="flex flex-col divide-y divide-divider-soft rounded-control border border-border">
+          <ul className="flex flex-col divide-y divide-divider-soft rounded-card border border-border">
             {lines.map((line) => (
               <li key={line.id} className="flex flex-col gap-0.5 px-3 py-2.5 text-sm leading-5">
                 <span className="text-foreground">{line.text}</span>

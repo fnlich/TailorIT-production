@@ -29,14 +29,16 @@ export function CanApplyPill({ on, onChange, className }: { on: boolean; onChang
       aria-pressed={on}
       onClick={() => onChange(!on)}
       className={clsx(
-        'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border bg-surface pr-3.5 pl-3 text-sm text-foreground shadow-soft',
-        'transition-[border-color,background-color] duration-150 hover:border-control-hover hover:bg-[#fafafa]',
-        on ? 'border-control-hover bg-primary-container' : 'border-border',
+        'inline-flex h-9 shrink-0 items-center gap-2 rounded-control border pr-3 pl-3 text-sm font-medium shadow-control',
+        'transition-[border-color,background-color] duration-150',
+        on
+          ? 'border-primary bg-primary-50 text-primary-ink hover:bg-primary-soft'
+          : 'border-border-strong bg-surface text-foreground hover:border-control-hover hover:bg-surface-low',
         className,
       )}
       data-can-apply-pill={on ? 'on' : 'off'}
     >
-      {on && <CheckIcon size={14} weight="bold" className="text-primary-ink" aria-hidden="true" />}
+      {on && <CheckIcon size={14} weight="bold" className="text-primary" aria-hidden="true" />}
       <span className="whitespace-nowrap">{CAN_APPLY_COPY.label}</span>
     </button>
   );

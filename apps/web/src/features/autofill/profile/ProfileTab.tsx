@@ -534,7 +534,7 @@ function ProfileSkeleton() {
       </div>
       <Skeleton className="h-7 w-64" />
       {[0, 1].map((index) => (
-        <div key={index} className="rounded-surface border border-border bg-surface p-6 shadow-soft">
+        <div key={index} className="rounded-card border border-border bg-surface p-6 shadow-card">
           <Skeleton className="h-5 w-40" />
           <Skeleton className="mt-2 h-4 w-72" />
           <div className="mt-6 grid gap-5 sm:grid-cols-2">

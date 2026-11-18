@@ -7,6 +7,7 @@ import {
   levelMatch,
   matchResult,
   noResumeMatch,
+  readRowMatchIds, // v31 FIX-JOBS
   searchParamsToJobsQuery,
   type JobAnalysisView,
   type JobFacetResponse,
@@ -16,11 +17,12 @@ import {
 import { z } from 'zod';
 import { requireUser, userOf } from '../../core/auth/guards';
 import type { AppDeps } from '../../core/context';
-import { AppError, notFound } from '../../core/http/errors';
+import { AppError, notFound, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
 import { getResumeEvidence } from '../resumes/evidence';
 import { analysisForJob, jobLevels } from './analysis';
 import { facetItems, facetsSummary } from './facets';
+import { rowMatches } from './matches'; // v31 FIX-JOBS
 import { sanitizeDescription } from './html';
 import { reportJob } from './report';
 import { experienceLevelsOf, toJobDetail } from './rows';
@@ -112,6 +114,13 @@ export function createJobsRouter(deps: AppDeps): Router {
     const user = userOf(req);
     const query = searchParamsToJobsQuery(req.query as Record<string, unknown>);
     res.json({ total: await countJobs(deps.db, query, searchScopeOf(deps, user.id)) });
+  });
+
+  // v31 FIX-JOBS: the feed's per-row keyword match, for the jobs a list page shows (ids=1,2,3). Before /:id.
+  router.get('/matches', async (req, res) => {
+    const ids = readRowMatchIds(req.query.ids);
+    if (!ids) throw validationFailed('List the jobs by their ids, separated by commas.', { ids: 'Job ids, separated by commas' });
+    res.json({ items: await rowMatches(deps, userOf(req).id, ids, linkedResumeOf) });
   });
 
   router.get('/facets/summary', async (req, res) => {

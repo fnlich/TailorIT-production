@@ -20,6 +20,7 @@ import {
 } from '../format';
 import { useSaveAll, useUndoSaveAll, type useJobsList } from '../hooks';
 import { BookmarksSimpleIcon } from '../icons';
+import { BAR_BUTTON } from './styles'; // v31 FIX-JOBS: the results bar's button look
 
 /** The success toast stays this long, so its Undo can be reached. */
 const UNDO_TOAST_MS = 10_000;
@@ -36,10 +37,10 @@ export interface SaveAllButtonProps {
 }
 
 /**
- * "Save all" in the list header, styled like the sort menu beside it. A click counts what the filters match (the
+ * "Save all" in the results bar, styled like the sort menu beside it. A click counts what the filters match (the
  * button spins meanwhile), then asks "Save N jobs?" (at most SAVE_BATCH_MAX, in the order the list shows them; tracked jobs keep
- * their status), or says there is nothing new to save. The success toast offers Undo for 10 s. The label hides
- * between `lg` and `xl`, where the list panel is narrowest; the button keeps its name for screen readers.
+ * their status), or says there is nothing new to save. The success toast offers Undo for 10 s. v31 FIX-JOBS: the
+ * full-width results bar has room for its word at every width.
  */
 export function SaveAllButton({ query, list }: SaveAllButtonProps) {
   const toast = useToast();
@@ -135,10 +136,10 @@ export function SaveAllButton({ query, list }: SaveAllButtonProps) {
           disabled={disabled}
           aria-busy={pendingCount || undefined}
           onClick={() => void start()}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2 text-xs font-medium text-black hover:bg-hover disabled:pointer-events-none disabled:opacity-50"
+          className={BAR_BUTTON}
         >
-          {pendingCount ? <Spinner size={14} /> : <BookmarksSimpleIcon size={14} />}
-          <span className="lg:max-xl:sr-only">Save all</span>
+          {pendingCount ? <Spinner size={14} /> : <BookmarksSimpleIcon size={15} />}
+          Save all
         </button>
       </Tooltip>
       {copy && (

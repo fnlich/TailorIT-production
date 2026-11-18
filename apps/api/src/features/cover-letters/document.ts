@@ -11,6 +11,14 @@ export type LetterDocumentMode = 'print' | 'preview';
 export const LETTER_MARGIN_IN = 1;
 const BASE_SIZE = '11pt';
 
+/**
+ * An unfilled {{VARIABLE}} chip's colours: the editor's chip (v3.1 "Denim & Tape": --color-primary-soft and
+ * --color-primary-ink of apps/web/src/styles/globals.css; v31 INT-2, they were v3.0's blue). Document colours: the HTML
+ * is self-contained (previews and the print browser), so the values are written out; a test keeps them equal to the
+ * tokens.
+ */
+export const VARIABLE_CHIP = { background: '#e8eafb', color: '#2a3196' } as const;
+
 const LETTER_CSS = `
 .letter{font-size:${BASE_SIZE};line-height:1.5;color:#191919;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
 .letter>:first-child{margin-top:0}
@@ -26,7 +34,7 @@ const LETTER_CSS = `
 .letter a{color:#0b5c99;text-decoration:underline}
 .letter strong,.letter b{font-weight:700}
 .letter>:last-child{margin-bottom:0}
-.ti-var{display:inline-block;border-radius:4px;padding:1px 6px;font-size:.85em;font-weight:500;line-height:1.35;background:#e9f6ff;color:#016094}
+.ti-var{display:inline-block;border-radius:4px;padding:1px 6px;font-size:.85em;font-weight:500;line-height:1.35;background:${VARIABLE_CHIP.background};color:${VARIABLE_CHIP.color}}
 `;
 
 /** `{{NAME}}` in text (never inside a tag) wrapped as a chip, as the editor shows it. */

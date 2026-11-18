@@ -24,6 +24,7 @@ import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
+import { TapeMeter } from '@/components/ui/TapeMeter';
 import { useToast } from '@/components/ui/Toast';
 import { ApiError, userMessage } from '@/lib/api';
 import { useAiTask } from '@/lib/useAiTask';
@@ -51,7 +52,10 @@ import {
   type TailorTarget,
 } from './tailor';
 
-// v1.4 E (decision 16): "Tailor my resume" (the Jobs detail's Improve Your Resume card, the tracker's Documents tab).
+/** v31 FIX-WEB (REV-REQ REQ-3): the dialog's title and its button. */
+export const TAILOR_TITLE = 'Tailor a resume';
+
+// v1.4 E (decision 16): tailoring a resume to a job (the Jobs detail's tailor section, the tracker's Documents tab).
 // The dialog asks which resume to start from and the templates (the profile's by default) and whether to write a cover
 // letter too, then follows the task step by step, then shows what it made: the ATS score and the keywords still
 // missing, the tailored resume and its letter with Preview (full page), Edit and Download, and the tracker entry they
@@ -153,7 +157,8 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
 
   const shownProblem = problem ?? taskProblem ?? pollProblem;
   let body: ReactNode;
-  let title = 'Tailor my resume';
+  // v31 FIX-WEB (REV-REQ REQ-3): TailorIT's words, as the job page's "Tailor a resume" (never the copied CTA).
+  let title = TAILOR_TITLE;
   if (shownProblem) {
     body = (
       <ProblemView
@@ -329,7 +334,7 @@ export function SetupView({
           Cancel
         </Button>
         <Button type="submit" icon={<SparkleIcon size={16} weight="fill" />} loading={starting} disabled={!choices.resumeId}>
-          Tailor my resume
+          {TAILOR_TITLE}
         </Button>
       </DialogFooter>
     </form>
@@ -344,16 +349,7 @@ export function ProgressView({ step, message, onClose }: { step: Parameters<type
   return (
     <>
       <div className="flex flex-col gap-4">
-        <div
-          role="progressbar"
-          aria-label="Tailoring"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-          className="h-2 w-full overflow-hidden rounded-full bg-primary-container"
-        >
-          <div className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out-soft" style={{ width: `${percent}%` }} />
-        </div>
+        <TapeMeter label="Tailoring" value={percent} kind="progress" tone="primary" showValue={false} />
         <ol className="flex flex-col gap-2.5" aria-label="Steps">
           {rows.map((row) => (
             <li
@@ -364,7 +360,7 @@ export function ProgressView({ step, message, onClose }: { step: Parameters<type
               className="flex items-center gap-3 text-sm leading-5"
             >
               {row.state === 'done' ? (
-                <span className="flex size-6 items-center justify-center rounded-full bg-primary-container text-primary-ink">
+                <span className="flex size-6 items-center justify-center rounded-full bg-primary text-on-primary">
                   <CheckIcon size={14} weight="bold" />
                 </span>
               ) : row.state === 'current' ? (
@@ -372,9 +368,9 @@ export function ProgressView({ step, message, onClose }: { step: Parameters<type
                   <Spinner size={18} />
                 </span>
               ) : (
-                <span aria-hidden="true" className="size-6 rounded-full border-2 border-control-strong" />
+                <span aria-hidden="true" className="size-6 rounded-full border-[1.5px] border-dashed border-control-strong" />
               )}
-              <span className={clsx(row.state === 'current' ? 'font-semibold text-foreground' : row.state === 'done' ? 'text-foreground' : 'text-[#5c5c5c]')}>
+              <span className={clsx(row.state === 'current' ? 'font-semibold text-foreground' : row.state === 'done' ? 'text-foreground' : 'text-muted-foreground')}>
                 {row.label}
               </span>
             </li>
@@ -383,7 +379,7 @@ export function ProgressView({ step, message, onClose }: { step: Parameters<type
         <p role="status" className="min-h-5 text-[13px] leading-5 text-foreground" data-tailor-message="">
           {message ?? 'Starting...'}
         </p>
-        <p className="text-[13px] leading-5 text-[#5c5c5c]">
+        <p className="text-[13px] leading-5 text-muted-foreground">
           This takes a minute or two. You can close this window: tailoring goes on, and the new resume appears with your
           documents.
         </p>
@@ -399,32 +395,21 @@ export function ProgressView({ step, message, onClose }: { step: Parameters<type
 
 // ------------------------------------------------------------------------------------------------------ result --
 
-function ScoreRing({ score }: { score: number }) {
-  const band = scoreBand(score);
-  const radius = 34;
-  const circumference = 2 * Math.PI * radius;
-  const color = band === 'high' ? '#02a558' : band === 'medium' ? '#f58e3a' : '#f53b3a';
+/** The band's tone on the tape: high success, medium warning, low danger. */
+const SCORE_TONE = { high: 'success', medium: 'warning', low: 'danger' } as const;
+
+/** The ATS score as a measurement: the number in the measurement face over a strip of tape filled to it. */
+function ScoreTape({ score }: { score: number }) {
   return (
-    <div className="relative size-[84px] shrink-0" role="img" aria-label={`ATS score ${score} out of 100`}>
-      <svg viewBox="0 0 84 84" className="size-full -rotate-90" aria-hidden="true">
-        <circle cx="42" cy="42" r={radius} fill="none" stroke="#e8e8e8" strokeWidth="8" />
-        <circle
-          cx="42"
-          cy="42"
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - score / 100)}
-        />
-      </svg>
-      <span aria-hidden="true" className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl leading-7 font-bold text-foreground tabular-nums" data-ats-score="">
+    <div className="flex w-full shrink-0 flex-col gap-2 sm:w-40" role="img" aria-label={`ATS score ${score} out of 100`}>
+      <span aria-hidden="true" className="flex items-baseline gap-1.5">
+        <span className="num text-[32px] leading-9 text-foreground" data-ats-score="">
           {score}
         </span>
-        <span className="text-[10px] leading-3 font-semibold tracking-wide text-[#5c5c5c] uppercase">ATS</span>
+        <span className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-muted-foreground uppercase">ATS</span>
+      </span>
+      <span aria-hidden="true">
+        <TapeMeter label="ATS score" value={score} tone={SCORE_TONE[scoreBand(score)]} size="lg" showValue={false} />
       </span>
     </div>
   );
@@ -448,13 +433,13 @@ function DocumentRow({
   return (
     <li className="flex flex-col gap-3 rounded-control border border-border bg-surface px-4 py-3 sm:flex-row sm:items-center" data-tailored={kind}>
       <span className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-container text-primary-ink">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-soft text-primary-ink">
           <FileTextIcon size={18} />
         </span>
         <span className="min-w-0">
-          <span className="block text-xs leading-4 text-[#5c5c5c]">{kind === 'resume' ? 'Resume' : 'Cover letter'}</span>
+          <span className="block text-xs leading-4 text-muted-foreground">{kind === 'resume' ? 'Resume' : 'Cover letter'}</span>
           <span className="block truncate text-sm leading-5 font-semibold text-foreground">{title}</span>
-          {meta && <span className="block truncate text-xs leading-4 text-[#5c5c5c]">{meta}</span>}
+          {meta && <span className="block truncate text-xs leading-4 text-muted-foreground">{meta}</span>}
         </span>
       </span>
       <span className="flex shrink-0 flex-wrap items-center gap-1.5">
@@ -493,12 +478,12 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
     <>
       <div className="flex flex-col gap-5">
         {result.ats ? (
-          <section aria-label="ATS score" className="flex flex-col gap-4 rounded-surface border border-[#a7d4de] p-4 sm:flex-row sm:items-center" style={{ background: 'linear-gradient(to bottom right, var(--color-primary-container), #ffffff)' }}>
-            <ScoreRing score={result.ats.score} />
+          <section aria-label="ATS score" className="flex flex-col gap-4 rounded-card border border-primary-200 bg-primary-50 p-4 sm:flex-row sm:items-center">
+            <ScoreTape score={result.ats.score} />
             <div className="min-w-0 flex-1">
               <p className="text-base leading-6 font-semibold text-foreground">
                 ATS score {result.ats.score}
-                {change && <span className="ml-2 text-sm font-medium text-[#02703c]">{change}</span>}
+                {change && <span className="ml-2 text-sm font-medium text-success">{change}</span>}
               </p>
               <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px] leading-5 text-foreground">
                 <li>
@@ -525,21 +510,21 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
             </h3>
             {missing.length === 0 ? (
               <p className="flex items-center gap-1.5 text-[13px] leading-5 text-foreground">
-                <CheckCircleIcon size={16} weight="fill" className="text-[#02703c]" /> The resume uses every keyword the job asks for.
+                <CheckCircleIcon size={16} weight="fill" className="text-success" /> The resume uses every keyword the job asks for.
               </p>
             ) : (
               <>
                 <ul className="flex flex-wrap gap-1.5" aria-label="Keywords still missing">
                   {missing.slice(0, MAX_MISSING_SHOWN).map((keyword) => (
-                    <li key={keyword} className="inline-flex h-7 items-center rounded-full border border-border bg-surface px-2.5 text-[13px] font-medium text-foreground" data-missing-keyword="">
+                    <li key={keyword} className="inline-flex h-7 items-center rounded-control border border-border-strong bg-surface px-2.5 text-[13px] font-medium text-foreground" data-missing-keyword="">
                       {keyword}
                     </li>
                   ))}
                   {missing.length > MAX_MISSING_SHOWN && (
-                    <li className="inline-flex h-7 items-center px-1 text-[13px] text-[#5c5c5c]">and {missing.length - MAX_MISSING_SHOWN} more</li>
+                    <li className="inline-flex h-7 items-center px-1 text-[13px] text-muted-foreground">and {missing.length - MAX_MISSING_SHOWN} more</li>
                   )}
                 </ul>
-                <p className="text-[13px] leading-5 text-[#5c5c5c]">Add the ones that are true of you in the editor.</p>
+                <p className="text-[13px] leading-5 text-muted-foreground">Add the ones that are true of you in the editor.</p>
               </>
             )}
           </section>
@@ -555,7 +540,7 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
                 <Badge tone="tint" icon={<CheckIcon size={12} weight="bold" />} data-used-for-application="">
                   Used for this application
                 </Badge>
-                <Link href={trackerEntryHref(result.applicationId)} className="inline-flex items-center gap-1 text-[13px] font-semibold text-primary-ink hover:underline">
+                <Link href={trackerEntryHref(result.applicationId)} className="inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline">
                   Job Tracker
                   <ArrowSquareOutIcon size={12} />
                 </Link>
@@ -582,7 +567,7 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
             )}
           </ul>
           {result.applicationId && (
-            <p className="text-[13px] leading-5 text-[#5c5c5c]">
+            <p className="text-[13px] leading-5 text-muted-foreground">
               The TailorIT extension attaches them when you apply to this job.
             </p>
           )}
@@ -659,7 +644,7 @@ export function ProblemView({
           {text.body}
         </Notice>
         {copying && (
-          <div role="status" className="flex items-center gap-3 rounded-control bg-sky px-3.5 py-3 text-sm text-sky-foreground">
+          <div role="status" className="flex items-center gap-3 rounded-control border-l-[3px] border-info bg-info-soft px-3.5 py-3 text-sm text-info-ink">
             <Spinner size={16} />
             <span>
               <span className="font-semibold">Making an editable copy.</span> {copy.message ?? 'Reading your resume...'} This can

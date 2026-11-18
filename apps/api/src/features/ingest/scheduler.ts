@@ -13,6 +13,7 @@ import { toSourceRecord, type SourceRow } from './sources';
 import { SCHEDULED_KINDS, type SourceKind } from './types';
 import { careerPagesOn } from './career/switch'; // v30 S5
 import { optedOutSourceSql } from './opt-out-gate'; // v30 FIX-A
+import { RUNS_PAUSED_SQL } from './pause-state'; // v31 RUNS
 
 // v30 S1-API: the ingest worker's due queue (12-job-sourcing.md §9.3), replacing v2.0's one daily run of every
 // source, two at a time (croner at INGEST_DAILY_AT, then the 200-a-day check of jobs no enabled source lists: both
@@ -214,6 +215,7 @@ export interface DueSource {
  * not leased, of a kind the worker may run, on a host that is not held. Most important first, then the longest due.
  * v30 S5: takes the constants' deps (runnableKinds reads SITE_READER_CAREER_PAGES).
  * v30 FIX-A (SEC-2, BEH-3): never a source of a company that opted out (opt-out-gate.ts), whatever its enabled flag.
+ * v31 RUNS: none while every run is paused, and never a source an admin paused (pause-state.ts).
  */
 export async function dueSources(deps: ConstantDeps, limit = DUE_BATCH): Promise<DueSource[]> {
   const kinds = runnableKinds(deps);
@@ -226,6 +228,7 @@ export async function dueSources(deps: ConstantDeps, limit = DUE_BATCH): Promise
        AND s.kind = ANY(string_to_array(@kinds, ','))
        AND NOT EXISTS (SELECT 1 FROM crawl_hosts h WHERE h.host = s.host AND h.hold_until > CAST(@now AS timestamptz))
        AND NOT ${optedOutSourceSql('s')}
+       AND s.paused_at IS NULL AND NOT ${RUNS_PAUSED_SQL}
      ORDER BY s.priority DESC, s.next_run_at
      LIMIT @limit`,
     { now: nowIso(deps), kinds: kinds.join(','), limit },

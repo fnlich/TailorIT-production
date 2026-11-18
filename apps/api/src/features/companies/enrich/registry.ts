@@ -1,5 +1,6 @@
 import { COMPANY_ENRICHMENT_STEPS, type CompanyEnrichmentStep } from '@tailorit/shared';
 import type { AppDeps } from '../../../core/context';
+import { runsPaused } from '../../ingest/pause-state'; // v31 RUNS
 
 // v30 E1: the enrichment steps' registry (docs/design/part2/13-company-enrichment.md §7, 11-database.md §5.4). A row of
 // company_enrichment_queue names the steps due for a company (`steps`: COMPANY_ENRICHMENT_STEPS names, joined by
@@ -43,6 +44,11 @@ export interface EnrichmentStep {
   readonly handles: readonly CompanyEnrichmentStep[];
   /** Whether the step may run now (its switch, its key, its data). Absent: always. */
   enabled?(deps: EnrichmentDeps): boolean | Promise<boolean>;
+  /**
+   * v31 RUNS: whether the step reads an outside host now (a site, an API). Such a step waits, untouched in the queue,
+   * while an admin paused every run (the worker's outside work). Absent: it reads none (it works from the database).
+   */
+  readsOutside?(deps: EnrichmentDeps): boolean;
   run(deps: EnrichmentDeps, work: EnrichmentWork): Promise<EnrichmentOutcome>;
 }
 
@@ -74,12 +80,17 @@ export function stepsByName(steps: readonly EnrichmentStep[]): Map<CompanyEnrich
   return byHandled;
 }
 
-/** The steps that may run now, and the queue names they handle. */
+/**
+ * The steps that may run now, and the queue names they handle. v31 RUNS: while every run is paused, not the ones that
+ * read an outside host (readsOutside).
+ */
 export async function enabledSteps(deps: EnrichmentDeps, steps: readonly EnrichmentStep[]): Promise<{ steps: EnrichmentStep[]; names: CompanyEnrichmentStep[] }> {
   const on: EnrichmentStep[] = [];
+  const paused = await runsPaused(deps); // v31 RUNS
   for (const step of steps) {
     let enabled = true;
     try {
+      if (paused && step.readsOutside?.(deps)) continue; // v31 RUNS: waits for Continue
       enabled = step.enabled ? await step.enabled(deps) : true;
     } catch (error) {
       enabled = false;

@@ -1,4 +1,4 @@
-import { REQUIRED_IMPORT_FIELDS, SHEET_MAX_HEADER_ROW, SHEET_MAX_MB, SHEET_MAX_ROWS, defaultSheetSourceName, tidyText } from '@tailorit/shared';
+import { SHEET_MAX_HEADER_ROW, SHEET_MAX_MB, SHEET_MAX_ROWS, defaultSheetSourceName, tidyText } from '@tailorit/shared';
 import { validationFailed } from '../../../core/http/errors';
 import { sheetTabularOptions } from '../adapters/tabular';
 import { guessMapping, tableFromCsv, type Table } from '../tabular';
@@ -69,11 +69,17 @@ function filledLength(row: readonly string[]): number {
   return length;
 }
 
+/**
+ * v31 LINK2: the columns a header row is recognised by (job title, company, job link). Only the link is required to
+ * import a row now (REQUIRED_IMPORT_FIELDS), but a header row is still told from a data row by all three.
+ */
+const HEADER_FIELDS = ['title', 'company', 'url'] as const;
+
 /** How many of job title, company and job link a row's cells name, read as column names. */
 function requiredHits(row: readonly string[] | undefined): number {
   if (!row || isBlank(row)) return 0;
   const mapping = guessMapping(row.map((cell) => tidyText(cell)));
-  return REQUIRED_IMPORT_FIELDS.filter((field) => mapping[field]).length;
+  return HEADER_FIELDS.filter((field) => mapping[field]).length;
 }
 
 /**

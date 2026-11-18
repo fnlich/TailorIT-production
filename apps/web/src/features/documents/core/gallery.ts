@@ -1,3 +1,5 @@
+import type { MessageParams } from '@tailorit/shared/constants';
+import type { PublicMessageKey } from '@/lib/constants';
 import type { DocumentKind, Noun } from './types';
 
 /*
@@ -20,20 +22,26 @@ export function describeMatches(shown: number, total: number, noun: Noun): strin
   return `${shown} of ${total} ${total === 1 ? noun.one : noun.many} match.`;
 }
 
-/** Simplify: "Oops! No matching cover letters found." */
-export function noMatchTitle(noun: Noun): string {
-  return `Oops! No matching ${noun.many} found.`;
+/** v31 FIX-DOCS: a page's message renderer (usePublicConstants().t), so the wording below is the constants'. */
+export type Words = (key: PublicMessageKey, params?: MessageParams) => string;
+
+/** "Your search finds no cover letters" (MSG_DOCS_NO_MATCH_TITLE). */
+export function noMatchTitle(noun: Noun, t: Words): string {
+  return t('MSG_DOCS_NO_MATCH_TITLE', { noun: noun.many });
 }
 
-/** Simplify: "Are you sure you want to delete these 3 resumes? You won't be able to undo this action." */
-export function bulkDeleteSentence(count: number, noun: Noun): string {
-  const what = count === 1 ? `this ${noun.one}` : `these ${count} ${noun.many}`;
-  return `Are you sure you want to delete ${what}? You won't be able to undo this action.`;
+/** The bulk delete confirmation's title, sentence and button: "Delete 3 resumes?", "Delete 3". */
+export function bulkDeleteWords(count: number, noun: Noun, t: Words): { title: string; description: string; confirm: string } {
+  return {
+    title: t('MSG_DOCS_DELETE_MANY_TITLE', { count, noun: count === 1 ? noun.one : noun.many }),
+    description: t('MSG_DOCS_DELETE_MANY_TEXT'),
+    confirm: t('LABEL_DOCS_DELETE_MANY_BUTTON', { count }),
+  };
 }
 
-/** "cover letters" → "Cover Letters" (dialog titles: "Delete Cover Letters"). */
-export function titleCase(text: string): string {
-  return text.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+/** One document's delete confirmation: "Delete this resume?" and '“Platform resume” leaves your documents for good. …'. */
+export function deleteOneWords(name: string, noun: Noun, t: Words): { title: string; description: string } {
+  return { title: t('MSG_DOCS_DELETE_ONE_TITLE', { noun: noun.one }), description: t('MSG_DOCS_DELETE_ONE_TEXT', { name }) };
 }
 
 /** A thumbnail's cache key: a new `updatedAt` is a new page. */

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import Link from 'next/link';
 import { useEffect, useId, useRef, useState } from 'react';
+import { AI_PROGRESS_MESSAGES } from '@tailorit/shared/ai';
 import { htmlToText } from '@tailorit/shared/format';
 import {
   CoverLetterGenerateResultSchema,
@@ -22,6 +23,7 @@ import { Notice } from '@/components/ui/Notice';
 import { SegmentedControl, TabPanel } from '@/components/ui/SegmentedControl';
 import { Spinner } from '@/components/ui/Spinner';
 import { api, isApiError, userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 import { useAiTask } from '@/lib/useAiTask';
 import { fetchTemplates, generateLetter, patchLetter, templateKeys } from '../letter-editor/data';
 import { shortcutLabel } from '../letter-editor/html';
@@ -31,10 +33,10 @@ import { JobPicker } from './JobPicker';
 import { TemplatePreview } from './TemplatePreview';
 
 /*
- * Simplify's "Generate a Tailored Cover Letter": Job Details (pick a tracked job or type company, title and
- * description), Template ("None (generate without template)" or one of the templates, with a readable preview) and
- * Custom Prompt, then ✨ Generate with the staged progress lines while the AI task runs. Over a letter that already
- * has text, Generate first asks whether to replace it.
+ * "Draft this letter with AI" (v31 FIX-DOCS: the constants' words): The job (pick a tracked application or type
+ * company, title and description), Template ("No template" or one of the templates, with a readable preview) and Your
+ * notes, then ✨ Generate with the staged progress lines while the AI task runs. Over a letter that already has text,
+ * Generate first asks whether to replace it.
  */
 
 type Tab = 'job' | 'template' | 'prompt';
@@ -124,6 +126,7 @@ function GenerateForm({
 }) {
   const ids = { company: useId(), title: useId(), description: useId(), picker: useId(), prompt: useId() };
   const [tab, setTab] = useState<Tab>('job');
+  const { t } = usePublicConstants();
   const [companyName, setCompanyName] = useState(letter.companyName);
   const [jobTitle, setJobTitle] = useState(letter.jobTitle);
   const [jobDescription, setJobDescription] = useState(letter.jobDescription);
@@ -214,19 +217,19 @@ function GenerateForm({
 
   return (
     <DialogContent
-      title="Generate a Tailored Cover Letter"
-      description="Tell us about the job, and we will write a letter from your resume that fits it."
+      title={t('MSG_LETTER_GENERATE_TITLE')}
+      description={t('MSG_LETTER_GENERATE_TEXT')}
       size="xl"
       initialFocus={companyInput}
     >
       {busy ? (
         <div className="flex min-h-[430px] flex-col items-center justify-center gap-4 py-10 text-center" data-generate-progress="">
-          <span className="flex size-12 items-center justify-center rounded-full bg-primary-container text-primary-ink">
+          <span className="flex size-12 items-center justify-center rounded-card bg-primary-soft text-primary-ink">
             <SparkleIcon size={24} weight="fill" />
           </span>
           <div role="status" aria-live="polite" className="flex items-center gap-2 text-[15px] font-medium text-foreground">
             <Spinner size={16} />
-            {progress ?? 'Analyzing job description...'}
+            {progress ?? AI_PROGRESS_MESSAGES.cover_letter[0]}
           </div>
           <p className="max-w-sm text-sm text-muted-foreground">This usually takes under a minute. Keep this window open.</p>
           {running && (
@@ -241,22 +244,24 @@ function GenerateForm({
           <div className="-mx-6 mt-4 min-h-0 flex-1 overflow-y-auto px-6 py-1">
             <SegmentedControl<Tab>
               aria-label="Generate options"
+              // On a phone the three segments share the dialog's width (13 px labels, 6 px padding).
+              listClassName="max-sm:flex max-sm:w-full max-sm:[&>*]:flex-1 max-sm:[&>*]:px-1.5 max-sm:[&>*]:text-[13px]"
               items={[
-                { value: 'job', label: 'Job Details' },
+                { value: 'job', label: t('LABEL_LETTER_TAB_JOB') },
                 { value: 'template', label: 'Template' },
-                { value: 'prompt', label: 'Custom Prompt' },
+                { value: 'prompt', label: t('LABEL_LETTER_TAB_NOTES') },
               ]}
               value={tab}
               onValueChange={setTab}
             >
               <TabPanel value="job" className="mt-5 min-h-[370px]">
-                <p className="text-sm text-muted-foreground">Add or edit the job information for this cover letter.</p>
+                <p className="text-sm text-muted-foreground">{t('MSG_LETTER_JOB_INTRO')}</p>
                 <div className="mt-4 flex flex-col gap-4">
-                  <Field label="Select a job from tracker" id={ids.picker}>
+                  <Field label={t('LABEL_LETTER_PICK_JOB')} id={ids.picker}>
                     <JobPicker id={ids.picker} selected={job} onPick={(application) => void pickJob(application)} />
                   </Field>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Company Name" required error={fieldErrors.companyName} id={ids.company}>
+                    <Field label="Company" required error={fieldErrors.companyName} id={ids.company}>
                       <Input
                         ref={companyInput}
                         value={companyName}
@@ -265,7 +270,7 @@ function GenerateForm({
                         onChange={(event) => setCompanyName(event.target.value)}
                       />
                     </Field>
-                    <Field label="Job Title" required error={fieldErrors.jobTitle} id={ids.title}>
+                    <Field label="Job title" required error={fieldErrors.jobTitle} id={ids.title}>
                       <Input
                         value={jobTitle}
                         placeholder="ex. Software Engineer"
@@ -274,7 +279,7 @@ function GenerateForm({
                       />
                     </Field>
                   </div>
-                  <Field label="Job Description" id={ids.description}>
+                  <Field label="Job description" id={ids.description}>
                     <Textarea
                       value={jobDescription}
                       rows={7}
@@ -286,7 +291,7 @@ function GenerateForm({
                 </div>
               </TabPanel>
               <TabPanel value="template" className="mt-5 min-h-[370px]">
-                <p className="text-sm text-muted-foreground">Optionally select a template to generate your cover letter from.</p>
+                <p className="text-sm text-muted-foreground">{t('MSG_LETTER_TEMPLATE_INTRO')}</p>
                 <TemplateChoice
                   templates={templateItems}
                   loading={templates.isPending}
@@ -295,15 +300,15 @@ function GenerateForm({
                 />
               </TabPanel>
               <TabPanel value="prompt" className="mt-5 min-h-[370px]">
-                <p className="text-sm text-muted-foreground">Add additional context or instructions</p>
+                <p className="text-sm text-muted-foreground">{t('MSG_LETTER_NOTES_INTRO')}</p>
                 <div className="mt-4 flex flex-col gap-2">
                   <Textarea
                     id={ids.prompt}
-                    aria-label="Custom prompt"
+                    aria-label={t('LABEL_LETTER_TAB_NOTES')}
                     value={customPrompt}
                     rows={8}
                     maxLength={CUSTOM_PROMPT_MAX}
-                    placeholder="Paste in an existing cover letter OR provide some context for AI to expand upon..."
+                    placeholder={t('MSG_LETTER_NOTES_PLACEHOLDER')}
                     onChange={(event) => setCustomPrompt(event.target.value)}
                   />
                   <div>
@@ -366,7 +371,8 @@ function TemplateChoice({
 }) {
   const name = useId();
   const chosen = templates.find((template) => template.id === value) ?? null;
-  const options = [{ id: NO_TEMPLATE, label: 'None (generate without template)' }].concat(
+  const { t } = usePublicConstants();
+  const options = [{ id: NO_TEMPLATE, label: t('LABEL_LETTER_NO_TEMPLATE') }].concat(
     templates.map((template) => ({ id: template.id, label: template.isSystem ? `${template.name} (Default)` : template.name })),
   );
   return (
@@ -391,7 +397,7 @@ function TemplateChoice({
                   value={option.id}
                   checked={checked}
                   onChange={() => onChange(option.id)}
-                  className="size-4 accent-[#14a1c0]"
+                  className="size-4 accent-primary"
                 />
                 <span className="min-w-0 flex-1 truncate">{option.label}</span>
               </label>

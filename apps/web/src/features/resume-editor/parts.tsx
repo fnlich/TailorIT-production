@@ -32,8 +32,8 @@ export function ChipList({
         <li
           key={`${index}:${item}`}
           className={clsx(
-            'inline-flex max-w-full min-w-0 items-center gap-1 rounded-full py-1 pr-1 pl-3 text-[13px] leading-5 font-medium',
-            tone === 'tint' ? 'bg-primary-container text-primary-ink' : 'bg-chip text-foreground',
+            'inline-flex max-w-full min-w-0 items-center gap-1 rounded-control py-1 pr-1 pl-2.5 text-[13px] leading-5 font-medium',
+            tone === 'tint' ? 'bg-primary-soft text-primary-ink' : 'bg-surface-muted text-foreground',
           )}
         >
           <span className="truncate">{item}</span>
@@ -42,7 +42,7 @@ export function ChipList({
             type="button"
             onClick={() => onRemove(item)}
             aria-label={`Remove ${item}`}
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded-full opacity-70 transition-[opacity,background-color] hover:bg-black/[0.08] hover:opacity-100"
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded-tag opacity-70 transition-[opacity,background-color] hover:bg-hover hover:opacity-100"
           >
             <XIcon size={11} weight="bold" />
           </button>
@@ -52,7 +52,7 @@ export function ChipList({
   );
 }
 
-/** Write with AI / Improve with AI: Simplify's "Improve your resume" tint, a sparkle, a spinner while it runs. */
+/** Write with AI / Improve with AI: a denim-tinted button (primary-50, a primary-200 border), a sparkle, a spinner while it runs. */
 export function AiButton({
   children,
   onClick,
@@ -74,8 +74,8 @@ export function AiButton({
       aria-describedby={describedBy}
       aria-busy={running || undefined}
       className={clsx(
-        'inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-control border border-improve-border bg-improve px-3.5 text-sm font-semibold whitespace-nowrap text-primary-ink',
-        'transition-colors duration-150 hover:bg-primary-container disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-control border border-primary-200 bg-primary-50 px-3.5 text-sm font-medium whitespace-nowrap text-primary-ink shadow-control',
+        'transition-colors duration-150 hover:border-primary-300 hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-50',
       )}
     >
       {running ? <Spinner size={16} /> : <SparkleIcon size={16} weight="fill" />}

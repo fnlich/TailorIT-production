@@ -243,7 +243,7 @@ export function inventedKeywords(
 
 /** Fewer grounded keywords than this and the model's list is filled out with the deterministic ones. */
 export const MIN_AI_KEYWORDS = 5;
-/** How many keywords a short list is filled out to (Simplify's card shows a dozen or so). */
+/** How many keywords a short list is filled out to (the job's Your match section reads best with a dozen or so). */
 export const KEYWORD_FILL_TARGET = 12;
 
 /**

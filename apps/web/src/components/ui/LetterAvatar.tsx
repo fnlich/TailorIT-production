@@ -3,11 +3,11 @@ import { clsx } from 'clsx';
 export type LetterAvatarTone = 'brand' | 'neutral' | 'tint';
 
 const TONES: Record<LetterAvatarTone, string> = {
-  // the header's account square: #3ec0de, white bold initials
-  brand: 'bg-avatar text-white font-bold',
-  // tracker cards' company letter: #e8e8e8, muted letter
-  neutral: 'bg-muted text-muted-foreground font-semibold',
-  tint: 'bg-primary-container text-primary-ink font-semibold',
+  // the account's initials: on the tape, in ink, set in the display face
+  brand: 'bg-tape text-foreground font-display font-bold',
+  // a company without a logo: a quiet grey square, muted letter
+  neutral: 'bg-surface-muted text-muted-foreground font-semibold',
+  tint: 'bg-primary-soft text-primary-ink font-semibold',
 };
 
 /** The letters to show for a name: "Acme Corp" → "A" (one) or "AC" (two). */
@@ -21,7 +21,7 @@ export function lettersOf(name: string, count: 1 | 2 = 1): string {
 export interface LetterAvatarProps {
   /** The text to draw (already initials), e.g. initialsOf(name, email) or lettersOf(company). */
   letters: string;
-  /** Pixel size of the square (32 tracker card, 40 header, 64 list row). */
+  /** Pixel size of the square (32 tracker card and top bar, 40 large, 64 list row). */
   size?: number;
   tone?: LetterAvatarTone;
   shape?: 'rounded' | 'circle';
@@ -30,9 +30,9 @@ export interface LetterAvatarProps {
   className?: string;
 }
 
-/** A square (radius 10, or 8 when small) or circle with letters, for accounts and companies without a logo. */
+/** A square (radius 8 from 40 px, else 6) or circle with letters, for accounts and companies without a logo. */
 export function LetterAvatar({ letters, size = 32, tone = 'neutral', shape = 'rounded', label, className }: LetterAvatarProps) {
-  const radius = shape === 'circle' ? '9999px' : size >= 40 ? '10px' : '8px';
+  const radius = shape === 'circle' ? '9999px' : size >= 40 ? '8px' : '6px';
   return (
     <span
       role={label ? 'img' : undefined}

@@ -50,9 +50,12 @@ export function useToast(): ToastApi {
 
 const ICONS: Record<ToastType, ReactNode> = {
   success: <CheckCircleIcon size={20} weight="fill" className="text-success" />,
-  error: <WarningCircleIcon size={20} weight="fill" className="text-destructive" />,
-  info: <InfoIcon size={20} weight="fill" className="text-primary-ink" />,
+  error: <WarningCircleIcon size={20} weight="fill" className="text-danger" />,
+  info: <InfoIcon size={20} weight="fill" className="text-primary" />,
 };
+
+/** The 3 px bar on a toast's leading edge, in its type's colour. */
+const BARS: Record<ToastType, string> = { success: 'bg-success', error: 'bg-danger', info: 'bg-primary' };
 
 function ToastList() {
   const { toasts } = BaseToast.useToastManager();
@@ -61,23 +64,24 @@ function ToastList() {
       key={toast.id}
       toast={toast}
       className={clsx(
-        'pointer-events-auto relative w-full rounded-[12px] border border-border bg-surface shadow-popover outline-none',
+        'pointer-events-auto relative w-full overflow-hidden rounded-popup border border-border bg-surface shadow-popover outline-none',
         'translate-x-(--toast-swipe-movement-x) transition-[opacity,translate] duration-300 ease-out-soft',
         'data-starting-style:translate-y-3 data-starting-style:opacity-0 data-ending-style:opacity-0 data-limited:hidden',
       )}
     >
-      <BaseToast.Content className="flex items-start gap-3 p-3.5 pr-10">
+      <span aria-hidden="true" className={clsx('absolute inset-y-0 left-0 w-[3px]', BARS[(toast.type as ToastType | undefined) ?? 'info'])} />
+      <BaseToast.Content className="flex items-start gap-3 p-3.5 pr-10 pl-4">
         <span className="mt-px flex shrink-0">{ICONS[(toast.type as ToastType | undefined) ?? 'info']}</span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <BaseToast.Title className="text-sm leading-5 font-semibold text-foreground" />
           <BaseToast.Description className="text-[13px] leading-5 text-muted-foreground empty:hidden" />
           {toast.actionProps && (
-            <BaseToast.Action className="mt-1.5 self-start text-[13px] font-semibold text-primary-ink hover:underline" />
+            <BaseToast.Action className="mt-1.5 self-start rounded-tag text-[13px] font-semibold text-primary underline-offset-4 hover:underline" />
           )}
         </div>
         <BaseToast.Close
           aria-label="Dismiss"
-          className="absolute top-2.5 right-2.5 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground"
+          className="absolute top-2.5 right-2.5 inline-flex size-6 items-center justify-center rounded-tag text-muted-foreground hover:bg-hover hover:text-foreground"
         >
           <XIcon size={14} />
         </BaseToast.Close>

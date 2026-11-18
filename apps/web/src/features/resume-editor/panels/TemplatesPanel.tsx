@@ -39,12 +39,12 @@ const TemplateTile = memo(function TemplateTile({
       type="button"
       aria-pressed={current}
       onClick={() => store.setTemplate(templateId)}
-      className="group flex flex-col gap-2 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="group flex flex-col gap-2 rounded-control text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       <span
         className={clsx(
-          'relative block w-full overflow-hidden rounded-md border bg-white',
-          current ? 'border-primary ring-2 ring-primary' : 'border-border group-hover:border-control-strong',
+          'relative block w-full overflow-hidden rounded-control border bg-surface',
+          current ? 'border-primary ring-2 ring-primary' : 'border-border group-hover:border-control-hover group-hover:shadow-card',
         )}
         style={{ aspectRatio: `${page.widthPx} / ${page.heightPx}` }}
       >

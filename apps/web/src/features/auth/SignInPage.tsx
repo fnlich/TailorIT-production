@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Logo } from '@/components/shell/Logo';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
@@ -15,9 +14,10 @@ import { ME_QUERY_KEY } from '@/lib/auth';
 import { safeNextPath } from '@/lib/navigation';
 import { fetchAuthOptions, requestEmailCode, signInWithGoogle, verifyEmailCode } from './api';
 import { codeAlreadySentNotice, cooldownSeconds } from './cooldown';
+import { SIGN_IN_CARD, SIGN_IN_TITLE, SignInFrame } from './SignInFrame';
 
 /*
- * The sign-in page (free_tailor's flow in Simplify's styling): Google's own button and/or a six-digit code sent by
+ * The sign-in page (free_tailor's flow, in TailorIT's own frame): Google's own button and/or a six-digit code sent by
  * email, whichever the server offers. No passwords, no sign-up screen: the account is made on the first proven
  * sign-in.
  */
@@ -166,18 +166,26 @@ export function SignInPage() {
   const devHint = opts?.email.devCodesInConsole ? ' Development: the code is printed in the API console.' : '';
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center bg-canvas px-4 py-12">
+    <SignInFrame
+      footer={
+        !disabledAccount &&
+        contactEmail && (
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            Trouble signing in?{' '}
+            <a href={`mailto:${contactEmail}`} className="font-medium text-primary hover:underline">
+              Contact admin
+            </a>
+          </p>
+        )
+      }
+    >
       {googleAvailable && (
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onReady={() => setGoogleReady(true)} />
       )}
 
-      <div className="mb-8 flex items-center">
-        <Logo markSize={40} wordSize={28} gap={10} />
-      </div>
-
       {disabledAccount ? (
-        <div className="w-full max-w-md rounded-surface border border-border bg-surface p-6 shadow-soft sm:p-8">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">This account is disabled</h1>
+        <div className={SIGN_IN_CARD}>
+          <h1 className={SIGN_IN_TITLE}>This account is disabled</h1>
           <p className="mt-3 text-sm break-words text-muted-foreground">{disabledAccount}</p>
           <div className="mt-6 flex flex-col gap-3">
             {contactEmail && (
@@ -198,8 +206,8 @@ export function SignInPage() {
           </div>
         </div>
       ) : (
-        <div className="w-full max-w-md rounded-surface border border-border bg-surface p-6 shadow-soft sm:p-8">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Sign in</h1>
+        <div className={SIGN_IN_CARD}>
+          <h1 className={SIGN_IN_TITLE}>Sign in</h1>
           <p className="mt-2 text-sm text-muted-foreground">TailorIT keeps your resumes to your own account.</p>
 
           {optionsError && (
@@ -234,7 +242,7 @@ export function SignInPage() {
           {googleAvailable && emailAvailable && (
             <div className="my-6 flex items-center gap-3" role="separator" aria-label="or">
               <span className="h-px flex-1 bg-border" />
-              <span className="text-xs tracking-wide text-subtle-foreground uppercase" aria-hidden="true">
+              <span className="text-[11px] font-semibold tracking-[0.06em] text-subtle-foreground uppercase" aria-hidden="true">
                 or
               </span>
               <span className="h-px flex-1 bg-border" />
@@ -305,15 +313,6 @@ export function SignInPage() {
           )}
         </div>
       )}
-
-      {!disabledAccount && contactEmail && (
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          Trouble signing in?{' '}
-          <a href={`mailto:${contactEmail}`} className="font-medium text-primary-ink hover:underline">
-            Contact admin
-          </a>
-        </p>
-      )}
-    </main>
+    </SignInFrame>
   );
 }

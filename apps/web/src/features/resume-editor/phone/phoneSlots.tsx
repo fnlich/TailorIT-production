@@ -76,4 +76,4 @@ export const PHONE_SLOTS: Slots = {
 
 /** The phone page's placeholders, as the editable page shows them (nothing that changes a field's size). */
 export const PHONE_PAGE_CSS =
-  '[data-resume-canvas] .rt-text[data-empty]::before{content:attr(data-placeholder);color:#a8a8a8;pointer-events:none}';
+  '[data-resume-canvas] .rt-text[data-empty]::before{content:attr(data-placeholder);color:var(--color-disabled-foreground);pointer-events:none}';

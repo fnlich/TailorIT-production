@@ -84,5 +84,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Everything except the API rewrite, Next internals and files with an extension (favicon, logo, fonts…).
-  matcher: ['/((?!api|_next/|.*\\.[A-Za-z0-9]+$).*)'],
+  // v31 OAUTH: and the MCP endpoint, the well-known documents and the OAuth endpoints the API answers
+  // (features/oauth/passthrough.ts): an AI app calling them has no session to sign in with.
+  matcher: ['/((?!api|_next/|mcp(?:/|$)|\\.well-known/|oauth/(?:authorize|token|register|revoke)(?:/|$)|.*\\.[A-Za-z0-9]+$).*)'],
 };

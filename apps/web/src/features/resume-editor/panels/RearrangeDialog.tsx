@@ -72,7 +72,7 @@ function SectionBox({
     data: { kind: 'before', ref: item.ref, column: item.column } satisfies Drop,
   });
   const small =
-    'flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-black/10 group-hover:text-white';
+    'flex size-5 items-center justify-center rounded-tag text-muted-foreground hover:bg-pressed group-hover:text-on-primary group-hover:hover:bg-on-primary/20';
   const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
   const name = `${label}${item.continued ? ' (continued)' : ''}`;
   return (
@@ -86,9 +86,9 @@ function SectionBox({
       aria-label={name}
       data-board-key={boardKey(item)}
       className={clsx(
-        'group relative flex shrink-0 cursor-grab touch-none items-center justify-center rounded-md bg-[#e8edf5] px-5 text-center',
-        'text-[12px] font-medium text-foreground transition-[height,background-color,color] duration-200 outline-none',
-        'hover:bg-primary hover:text-white focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing',
+        'group relative flex shrink-0 cursor-grab touch-none items-center justify-center rounded-control border border-primary-200 bg-primary-50 px-5 text-center',
+        'text-xs font-medium text-primary-ink transition-[height,background-color,color,border-color] duration-200 outline-none',
+        'hover:border-primary hover:bg-primary hover:text-on-primary focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing',
         isDragging && 'opacity-40',
       )}
       style={{ height }}
@@ -238,11 +238,11 @@ export function RearrangeDialog({ open, onClose, document, store }: { open: bool
           <div ref={boardRef} className="relative flex max-h-[min(70vh,760px)] flex-col items-center gap-5 overflow-y-auto py-1">
             {board.map((page) => (
               <div key={page.page} className="flex flex-col items-center gap-1.5">
-                <span className="text-[13px] text-foreground">
+                <span className="num text-xs text-muted-foreground">
                   Page {page.page + 1} of {board.length}
                 </span>
                 <div
-                  className="flex flex-col rounded-md border border-border bg-white shadow-sm"
+                  className="flex flex-col rounded-control border border-border bg-surface shadow-card"
                   style={{
                     width: BOARD_PAGE_WIDTH,
                     minHeight: Math.round(geometry.pageHeight * scale),
@@ -252,7 +252,7 @@ export function RearrangeDialog({ open, onClose, document, store }: { open: bool
                 >
                   {page.page === 0 ? (
                     <div
-                      className="relative flex shrink-0 items-center justify-center rounded-md bg-[#d5d9e0] text-[12px] text-foreground"
+                      className="relative flex shrink-0 items-center justify-center rounded-control border border-border bg-surface-muted text-xs text-muted-foreground"
                       style={{ height: sized(measured?.heights.header ?? 0) }}
                     >
                       <LockSimpleIcon size={12} aria-hidden="true" className="absolute top-1 left-1" />
@@ -293,7 +293,7 @@ export function RearrangeDialog({ open, onClose, document, store }: { open: bool
             <DragOverlay zIndex={1000} dropAnimation={null}>
               {dragging ? (
                 <div
-                  className="flex h-full w-full cursor-grabbing items-center justify-center rounded-md bg-primary px-5 text-center text-[12px] font-medium text-white shadow-lg"
+                  className="flex h-full w-full cursor-grabbing items-center justify-center rounded-control bg-primary px-5 text-center text-xs font-medium text-on-primary shadow-popover"
                   style={{ minHeight: dragging.height }}
                 >
                   <DotsSixVerticalIcon size={12} weight="bold" aria-hidden="true" className="absolute top-1 left-1 opacity-80" />

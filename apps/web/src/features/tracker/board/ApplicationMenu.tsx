@@ -12,7 +12,8 @@ import {
   MenuSub,
   MenuSubContent,
 } from '@/components/ui/Menu';
-import { ArchiveIcon, ArrowCounterClockwiseIcon, ArrowSquareOutIcon, RobotIcon } from '@/components/ui/icons';
+import { ArchiveIcon, ArrowCounterClockwiseIcon, ArrowSquareOutIcon, ArrowsClockwiseIcon, RobotIcon } from '@/components/ui/icons';
+import { RETRY_READ_COPY, canRetryRead } from '@/features/jobs/verification/copy'; // v31 JOBSWEB
 import { prepareBlockReason } from '../draft';
 import { StatusIcon } from '../status';
 
@@ -23,11 +24,17 @@ export interface ApplicationActions {
   onRestore: (application: ApplicationSummary) => void;
   /** v2.0: Prepare & Queue a Saved entry (its card menu); absent where the screen has no such action. */
   onPrepare?: (application: ApplicationSummary) => void;
+  /**
+   * v31 JOBSWEB: Retry read of the entry's job when it is the person's own, TailorIT having not read its link
+   * (POST /api/jobs/:id/verify); absent where the screen has no such action.
+   */
+  onRetryRead?: (application: ApplicationSummary) => void;
 }
 
 /**
- * Simplify's card menu (the ⋯ button, a right-click and a long press): Open application, View job posting, Move to ›
- * (every status, the current one disabled), Archive / Restore application.
+ * The card menu (the ⋯ button, a right-click and a long press): Open application, View job posting, Prepare & Queue,
+ * Retry read (v31: a job only the person sees), Move to › (every status, the current one disabled), Archive / Restore
+ * application.
  */
 export function ApplicationMenuItems({ application, actions }: { application: ApplicationSummary; actions: ApplicationActions }) {
   return (
@@ -47,6 +54,11 @@ export function ApplicationMenuItems({ application, actions }: { application: Ap
       {actions.onPrepare && prepareBlockReason(application) === null && (
         <MenuItem icon={<RobotIcon size={16} />} onClick={() => actions.onPrepare?.(application)}>
           Prepare &amp; Queue
+        </MenuItem>
+      )}
+      {actions.onRetryRead && application.jobId !== null && canRetryRead(application) && (
+        <MenuItem icon={<ArrowsClockwiseIcon size={16} />} onClick={() => actions.onRetryRead?.(application)}>
+          {RETRY_READ_COPY.button}
         </MenuItem>
       )}
       <MenuSeparator />

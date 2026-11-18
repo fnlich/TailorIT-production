@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  canonicalJobUrl, // v31 LINK
   COMPANY_SIZE_IDS,
   EMPLOYMENT_TYPES,
   EXPERIENCE_LEVELS,
@@ -405,7 +406,8 @@ export function normalizePosting(raw: RawPosting): NormalizedPosting {
   const title = text(raw.title, MAX_TITLE);
   if (!title) throw new IngestError('The posting has no title.');
   const company = normalizeCompany(raw.company);
-  const applyUrl = cleanUrl(raw.url);
+  // v31 LINK: a job's link is kept in its one canonical form (no "?utm_source=..." or "?source=..." mark).
+  const applyUrl = canonicalJobUrl(cleanUrl(raw.url));
   if (!applyUrl) throw new IngestError(`"${title}" has no link to the original posting.`);
   const sourceJobId = storedSourceJobId(raw.sourceJobId);
   if (!sourceJobId) throw new IngestError(`"${title}" has no id.`);

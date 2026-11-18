@@ -73,20 +73,20 @@ export const AiTaskViewSchema = z.object({
 });
 export type AiTaskView = z.infer<typeof AiTaskViewSchema>;
 
-/** Staged progress lines the UI rotates through while a task runs (cover letter copy is Simplify's). */
+/** Staged progress lines the UI rotates through while a task runs (v31 FIX-DOCS: the letters' in TailorIT's words). */
 export const AI_PROGRESS_MESSAGES: Record<AiTaskKind, readonly string[]> = {
   resume_import: ['Reading your resume...', 'Organizing your experience...', 'Opening your new resume...'],
   entry_bullets: ['Writing the bullets...'],
   job_analysis: ['Refining the job summary...'],
   cover_letter: [
-    'Analyzing job description...',
-    'Extracting key skills and requirements...',
-    'Generating your tailored cover letter...',
+    'Reading the job description...',
+    'Matching your resume to what the job asks for...',
+    'Writing your letter...',
   ],
   template_fill: [
-    'Analyzing job description...',
-    'Extracting key skills and requirements...',
-    'Generating your tailored cover letter...',
+    'Reading the job description...',
+    'Filling in your template for this job...',
+    'Smoothing the letter...',
   ],
   resume_analysis: ['Reading your resume...', 'Picking out skills, roles and dates...'],
   autofill_pick: ['Matching your answers to the options...'],

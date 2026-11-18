@@ -17,14 +17,14 @@ import { VariableHoverHint } from './VariableHoverHint';
 import { VariableNode } from './VariableNode';
 
 /*
- * The shared TipTap editor of cover letters and templates: Simplify's toolbar over a US Letter paper on the #f8f8f8
- * canvas, `{{VARIABLE}}` chips, and the bundled letter fonts (served by the API, the same files the PDF embeds).
+ * The shared TipTap editor of cover letters and templates: the formatting toolbar over a US Letter paper on the
+ * pattern-paper canvas, `{{VARIABLE}}` chips, and the bundled letter fonts (served by the API, the same files the PDF embeds).
  * The page owns the data: it gets the editor through `onReady` and hears every edit through `onChange`.
  */
 
 const FONT_STYLESHEET_ID = 'tailorit-letter-fonts';
 
-/** Ctrl+K opens the link dialog; Ctrl+Shift+9 toggles a quote (as Simplify's tooltips list). */
+/** Ctrl+K opens the link dialog; Ctrl+Shift+9 toggles a quote (as the toolbar's tooltips list). */
 const LetterKeys = Extension.create<{ onLink: () => void }>({
   name: 'letterKeys',
   addOptions() {
@@ -185,7 +185,7 @@ export function LetterEditor({
         onGenerate={onGenerate}
         disabled={!editable}
       />
-      <div className="flex-1 bg-surface-low px-3 pt-5 pb-20 sm:px-6">
+      <div className="flex-1 bg-canvas px-3 pt-5 pb-20 sm:px-6">
         {belowToolbar && <div className="mx-auto mb-4 w-full max-w-[896px]">{belowToolbar}</div>}
         <div
           ref={setPaper}

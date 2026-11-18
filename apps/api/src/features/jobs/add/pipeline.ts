@@ -1,0 +1,323 @@
+import {
+  canonicalJobUrl,
+  linkKey,
+  type JobAddDetails,
+  type JobAddOrigin,
+  type JobAddState,
+  type JobVerifyReason,
+} from '@tailorit/shared';
+import { addablePosting } from '@tailorit/shared/autofill';
+import { nowIso, type AppDeps } from '../../../core/context';
+import { AppError, notFound } from '../../../core/http/errors';
+import { refuse } from '../../../core/http/refuse';
+import { aliasValueHash } from '../../autofill/alias-key';
+import { storeOwnJobFromDetails } from '../../autofill/from-page';
+import {
+  heldJobOf,
+  newInFlight,
+  readShared,
+  saveToTracker,
+  upgradeOwnPageJob,
+  upgradeOwnPageJobsFor,
+  type InFlight,
+} from '../../autofill/jobs';
+import { findPageJob, readPage, type PageReading } from '../../autofill/lookup';
+import { RobotsRefusal } from '../../ingest/robots';
+import { IngestError } from '../../ingest/types';
+import { isRefusedPageHost, isSiteHost } from '../../job-reviews/hosts';
+import { noteHeldAdd } from '../../job-reviews/new-jobs'; // v31 FIX-LINK (D12)
+import { sharedAddress } from './address';
+import { legacyHeld } from './held';
+import { settleLegacyJob } from './legacy';
+import { readPageToSharedJob } from './page';
+import { noticeVerification } from './notify';
+import { linkRejected, noteUnverified, ownJobsOfLink } from './verification';
+
+// v31 LINK: addJobByLink, the ONE pipeline every add path runs (docs/design/v3.1/21-jobs-from-links.md §3; the build
+// plan's D1-D3). In order:
+//   1. The link made canonical (canonicalJobUrl: no "?utm_source=Simplify", no "?source=..."), and checked: an https
+//      address on a public host name (never an IP address, a local name or a port), else `refused` (invalid_link).
+//   2. A job TailorIT has of that link (the lookup's order: the ATS posting it names, its link keys, the person's
+//      alias): it is linked to the person (saved to their tracker when asked), never read again; a closed one is read
+//      again (a posting listed again reopens). The person's own job of it (one TailorIT could not read before) is read
+//      again too, and gives way to the shared job when the read works.
+//   3. TailorIT's own read (readLink): the ATS's API where one reads the posting (Greenhouse, Lever, Ashby, Workable,
+//      Workday: ingest/postings.ts, through readShared), else the page's own schema.org JobPosting (page.ts, the shared
+//      reader, D3). A posting read is stored through the ingest pipeline: its title, company (and the company's domain
+//      and logo, then the enrichment queue) and text are the posting's, never the adder's. It is `published` at once,
+//      or `waiting_admin` while NEW_JOBS_ADMIN_APPROVAL holds new jobs (D1). A closed posting is `refused` (closed).
+//   4. A link TailorIT cannot read (LinkedIn and the refused boards are never read; a sign-in page, no JobPosting,
+//      robots.txt, a switch off): `private_unverified` (D2). What the person typed (`details`) makes their own job,
+//      seen by them alone and labelled as from their browser; without details nothing is kept (`needsDetails`). Either
+//      way it is noted for Admin › Review's "Couldn't verify" (Retry read, Reject). An import's or an admin's link that
+//      cannot be read adds nothing (`refused`, with the reason).
+// No step trusts a title, a company or a description from the adder for a job others see.
+//
+// v31 FIX-LINK: every address kept or answered is the link's shared form (address.ts, SEC-2: no ?email=, ?token=, ...);
+// the page is read at the link as given. A link an admin rejected stays rejected with a parameter added or its path's
+// case changed (verification.ts linkRejected, SEC-8). A job the legacy pass holds (legacy.ts) is never answered as
+// "waiting for an admin" from step 2: TailorIT reads its link now and the read settles it (held.ts, BEH-4); and that
+// read, as a legacy row's or a Retry read's, is a real one (`fresh`: never the shortcut of a held job another account's
+// add made, BEH-2).
+
+export interface AddJobByLinkInput {
+  url: string;
+  /** The person adding: their tracker and their own job. Null for an import's or an admin's link. */
+  userId: string | null;
+  origin: JobAddOrigin;
+  /** What the person typed for a link TailorIT cannot read: their own job only. */
+  details?: JobAddDetails | null;
+  /** Make the person's own job from `details` when the link cannot be read (default true; the tracker keeps its entry). */
+  privateJob?: boolean;
+  /** Save the job to the person's tracker at Saved (the web's Add job, the MCP tool). */
+  save?: boolean;
+  /** Reads under way, shared (a router's). */
+  inFlight?: InFlight;
+}
+
+export interface AddJobByLinkOutcome {
+  state: JobAddState;
+  jobId: number | null;
+  /** The link in its canonical form; null when it is none. */
+  url: string | null;
+  reason: JobVerifyReason | null;
+  created: boolean;
+  needsDetails: boolean;
+}
+
+/** How readLink reads. */
+export interface ReadLinkOptions {
+  /** The link as given (its canonical form, a person's own parameters kept): the page is read there. */
+  readAt?: string;
+  /**
+   * v31 FIX-LINK (BEH-2): read the ATS posting itself, never the held job another account's add made of it
+   * (autofill/jobs.ts readShared's shortcut): the legacy pass's reads and Retry read.
+   */
+  fresh?: boolean;
+  /** v31 FIX-LINK (D12): an admin approves the posting at this link: a page's new job is published, never held. */
+  approved?: boolean;
+}
+
+/** What TailorIT's own read of a link came to. */
+export type LinkRead =
+  | { kind: 'shared'; jobId: number; created: boolean; held: boolean }
+  | { kind: 'closed' }
+  | { kind: 'unreadable'; reason: JobVerifyReason };
+
+/**
+ * Whether a canonical link is one TailorIT may add: an https address with no port on a public host name (never an IP
+ * address or a local name), or on a site TailorIT never reads (LinkedIn, a refused job board: its job can only be the
+ * adder's own).
+ */
+export function isAddableLink(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || parsed.port !== '') return false;
+    return isSiteHost(parsed.hostname) || (DNS_NAME.test(parsed.hostname) && isRefusedPageHost(parsed.hostname));
+  } catch {
+    return false;
+  }
+}
+
+/** A dotted DNS name (letters, digits, hyphens), the last label letters only. */
+const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+/** An ATS read's failure as a LinkRead: closed (404, gone), or why it could not be read. Anything else is thrown. */
+function atsFailure(error: unknown): LinkRead {
+  if (!(error instanceof AppError)) throw error;
+  if (error.code === 'not_found') return { kind: 'closed' };
+  if (error.code === 'unsupported') {
+    return { kind: 'unreadable', reason: error.cause instanceof RobotsRefusal ? 'robots' : 'unlisted' };
+  }
+  if (error.code === 'ats_failed') return { kind: 'unreadable', reason: error.cause instanceof IngestError ? 'no_posting' : 'unavailable' };
+  if (error.code === 'ats_unavailable') return { kind: 'unreadable', reason: 'unavailable' };
+  throw error;
+}
+
+async function isHeld(deps: Pick<AppDeps, 'db'>, jobId: number): Promise<boolean> {
+  const row = await deps.db.one<{ held: boolean }>('SELECT held_since IS NOT NULL AS held FROM jobs WHERE id = ?', [jobId]);
+  return row?.held === true;
+}
+
+/**
+ * TailorIT's own read of a canonical link (step 3 above): the shared job it stored (made, or found by the store's
+ * dedupe), closed, or why it could not be read. LinkedIn and the refused boards are never read, and a link an admin
+ * rejected is never published. Outside any transaction.
+ */
+export async function readLink(
+  deps: AppDeps,
+  url: string,
+  inFlight?: InFlight,
+  page?: PageReading,
+  options: ReadLinkOptions = {},
+): Promise<LinkRead> {
+  deps.db.assertNoTx('reading a job link');
+  const reading = page ?? readPage(url, undefined, aliasValueHash(deps));
+  const host = new URL(url).hostname;
+  if (reading.linkedIn || isRefusedPageHost(host)) return { kind: 'unreadable', reason: 'unreadable_host' };
+  if (await linkRejected(deps.db, sharedAddress(url) ?? url)) return { kind: 'unreadable', reason: 'rejected' };
+  const posting = addablePosting(reading.ats);
+  if (posting) {
+    try {
+      const stored = await readShared(deps, posting, inFlight ?? newInFlight(), { fresh: options.fresh === true });
+      return { kind: 'shared', jobId: stored.jobId, created: stored.created, held: await isHeld(deps, stored.jobId) };
+    } catch (error) {
+      return atsFailure(error);
+    }
+  }
+  return readPageToSharedJob(deps, options.readAt ?? url, { approved: options.approved === true });
+}
+
+/** The state of a shared job: waiting for an admin while held, else published. */
+const stateOf = (held: boolean): JobAddState => (held ? 'waiting_admin' : 'published');
+
+/** addJobByLink (see the top). Outside any transaction. */
+export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Promise<AddJobByLinkOutcome> {
+  deps.db.assertNoTx('addJobByLink');
+  // The link as given is read; its shared form (no secret parameter) is what is kept and answered (SEC-2).
+  const given = canonicalJobUrl(input.url);
+  const url = sharedAddress(given);
+  const outcome = (state: JobAddState, jobId: number | null, reason: JobVerifyReason | null, created = false, needsDetails = false) => ({
+    state,
+    jobId,
+    url,
+    reason,
+    created,
+    needsDetails,
+  });
+  if (!given || !url || given.length > 2100 || !isAddableLink(given) || !isAddableLink(url)) return outcome('refused', null, 'invalid_link');
+  const { userId } = input;
+  const page = readPage(url, undefined, aliasValueHash(deps));
+  const save = async (jobId: number) => {
+    if (userId && input.save) await saveToTracker(deps, userId, jobId);
+  };
+
+  // 2. A job TailorIT has (an import's or an admin's link: a shared one only, as nobody's viewer).
+  const found = (await findPageJob(deps, userId ?? '', page)) ?? (await heldJobOf(deps, page));
+  let own: number | null = null;
+  if (found) {
+    const job = await deps.db.one<{ owner_user_id: string | null; active: boolean; held: boolean }>(
+      'SELECT owner_user_id, active, held_since IS NOT NULL AS held FROM jobs WHERE id = ?',
+      [found.id],
+    );
+    // v31 FIX-LINK (BEH-4): a job the legacy pass holds is read now: the read settles it.
+    if (job && job.owner_user_id === null && job.active && job.held && (await legacyHeld(deps.db, found.id))) {
+      const settled = await settleLegacyJob(deps, found.id, url, { final: true, readAt: given });
+      const kept = settled.jobId ?? found.id;
+      if (settled.state === 'published' || settled.state === 'waiting_admin') {
+        if (userId) await upgradeOwnPageJobsFor(deps, userId, kept);
+        await save(kept);
+        return outcome(settled.state, kept, null);
+      }
+      if (settled.state === 'refused') return outcome('refused', null, settled.reason ?? 'closed');
+      // Not read now (the site failed, or the job became its adder's own): it stays as it is, the person's to see.
+      await save(found.id);
+      return outcome('private_unverified', found.id, settled.reason);
+    }
+    if (job && job.owner_user_id === null && job.active) {
+      await save(found.id);
+      return outcome(stateOf(job.held), found.id, null);
+    }
+    if (job && userId && job.owner_user_id === userId) own = found.id;
+  }
+
+  // 3. TailorIT's own read.
+  const read = await readLink(deps, url, input.inFlight, page, { readAt: given });
+  if (read.kind === 'shared') {
+    if (userId) {
+      // The person's own job of this link gives way to the shared one (its tracker entry, aliases and queue rows move).
+      if (own !== null) await upgradeOwnPageJob(deps, userId, own, read.jobId, { sameLink: true });
+      await upgradeOwnPageJobsFor(deps, userId, read.jobId);
+    }
+    await save(read.jobId);
+    return outcome(stateOf(read.held), read.jobId, null, read.created);
+  }
+  if (read.kind === 'closed') return outcome('refused', null, 'closed');
+
+  // 4. A link TailorIT cannot read.
+  const reason = read.reason;
+  if (!userId) return outcome('refused', null, reason);
+  const note = (jobId: number) => noteUnverified(deps.db, { jobId, userId, url, origin: input.origin, reason }, nowIso(deps));
+  if (own !== null) {
+    await note(own);
+    await save(own);
+    return outcome('private_unverified', own, reason);
+  }
+  if (input.details && input.privateJob !== false) {
+    const made = await storeOwnJobFromDetails(deps, userId, url, input.details);
+    await note(made.jobId);
+    await save(made.jobId);
+    return outcome('private_unverified', made.jobId, reason, made.created);
+  }
+  return outcome('private_unverified', null, reason, false, input.privateJob !== false);
+}
+
+/**
+ * Retry read (POST /api/jobs/:id/verify, Admin › Review's Retry read): TailorIT reads the link of a job only its adder
+ * sees again. Read now, the shared job takes the place of every account's own job of that link (upgradeOwnPageJob);
+ * still unreadable, the attempt is noted. The job's adder or an admin only (404 for anyone else: the job is not theirs
+ * to see). A shared job answers its state, nothing read.
+ */
+export async function verifyJob(
+  deps: AppDeps,
+  jobId: number,
+  actor: { id: string; admin: boolean },
+): Promise<AddJobByLinkOutcome> {
+  deps.db.assertNoTx('verifyJob');
+  const job = await deps.db.one<{ owner_user_id: string | null; apply_url: string; held: boolean; active: boolean; url: string | null; origin: string | null }>(
+    `SELECT j.owner_user_id, j.apply_url, j.held_since IS NOT NULL AS held, j.active, v.url, v.origin
+     FROM jobs j LEFT JOIN job_verifications v ON v.job_id = j.id WHERE j.id = ? AND j.superseded_by IS NULL`,
+    [jobId],
+  );
+  if (!job || (job.owner_user_id !== null && job.owner_user_id !== actor.id && !actor.admin)) throw notFound('That job');
+  const url = sharedAddress(job.url ?? job.apply_url);
+  const answer = (state: JobAddState, id: number | null, reason: JobVerifyReason | null) => ({
+    state,
+    jobId: id,
+    url,
+    reason,
+    created: false,
+    needsDetails: false,
+  });
+  if (job.owner_user_id === null) {
+    // v31 LINK2: a held job of v3.0 TailorIT could not read and no one account added (legacy.ts): an admin's Retry read
+    // reads its link again and settles it.
+    if (job.held && job.url !== null && actor.admin && url && (await legacyHeld(deps.db, jobId))) {
+      const settled = await settleLegacyJob(deps, jobId, url, { final: true });
+      return { ...answer(settled.state, settled.jobId, settled.reason) };
+    }
+    if (job.held && !actor.admin) {
+      // A held job is its adders' to see: one who is not an adder gets the 404 any hidden job gets.
+      const adder = await deps.db.one(
+        `SELECT 1 FROM applications WHERE job_id = ? AND user_id = ?
+         UNION ALL SELECT 1 FROM job_review_reports p JOIN job_reviews r ON r.id = p.review_id WHERE r.job_id = ? AND p.user_id = ? LIMIT 1`,
+        [jobId, actor.id, jobId, actor.id],
+      );
+      if (!adder) throw notFound('That job');
+    }
+    return answer(stateOf(job.held), jobId, null);
+  }
+  if (job.owner_user_id !== actor.id && !actor.admin) throw refuse(deps, 'forbidden', 'MSG_JOB_VERIFY_NOT_YOURS');
+  if (!url || !isAddableLink(url)) return answer('private_unverified', jobId, 'invalid_link');
+  const read = await readLink(deps, url, undefined, undefined, { fresh: true });
+  if (read.kind === 'shared') {
+    const key = linkKey(url);
+    const owners = key ? await ownJobsOfLink(deps.db, key) : [];
+    if (!owners.some((row) => Number(row.job_id) === jobId)) owners.push({ job_id: jobId, user_id: job.owner_user_id });
+    for (const row of owners) {
+      const moved = await upgradeOwnPageJob(deps, row.user_id, Number(row.job_id), read.jobId, { sameLink: true });
+      // v31 FIX-LINK (D12): a job read now that waits for an admin counts each adder as one (their report row), so they
+      // hear it once the admin approves it.
+      if (moved && read.held) await noteHeldAdd(deps, row.user_id, read.jobId);
+      // Each adder hears that TailorIT read their job (the one who asked sees the answer).
+      if (moved && row.user_id !== actor.id) await noticeVerification(deps, { userId: row.user_id, jobId: read.jobId, state: stateOf(read.held) });
+    }
+    return { ...answer(stateOf(read.held), read.jobId, null), created: read.created };
+  }
+  const reason: JobVerifyReason = read.kind === 'closed' ? 'closed' : read.reason;
+  const origin = (job.origin ?? 'web') as JobAddOrigin;
+  await noteUnverified(deps.db, { jobId, userId: job.owner_user_id, url, origin, reason }, nowIso(deps));
+  const state = read.kind === 'closed' ? 'refused' : 'private_unverified';
+  if (job.owner_user_id !== actor.id) await noticeVerification(deps, { userId: job.owner_user_id, jobId, state, reason });
+  return answer(state, jobId, reason);
+}

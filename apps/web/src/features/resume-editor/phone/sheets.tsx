@@ -87,9 +87,9 @@ export const SheetRow = forwardRef<HTMLButtonElement, SheetRowProps>(function Sh
       ref={ref}
       type={type ?? 'button'}
       className={clsx(
-        'flex h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-[15px] outline-none',
+        'flex h-12 w-full items-center gap-3 rounded-control px-3 text-left text-[15px] outline-none',
         'focus-visible:bg-hover active:bg-hover disabled:pointer-events-none disabled:opacity-40 [&_svg]:shrink-0',
-        destructive ? 'text-destructive' : 'text-foreground',
+        destructive ? 'text-danger' : 'text-foreground',
       )}
       {...rest}
     >

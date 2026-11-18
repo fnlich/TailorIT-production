@@ -119,7 +119,7 @@ function Section({ title, children, mark }: { title: string; children: ReactNode
   const id = useId();
   return (
     <section aria-labelledby={id} className="flex flex-col gap-2" data-sheet-section={mark}>
-      <h3 id={id} className="text-sm leading-6 font-semibold text-foreground">
+      <h3 id={id} className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
         {title}
       </h3>
       {children}
@@ -191,7 +191,7 @@ export function Evidence({ detail, now, name }: { detail: AdminReviewDetail; now
                   {report.marker && (
                     <>
                       {' · Marker '}
-                      <code className="rounded bg-chip px-1 text-xs">{report.marker}</code>
+                      <code className="rounded-tag bg-surface-muted px-1 text-xs">{report.marker}</code>
                     </>
                   )}
                 </p>

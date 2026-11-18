@@ -19,11 +19,11 @@ export interface TooltipProps {
 }
 
 const POPUP =
-  'max-w-xs origin-(--transform-origin) rounded-[8px] bg-foreground px-2.5 py-1.5 text-xs leading-4 font-medium text-white ' +
+  'max-w-xs origin-(--transform-origin) rounded-control bg-sidebar px-2.5 py-1.5 text-xs leading-4 font-medium text-sidebar-strong ' +
   'shadow-popover transition-[opacity,scale] duration-150 ease-out-soft data-starting-style:scale-95 ' +
   'data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0 data-instant:transition-none';
 
-/** A short dark hint on hover and keyboard focus. Supplementary only: never the sole carrier of information. */
+/** A short dark-denim hint on hover and keyboard focus. Supplementary only: never the sole carrier of information. */
 export function Tooltip({ content, children, side = 'top', align = 'center', delay, disabled, className }: TooltipProps) {
   if (disabled || content === null || content === undefined || content === '') return children;
   return (

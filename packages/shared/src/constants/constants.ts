@@ -202,12 +202,14 @@ export const CONSTANTS = {
   FREE_AI_DAILY_BUDGET_USD: {
     kind: 'usd_limit', default: 100_000, adminEditable: true, public: false, group: 'accounts',
     label: 'Free daily AI budget',
-    help: "What TailorIT's AI may spend for a Free account each day before extra credit is used. People never see it.",
+    // v31 NOTIFY (D9): the header shows each person their day's use against their own budget.
+    help: "What TailorIT's AI may spend for a Free account each day before extra credit is used. The header shows each person their day's use against it.",
   },
   PAID_AI_DAILY_BUDGET_USD: {
     kind: 'usd_limit', default: 500_000, adminEditable: true, public: false, group: 'accounts',
     label: 'Paid daily AI budget',
-    help: "What TailorIT's AI may spend for a Paid account each day before extra credit is used. People never see it.",
+    // v31 NOTIFY (D9): the header shows each person their day's use against their own budget.
+    help: "What TailorIT's AI may spend for a Paid account each day before extra credit is used. The header shows each person their day's use against it.",
   },
   FREE_RESUME_LIMIT: {
     kind: 'limit', default: 30, adminEditable: true, public: true, group: 'accounts', min: 0, max: 100_000,
@@ -263,7 +265,8 @@ export const CONSTANTS = {
     kind: 'int', default: AUTOFILL_TAILOR_PER_HOUR, adminEditable: true, public: false, group: 'resumes', min: 1,
     max: 1000,
     label: 'Tailorings per hour',
-    help: "Tailorings one account may start in an hour (Tailor my resume, the extension's tailor, an own-AI tailor).",
+    // v31 FIX-WEB (REV-REQ REQ-3): the web's action is "Tailor a resume".
+    help: "Tailorings one account may start in an hour (the web's Tailor a resume, the extension's tailor, an own-AI tailor).",
   },
 
   // The auto-apply window and the queue (§4, §10).
@@ -658,6 +661,190 @@ export const CONSTANTS = {
   MARKER_PREPARING: stateLabel('Marker: preparing', 'Preparing'),
   MARKER_PREPARED: stateLabel('Marker: prepared', 'Prepared'),
   MARKER_APPLY_FAILED: stateLabel('Marker: not applied', 'Not applied'),
+
+  // v31 FIX-DOCS: the Documents page's, the Job Tracker's and the letter editors' words (REV-UX UX-1, REV-REQ REQ-3):
+  // TailorIT's own voice in one place, so an admin's edit reaches every screen. LABEL_ keys (at most 60 characters)
+  // name a control, a column or a state; MSG_ keys are titles and sentences.
+  MSG_DOCS_PAGE_DESCRIPTION: message('Documents: the page line', 'Your resumes, cover letters and letter templates, kept in one library.'),
+  LABEL_DOCS_NEW: message('Documents: the New button', 'New', [] as const, LABEL_MAX),
+  LABEL_DOCS_NEW_RESUME: message('Documents: New › resume', 'Resume', [] as const, LABEL_MAX),
+  LABEL_DOCS_NEW_RESUME_HINT: message('Documents: New › resume, its hint', 'Build one from a template', [] as const, LABEL_MAX),
+  LABEL_DOCS_NEW_LETTER: message('Documents: New › cover letter', 'Cover letter', [] as const, LABEL_MAX),
+  LABEL_DOCS_NEW_LETTER_HINT: message('Documents: New › cover letter, its hint', 'Draft one for a job with AI', [] as const, LABEL_MAX),
+  LABEL_DOCS_NEW_TEMPLATE: message('Documents: New › template', 'Letter template', [] as const, LABEL_MAX),
+  LABEL_DOCS_NEW_TEMPLATE_HINT: message('Documents: New › template, its hint', 'Write it once, reuse it for every job', [] as const, LABEL_MAX),
+  LABEL_DOCS_LIBRARY: message('Documents: the section list', 'Library', [] as const, LABEL_MAX),
+  LABEL_DOCS_RESUMES: message('Documents: the resumes section', 'Resumes', [] as const, LABEL_MAX),
+  LABEL_DOCS_LETTERS: message('Documents: the cover letters section', 'Cover letters', [] as const, LABEL_MAX),
+  LABEL_DOCS_TEMPLATES: message('Documents: the templates section', 'Templates', [] as const, LABEL_MAX),
+  MSG_DOCS_RESUMES_INTRO: message(
+    'Documents: the resumes section line',
+    'The files you uploaded, the resumes you built, and the copies TailorIT tailored for jobs.',
+  ),
+  MSG_DOCS_LETTERS_INTRO: message('Documents: the cover letters section line', 'Letters you wrote, uploaded or drafted with AI for a job.'),
+  MSG_DOCS_TEMPLATES_INTRO: message(
+    'Documents: the templates section line',
+    'Letters you reuse: TailorIT fills in their placeholders for each job.',
+  ),
+  MSG_DOCS_RESUMES_EMPTY_TITLE: message('Documents: no resumes, the title', 'No resumes here yet', [] as const, LABEL_MAX),
+  MSG_DOCS_RESUMES_EMPTY_TEXT: message(
+    'Documents: no resumes, the line',
+    'Upload the resume you have, or build one from a template. Everything TailorIT tailors starts from it.',
+  ),
+  MSG_DOCS_LETTERS_EMPTY_TITLE: message('Documents: no cover letters, the title', 'No cover letters yet', [] as const, LABEL_MAX),
+  MSG_DOCS_LETTERS_EMPTY_TEXT: message(
+    'Documents: no cover letters, the line',
+    'Choose a job you track and TailorIT drafts a letter from your resume. You can upload one too.',
+  ),
+  MSG_DOCS_TEMPLATES_EMPTY_TITLE: message('Documents: no templates, the title', 'No templates yet', [] as const, LABEL_MAX),
+  MSG_DOCS_TEMPLATES_EMPTY_TEXT: message(
+    'Documents: no templates, the line',
+    'Write a letter once, with placeholders for the company and the role, and reuse it for every job.',
+  ),
+  MSG_DOCS_NO_MATCH_TITLE: message('Documents: a search finds nothing, the title', 'Your search finds no {noun}', ['noun'] as const, LABEL_MAX),
+  MSG_DOCS_NO_MATCH_TEXT: message('Documents: a search finds nothing, the line', 'Try other words, or clear the search to see them all.'),
+  MSG_DOCS_DELETE_ONE_TITLE: message('Documents: delete one, the title', 'Delete this {noun}?', ['noun'] as const, LABEL_MAX),
+  MSG_DOCS_DELETE_ONE_TEXT: message(
+    'Documents: delete one, the line',
+    '“{name}” leaves your documents for good. This can\'t be undone.',
+    ['name'] as const,
+  ),
+  MSG_DOCS_DELETE_MANY_TITLE: message('Documents: delete several, the title', 'Delete {count} {noun}?', ['count', 'noun'] as const, LABEL_MAX),
+  MSG_DOCS_DELETE_MANY_TEXT: message('Documents: delete several, the line', "They leave your documents for good. This can't be undone."),
+  LABEL_DOCS_DELETE_MANY_BUTTON: message('Documents: delete several, the button', 'Delete {count}', ['count'] as const, LABEL_MAX),
+  LABEL_DOCS_RENAME_TITLE: message('Documents: rename, the title', 'Rename this {noun}', ['noun'] as const, LABEL_MAX),
+  LABEL_DOCS_RENAME_SAVE: message('Documents: rename, the button', 'Save name', [] as const, LABEL_MAX),
+  LABEL_DOCS_TEMPLATE_BUILT_IN: message('Documents: a built-in template', 'Built in', [] as const, LABEL_MAX),
+  MSG_DOCS_TEMPLATE_BUILT_IN_KEPT: message(
+    'Documents: a built-in template cannot be deleted',
+    'Built-in templates stay. Duplicate one to make it yours.',
+  ),
+  MSG_DOCS_TEMPLATES_SKIPPED: message(
+    'Documents: built-in templates left out of a delete',
+    '{count} built-in {count|template stays|templates stay}.',
+    ['count'] as const,
+  ),
+  LABEL_DOCS_UPLOAD_RESUMES: message('Documents: the resume upload, the title', 'Upload resumes', [] as const, LABEL_MAX),
+
+  MSG_TRACKER_PAGE_DESCRIPTION: message('Tracker: the page line', 'Where each application stands, and the step that comes next.'),
+  LABEL_TRACKER_SEARCH: message('Tracker: the search field', 'Search by role or company', [] as const, LABEL_MAX),
+  LABEL_TRACKER_FILTER: message('Tracker: the filter and sort menu', 'Filter and sort', [] as const, LABEL_MAX),
+  LABEL_TRACKER_MORE: message('Tracker: the actions menu', 'Tracker actions', [] as const, LABEL_MAX),
+  LABEL_TRACKER_LANES: message('Tracker: the lanes shown on the board', 'Lanes shown', [] as const, LABEL_MAX),
+  LABEL_TRACKER_HIDE_LANE: message("Tracker: a lane's hide button", 'Hide lane', [] as const, LABEL_MAX),
+  LABEL_TRACKER_SELECT: message('Tracker: choose applications for a bulk action', 'Select applications', [] as const, LABEL_MAX),
+  MSG_TRACKER_SELECTED: message('Tracker: how many are selected', '{count} selected', ['count'] as const, LABEL_MAX),
+  LABEL_TRACKER_MOVE_TO_STAGE: message('Tracker: move the selected to a stage', 'Move to stage', [] as const, LABEL_MAX),
+  LABEL_TRACKER_IMPORT: message('Tracker: import', 'Import from CSV', [] as const, LABEL_MAX),
+  LABEL_TRACKER_EXPORT: message('Tracker: export', 'Export to CSV', [] as const, LABEL_MAX),
+  MSG_TRACKER_IMPORT_TITLE: message('Tracker: the import, the title', 'Import applications from a spreadsheet', [] as const, LABEL_MAX),
+  MSG_TRACKER_DELETE_MANY_TITLE: message(
+    'Tracker: delete several, the title',
+    'Delete {count} {count|application|applications}?',
+    ['count'] as const,
+    LABEL_MAX,
+  ),
+  MSG_TRACKER_DELETE_MANY_TEXT: message(
+    'Tracker: delete several, the line',
+    "They leave your tracker for good, with their notes and dates. This can't be undone.",
+  ),
+  MSG_TRACKER_ARCHIVE_MANY_TITLE: message(
+    'Tracker: archive several, the title',
+    'Archive {count} {count|application|applications}?',
+    ['count'] as const,
+    LABEL_MAX,
+  ),
+  MSG_TRACKER_ARCHIVE_MANY_TEXT: message('Tracker: archive several, the line', 'They move to Archived. You can restore them from there.'),
+  MSG_TRACKER_RESTORE_MANY_TITLE: message(
+    'Tracker: restore several, the title',
+    'Restore {count} {count|application|applications}?',
+    ['count'] as const,
+    LABEL_MAX,
+  ),
+  MSG_TRACKER_RESTORE_MANY_TEXT: message('Tracker: restore several, the line', 'They move back to your active applications.'),
+  MSG_TRACKER_MOVE_MANY_TITLE: message(
+    'Tracker: move several, the title',
+    'Move {count} {count|application|applications} to {stage}?',
+    ['count', 'stage'] as const,
+    LABEL_MAX,
+  ),
+  MSG_TRACKER_MOVE_MANY_TEXT: message('Tracker: move several, the line', 'Each one is dated today in {stage}.', ['stage'] as const),
+  MSG_TRACKER_ARCHIVE_ALL_TITLE: message('Tracker: archive all, the title', 'Archive every active application?', [] as const, LABEL_MAX),
+  MSG_TRACKER_ARCHIVE_ALL_TEXT: message('Tracker: archive all, the line', 'They all move to Archived. You can restore any of them from there.'),
+  MSG_TRACKER_DELETE_ONE_TITLE: message('Tracker: delete one, the title', 'Delete this application?', [] as const, LABEL_MAX),
+  MSG_TRACKER_DELETE_ONE_TEXT: message(
+    'Tracker: delete one, the line',
+    "{title} at {company} leaves your tracker for good, with its notes and dates. This can't be undone.",
+    ['title', 'company'] as const,
+  ),
+  MSG_TRACKER_EMPTY_TITLE: message('Tracker: nothing tracked, the title', 'Nothing tracked yet', [] as const, LABEL_MAX),
+  MSG_TRACKER_EMPTY_TEXT: message(
+    'Tracker: nothing tracked, the line',
+    "Add an application by its posting's link, or save a job on Jobs. Each one gets a stage and a next step.",
+  ),
+  MSG_TRACKER_NO_MATCH_TITLE: message('Tracker: a search finds nothing, the title', 'No applications match', [] as const, LABEL_MAX),
+  MSG_TRACKER_NO_MATCH_TEXT: message('Tracker: a search finds nothing, the line', 'Try other words or fewer filters, or clear them.'),
+  MSG_TRACKER_LANE_EMPTY_TITLE: message('Tracker: an empty lane, the title', 'Nothing here yet', [] as const, LABEL_MAX),
+  MSG_TRACKER_LANE_EMPTY_TEXT: message('Tracker: an empty lane, the line', 'Drag a card here when it reaches {stage}.', ['stage'] as const),
+  MSG_TRACKER_LANE_DROP: message('Tracker: a lane under a dragged card', 'Drop to move it here', [] as const, LABEL_MAX),
+  MSG_TRACKER_ARCHIVED_LANE_EMPTY: message('Tracker: the empty Archived lane', 'Drag a card here to archive it.'),
+  MSG_TRACKER_NEXT_STEP: message("Tracker: a card's next step", 'Next: {step}', ['step'] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_SAVED: message('Tracker: the next step at Saved', 'apply', [] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_DRAFT: message('Tracker: the next step at Draft', 'check the draft', [] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_APPLIED: message('Tracker: the next step at Applied', 'follow up', [] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_SCREEN: message('Tracker: the next step at Screen', 'prep the call', [] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_INTERVIEWING: message('Tracker: the next step at Interviewing', 'prep the interview', [] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_OFFER: message('Tracker: the next step at Offer', 'weigh the offer', [] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_DONE: message('Tracker: an accepted application', 'Done', [] as const, LABEL_MAX),
+  LABEL_TRACKER_STEP_CLOSED: message('Tracker: a rejected, withdrawn or ghosted application', 'Closed', [] as const, LABEL_MAX),
+  MSG_TRACKER_DAYS_IN_STAGE: message('Tracker: time in the stage', 'In {stage} for {days} {days|day|days}', ['days', 'stage'] as const, LABEL_MAX),
+  MSG_TRACKER_IN_STAGE_TODAY: message('Tracker: in the stage since today', 'In {stage} since today', ['stage'] as const, LABEL_MAX),
+  LABEL_TRACKER_DAYS_SHORT: message('Tracker: time in the stage, short', '{days}d', ['days'] as const, LABEL_MAX),
+  LABEL_TRACKER_TODAY_SHORT: message('Tracker: in the stage since today, short', 'Today', [] as const, LABEL_MAX),
+  MSG_TRACKER_STAGE_PROGRESS: message(
+    "Tracker: a row's stage meter",
+    '{stage}, stage {step} of {steps}',
+    ['stage', 'step', 'steps'] as const,
+    LABEL_MAX,
+  ),
+  LABEL_TRACKER_STAGE_MENU: message("Tracker: a row's stage button", 'Stage: {stage}', ['stage'] as const, LABEL_MAX),
+  LABEL_TRACKER_COL_ROLE: message('Tracker list: the role column', 'Role', [] as const, LABEL_MAX),
+  LABEL_TRACKER_COL_PROGRESS: message('Tracker list: the progress column', 'Progress', [] as const, LABEL_MAX),
+  LABEL_TRACKER_COL_TIME: message('Tracker list: the time in stage column', 'In stage', [] as const, LABEL_MAX),
+  LABEL_TRACKER_COL_STAGE: message('Tracker list: the stage column', 'Stage', [] as const, LABEL_MAX),
+  MSG_TRACKER_ADD_TITLE: message('Tracker: add an application, the title', 'Track an application', [] as const, LABEL_MAX),
+  LABEL_TRACKER_FIELD_TITLE: message('Tracker: the job title field', 'Job title', [] as const, LABEL_MAX),
+  LABEL_TRACKER_EDIT_POSTING: message("Tracker: edit an application's job, the title", 'Edit job details', [] as const, LABEL_MAX),
+  LABEL_TRACKER_MATCH: message("Tracker: an application's keyword match, the tab", 'Your match', [] as const, LABEL_MAX),
+  MSG_TRACKER_MATCH_COUNT: message(
+    "Tracker: an application's keyword match, the count",
+    '{matched} of {total} {total|keyword is|keywords are} on your resume',
+    ['matched', 'total'] as const,
+  ),
+
+  MSG_LETTER_BLANKS_TITLE: message('Letter editor: placeholders left, the title', 'A few blanks left to fill', [] as const, LABEL_MAX),
+  MSG_LETTER_BLANKS_TEXT: message('Letter editor: placeholders left, the line', 'Choose a tag and type what goes there. Every copy of it changes.'),
+  MSG_LETTER_GENERATE_TITLE: message('Letter editor: draft with AI, the title', 'Draft this letter with AI', [] as const, LABEL_MAX),
+  MSG_LETTER_GENERATE_TEXT: message(
+    'Letter editor: draft with AI, the line',
+    'Tell TailorIT about the job. It writes a letter from your resume that fits it.',
+  ),
+  LABEL_LETTER_TAB_JOB: message('Letter editor: draft with AI, the job tab', 'The job', [] as const, LABEL_MAX),
+  LABEL_LETTER_TAB_NOTES: message('Letter editor: draft with AI, the notes tab', 'Your notes', [] as const, LABEL_MAX),
+  MSG_LETTER_JOB_INTRO: message('Letter editor: draft with AI, the job line', 'Which job is this letter for? Pick one you track, or type it in.'),
+  LABEL_LETTER_PICK_JOB: message('Letter editor: draft with AI, the job picker', 'Pick an application', [] as const, LABEL_MAX),
+  MSG_LETTER_TEMPLATE_INTRO: message('Letter editor: draft with AI, the template line', 'Start from one of your templates, or from nothing.'),
+  LABEL_LETTER_NO_TEMPLATE: message('Letter editor: draft with AI, no template', 'No template', [] as const, LABEL_MAX),
+  MSG_LETTER_NOTES_INTRO: message('Letter editor: draft with AI, the notes line', 'Anything TailorIT should stress, leave out or build on.'),
+  MSG_LETTER_NOTES_PLACEHOLDER: message(
+    'Letter editor: draft with AI, the notes hint',
+    'Paste a letter to start from, or a few notes for TailorIT to build on...',
+  ),
+  LABEL_LETTER_DOWNLOAD: message('Letter editor: the download menu', 'Download', [] as const, LABEL_MAX),
+  LABEL_LETTER_AI_NOTES: message('Template editor: the AI notes button', 'AI notes', [] as const, LABEL_MAX),
+  LABEL_LETTER_INSERT_PLACEHOLDER: message('Template editor: insert a placeholder', 'Insert a placeholder...', [] as const, LABEL_MAX),
+  LABEL_LETTER_START_FROM_TEMPLATE: message('Template editor: copy another template in', 'Start from a template...', [] as const, LABEL_MAX),
+  // end v31 FIX-DOCS
 
   // v30 ST0: the constants audit's keys (SP\p2\build\ST0.md, "The constants audit"): business numbers and limit or
   // status sentences the code still holds beside itself, each in today's value or words. The area packages of wave 0
@@ -1340,18 +1527,22 @@ export const CONSTANTS = {
   EXT_AUTO_APPROVE_NEW_ATS: {
     kind: 'bool', default: false, adminEditable: true, public: false, group: 'jobs',
     label: 'Approve new ATS jobs automatically',
-    help: 'Publish the jobs the extension first read from an ATS board once their company and duplicate checks pass.',
+    // v31 LINK: only once TailorIT read the posting again (the re-check queue's `live`).
+    help: 'Publish held new ATS jobs once TailorIT read the posting again and their company and duplicate checks pass.',
   },
   EXT_AUTO_APPROVE_NEW_PAGE: {
     kind: 'bool', default: false, adminEditable: true, public: false, group: 'jobs',
-    label: 'Approve page jobs automatically',
+    label: 'Approve page jobs automatically (no effect since v3.1)',
     // v30 FIX-B (SEC-10, DECISIONS P6.8): job-reviews/auto.ts refuses it while SITE_READER_CAREER_PAGES is off.
-    help: "Publish jobs made from employers' pages once enough trusted accounts captured the same text. Works only while Read career pages is on. Off until the lawyer's view (owner question 25).",
+    // v31 LINK (D2): a browser's text is never published; an admin's approval reads the page itself.
+    help: "No longer approves anything (v3.1): a page job is published only from TailorIT's own read of its page, when an admin approves or retries it. PAGE_JOBS_AUTO_PUBLISH publishes page reads without an admin.",
   },
   EXT_NEW_PAGE_JOBS_REVIEW: {
     kind: 'bool', default: true, adminEditable: true, public: false, group: 'jobs',
-    label: 'Queue page jobs for review',
-    help: "Queue the jobs people make from employers' own pages in Admin › Review, so an admin may publish them.",
+    // v31 INT-2: the label says what the switch does since LINK (it was "Queue page jobs for review").
+    label: "List links TailorIT couldn't verify",
+    // v31 LINK (D2): the "Couldn't verify" list (jobs/add/verification.ts).
+    help: "List the jobs TailorIT could not read from their link in Admin › Review (Couldn't verify), so an admin may read them again or reject them.",
   },
   EXT_AUTO_CLOSE_MIN_REPORTERS: {
     // v30 FIX-B (SEC-10, DECISIONS P6.8): at least 2, so no one account closes a job TailorIT cannot read.
@@ -1489,6 +1680,528 @@ export const CONSTANTS = {
     help: "A live career page is read again after this many days (under the unverified jobs' 30).",
   },
   // end v30 INT-4
+  // v31 NOTIFY: in-app notifications (docs/design/v3.1/24-notifications-usage.md, D8): how long they are kept, when
+  // extra credit counts as low, and the words of each kind (a title, a body; rendered when the notification is written).
+  NOTIFICATIONS_KEEP_DAYS: {
+    kind: 'int', default: 90, adminEditable: true, public: false, group: 'retention', min: 7, max: 3650,
+    label: 'Notifications kept (days)',
+    help: 'How long a notification is kept, read or not, before the daily housekeeping deletes it.',
+  },
+  CREDIT_LOW_USD: {
+    kind: 'usd', default: 1_000_000, adminEditable: true, public: false, group: 'accounts',
+    label: 'Extra credit low',
+    help: 'A person gets one notification when their extra credit drops below this amount, and one when it is used up.',
+  },
+  MSG_NOTIFY_PREPARE_FINISHED_TITLE: message(
+    'Notification: applications prepared (title)',
+    '{ready} {ready|application|applications} ready to review',
+    ['ready'] as const,
+  ),
+  MSG_NOTIFY_PREPARE_FINISHED_BODY: message(
+    'Notification: applications prepared',
+    'TailorIT prepared {ready|it|them}. Check {ready|it|them} in your queue on Auto-apply.',
+    ['ready'] as const,
+  ),
+  MSG_NOTIFY_PREPARE_SOME_FAILED: message(
+    'Notification: applications prepared, some failed',
+    "TailorIT couldn't prepare {failed} more: open Auto-apply to try again.",
+    ['failed'] as const,
+  ),
+  MSG_NOTIFY_PREPARE_FAILED_TITLE: message(
+    'Notification: Prepare failed (title)',
+    "TailorIT couldn't prepare {failed} {failed|application|applications}",
+    ['failed'] as const,
+  ),
+  MSG_NOTIFY_PREPARE_FAILED_BODY: message('Notification: Prepare failed', 'Open Auto-apply to see what went wrong and try again.'),
+  MSG_NOTIFY_AUTO_APPLY_SUBMITTED_TITLE: message(
+    'Notification: auto-apply sent (title)',
+    'Applied: {title} at {company}',
+    ['title', 'company'] as const,
+  ),
+  MSG_NOTIFY_AUTO_APPLY_SUBMITTED_BODY: message('Notification: auto-apply sent', 'Your browser extension sent this application.'),
+  MSG_NOTIFY_AUTO_APPLY_NEEDS_YOU_TITLE: message(
+    'Notification: auto-apply needs you (title)',
+    '{title} at {company} needs you',
+    ['title', 'company'] as const,
+  ),
+  MSG_NOTIFY_AUTO_APPLY_NEEDS_YOU_BODY: message(
+    'Notification: auto-apply needs you',
+    'The extension stopped before sending it. Open Auto-apply to finish the application yourself.',
+  ),
+  MSG_NOTIFY_AUTO_APPLY_FAILED_TITLE: message(
+    'Notification: auto-apply failed (title)',
+    "Couldn't apply to {title} at {company}",
+    ['title', 'company'] as const,
+  ),
+  MSG_NOTIFY_AUTO_APPLY_FAILED_BODY: message(
+    'Notification: auto-apply failed',
+    'Open Auto-apply to see what happened, then apply another way.',
+  ),
+  MSG_NOTIFY_JOB_VERIFIED_TITLE: message(
+    'Notification: job verified (title)',
+    'Job verified: {title} at {company}',
+    ['title', 'company'] as const,
+  ),
+  MSG_NOTIFY_JOB_VERIFIED_BODY: message(
+    'Notification: job verified',
+    'TailorIT read the posting and it is open. Everyone can find this job now.',
+  ),
+  MSG_NOTIFY_JOB_WAITING_TITLE: message(
+    'Notification: job waits for approval (title)',
+    'Waiting for approval: {title} at {company}',
+    ['title', 'company'] as const,
+  ),
+  MSG_NOTIFY_JOB_WAITING_BODY: message(
+    'Notification: job waits for approval',
+    'TailorIT read the posting. Only you can see this job until an admin approves it.',
+  ),
+  MSG_NOTIFY_JOB_UNVERIFIED_TITLE: message(
+    "Notification: job couldn't be verified (title)",
+    "Couldn't verify {title} at {company}",
+    ['title', 'company'] as const,
+  ),
+  MSG_NOTIFY_JOB_UNVERIFIED_BODY: message(
+    "Notification: job couldn't be verified",
+    "TailorIT couldn't read the posting, so only you can see this job. Open it and choose Retry read to try again.",
+  ),
+  MSG_NOTIFY_JOB_REFUSED_TITLE: message(
+    'Notification: job not added (title)',
+    'Not added: {title} at {company}',
+    ['title', 'company'] as const,
+  ),
+  MSG_NOTIFY_JOB_REFUSED_UNNAMED_TITLE: message(
+    'Notification: job not added, none kept (title)',
+    "TailorIT didn't add the job you linked",
+  ),
+  MSG_NOTIFY_JOB_REFUSED_BODY: message('Notification: job not added', "TailorIT won't list this posting."),
+  MSG_NOTIFY_AI_DAY_USED_TITLE: message("Notification: today's AI budget used (title)", "You've used today's AI budget"),
+  MSG_NOTIFY_AI_DAY_USED_BODY: message(
+    "Notification: today's AI budget used, extra credit left",
+    'TailorIT now uses your extra credit ({credit} left) until your budget starts again at {reset_time}.',
+    ['credit', 'reset_time'] as const,
+  ),
+  MSG_NOTIFY_AI_DAY_USED_NO_CREDIT: message(
+    "Notification: today's AI budget used, no extra credit",
+    'New AI work waits until your budget starts again at {reset_time}. Buy extra credit in Settings › Account to keep going.',
+    ['reset_time'] as const,
+  ),
+  MSG_NOTIFY_CREDIT_LOW_TITLE: message('Notification: extra credit low (title)', 'Your extra credit is low'),
+  MSG_NOTIFY_CREDIT_LOW_BODY: message(
+    'Notification: extra credit low',
+    '{credit} left. Buy more in Settings › Account so TailorIT can keep working past your daily budget.',
+    ['credit'] as const,
+  ),
+  MSG_NOTIFY_CREDIT_USED_UP_TITLE: message('Notification: extra credit used up (title)', "You've used all your extra credit"),
+  MSG_NOTIFY_CREDIT_USED_UP_BODY: message(
+    'Notification: extra credit used up',
+    'New AI work waits for your daily budget, which starts again at {reset_time}. Buy more credit in Settings › Account.',
+    ['reset_time'] as const,
+  ),
+  MSG_NOTIFY_PAID_ENDING_TITLE: message(
+    'Notification: Paid plan ends soon (title)',
+    'Your Paid plan ends in {days} {days|day|days}',
+    ['days'] as const,
+  ),
+  MSG_NOTIFY_PAID_ENDING_BODY: message(
+    'Notification: Paid plan ends soon',
+    'It ends on {date}, and your account then moves to Free. See Settings › Account to keep Paid.',
+    ['date'] as const,
+  ),
+  MSG_NOTIFY_EXTENSION_DISCONNECTED_TITLE: message(
+    'Notification: extension disconnected (title)',
+    'Your browser extension is disconnected',
+  ),
+  MSG_NOTIFY_EXTENSION_DISCONNECTED_BODY: message(
+    'Notification: extension disconnected',
+    '{browser} no longer works with TailorIT. Connect it again in Settings › Autofill to keep auto-applying.',
+    ['browser'] as const,
+  ),
+  MSG_NOTIFY_EXTENSION_EXPIRED_BODY: message(
+    'Notification: extension connection ran out',
+    "{browser}'s connection ran out. Connect it again in Settings › Autofill to keep auto-applying.",
+    ['browser'] as const,
+  ),
+  MSG_NOTIFY_EXTENSION_UNNAMED: message('Notification: a browser with no name', 'Your browser', [] as const, LABEL_MAX),
+  MSG_NOTIFY_ADMIN_REVIEW_TITLE: message(
+    'Admin notification: new Review items (title)',
+    '{count} new {count|item|items} in Review',
+    ['count'] as const,
+  ),
+  MSG_NOTIFY_ADMIN_REVIEW_BODY: message(
+    'Admin notification: new Review items',
+    '{pending} {pending|item waits|items wait} for a decision in Admin › Review.',
+    ['pending'] as const,
+  ),
+  MSG_NOTIFY_ADMIN_RUN_FAILED_TITLE: message('Admin notification: a run failed (title)', 'A run of {source} failed', ['source'] as const),
+  MSG_NOTIFY_ADMIN_RUN_FAILED_BODY: message(
+    'Admin notification: a run failed',
+    'See its log in Admin › Runs. TailorIT tells you once an hour at most: runs that fail after it are listed there too.',
+  ),
+  MSG_NOTIFY_ADMIN_SOURCE_DISABLED_TITLE: message(
+    'Admin notification: source turned off (title)',
+    'TailorIT turned off {source}',
+    ['source'] as const,
+  ),
+  MSG_NOTIFY_ADMIN_SOURCE_DISABLED_BODY: message(
+    'Admin notification: source turned off',
+    'It failed {failures} {failures|time|times} in a row. Check it in Admin › Sources, then turn it on again. Sources turned off later this hour are listed there too.',
+    ['failures'] as const,
+  ),
+  MSG_NOTIFY_ADMIN_RUNS_PAUSED_TITLE: message(
+    'Admin notification: runs paused (title)',
+    '{admin} paused {what}',
+    ['admin', 'what'] as const,
+  ),
+  MSG_NOTIFY_ADMIN_RUNS_CONTINUED_TITLE: message(
+    'Admin notification: runs continued (title)',
+    '{admin} continued {what}',
+    ['admin', 'what'] as const,
+  ),
+  MSG_NOTIFY_ADMIN_RUNS_BODY: message('Admin notification: runs paused or continued', 'See Admin › Runs for what runs now.'),
+  MSG_NOTIFY_ADMIN_RUNS_ALL: message('Admin notification: every run', 'every run', [] as const, LABEL_MAX),
+  MSG_NOTIFY_ADMIN_RUNS_SOURCE: message('Admin notification: one source', "{source}'s runs", ['source'] as const),
+  MSG_NOTIFY_ADMIN_SOMEONE: message('Admin notification: an admin with no name', 'An admin', [] as const, LABEL_MAX),
+  // end v31 NOTIFY
+  // v31 RUNS: admins pause and continue job-source runs (docs/design/v3.1/22-runs-pause.md). A pause asked in one
+  // process (the API) reaches a run in another (the ingest worker) through the database: each process looks for stop
+  // requests on its own runs this often.
+  RUN_STOP_POLL_MS: {
+    kind: 'int', default: 5000, adminEditable: false, public: false, group: 'jobs', min: 100, max: 60_000,
+    label: 'Pause check (ms)',
+    help: 'How often a process looks whether an admin paused one of its runs; a paused run stops within about this time. Set in .env only.',
+  },
+  MSG_INGEST_RUNS_PAUSED: message(
+    'Runs paused: no run starts',
+    'Runs are paused, so no source runs now. Continue the runs in Admin › Runs first.',
+  ),
+  MSG_INGEST_SOURCE_PAUSED: message('Source paused: no run starts', 'This source is paused. Continue it first, then run it.'),
+  MSG_INGEST_SOURCE_NEVER_PAUSED: message(
+    'Source never run: no pause',
+    'This kind of source is never run, so there is nothing to pause.',
+  ),
+  MSG_INGEST_RUN_NOT_RUNNING: message(
+    'Run finished: no pause',
+    'This run has already finished, so there is nothing to pause. Refresh the list to see how it ended.',
+  ),
+  MSG_INGEST_RUN_NOT_PAUSED: message(
+    'Run not paused: no continue',
+    'Only a paused run can be continued. To read this source again, use Run now in Admin › Sources.',
+  ),
+  // end v31 RUNS
+  // v31 OAUTH: TailorIT's OAuth 2.1 server for Claude and ChatGPT (docs/design/v3.1/23-mcp-oauth.md; decision D7).
+  OAUTH_ACCESS_TOKEN_MINUTES: {
+    kind: 'int', default: 60, adminEditable: true, public: false, group: 'mcp', min: 5, max: 1440,
+    label: 'Connected AI: access token (minutes)',
+    help: 'How long one access token a connected AI app (Claude, ChatGPT) gets works; it then asks for a new one with its refresh token.',
+  },
+  OAUTH_REFRESH_IDLE_DAYS: {
+    kind: 'int', default: 30, adminEditable: true, public: false, group: 'mcp', min: 1, max: 365,
+    label: 'Connected AI: idle days',
+    help: 'A connected AI app that asks for no new token in this many days is disconnected (its refresh token ends).',
+  },
+  OAUTH_CODE_SECONDS: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'mcp', min: 30, max: 600,
+    label: 'Connected AI: code (seconds)',
+    help: 'How long the one-time code an AI app gets after Allow works; it is used once, within seconds.',
+  },
+  OAUTH_REQUEST_MINUTES: {
+    kind: 'int', default: 10, adminEditable: true, public: false, group: 'mcp', min: 1, max: 60,
+    label: 'Connected AI: consent page (minutes)',
+    help: 'How long a person has to answer the consent page (Allow or Cancel) after their AI app opened it.',
+  },
+  OAUTH_GRANTS_PER_ACCOUNT: {
+    kind: 'int', default: 20, adminEditable: true, public: false, group: 'mcp', min: 1, max: 200,
+    label: 'Connected AI apps per account',
+    help: 'Connected AI apps one account may have at once (each app once, however often it reconnects).',
+  },
+  // v31 FIX-AUTH (SEC-6): per network address; OAUTH_REGISTRATIONS_PER_HOUR_ALL is the ceiling for all together.
+  OAUTH_REGISTRATIONS_PER_HOUR: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'mcp', min: 1, max: 100_000,
+    label: 'Connected AI: registrations per hour, per address',
+    help: 'New AI apps one network address may register an hour (Claude registers once per connection, from its own servers).',
+  },
+  OAUTH_CALLS_PER_MINUTE: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'mcp', min: 1, max: 10_000,
+    label: 'Connected AI: OAuth calls per minute',
+    help: 'Calls to the OAuth pages (authorize, token, revoke, register, metadata) one network address may make a minute.',
+  },
+  OAUTH_TOKEN_CALLS_PER_MINUTE: {
+    kind: 'int', default: 60, adminEditable: true, public: false, group: 'mcp', min: 1, max: 10_000,
+    label: 'Connected AI: token calls per minute',
+    help: 'Token requests (codes and refreshes) one AI app may make a minute.',
+  },
+  // v31 FIX-AUTH (SEC-6): per network address; OAUTH_CIMD_FETCHES_PER_MINUTE_ALL is the ceiling for all together.
+  OAUTH_CIMD_FETCHES_PER_MINUTE: {
+    kind: 'int', default: 10, adminEditable: true, public: false, group: 'mcp', min: 1, max: 1000,
+    label: 'Connected AI: client documents read per minute, per address',
+    help: "Client ID Metadata Documents (an AI app's own description at its https address) TailorIT reads a minute for one network address.",
+  },
+  OAUTH_CIMD_MAX_BYTES: {
+    kind: 'int', default: 10_000, adminEditable: false, public: false, group: 'mcp', min: 1000, max: 100_000,
+    label: 'Connected AI: client document size (bytes)',
+    help: 'The largest Client ID Metadata Document TailorIT reads. Set in .env only.',
+  },
+  OAUTH_CIMD_TIMEOUT_MS: {
+    kind: 'int', default: 5000, adminEditable: false, public: false, group: 'mcp', min: 1000, max: 9000,
+    label: 'Connected AI: client document read time (ms)',
+    help: "Milliseconds one read of a Client ID Metadata Document may take (under Claude's 10 seconds). Set in .env only.",
+  },
+  OAUTH_CIMD_CACHE_MINUTES: {
+    kind: 'int', default: 60, adminEditable: true, public: false, group: 'mcp', min: 1, max: 1440,
+    label: 'Connected AI: client document kept (minutes)',
+    help: "How long TailorIT keeps an AI app's Client ID Metadata Document before reading it again (less when the app's own cache header says so).",
+  },
+  OAUTH_RECORD_KEEP_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: false, group: 'retention', min: 1, max: 365,
+    label: 'Connected AI records (days)',
+    help: 'Days TailorIT keeps ended OAuth records (expired consent requests and tokens, disconnected apps, registrations never used).',
+  },
+  MSG_OAUTH_REQUEST_GONE: message(
+    'Connect AI: request ended',
+    'This connection request has ended or was already answered. Go back to your AI app and connect TailorIT again.',
+  ),
+  MSG_OAUTH_GRANTS_MAX: message(
+    'Connect AI: at the limit',
+    'You have {max} connected AI {max|app|apps}, the most TailorIT allows. Disconnect one in Integrations, then connect again.',
+    ['max'],
+  ),
+  MSG_OAUTH_RATE_LIMIT: message('Connect AI: too many requests', 'There have been too many connection requests.'),
+  // v31 FIX-AUTH: the budgets of all callers together (SEC-6), a failed client document's pause (SEC-6) and the refresh
+  // reuse grace (decision D13).
+  OAUTH_REGISTRATIONS_PER_HOUR_ALL: {
+    kind: 'int', default: 2000, adminEditable: true, public: false, group: 'mcp', min: 1, max: 1_000_000,
+    label: 'Connected AI: registrations per hour, all together',
+    help: 'New AI apps that may register themselves an hour, all network addresses together: a ceiling far above one address\'s.',
+  },
+  OAUTH_CIMD_FETCHES_PER_MINUTE_ALL: {
+    kind: 'int', default: 60, adminEditable: true, public: false, group: 'mcp', min: 1, max: 10_000,
+    label: 'Connected AI: client documents read per minute, all together',
+    help: "Client ID Metadata Documents TailorIT reads a minute, all addresses together. Claude's and ChatGPT's own documents never wait for it.",
+  },
+  OAUTH_CIMD_FAILURE_MINUTES: {
+    kind: 'int', default: 5, adminEditable: true, public: false, group: 'mcp', min: 1, max: 60,
+    label: 'Connected AI: failed client document pause (minutes)',
+    help: "Minutes TailorIT waits before reading again a Client ID Metadata Document it could not read or use (Claude's and ChatGPT's own are read again at once).",
+  },
+  OAUTH_REFRESH_REUSE_GRACE_SECONDS: {
+    kind: 'int', default: 60, adminEditable: true, public: false, group: 'mcp', min: 0, max: 300,
+    label: 'Connected AI: refresh retry grace (seconds)',
+    help: 'Seconds after a refresh in which the same refresh token, sent again (an app that retries after a lost answer), gets a new pair instead of disconnecting the app. 0: any reuse disconnects it.',
+  },
+  // end v31 FIX-AUTH
+  // end v31 OAUTH
+  // v31 LINK: every job comes from its link (docs/design/v3.1/21-jobs-from-links.md): the add pipeline's switches and
+  // limits, and the words of its states and reasons.
+  ADD_JOB_PAGE_READ: {
+    kind: 'bool', default: true, adminEditable: true, public: false, group: 'jobs',
+    label: 'Read job pages on add',
+    help: "Read an added job's own page (its schema.org JobPosting) when no ATS API reads it. Pages TailorIT cannot read stay with the person who added them.",
+  },
+  NEW_JOBS_ADMIN_APPROVAL: {
+    kind: 'bool', default: false, adminEditable: true, public: false, group: 'jobs',
+    label: 'Approve new jobs by hand',
+    help: 'Hold every new job TailorIT read from its link in Admin › Review until an admin approves it. Off: a job TailorIT read is published at once.',
+  },
+  JOB_ADDS_PER_HOUR: {
+    kind: 'int', default: 30, adminEditable: true, public: true, group: 'jobs', min: 1, max: 1000,
+    label: 'Jobs added by link per hour',
+    help: 'Jobs one account may add by their link in an hour (the Add job dialog, the tracker, the MCP tool).',
+  },
+  ADMIN_ADD_LINKS_MAX: {
+    kind: 'int', default: 1000, adminEditable: true, public: true, group: 'jobs', min: 1, max: 20_000,
+    label: 'Links an admin adds at once',
+    help: 'Links one Admin add or one import may queue for reading at a time.',
+  },
+  JOB_LINK_QUEUE_KEEP_DAYS: {
+    kind: 'int', default: 30, adminEditable: true, public: false, group: 'jobs', min: 1, max: 365,
+    label: 'Read links kept (days)',
+    help: 'How long the results of queued link reads (imports, Admin add) are kept for their progress view.',
+  },
+  MSG_JOB_ADD_PUBLISHED: message('Add job: published', 'TailorIT read this posting from its link and added it to Jobs.'),
+  MSG_JOB_ADD_WAITING: message(
+    'Add job: waiting for approval',
+    'TailorIT read this posting from its link. It is in your saved jobs now, and everyone sees it once an admin approves it.',
+  ),
+  MSG_JOB_ADD_PRIVATE: message(
+    'Add job: only you see it',
+    "TailorIT couldn't read this posting from its link, so only you can see this job until TailorIT verifies it.",
+  ),
+  MSG_JOB_ADD_NEEDS_DETAILS: message(
+    'Add job: details needed',
+    "TailorIT couldn't read this posting from its link. Add the job's title and company to save it for yourself: only you will see it.",
+  ),
+  MSG_JOB_ADD_REFUSED_CLOSED: message('Add job: closed', 'This posting has closed, so TailorIT did not add it.'),
+  MSG_JOB_ADD_REFUSED_LINK: message(
+    'Add job: not a job link',
+    "TailorIT can't add this link. Paste the job posting's own web address (https://...).",
+  ),
+  MSG_JOB_ADDS_RATE_LIMITED: message(
+    'Add job: too many',
+    'You added {limit} jobs by link in the last hour. Wait {minutes} more {minutes|minute|minutes}, then try again.',
+    ['limit', 'minutes'] as const,
+  ),
+  MSG_JOB_ADD_IMPORT_LINKS: message(
+    'Import: only links are read',
+    'TailorIT reads each posting from its link: {queued} {queued|link is|links are} queued for reading, and every other column is ignored.',
+    ['queued'] as const,
+  ),
+  MSG_JOB_ADD_TOO_MANY_LINKS: message('Admin add: too many links', 'Add at most {max} links at a time.', ['max'] as const),
+  MSG_JOB_ONLY_YOU_UNTIL_VERIFIED: message('Job: only you see it', 'Only you can see this job until TailorIT verifies it.'),
+  MSG_JOB_VERIFY_UNREADABLE_HOST: message(
+    'Verify: a site TailorIT never reads',
+    "TailorIT never reads this site (a job board or a sign-in page). Add the job from the employer's own posting to share it.",
+  ),
+  MSG_JOB_VERIFY_NO_POSTING: message(
+    'Verify: no posting data',
+    "The page doesn't describe its job in a form TailorIT reads (schema.org JobPosting).",
+  ),
+  MSG_JOB_VERIFY_ROBOTS: message('Verify: robots.txt', "The site's robots.txt asks automated readers not to read this page."),
+  MSG_JOB_VERIFY_BLOCKED: message('Verify: blocked', 'The site asked for a sign-in or a check TailorIT does not pass.'),
+  MSG_JOB_VERIFY_UNAVAILABLE: message('Verify: unavailable', "The site didn't answer. Try again later."),
+  // v31 FIX-WEB (REV-UX UX-15): plain words for the reason most people see on a new install.
+  MSG_JOB_VERIFY_NOT_SET_UP: message(
+    'Verify: not set up',
+    "TailorIT can't read job pages on this server yet. Your administrator can turn this on. Until then, the job stays yours.",
+  ),
+  MSG_JOB_VERIFY_UNLISTED: message('Verify: unlisted', "The posting is not on its board's public list, so TailorIT cannot read it."),
+  MSG_JOB_VERIFY_OPTED_OUT: message('Verify: opted out', 'This company asked TailorIT not to read its site.'),
+  MSG_JOB_VERIFY_REJECTED: message('Verify: rejected', 'An admin decided this link is not a job TailorIT lists.'),
+  MSG_JOB_REVIEW_PAGE_UNREADABLE: message(
+    'Review: page unreadable',
+    "TailorIT couldn't read this page from its link, so it can't be published. Reject it, or try again later.",
+  ),
+  MSG_JOB_VERIFY_NOT_YOURS: message('Verify: not yours', 'Only the person who added this job, or an admin, can ask TailorIT to read it again.'),
+  // end v31 LINK
+  // v31 LINK2: the weekly re-read of the jobs TailorIT read from their page, and an import's words.
+  JOB_PAGE_RECHECK_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: false, group: 'jobs', min: 1, max: 60,
+    label: 'Job pages read again (days)',
+    help: 'A job TailorIT read from its own page is read again after this many days; a page that is gone or expired closes it.',
+  },
+  MSG_JOB_IMPORT_ONLY_LINKS: message(
+    'Import: only the link column',
+    'Only the {column} column is read: TailorIT reads each posting from its link. The other {ignored} {ignored|column is|columns are} ignored.',
+    ['column', 'ignored'] as const,
+  ),
+  // end v31 LINK2
+  // v31 FIX-LINK: D12 (the coordinator's decision of 2026-11-18): a job TailorIT read from a page's own JobPosting (no
+  // ATS API) waits in Admin › Review until an admin approves the server-read content, unless this is on; and the link
+  // queue's limits (docs/design/v3.1/21-jobs-from-links.md §5), one source.
+  PAGE_JOBS_AUTO_PUBLISH: {
+    kind: 'bool', default: false, adminEditable: true, public: false, group: 'jobs',
+    label: 'Publish page jobs at once',
+    help: "Publish a new job TailorIT read from a careers page's own job data (no ATS API) at once. Off: it waits in Review › New jobs for an admin.",
+  },
+  LINK_QUEUE_TICK_MS: {
+    kind: 'int', default: 5000, adminEditable: false, public: false, group: 'jobs', min: 1000, max: 600_000,
+    label: 'Link queue check (ms)',
+    help: 'How often the ingest worker looks at the queue of links to read (imports, Admin add, the legacy and weekly reads). Set in .env only.',
+  },
+  LINK_QUEUE_PER_PASS: {
+    kind: 'int', default: 8, adminEditable: true, public: false, group: 'jobs', min: 1, max: 64,
+    label: 'Hosts read per queue pass',
+    help: "The most hosts one pass of the link queue reads, taken in turn so no host waits behind another host's backlog.",
+  },
+  LINK_QUEUE_PER_HOST: {
+    kind: 'int', default: 5, adminEditable: true, public: false, group: 'jobs', min: 1, max: 50,
+    label: 'Links per host per queue pass',
+    help: "The most links of one host one pass of the link queue reads, one after the other at the host's own pace.",
+  },
+  LINK_QUEUE_ATTEMPTS: {
+    kind: 'int', default: 3, adminEditable: true, public: false, group: 'jobs', min: 1, max: 20,
+    label: 'Reads of a queued link',
+    help: "How often a queued link whose site failed for now (5xx, a timeout, too many requests) is read before it is given up. A job held since before v3.1 is read up to three times as often.",
+  },
+  LINK_QUEUE_RETRY_MS: {
+    kind: 'int', default: 900_000, adminEditable: true, public: false, group: 'jobs', min: 60_000, max: 86_400_000,
+    label: 'First wait before a queued link is read again (ms)',
+    help: 'The wait after a queued link failed for now; it doubles at each new try, at most a day.',
+  },
+  JOB_PAGE_RECHECKS_PER_PASS: {
+    kind: 'int', default: 2000, adminEditable: true, public: false, group: 'jobs', min: 1, max: 100_000,
+    label: 'Job pages read again per day',
+    help: 'The most jobs read from their page that the daily pass queues to read again, the longest unchecked first.',
+  },
+  // end v31 FIX-LINK
+  // v31 INTEG: Integrations › Connections (decision D11): Connect on an app TailorIT does not connect to yet.
+  MSG_INTEGRATION_COMING_SOON: message('Integrations: coming soon', "{name} isn't available yet. It's coming soon.", ['name']),
+  // end v31 INTEG
+  // v31 AUTO (D10): Prepare All on the Auto-apply page takes every saved job in To prepare that passes the filters,
+  // within the caps; what it leaves for later is said in these words.
+  MSG_PREPARE_ALL_HELD_BATCH: message(
+    'Prepare All: more than one batch',
+    '{count} more saved {count|job passes|jobs pass} your filters. Prepare All takes {max} at a time, so press it again for the rest.',
+    ['count', 'max'] as const,
+  ),
+  MSG_PREPARE_ALL_HELD_QUEUE: message(
+    'Prepare All: queue room',
+    '{count} more {count|job needs|jobs need} room in your auto-apply queue ({limit} jobs). Clear finished jobs, then press Prepare All again.',
+    ['count', 'limit'] as const,
+  ),
+  MSG_PREPARE_ALL_HELD_RESUMES: message(
+    'Prepare All: resume room',
+    '{count} more {count|job needs|jobs need} room for a tailored resume ({limit} on your plan). Delete some resumes, then press Prepare All again.',
+    ['count', 'limit'] as const,
+  ),
+  // end v31 AUTO
+  // v31 HEADER: the top bar's AI-use meter (D9; docs/design/v3.1/24-notifications-usage.md §8): amber from this share of
+  // the person's daily AI budget, red once the budget is used.
+  AI_USE_WARNING_PERCENT: {
+    kind: 'int', default: 80, adminEditable: true, public: true, group: 'accounts', min: 1, max: 100,
+    label: 'AI use warning (%)',
+    help: "The header's AI-use meter turns amber when today's use reaches this share of the person's daily AI budget, and red once the budget is used.",
+  },
+  // end v31 HEADER
+  // v31 JOBSWEB: the mark of a job only its adder sees, whose words came from their side (their browser captured or
+  // typed them), never TailorIT's read (21-jobs-from-links.md §1.4): on its card, its detail and its tracker row.
+  LABEL_JOB_FROM_BROWSER: message('Job: from the browser', 'From your browser, not verified', [] as const, LABEL_MAX),
+  // end v31 JOBSWEB
+  // v31 FIX-JOBS: the Jobs page in TailorIT's own words (REV-UX UX-1, REV-REQ REQ-3): a feed of jobs measured against
+  // the person's resume, each opening in a drawer with Your match, Tailor for this job, About the role and the company.
+  LABEL_JOBS_SEARCH: message('Jobs: search box', 'Search by title, skill or company', [] as const, LABEL_MAX),
+  MSG_JOBS_INTRO: message('Jobs: page description', 'Every posting TailorIT has read, measured against your resume. Open one to tailor your resume and apply.'),
+  LABEL_JOBS_MODE_KEYWORDS: message('Jobs: search by words', 'Keywords', [] as const, LABEL_MAX),
+  LABEL_JOBS_MODE_AI: message('Jobs: search by a sentence (AI)', 'Ask AI', [] as const, LABEL_MAX),
+  LABEL_JOBS_FILTERING_BY: message('Jobs: active filters', 'Filtering by', [] as const, LABEL_MAX),
+  MSG_JOBS_NONE_TITLE: message('Jobs: nothing matches', 'Nothing matches these filters'),
+  MSG_JOBS_NONE_FILTERED: message('Jobs: nothing matches, what to do', 'Try other words, or remove a filter to widen the search.'),
+  MSG_JOBS_NONE_YET_TITLE: message('Jobs: no jobs yet', 'No jobs yet'),
+  MSG_JOBS_NONE_YET: message('Jobs: no jobs yet, what to do', "Postings appear here as TailorIT reads job boards. Paste a posting's link with Add job to add one now."),
+  MSG_JOBS_ADD_RESUME_HINT: message('Jobs: measure the list against a resume', 'Add a resume and TailorIT measures every job here against it.'),
+  LABEL_JOBS_ROW_MATCH: message("Jobs: a row's match", 'Match', [] as const, LABEL_MAX),
+  LABEL_JOBS_ROW_APPLY: message("Jobs: a row's Apply", 'Apply to {title}', ['title'] as const, LABEL_MAX),
+  LABEL_JOBS_HEAD_JOB: message('Jobs: the job column', 'Job', [] as const, LABEL_MAX),
+  LABEL_JOBS_HEAD_WHERE: message('Jobs: the place and pay column', 'Where and pay', [] as const, LABEL_MAX),
+  LABEL_JOBS_ROW_NO_SKILLS: message('Jobs: a row with nothing to measure', 'No skills named', [] as const, LABEL_MAX),
+  LABEL_JOB_PREVIOUS: message('Job: previous', 'Previous job', [] as const, LABEL_MAX),
+  LABEL_JOB_NEXT: message('Job: next', 'Next job', [] as const, LABEL_MAX),
+  MSG_JOB_POSITION: message('Job: place in the list', 'Job {index} of {total}', ['index', 'total'] as const),
+  LABEL_JOB_MARK_APPLIED: message('Job: mark as applied', 'Mark as applied', [] as const, LABEL_MAX),
+  LABEL_JOB_NAV_MATCH: message('Job: jump to the match', 'Match', [] as const, LABEL_MAX),
+  LABEL_JOB_NAV_ROLE: message('Job: jump to the role', 'Role', [] as const, LABEL_MAX),
+  LABEL_JOB_NAV_COMPANY: message('Job: jump to the company', 'Company', [] as const, LABEL_MAX),
+  LABEL_JOB_YOUR_MATCH: message('Job: your match', 'Your match', [] as const, LABEL_MAX),
+  MSG_JOB_KEYWORDS_FOUND: message('Job: keywords in the resume', '{matched} of {total} {total|keyword|keywords} from this posting {matched|is|are} in your resume.', ['matched', 'total'] as const),
+  LABEL_JOB_KEYWORDS_HAVE: message('Job: keywords the resume has', 'In your resume', [] as const, LABEL_MAX),
+  LABEL_JOB_KEYWORDS_MISSING: message('Job: keywords the resume lacks', 'Not in your resume yet', [] as const, LABEL_MAX),
+  MSG_JOB_NO_SKILLS: message('Job: a posting with no skills', 'This posting names no skills to measure your resume against.'),
+  MSG_JOB_ADD_RESUME_TITLE: message('Job: no resume yet', 'Add a resume to see your match'),
+  MSG_JOB_ADD_RESUME: message('Job: no resume yet, what to do', "TailorIT compares your resume with the posting's keywords and shows what it has and what it is missing."),
+  LABEL_JOB_TAILOR_TITLE: message('Job: tailor section', 'Tailor for this job', [] as const, LABEL_MAX),
+  MSG_JOB_TAILOR_LEAD: message('Job: tailor section text', 'TailorIT writes a copy of your resume for this posting and works in the missing keywords you really have. Your own resume stays as it is.'),
+  // v31 INT-3: also the Tracker's Documents tab (LABEL_TRACKER_TAILOR went: one constant holds the words).
+  LABEL_JOB_TAILOR_BUTTON: message('Job and application: the tailor button', 'Tailor a resume', [] as const, LABEL_MAX),
+  LABEL_JOB_ABOUT_ROLE: message('Job: about the role', 'About the role', [] as const, LABEL_MAX),
+  LABEL_JOB_ROLE_DUTIES: message("Job: the role's duties", "What you'd do", [] as const, LABEL_MAX),
+  LABEL_JOB_ROLE_ASKS: message("Job: the role's requirements", 'What they ask for', [] as const, LABEL_MAX),
+  LABEL_JOB_ROLE_NICE: message("Job: the role's extras", 'Nice to have', [] as const, LABEL_MAX),
+  LABEL_JOB_ROLE_ALSO: message('Job: other words the posting names', 'Also mentioned', [] as const, LABEL_MAX),
+  LABEL_JOB_POSTING_SHOW: message('Job: show the full posting', 'Read the full posting', [] as const, LABEL_MAX),
+  LABEL_JOB_POSTING_HIDE: message('Job: hide the full posting', 'Hide the full posting', [] as const, LABEL_MAX),
+  MSG_JOB_NO_SUMMARY: message('Job: no summary yet', 'TailorIT has no summary of this posting yet.'),
+  LABEL_JOB_ABOUT_COMPANY: message('Job: about the company', 'About {company}', ['company'] as const, LABEL_MAX),
+  MSG_JOB_SUMMARY_FAILED: message('Job: summary failed', 'The summary could not be loaded. Here is the posting as it was written.'),
+  // end v31 FIX-JOBS
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

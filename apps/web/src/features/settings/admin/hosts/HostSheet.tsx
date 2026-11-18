@@ -47,10 +47,10 @@ export function HostDetails({ host, now, onShowSources }: { host: AdminHost; now
   return (
     <div className="flex flex-col gap-6" data-host-details={host.host}>
       <section aria-labelledby="host-pace">
-        <h3 id="host-pace" className="text-sm font-semibold text-foreground">
+        <h3 id="host-pace" className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
           Pace and holds
         </h3>
-        <dl className="mt-1 divide-y divide-border">
+        <dl className="mt-1 divide-y divide-divider-soft">
           <Fact label="Pace">{paceText(host.minIntervalMs)}</Fact>
           <Fact label="Next free slot">{Date.parse(host.nextSlotAt) <= now ? 'Now' : clockText(host.nextSlotAt, now)}</Fact>
           <Fact label="Hold">{hold ?? <span className="text-muted-foreground">Not held</span>}</Fact>
@@ -75,12 +75,12 @@ export function HostDetails({ host, now, onShowSources }: { host: AdminHost; now
         </dl>
       </section>
       <section aria-labelledby="host-robots">
-        <h3 id="host-robots" className="text-sm font-semibold text-foreground">
+        <h3 id="host-robots" className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
           robots.txt
         </h3>
         {robots ? (
           <>
-            <dl className="mt-1 divide-y divide-border">
+            <dl className="mt-1 divide-y divide-divider-soft">
               <Fact label="Status">
                 {ROBOTS_STATUS_LABEL[robots.status]}
                 {robots.httpStatus !== null && <span className="text-muted-foreground"> (HTTP {robots.httpStatus})</span>}

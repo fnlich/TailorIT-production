@@ -11,10 +11,10 @@ export type IconButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 const VARIANTS: Record<IconButtonVariant, string> = {
   ghost: 'text-muted-foreground hover:bg-hover hover:text-foreground data-popup-open:bg-hover data-popup-open:text-foreground',
   plain: 'text-muted-foreground hover:text-foreground',
-  // Simplify's round toolbar buttons (filters, clear) next to the pills.
+  // Toolbar buttons beside the filter controls (filters, clear).
   outline:
-    'border border-border bg-surface text-foreground shadow-soft hover:border-control-hover hover:bg-[#fafafa] data-popup-open:border-control-hover',
-  secondary: 'bg-chip text-foreground hover:bg-[#e3e3e3]',
+    'border border-border-strong bg-surface text-foreground shadow-control hover:border-control-hover hover:bg-surface-low data-popup-open:border-primary',
+  secondary: 'bg-surface-muted text-foreground hover:bg-muted',
 };
 
 const SIZES: Record<IconButtonSize, string> = { xs: 'size-7', sm: 'size-8', md: 'size-9', lg: 'size-10' };

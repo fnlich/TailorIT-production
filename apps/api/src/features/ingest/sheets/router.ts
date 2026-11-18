@@ -31,6 +31,7 @@ import { requireSheets, type SheetsClient } from './client';
 import { SHEETS_MESSAGES, sheetsUnavailable } from './errors';
 import { SHEET_IMPORT_TIMING, createSheetReadCache, readSheetTab, type CachedSheetRead, type SheetRead, type TabRequest } from './read';
 import { parseSheetTab, sheetFileName, type ParsedSheetTab } from './table';
+import { importLinksNote } from '../../jobs/add/imports'; // v31 LINK2
 
 // Admin > Import jobs > Google Sheet (mounted at /api/admin/import/sheets; administrators only). A one-time,
 // read-only import of one tab: preview it (saves nothing), then import it, which reads the tab again and stores a CSV
@@ -242,7 +243,7 @@ export function createSheetImportRouter(deps: AppDeps): Router {
           });
           await audit({ action: 'import', ids: [result.body.source.id], actor: admin, change: { spreadsheetId, gid: read.tab.gid } });
           res.status(result.status);
-          return result.body;
+          return { ...result.body, links: importLinksNote(deps, table.columns, mapping.url) }; // v31 LINK2
         }),
       );
     },

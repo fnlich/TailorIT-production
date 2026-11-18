@@ -12,7 +12,7 @@ import { useDebouncedValue } from './hooks';
 
 /**
  * The Company field of Add Application and Edit Job Posting: free text with suggestions from the companies the
- * account tracks and the job board knows. Simplify's is a creatable combobox; here whatever is typed is the value, so
+ * account tracks and the job board knows. Not a creatable combobox: whatever is typed is the value, so
  * a new company never needs an extra "Create" pick (and is never lost on blur).
  */
 export function CompanyInput({

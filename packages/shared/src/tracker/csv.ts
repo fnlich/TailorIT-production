@@ -7,7 +7,7 @@ import { STATUS, statusLabel, type ApplicationStatus } from './statuses';
 // rows and writes the export with these columns.
 
 /**
- * A job type from a title when the file has none (Simplify's rule): intern / co-op -> Internship; part-time, contract,
+ * A job type from a title when the file has none (a rule of thumb): intern / co-op -> Internship; part-time, contract,
  * temp or freelance -> Part-Time; anything else Full-Time.
  */
 export function guessJobType(title: string | null | undefined): EmploymentType {
@@ -55,7 +55,7 @@ export function mapStatusText(text: string | null | undefined): ApplicationStatu
 
 // ------------------------------------------------------------------------------------------------------ export
 
-/** TailorIT's export columns (Simplify's are unknown). */
+/** TailorIT's export columns. */
 export const EXPORT_CSV_COLUMNS = [
   'Company',
   'Position Title',
@@ -75,8 +75,8 @@ export const EXPORT_CSV_COLUMNS = [
 ] as const;
 
 /**
- * The tracker's pay periods (the detail form's select), the ones `applications.salary_period` accepts. Simplify also
- * offers Bi-Weekly; storing it needs 'biweek' in that column's CHECK first.
+ * The tracker's pay periods (the detail form's select), the ones `applications.salary_period` accepts. Bi-Weekly
+ * would need 'biweek' in that column's CHECK first.
  */
 export const TRACKER_PAY_PERIODS = ['hour', 'day', 'week', 'month', 'year'] as const;
 export type TrackerPayPeriod = (typeof TRACKER_PAY_PERIODS)[number];

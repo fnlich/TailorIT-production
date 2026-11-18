@@ -29,7 +29,7 @@ export function SelectBar({ 'aria-label': label, selected, selectable, selectAll
       role="toolbar"
       aria-label={label}
       className={clsx(
-        'sticky bottom-0 z-10 flex flex-wrap items-center gap-3 rounded-b-surface border-t border-border bg-surface px-4 py-3 sm:px-5',
+        'sticky bottom-0 z-10 flex flex-wrap items-center gap-3 rounded-b-card border-t border-border bg-surface-low px-4 py-3 sm:px-5',
         'pb-[max(0.75rem,env(safe-area-inset-bottom))]',
       )}
     >

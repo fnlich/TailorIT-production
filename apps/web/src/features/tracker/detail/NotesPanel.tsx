@@ -61,9 +61,9 @@ export function NotesPanel({ application }: { application: ApplicationDetail }) 
   );
 
   return (
-    <section aria-labelledby="notes-heading" className="rounded-surface border border-border bg-surface p-5 shadow-soft">
+    <section aria-labelledby="notes-heading" className="rounded-card border border-border bg-surface p-5 shadow-card">
       <header className="mb-3 flex items-center justify-between gap-2">
-        <h3 id="notes-heading" className="text-base font-semibold text-foreground">
+        <h3 id="notes-heading" className="text-[15px] leading-5 font-semibold text-foreground">
           Notes
         </h3>
         <span role="status" className="text-xs text-muted-foreground">

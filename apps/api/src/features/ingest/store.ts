@@ -9,9 +9,9 @@ import { DETERMINISTIC_VERSION } from '../job-analysis/deterministic';
 import { applyAiFacts, fillFacets, refreshAnalysisLinks, saveAnalysis } from '../job-analysis/store';
 import { writeJobText } from '../jobs/text';
 // v30 E0-API: the company through companies/resolve.ts (companies' v2.0 columns are gone: migrations-pg/0014).
-import { boardAliasOfSource } from '../companies/aliases';
+import { boardAliasOfSource, companyOfAlias } from '../companies/aliases';
 import { minConfidenceOf } from '../companies/profile';
-import { ownCompanyKey as companiesOwnKey, resolveCompanyIn } from '../companies/resolve';
+import { ownCompanyKey as companiesOwnKey, resolveCompanyByName, resolveCompanyIn } from '../companies/resolve';
 import { closeLinkIn, closeLinksOfSource } from './close';
 import { factsAtIngest } from './facts';
 import { findFuzzyMatch, logFuzzyMatch, NOT_SAME_BOARD_SQL, notSameBoardParams, placeKeyOf } from './fuzzy';
@@ -26,7 +26,15 @@ import {
   type NormalizedPosting,
 } from './normalize';
 import { projectJobs } from './project-job';
-import { SCHEDULED_KINDS, SOURCE_PRECEDENCE, type RawPosting, type SourceKind, type SourceRecord } from './types';
+import {
+  isAddedPageSource,
+  ROW_SOURCE_KINDS,
+  SCHEDULED_KINDS,
+  SOURCE_PRECEDENCE,
+  type RawPosting,
+  type SourceKind,
+  type SourceRecord,
+} from './types';
 
 // Writes normalised postings: companies (resolveCompany), jobs, their texts (job_texts), job_locations,
 // job_source_links and the postings' analyses, in the caller's transaction. A posting whose source hash has not
@@ -232,6 +240,8 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
     now: string,
     touched: Set<number>,
   ): Promise<number> {
+    // v31 FIX-LINK (SEC-3, REQ-1): a page an add read (Add job's source of its host) speaks for no company but its own.
+    if (!owner && isAddedPageSource(source)) return addedPageCompanyOf(t, source, posting, now, touched);
     // The board's alias: the source's own board (its config), else the board the posting's ATS address names when it is
     // of the source's kind (DB-INGEST's reading).
     const ats = owner ? null : parseAtsUrl(posting.applyUrl);
@@ -246,6 +256,27 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
       at: now,
     };
     const resolved = deps ? await resolveCompany(deps, t, input) : await resolveCompanyIn(t, input, { minConfidence: minConfidenceOf() });
+    for (const id of resolved.touchedJobIds) touched.add(id);
+    return resolved.companyId;
+  }
+
+  /**
+   * v31 FIX-LINK (SEC-3, REQ-1): the company of a page an add read (Add job's source of its host): the company an admin's
+   * source of the host made its own (`site:<host>`), as it is; else, when the page names its organisation by a domain
+   * that is the page's own (jobs/add/page.ts keeps the website only then), the company of that domain as any posting
+   * resolves it (but the host is never bound to it as a board); else the company of the name alone, never one with a
+   * board or a domain of its own, and nothing written about it (resolveCompanyByName).
+   */
+  async function addedPageCompanyOf(t: DbTx, source: SourceRecord, posting: NormalizedPosting, now: string, touched: Set<number>): Promise<number> {
+    const site = boardAliasOfSource(source);
+    const held = site ? await companyOfAlias(t, 'board', site) : undefined;
+    if (held) return held.id;
+    const input = { company: posting.company, boardAlias: null, ownerUserId: null, sourceId: source.id, at: now };
+    const resolved = posting.company.website
+      ? deps
+        ? await resolveCompany(deps, t, { ...input, domains: [posting.company.website] })
+        : await resolveCompanyIn(t, { ...input, domains: [posting.company.website] }, { minConfidence: minConfidenceOf() })
+      : await resolveCompanyByName(t, input);
     for (const id of resolved.touchedJobIds) touched.add(id);
     return resolved.companyId;
   }
@@ -476,6 +507,9 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
         'WHERE l.job_id = ? AND l.source_id <> ? AND l.missing_since IS NULL',
       [jobId, source.id],
     );
+    // v31 FIX-LINK (SEC-1): a page an add read rewrites only a job no other source read (its own, or one stored from a
+    // row or a browser's text: ROW_SOURCE_KINDS); any other job it only fills where that job is empty.
+    if (isAddedPageSource(source)) return kinds.every((row) => (ROW_SOURCE_KINDS as readonly string[]).includes(row.kind));
     const others = kinds.map((row) => SOURCE_PRECEDENCE[row.kind] ?? 0);
     return others.length === 0 || SOURCE_PRECEDENCE[source.kind] >= Math.max(...others);
   }
@@ -494,6 +528,9 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
   ): Promise<JobRow | null> {
     const byKey = await jobOfKeys(db, keys);
     if (byKey !== null) return (await job(byKey)) ?? null;
+    // v31 FIX-LINK (SEC-1): a page an add read is found only by its own keys (career/keys.ts ownSiteOnly), never by a
+    // text its owner may have copied from another job.
+    if (isAddedPageSource(source)) return null;
     if (posting.descriptionText.length < MIN_TEXT_FOR_DEDUPE) return null;
     const board = atsBoardOf(posting.applyUrl);
     const sameText = await db.one<{ id: number }>(

@@ -30,7 +30,7 @@ export function CompanyLinksRow({ name, links, className }: { name: string; link
             target="_blank"
             rel="noopener noreferrer"
             data-company-link={link.kind}
-            className="inline-flex min-h-6 items-center gap-1.5 text-sm font-medium text-primary-ink hover:underline"
+            className="inline-flex min-h-6 items-center gap-1.5 rounded-tag text-sm font-medium text-primary hover:underline"
           >
             {LINK_ICON[link.kind]}
             {link.label}
@@ -49,7 +49,7 @@ export function ParentLine({ parent, className }: { parent: CompanyParentRef | n
   return (
     <p className={clsx('text-sm leading-5 text-muted-foreground', className)} data-company-parent={parent.id}>
       Part of{' '}
-      <Link href={companyHref(parent.id)} className="font-medium text-primary-ink hover:underline">
+      <Link href={companyHref(parent.id)} className="rounded-tag font-medium text-primary hover:underline">
         {parent.name}
       </Link>
     </p>
@@ -94,7 +94,7 @@ export function CompanyFactsGrid({ facts, className, columns = 3 }: { facts: rea
   return (
     <dl
       className={clsx(
-        'grid grid-cols-2 gap-x-6 gap-y-4 rounded-surface border border-border p-4',
+        'grid grid-cols-2 gap-x-6 gap-y-4 rounded-card border border-border bg-surface-low p-4',
         columns === 3 && 'sm:grid-cols-3',
         className,
       )}
@@ -102,7 +102,7 @@ export function CompanyFactsGrid({ facts, className, columns = 3 }: { facts: rea
       {facts.map((fact) => (
         <div key={fact.key} className="flex min-w-0 flex-col gap-0.5" data-company-fact={fact.key}>
           <dt className="text-[13px] leading-5 text-muted-foreground">{fact.label}</dt>
-          <dd className="text-sm leading-5 font-semibold break-words text-foreground">{fact.value}</dd>
+          <dd className="text-sm leading-5 font-medium break-words text-foreground">{fact.value}</dd>
         </div>
       ))}
     </dl>

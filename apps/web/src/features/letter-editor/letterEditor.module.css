@@ -1,7 +1,12 @@
 /*
- * The letter editor's paper (Simplify's template editor, screenshot 5): a white US Letter page 896 px wide on the
- * #f8f8f8 canvas, 16 px Times New Roman by default, 1.5 line height, a blank line between paragraphs and 1 in
- * margins (7em). The print (apps/api cover-letters/document.ts) uses the same proportions at 11 pt.
+ * The letter editor's paper: a white US Letter page 896 px wide on the app's canvas, 16 px Times New Roman by default,
+ * 1.5 line height, a blank line between paragraphs and 1 in margins. The print (apps/api cover-letters/document.ts)
+ * uses the same proportions at 11 pt.
+ *
+ * Colours: the editor's chrome (the paper's edge and shadow, the empty-paper hint, the selected chip's outline, the
+ * {{VARIABLE}} chips) comes from the v3.1 tokens. The letter's own colours stay literal because they are the
+ * document's, the same ones the PDF prints (document.ts): the text #191919, the quote's rule #d7d7d7 and text
+ * #3d3d3d, and links #0b5c99.
  */
 
 .paper {
@@ -11,17 +16,16 @@
   max-width: 896px;
   aspect-ratio: 8.5 / 11;
   margin: 0 auto;
-  /* Simplify: 96 px above the first line, 112 px at the sides (percentages are of the paper's width). */
+  /* 96 px above the first line, 112 px at the sides (percentages are of the paper's width). */
   padding: clamp(24px, 10.72%, 96px) clamp(28px, 12.5%, 112px);
-  background: #fff;
+  background: var(--color-surface);
   color: #191919;
   font-size: 16px;
   line-height: 1.5;
   border-radius: 2px;
   box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.035),
-    0 1px 3px rgb(0 0 0 / 0.05),
-    0 8px 24px -12px rgb(0 0 0 / 0.08);
+    0 0 0 1px var(--color-border),
+    var(--shadow-card);
   cursor: text;
 }
 
@@ -107,30 +111,30 @@
   content: attr(data-placeholder);
   float: left;
   height: 0;
-  color: #a1a1a1;
+  color: var(--color-subtle-foreground);
   pointer-events: none;
 }
 
 .paper :global(.ProseMirror-selectednode) {
-  outline: 2px solid #08758c;
+  outline: 2px solid var(--color-primary);
   outline-offset: 1px;
 }
 
 .paper :global(.ProseMirror-gapcursor::after) {
-  border-top-color: #191919;
+  border-top-color: currentColor;
 }
 
 .readOnly {
   cursor: default;
 }
 
-/* A {{VARIABLE}} chip (Simplify: radius 4, padding 1px 6px, .85em, weight 500, #e9f6ff / #016094). */
+/* A {{VARIABLE}} chip: a radius-4 tag, padding 1px 6px, .85em, weight 500, primary ink on primary soft. */
 .variable {
-  border-radius: 4px;
+  border-radius: var(--radius-tag);
   padding: 1px 6px;
   margin: 0 1px;
-  background: #e9f6ff;
-  color: #016094;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-ink);
   font-size: 0.85em;
   font-weight: 500;
   white-space: nowrap;

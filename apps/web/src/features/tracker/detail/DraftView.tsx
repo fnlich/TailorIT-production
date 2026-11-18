@@ -62,7 +62,7 @@ function DocumentRow({
   return (
     <li className="flex flex-col gap-3 rounded-control border border-border bg-surface px-4 py-3 sm:flex-row sm:items-center" data-draft-document={kind}>
       <span className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-container text-primary-ink">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-soft text-primary">
           <FileTextIcon size={18} aria-hidden="true" />
         </span>
         <span className="min-w-0">
@@ -167,7 +167,7 @@ export function DraftView({ data, records = null, draft: isDraft = false, draftL
             In your auto-apply queue with this kit. It is used as it is when the job is applied to.
           </p>
         )}
-        {kit.error && <p className="text-sm leading-5 text-[#c62a29]">{kit.error}</p>}
+        {kit.error && <p className="text-sm leading-5 text-danger">{kit.error}</p>}
         <ul className="flex flex-col gap-2" aria-label="Prepared documents">
           <DocumentRow
             kind="resume"
@@ -208,7 +208,7 @@ export function DraftView({ data, records = null, draft: isDraft = false, draftL
                       {item.label}
                       {item.required && (
                         <>
-                          <span aria-hidden="true" className="text-destructive">
+                          <span aria-hidden="true" className="text-danger">
                             {' '}
                             *
                           </span>

@@ -11,6 +11,7 @@ import { Field, FieldLabel } from '@/components/ui/Field';
 import { MapPinIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Slider } from '@/components/ui/Slider';
@@ -19,6 +20,7 @@ import { ApiError, userMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { usePublicConstants, type TooLongText } from '@/lib/constants';
 import { formatSalary } from '@/lib/format';
+import { NotificationSettings } from '@/features/notifications/NotificationSettings'; // v31 HEADER
 import { AccountSection } from './AccountSection';
 import {
   CHOICE_GROUP_LABEL,
@@ -59,12 +61,12 @@ export function SettingsPage() {
   const preferences = useQuery({ queryKey: PREFERENCES_QUERY_KEY, queryFn: ({ signal }) => fetchPreferences(signal) });
 
   return (
-    <div className={clsx('mx-auto w-full max-w-[880px] pt-9 pb-20', PAGE_GUTTER)}>
-      <h1 className="text-[30px] leading-10 font-bold tracking-[-0.01em] text-foreground">Settings</h1>
-      <p className="mt-2 text-base text-muted-foreground">
-        Your account, your profile, the jobs you are looking for, and how Prepare &amp; Queue works.
-      </p>
-      <AccountSection className="mt-8" />
+    <div className={clsx('mx-auto w-full max-w-[880px] pt-7 pb-20', PAGE_GUTTER)}>
+      <PageHeader
+        title="Settings"
+        description="Your account, your profile, the jobs you are looking for, and how Prepare & Queue works."
+      />
+      <AccountSection className="mt-6" />
       {preferences.isError ? (
         <Notice
           tone="error"
@@ -84,6 +86,8 @@ export function SettingsPage() {
         <SettingsForm key={preferences.dataUpdatedAt} account={account} initial={preferences.data} />
       )}
       <PrepareSection className="mt-6" />
+      {/* v31 HEADER: Settings › Notification settings (/settings#notifications). */}
+      <NotificationSettings className="mt-6" />
     </div>
   );
 }
@@ -247,7 +251,8 @@ function SettingsForm({ account, initial }: { account: Account; initial: Setting
           <div className="flex max-w-md flex-col gap-2">
             <div className="flex items-baseline justify-between gap-4">
               <FieldLabel>Minimum salary</FieldLabel>
-              <span className="text-sm font-semibold text-foreground tabular-nums">
+              {/* A salary is a measurement (mono figures); "No minimum" stays in the UI face. */}
+              <span className={clsx('text-sm text-foreground', prefs.minSalary ? 'num' : 'font-medium')}>
                 {prefs.minSalary ? `${formatSalary(prefs.minSalary)}/yr` : 'No minimum'}
               </span>
             </div>
@@ -260,7 +265,7 @@ function SettingsForm({ account, initial }: { account: Account; initial: Setting
               formatValue={(value) => (value ? `${formatSalary(value)} a year` : 'No minimum')}
               onValueChange={(value) => set('minSalary', value > 0 ? value : null)}
             />
-            <div className="flex justify-between text-xs text-muted-foreground">
+            <div className="num flex justify-between text-xs text-muted-foreground">
               <span>$0</span>
               <span>$400k+</span>
             </div>
@@ -328,7 +333,7 @@ function SettingsSkeleton() {
   return (
     <div className="mt-6 flex flex-col gap-6" aria-busy="true" aria-label="Loading settings">
       {[0, 1, 2].map((index) => (
-        <div key={index} className="rounded-surface border border-border bg-surface p-6 shadow-soft">
+        <div key={index} className="rounded-card border border-border bg-surface p-6 shadow-card">
           <Skeleton className="h-5 w-40" />
           <Skeleton className="mt-2 h-4 w-72" />
           <div className="mt-6 grid gap-5 sm:grid-cols-2">
@@ -363,7 +368,7 @@ function WhereYouLive({
       id={WHERE_YOU_LIVE_ANCHOR}
       role="group"
       aria-labelledby={titleId}
-      className="flex scroll-mt-[79px] flex-col gap-4 border-t border-divider-soft pt-6"
+      className="flex scroll-mt-[calc(var(--spacing-topbar)_+_16px)] flex-col gap-4 border-t border-divider-soft pt-6"
     >
       <div>
         <h3 id={titleId} className="flex items-center gap-2 text-sm leading-5 font-semibold text-foreground">

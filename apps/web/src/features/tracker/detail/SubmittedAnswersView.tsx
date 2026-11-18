@@ -90,7 +90,7 @@ export function SubmittedAnswersView({ data }: { data: SubmittedAnswersResponse 
                     {item.label}
                     {item.required && (
                       <>
-                        <span aria-hidden="true" className="text-destructive">
+                        <span aria-hidden="true" className="text-danger">
                           {' '}
                           *
                         </span>

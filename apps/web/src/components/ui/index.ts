@@ -1,7 +1,9 @@
-// TailorIT's UI kit: Base UI primitives styled with the Simplify tokens in styles/globals.css.
+// TailorIT's UI kit: Base UI primitives styled with the "Denim & Tape" tokens in styles/globals.css
+// (docs/design/v3.1/20-visual-identity.md).
 // Import from '@/components/ui' (or a single file, e.g. '@/components/ui/Button'). Icons: '@/components/ui/icons'.
 export { Badge, CountBadge, type BadgeProps, type BadgeTone } from './Badge';
 export { Button, buttonClasses, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button';
+export { Card, type CardPadding, type CardProps, type CardTone } from './Card';
 export { Checkbox, type CheckboxProps } from './Checkbox';
 export { Chip, type ChipProps, type ChipTone } from './Chip';
 export { Combobox, type ComboboxProps } from './Combobox';
@@ -42,6 +44,7 @@ export {
   type MenuItemProps,
 } from './Menu';
 export { Notice, type NoticeTone } from './Notice';
+export { PageHeader, type PageHeaderProps } from './PageHeader';
 export {
   Popover,
   PopoverClose,
@@ -61,6 +64,7 @@ export { RangeSlider, Slider, type RangeSliderProps, type SliderProps } from './
 export { PageSpinner, Spinner } from './Spinner';
 export { Stepper, WizardStepper, type StepperStep, type StepperTone, type WizardStepperStep, type WizardStepState } from './Stepper';
 export { Switch, type SwitchProps } from './Switch';
+export { MeasureText, TapeMeter, measureParts, type TapeMeterProps, type TapeMeterSize, type TapeMeterTone } from './TapeMeter';
 export { ToastProvider, useToast, type ToastApi, type ToastOptions, type ToastType } from './Toast';
 export { Tooltip, TooltipProvider, type TooltipProps } from './Tooltip';
 export { UnderlineTabs, type UnderlineTabItem, type UnderlineTabsProps } from './UnderlineTabs';

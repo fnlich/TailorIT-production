@@ -7,12 +7,15 @@ import { useFieldControl } from './Field';
 
 export type InputSize = 'sm' | 'md' | 'lg';
 
-/** Simplify's field: 36 px, radius 10, border #e6e6e6 → #d7d7d7 on hover → #969696 on focus, no ring. */
+/**
+ * A field's box: 36 px, radius 6, the strong border, darker on hover; focus turns the border denim with a 3 px soft
+ * halo (on every focus, mouse too). Invalid: the danger border and a red halo.
+ */
 export const CONTROL_SURFACE =
-  'rounded-control border border-control bg-surface text-sm text-foreground shadow-soft outline-none ' +
-  'transition-[border-color,box-shadow] duration-150 hover:border-control-hover focus:border-control-focus ' +
+  'rounded-control border border-border-strong bg-surface text-sm text-foreground shadow-control outline-none ' +
+  'transition-[border-color,box-shadow] duration-150 hover:border-control-hover focus:border-primary focus:shadow-focus ' +
   'focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-surface-low disabled:text-muted-foreground ' +
-  'aria-[invalid=true]:border-[#e88a89] aria-[invalid=true]:focus:border-[#c62a29]';
+  'aria-[invalid=true]:border-danger aria-[invalid=true]:focus:shadow-focus-danger';
 
 const SIZES: Record<InputSize, string> = { sm: 'h-8', md: 'h-9', lg: 'h-10' };
 

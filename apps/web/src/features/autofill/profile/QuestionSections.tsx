@@ -441,7 +441,7 @@ export function OnceChecklistSection() {
         <p className="text-sm leading-5 font-semibold text-foreground" data-once-count="">
           {answered} of {items.length} answered
         </p>
-        <ul aria-label="Answer these once" className="flex flex-col divide-y divide-border rounded-control border border-border">
+        <ul aria-label="Answer these once" className="flex flex-col divide-y divide-divider-soft rounded-control border border-border">
           {items.map((item) => {
             const missing = item.state === 'not_provided';
             return (
@@ -453,9 +453,9 @@ export function OnceChecklistSection() {
               >
                 <div className="flex min-w-0 items-start gap-2.5">
                   {missing ? (
-                    <span aria-hidden="true" className="mt-0.5 size-4 shrink-0 rounded-full border-2 border-border" />
+                    <span aria-hidden="true" className="mt-0.5 size-4 shrink-0 rounded-full border-2 border-control-strong" />
                   ) : (
-                    <CheckCircleIcon aria-hidden="true" size={18} weight="fill" className="shrink-0 text-[#02703c]" />
+                    <CheckCircleIcon aria-hidden="true" size={18} weight="fill" className="shrink-0 text-success" />
                   )}
                   <div className="min-w-0">
                     <p className="text-sm leading-5 font-medium text-foreground">{item.label}</p>
@@ -684,7 +684,7 @@ function ServiceEditor({
         onCheckedChange={(checked) => update({ ...value, [served]: checked, ...(checked ? {} : { [year]: null }) })}
       />
       {value[served] && (
-        <div className="pl-[28px] sm:max-w-[200px]">
+        <div className="pl-7 sm:max-w-[200px]">
           <NumberField
             path={`sensitive.legal.governmentService.value.${year}`}
             label="Year it ended"

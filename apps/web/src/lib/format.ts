@@ -18,8 +18,8 @@ function plural(count: number, unit: string): string {
 }
 
 /**
- * Simplify's table wording: "just now", "5 minutes ago", "3 hours ago", "1 day ago", "2 months ago", "1 year ago".
- * Returns `empty` (Simplify's "-") for a missing date; a time ahead of the clock reads "just now".
+ * The documents tables' wording: "just now", "5 minutes ago", "3 hours ago", "1 day ago", "2 months ago", "1 year ago".
+ * Returns `empty` ("-" by default) for a missing date; a time ahead of the clock reads "just now".
  */
 export function relativeTime(value: string | number | Date | null | undefined, now: number, empty = '-'): string {
   const time = toTime(value);

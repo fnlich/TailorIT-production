@@ -101,7 +101,7 @@ function PreviewBody({ onOpenChange, letterId, title }: { onOpenChange: (open: b
           title={title}
           srcDoc={query.data.html}
           sandbox="allow-same-origin"
-          className="block border-0 bg-white shadow-[0_1px_3px_rgba(17,24,39,.12),0_0_0_1px_rgba(17,24,39,.06)]"
+          className="block border-0 bg-surface shadow-card ring-1 ring-border"
           style={{ width: page.widthPx, height: frameHeight }}
           onLoad={() => {
             // Same-origin (no scripts can run: no allow-scripts), so the letter's own height can be read.

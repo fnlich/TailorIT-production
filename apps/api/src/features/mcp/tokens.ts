@@ -12,6 +12,9 @@ import { constantsOf } from '../../core/constants/service';
 import type { AppDeps, SessionUser } from '../../core/context';
 import type { Role } from '@tailorit/shared';
 import { refuse } from '../../core/http/refuse';
+import { OAUTH_ACCESS_TOKEN_PREFIX } from '@tailorit/shared/oauth'; // v31 OAUTH
+import { oauthAddresses } from '../oauth/addresses'; // v31 OAUTH
+import { resolveOAuthAccessToken } from '../oauth/tokens'; // v31 OAUTH
 
 // Personal MCP tokens (v1.5 M, migration 0816): `tim_` and 32 random bytes in base64url, made in Settings and given to
 // the person's own AI client. Only the SHA-256 is stored (the input is random, not a password: a fast hash is right);
@@ -19,8 +22,8 @@ import { refuse } from '../../core/http/refuse';
 // disabled; it never reaches any /api route (the MCP endpoint reads it itself, features/mcp/endpoint.ts), and an
 // extension token (tia_) or a session cookie never reaches the MCP endpoint.
 
-/** 32 random bytes in base64url are 43 characters. */
-const TOKEN = /^tim_[A-Za-z0-9_-]{43}$/;
+/** 32 random bytes in base64url are 43 characters. v31 OAUTH: or an OAuth access token (`tio_`, features/oauth). */
+const TOKEN = /^ti[mo]_[A-Za-z0-9_-]{43}$/;
 /** An Authorization header's bearer, and whatever follows it. */
 const BEARER = /^Bearer[ \t]+(\S+)(.*)$/i;
 /** `last_used_at` is written at most this often per token. */
@@ -30,7 +33,8 @@ export function hashMcpToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-/** The bearer an MCP request presents: null when there is none, or it is not shaped like one of ours. */
+/** The bearer an MCP request presents (a personal `tim_` token or an OAuth `tio_` one): null when there is none, or it
+ *  is not shaped like one of ours. */
 export function presentedMcpToken(authorization: string | undefined): string | null {
   const match = BEARER.exec(authorization ?? '');
   if (!match || match[2]!.trim() !== '' || !TOKEN.test(match[1]!)) return null;
@@ -126,15 +130,44 @@ export async function revokeMcpToken(deps: Pick<AppDeps, 'db' | 'now'>, userId: 
 /** Who an MCP token acts for. */
 export interface McpCaller {
   user: SessionUser;
+  /**
+   * The credential's key: a personal token's id, or (v31 OAUTH) `oauth:<grant id>` for an OAuth access token, so a
+   * connected app's rate limits and reports follow its grant across token refreshes (credentialColumns).
+   */
   tokenId: string;
   scopes: McpScope[];
+  // v31 OAUTH
+  /** How it authenticated: a personal token (Settings) or an OAuth access token (Claude, ChatGPT). */
+  via: 'personal' | 'oauth';
+  // end v31 OAUTH
 }
+
+// v31 OAUTH
+/** The prefix of an OAuth caller's tokenId. */
+const OAUTH_KEY = 'oauth:';
+
+/** The resource OAuth tokens must be issued for: the MCP endpoint (features/oauth/addresses.ts). */
+const oauthResource = (config: AppDeps['config']) => oauthAddresses(config).resource;
+
+/** A caller's tokenId as the columns that name it (mcp_unsupported_reports.token_id or .grant_id). */
+export function credentialColumns(tokenId: string | null): { tokenId: string | null; grantId: string | null } {
+  if (tokenId?.startsWith(OAUTH_KEY)) return { tokenId: null, grantId: tokenId.slice(OAUTH_KEY.length) };
+  return { tokenId, grantId: null };
+}
+// end v31 OAUTH
 
 /**
  * The account behind a token, or null when it is unknown or revoked, or its account is disabled (so a disable takes
  * effect on the next request). Writes `last_used_at` at most once a minute.
  */
-export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now'>, token: string): Promise<McpCaller | null> {
+export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now' | 'config'>, token: string): Promise<McpCaller | null> {
+  // v31 OAUTH: an OAuth access token, issued for this MCP endpoint (its audience) and its grant's scope `mcp`, acts
+  // for the grant's account with the personal token's one scope.
+  if (token.startsWith(OAUTH_ACCESS_TOKEN_PREFIX)) {
+    const access = await resolveOAuthAccessToken(deps, token, oauthResource(deps.config));
+    return access ? { user: access.user, tokenId: `${OAUTH_KEY}${access.grantId}`, scopes: ['prepare'], via: 'oauth' } : null;
+  }
+  // end v31 OAUTH
   const row = await deps.db.one<{
     id: string;
     user_id: string;
@@ -160,5 +193,6 @@ export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now'>, token: 
     user: { id: row.user_id, email: row.email, name: row.name, role: row.role },
     tokenId: row.id,
     scopes: readScopes(row.scopes),
+    via: 'personal',
   };
 }

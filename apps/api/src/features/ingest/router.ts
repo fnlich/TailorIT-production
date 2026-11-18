@@ -35,6 +35,8 @@ import { runnableKinds } from './scheduler'; // v30 INT-4
 import { sourceOptedOut } from './opt-out-gate'; // v30 FIX-A
 import { constantsOf } from '../../core/constants/index'; // v30 FIX-A
 import { sourcingDailyReport } from './scheduler-report';
+import { continueAllRuns, continueRun, continueSource, pauseAllRuns, pauseRun, pauseSource } from './pause'; // v31 RUNS
+import { runsPausedState } from './pause-state'; // v31 RUNS
 import {
   adminRun,
   adminRuns,
@@ -58,6 +60,7 @@ import {
   type ImportMapping,
 } from './tabular';
 import { IngestError, SCHEDULED_KINDS, SOURCE_KIND_LABEL, UNRUN_KINDS } from './types';
+import { importLinksNote } from '../jobs/add/imports'; // v31 LINK2
 
 // Admin > Sources, Runs and Import jobs (docs/ARCHITECTURE.md §8). Every route is administrator-only. v30 ST4: each
 // router is an adminRouter (core/admin): its guard, input checks, 404s and the audit of each change; Admin > Reports
@@ -68,6 +71,10 @@ import { IngestError, SCHEDULED_KINDS, SOURCE_KIND_LABEL, UNRUN_KINDS } from './
 // now), a source's recorded terms (PATCH termsStatus, termsUrl, termsNote: terms_checked_at moves), the run history by
 // source, kind and status, and the sourcing daily report (GET /api/admin/sourcing/report). Admin › Hosts is hosts.ts,
 // Admin › Purges purge.ts.
+//
+// v31 RUNS (docs/design/v3.1/22-runs-pause.md): Pause and Continue, of every run (POST /api/admin/runs/pause,
+// /continue), one run (/api/admin/runs/:id/pause, /continue) and one source (/api/admin/sources/:id/pause, /continue),
+// each audited; the run history says whether every run is paused (GET /api/admin/runs: `paused`). pause.ts holds them.
 
 const Id = z.coerce.number().int().positive();
 
@@ -451,8 +458,16 @@ export function createSourcesRouter(deps: AppDeps): Router {
     list: { query: AdminSourcesQuerySchema, run: (_deps, query) => listAdminSources(db, query, nowIso(deps), running) },
     bulk: {
       body: AdminSourcesBulkBodySchema,
-      // v30 FIX-A: a source of a company that opted out is skipped with MSG_INGEST_SOURCE_OPTED_OUT's words.
-      run: (_deps, body) => bulkSources(db, body, nowIso(deps), constantsOf(deps).message('MSG_INGEST_SOURCE_OPTED_OUT')),
+      // v30 FIX-A: a source of a company that opted out is skipped with MSG_INGEST_SOURCE_OPTED_OUT's words. v31 RUNS: run
+      // now skips a paused source with MSG_INGEST_SOURCE_PAUSED's.
+      run: (_deps, body) =>
+        bulkSources(
+          db,
+          body,
+          nowIso(deps),
+          constantsOf(deps).message('MSG_INGEST_SOURCE_OPTED_OUT'),
+          constantsOf(deps).message('MSG_INGEST_SOURCE_PAUSED'),
+        ),
     },
     get: (_deps, id) => adminSource(db, id, running(id), nowIso(deps)),
     patch: { body: PatchSourceBody, run: (_deps, id, patch) => patchSource(deps, id, patch, running) },
@@ -511,6 +526,26 @@ export function createSourcesRouter(deps: AppDeps): Router {
           return { runId, sourceId: id };
         }),
       );
+
+      // v31 RUNS: an admin pauses one source (its running run stops at its next safe point), and continues it.
+      router.post(
+        '/:id/pause',
+        handle(async (req, actor) => {
+          const id = parseInput(Id, req.params.id, 'source id');
+          const source = await pauseSource(deps, id, actor);
+          await audit({ action: 'pause', ids: [id], actor, change: null });
+          return source;
+        }),
+      );
+      router.post(
+        '/:id/continue',
+        handle(async (req, actor) => {
+          const id = parseInput(Id, req.params.id, 'source id');
+          const source = await continueSource(deps, id, actor);
+          await audit({ action: 'continue', ids: [id], actor, change: null });
+          return source;
+        }),
+      );
     },
   });
 }
@@ -520,8 +555,50 @@ export function createRunsRouter(deps: AppDeps): Router {
   return adminRouter(deps, {
     resource: 'run',
     id: Id,
-    list: { query: AdminRunsQuerySchema, run: (_deps, query) => adminRuns(deps.db, runsOptionsOf(query)) },
+    // v31 RUNS: with whether every run is paused (since when, by whom), for the Runs tab's header.
+    list: {
+      query: AdminRunsQuerySchema,
+      run: async (_deps, query) => ({ ...(await adminRuns(deps.db, runsOptionsOf(query))), paused: await runsPausedState(deps.db) }),
+    },
     get: (_deps, id) => adminRun(deps.db, id),
+    // v31 RUNS: Pause and Continue, of every run and of one run (pause.ts), each audited.
+    routes(router, { handle, audit }) {
+      router.post(
+        '/pause',
+        handle(async (_req, actor) => {
+          const result = await pauseAllRuns(deps, actor);
+          await audit({ action: 'pause', ids: ['all'], actor, change: { stopping: result.stopping } });
+          return result;
+        }),
+      );
+      router.post(
+        '/continue',
+        handle(async (_req, actor) => {
+          const result = await continueAllRuns(deps, actor);
+          await audit({ action: 'continue', ids: ['all'], actor, change: { resumed: result.resumed } });
+          return result;
+        }),
+      );
+      router.post(
+        '/:id/pause',
+        handle(async (req, actor) => {
+          const id = parseInput(Id, req.params.id, 'run id');
+          const run = await pauseRun(deps, id, actor);
+          await audit({ action: 'pause', ids: [id], actor, change: null });
+          return run;
+        }),
+      );
+      router.post(
+        '/:id/continue',
+        handle(async (req, actor) => {
+          const id = parseInput(Id, req.params.id, 'run id');
+          const started = await continueRun(deps, id, actor);
+          await audit({ action: 'continue', ids: [id], actor, change: started });
+          req.res!.status(202);
+          return started;
+        }),
+      );
+    },
   });
 }
 
@@ -599,7 +676,7 @@ export function createImportRouter(deps: AppDeps): Router {
           });
           await audit({ action: 'import', ids: [result.body.source.id], actor, change: { fileName, rows: table.rows.length } });
           req.res!.status(result.status);
-          return result.body;
+          return { ...result.body, links: importLinksNote(deps, table.columns, chosen.url) }; // v31 LINK2
         }),
       );
     },

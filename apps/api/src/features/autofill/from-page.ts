@@ -1,4 +1,4 @@
-import { normalizeCompanyName, normalizeJobTitle, parseLocations } from '@tailorit/shared';
+import { canonicalJobUrl, normalizeCompanyName, normalizeJobTitle, parseLocations, type JobAddDetails, type JobVerifyReason } from '@tailorit/shared';
 import {
   addablePosting,
   isLinkedInHost,
@@ -14,7 +14,11 @@ import { MAX_SOURCE_JOB_ID, compactId, sha256, sourceHashOf, storedSourceJobId }
 import { RobotsRefusal } from '../ingest/robots';
 import { requireIngest } from '../ingest/service';
 import { IngestError, type RawPosting, type SourceRecord } from '../ingest/types';
-import { queuePageJob, sightPublishedPageJob } from '../job-reviews/new-jobs'; // v30 X1-API
+import { sightPublishedPageJob } from '../job-reviews/new-jobs'; // v30 X1-API
+import { noteUnverified } from '../jobs/add/verification'; // v31 LINK
+import { noticeVerification } from '../jobs/add/notify'; // v31 LINK
+import { readPageToSharedJob, type PageJobRead } from '../jobs/add/page'; // v31 LINK
+import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
 import { aliasValueHash } from './alias-key';
 import { jobPlaces, placeKey, placesMeet, type Place } from './places';
 import {
@@ -318,12 +322,14 @@ async function storeFromPage(
   page: PageReading,
   request: AutofillFromPageRequest,
   madeFrom: string | null,
+  // v31 LINK: a job the person typed (the Add job dialog's details) may come without a description.
+  options: { allowEmptyText?: boolean } = {},
 ): Promise<{ jobId: number; created: boolean }> {
   const ingest = requireIngest(deps);
   const own = pageAlias(page);
   if (!own) throw new AppError('unsupported', "TailorIT cannot read this page's address. Save the job from the Tracker instead.");
   const checked = postingOf(page, request, userId, own.alias, pageLinkId(userId, own.alias));
-  if (!checked.title || !checked.company.name || !checked.descriptionText) {
+  if (!checked.title || !checked.company.name || (!checked.descriptionText && !options.allowEmptyText)) {
     throw new AppError('validation_failed', 'The page shows no title, company or description TailorIT can keep.');
   }
   return deps.db.tx(async (t) => {
@@ -424,21 +430,71 @@ function pageMayStandIn(error: unknown): boolean {
 }
 
 /**
- * v30 X1-API (14 §4.2, §5.3 step 4): the person's own page job is queued for Admin › Review when its page is an
- * employer's own (job-reviews/new-jobs.ts queuePageJob: never LinkedIn or a refused job board), and a job found that an
- * admin published from pages (`ext_page`) counts as seen now. Neither ever fails the add: a failure is logged without
- * the job or the page.
+ * v30 X1-API (14 §4.2, §5.3 step 4): the person's own page job is noted for Admin › Review (v31 LINK: as "Couldn't
+ * verify", jobs/add/verification.ts, with the reason TailorIT could not read its link; never a page review whose
+ * approval would publish the page's text), and a job found that an admin published from pages before v3.1 (`ext_page`)
+ * counts as seen now. Neither ever fails the add: a failure is logged without the job or the page.
  */
-async function reviewPageJob(deps: AppDeps, userId: string, jobId: number, page: PageReading, via: FromPageVia): Promise<void> {
+async function reviewPageJob(
+  deps: AppDeps,
+  userId: string,
+  jobId: number,
+  page: PageReading,
+  via: FromPageVia,
+  unread: JobVerifyReason | null,
+): Promise<void> {
   try {
     if (via === 'page' || (await isOwnPageJob(deps, userId, jobId))) {
-      await queuePageJob(deps, userId, jobId, { pageUrl: page.url, pageKind: page.linkedIn ? 'linkedin' : page.ats ? 'ats' : 'site' });
+      // v31 LINK (D2): the person's own job is "Couldn't verify" (Admin › Review lists it: Retry read, Reject), never
+      // a page review whose approval would publish the browser's text (publishPageJob is gone).
+      const reason = unread ?? 'unreadable_host';
+      await noteUnverified(deps.db, { jobId, userId, url: page.employer?.url ?? page.url, origin: 'extension_page', reason }, nowIso(deps));
+      // The person added it in their browser: TailorIT says why it is theirs alone (once per job: NOTIFY dedupes).
+      if (via === 'page') await noticeVerification(deps, { userId, jobId, state: 'private_unverified', reason });
     } else if (via === 'existing') {
       await sightPublishedPageJob(deps, jobId);
     }
   } catch (error) {
     deps.log.warn('[autofill] add job from page: the review step failed; the job is saved', error instanceof Error ? error.name : 'unknown');
   }
+}
+
+/**
+ * v31 LINK: TailorIT's own read of the page a job is added from (the employer's link when the page showed one, else the
+ * page): a shared job when its schema.org JobPosting is read (jobs/add/page.ts), else why not. Never LinkedIn or a
+ * refused job board (`unreadable_host`), nothing sent.
+ */
+async function readOwnPage(deps: AppDeps, page: PageReading): Promise<PageJobRead> {
+  const address = canonicalJobUrl(page.employer?.url ?? page.url);
+  if (!address || page.linkedIn) return { kind: 'unreadable', reason: 'unreadable_host' };
+  const url = new URL(address);
+  if (isRefusedPageHost(url.hostname)) return { kind: 'unreadable', reason: 'unreadable_host' };
+  return readPageToSharedJob(deps, address);
+}
+
+/**
+ * v31 LINK (D2): the person's own job made from what they typed for a link TailorIT cannot read (the web's Add job
+ * dialog, its details step): as a page job from the page's text is made (storeFromPage), the person's alone, its
+ * description optional, the link kept as their alias of it so a later add or lookup finds it.
+ */
+export async function storeOwnJobFromDetails(
+  deps: AppDeps,
+  userId: string,
+  url: string,
+  details: JobAddDetails,
+): Promise<{ jobId: number; created: boolean }> {
+  const page = readPage(url, undefined, aliasValueHash(deps));
+  const request: AutofillFromPageRequest = {
+    url,
+    title: details.title,
+    company: details.company,
+    description: details.description ?? '',
+    ...(details.location ? { location: details.location } : {}),
+  };
+  const made = await storeFromPage(deps, userId, page, request, postingIdentityOf(page.ats?.canonical[0]), { allowEmptyText: true });
+  const now = nowIso(deps);
+  await deps.db.tx((t) => keepAliases(t, now, userId, made.jobId, page, true), { label: 'own job aliases' });
+  return made;
 }
 
 /**
@@ -514,6 +570,20 @@ export async function addFromPage(
       }
     }
   }
+  // v31 LINK (D1-D3): before the page's text stands in, TailorIT reads the page itself (its schema.org JobPosting,
+  // jobs/add/page.ts): a posting read is a shared job, and the text the browser sent is not used. LinkedIn and the
+  // refused boards are never read; their jobs stay the person's own.
+  let unread: JobVerifyReason | null = null;
+  if (jobId === null) {
+    const read = await readOwnPage(deps, stored);
+    if (read.kind === 'shared') {
+      jobId = read.jobId;
+      created = read.created;
+      via = 'ats';
+    } else {
+      unread = read.kind === 'closed' ? 'closed' : read.reason;
+    }
+  }
   if (jobId === null) {
     const made = await storeFromPage(deps, userId, stored, request, madeFrom);
     jobId = made.jobId;
@@ -539,7 +609,7 @@ export async function addFromPage(
   // The resume the person chose in the extension, when it is theirs, is the entry's as it is made or brought back.
   const own = request.resumeId !== undefined && (await ownsResume(deps, userId, request.resumeId));
   await saveToTracker(deps, userId, target, own ? request.resumeId : undefined);
-  await reviewPageJob(deps, userId, target, page, via);
+  await reviewPageJob(deps, userId, target, page, via, unread);
   const asked = {
     url: request.url,
     includePostingText: false,

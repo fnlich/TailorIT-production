@@ -80,7 +80,7 @@ export function matchPreparedKeywords(evidence: PreparedEvidence, keywords: JobK
 }
 
 /**
- * Scores a resume's own words against a posting's keywords (Simplify's job analysis card). A group is matched when
+ * Scores a resume's own words against a posting's keywords (the job's Your match section). A group is matched when
  * any of its spellings is in `evidenceText` as a whole word (`containsTerm`, false friends masked). Groups are taken
  * high first, then low, and a group repeating an earlier one (same synonym key) is skipped, so a keyword is never
  * counted twice.

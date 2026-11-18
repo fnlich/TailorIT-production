@@ -5,7 +5,8 @@ import { clsx } from 'clsx';
 import { useState } from 'react';
 import { variablesByGroup, type VariableDefinition } from '@tailorit/shared/letters';
 import { MENU_GROUP_LABEL, MENU_ROW, MENU_SURFACE, Z_FLOATING } from '@/components/ui/styles';
-import { SHELL, ShellIndicator } from '../letter-editor/controlShell';
+import { SHELL, SHELL_INPUT, ShellIndicator } from '../letter-editor/controlShell';
+import { usePublicConstants } from '@/lib/constants';
 
 /*
  * "Insert variable...": every registry variable, grouped Profile / Dynamic / Structural / AI Generated, searchable by
@@ -26,6 +27,7 @@ function matches(variable: VariableDefinition, query: string): boolean {
 }
 
 export function InsertVariableSelect({ onInsert, disabled }: { onInsert: (name: string) => void; disabled?: boolean }) {
+  const { t } = usePublicConstants();
   const [input, setInput] = useState('');
   const filtered = GROUPS.map((group) => ({ ...group, items: group.items.filter((variable) => matches(variable, input)) })).filter(
     (group) => group.items.length > 0,
@@ -50,11 +52,11 @@ export function InsertVariableSelect({ onInsert, disabled }: { onInsert: (name: 
     >
       <div className={clsx(SHELL, 'w-full sm:w-[284px]')} data-insert-variable="">
         <BaseCombobox.Input
-          aria-label="Insert variable"
-          placeholder="Insert variable..."
-          className="h-full min-w-0 flex-1 rounded-[6px] bg-transparent pl-2.5 text-[14px] outline-none placeholder:text-[#8f8f8f]"
+          aria-label={t('LABEL_LETTER_INSERT_PLACEHOLDER').replace(/\.+$/, '')}
+          placeholder={t('LABEL_LETTER_INSERT_PLACEHOLDER')}
+          className={SHELL_INPUT}
         />
-        <BaseCombobox.Trigger aria-label="Show variables" className="flex h-full items-center rounded-r-[6px] outline-offset-0">
+        <BaseCombobox.Trigger aria-label="Show variables" className="flex h-full items-center rounded-r-control outline-offset-0">
           <ShellIndicator />
         </BaseCombobox.Trigger>
       </div>
@@ -77,7 +79,7 @@ export function InsertVariableSelect({ onInsert, disabled }: { onInsert: (name: 
                         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span className="flex w-full items-center gap-2">
                             <span className="font-medium">{variable.label}</span>
-                            <span className="ml-auto truncate rounded-[4px] bg-sky px-1.5 text-[11px] leading-[18px] font-medium text-sky-foreground">
+                            <span className="ml-auto truncate rounded-tag bg-primary-soft px-1.5 text-[11px] leading-[18px] font-medium text-primary-ink">
                               {`{{${variable.name}}}`}
                             </span>
                           </span>

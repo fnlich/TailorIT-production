@@ -48,8 +48,8 @@ function YearsAndMonths({ part, onPick }: { part: DatePart | undefined; onPick(p
   const page = yearPage(pageYear, now);
   const cell = (selected: boolean) =>
     clsx(
-      'h-8 rounded-md text-[13px] transition-colors',
-      selected ? 'bg-primary font-semibold text-white' : 'text-foreground hover:bg-hover',
+      'h-8 rounded-control text-[13px] transition-colors',
+      selected ? 'bg-primary font-semibold text-on-primary' : 'text-foreground hover:bg-hover',
     );
   return (
     <div className="flex flex-col gap-3">
@@ -131,7 +131,7 @@ function PeriodPicker({ target, onPeriod }: { target: Extract<DateTarget, { kind
         <YearsAndMonths key={side} part={period[side]} onPick={(part) => onPeriod(withSide(period, side, part))} />
       )}
       {hint ? (
-        <p role="alert" className="text-[13px] text-destructive">
+        <p role="alert" className="text-[13px] text-danger">
           {hint}
         </p>
       ) : null}

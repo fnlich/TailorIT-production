@@ -275,7 +275,7 @@ function WriteWithAiPanel({
         </Notice>
       ) : null}
       {mine?.answer && mine.answer.length > 0 ? (
-        <p role="status" className="text-[13px] leading-5 font-medium text-[#02703c]">
+        <p role="status" className="text-[13px] leading-5 font-medium text-success">
           {mine.run?.task === 'improve' ? 'Bullets improved. Undo in the bar takes them back.' : 'Bullets written. Undo in the bar takes them back.'}
         </p>
       ) : null}

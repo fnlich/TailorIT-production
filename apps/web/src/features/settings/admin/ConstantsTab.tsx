@@ -44,11 +44,13 @@ import {
   type ConstantRow,
 } from './constants';
 import { AdminResourceTab } from '@/components/admin';
+import { PublishingCard } from './PublishingCard'; // v31 ADMINWEB
 
 // v2.0: Admin › Constants (docs/design/v2.0/08-ui.md, "Constants"): every business number and user-facing message,
 // grouped, each with its value, where it comes from (an admin override, .env, or the default) and a typed editor. An
 // override applies at once (the API reads it again on its next use; the web reads the public ones again here). Reset
-// removes the override. Rows .env alone may set show a lock.
+// removes the override. Rows .env alone may set show a lock. v31 ADMINWEB: "How new jobs are published" first (its
+// three switches, NEW_JOBS_ADMIN_APPROVAL among them, explained), while no search narrows the list.
 
 export function ConstantsTab() {
   const queryClient = useQueryClient();
@@ -102,12 +104,13 @@ export function ConstantsTab() {
       skeletonRows={8}
       renderItems={(shown) => (
         <div className="flex flex-col gap-8">
+          {search.trim() === '' && constants.data && <PublishingCard rows={constants.data.items} />}
           {shown.map(({ group, rows }) => (
             <section key={group} aria-labelledby={`constants-${group}`}>
-              <h3 id={`constants-${group}`} className="mb-2 text-base leading-6 font-semibold text-foreground">
+              <h3 id={`constants-${group}`} className="mb-2 text-heading font-semibold text-foreground">
                 {GROUP_TITLE[group]}
               </h3>
-              <ul className="divide-y divide-border overflow-hidden rounded-surface border border-border bg-surface shadow-soft">
+              <ul className="divide-y divide-divider-soft overflow-hidden rounded-card border border-border bg-surface shadow-card">
                 {rows.map((row) => (
                   <ConstantRowView
                     key={row.key}
@@ -170,7 +173,7 @@ export function ConstantRowView({
   const changedBy = changedByText(row.updatedBy, me);
   const message = row.kind === 'message';
   return (
-    <li data-constant={row.key} className="flex flex-col gap-3 px-4 py-3.5 md:flex-row md:items-start md:gap-6">
+    <li data-constant={row.key} className="flex flex-col gap-3 px-5 py-3.5 md:flex-row md:items-start md:gap-6">
       <div className="min-w-0 md:w-[38%] md:shrink-0">
         <p className="text-sm leading-5 font-semibold text-foreground">{row.label}</p>
         <p className="mt-0.5 font-mono text-xs leading-4 break-all text-muted-foreground">{row.key}</p>

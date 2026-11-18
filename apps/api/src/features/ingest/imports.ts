@@ -8,6 +8,7 @@ import { importsRoot, sheetOfConfig } from './adapters/tabular';
 import { requireIngest, type StartedRun } from './service';
 import { adminSource, findSheetSource, findSourceRecord, insertSource, type AdminRunDetail, type AdminSource } from './sources';
 import type { SourceRecord } from './types';
+import type { ImportLinksNote } from '../jobs/add/imports'; // v31 LINK2
 
 // Storing an import (a CSV/JSON file, or the CSV copy of a Google Sheet tab) as a csv/json source and running it. One
 // stored file per source: importing again under the same name (or the same sheet tab) replaces the copy; unchanged
@@ -42,6 +43,8 @@ export interface ImportResult {
   /** Null while the import runs in the background (follow `runId` under Runs). */
   run: AdminRunDetail | null;
   runId: number;
+  /** v31 LINK2: the link column read and the columns ignored (the route adds it: an import is a list of links). */
+  links?: ImportLinksNote;
 }
 
 /** The run, or null when it is still going after `ms`. */

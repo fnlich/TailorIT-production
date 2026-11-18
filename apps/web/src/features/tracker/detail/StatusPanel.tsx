@@ -28,13 +28,13 @@ import { DRAFT_TIMELINE_TEXT, shownStatusOf } from '../draft';
 import { DisplayStatusIcon, statusOptions } from '../status';
 
 const TONE: Record<StepperTone, { ring: string; dot: string; line: string }> = {
-  default: { ring: 'bg-primary-container', dot: 'bg-primary-ink', line: 'bg-primary-container' },
-  success: { ring: 'bg-success-container', dot: 'bg-success', line: 'bg-success-container' },
-  muted: { ring: 'bg-muted', dot: 'bg-subtle-foreground', line: 'bg-muted' },
+  default: { ring: 'bg-primary-soft', dot: 'bg-primary', line: 'bg-primary' },
+  success: { ring: 'bg-success-soft', dot: 'bg-success', line: 'bg-success' },
+  muted: { ring: 'bg-surface-muted', dot: 'bg-control-strong', line: 'bg-control-strong' },
 };
 
 /**
- * The detail's right column, "Application Status": the status select and the vertical timeline (Saved, Applied,
+ * The detail's right column, "Stage and dates" (v31 INT-3; was the copied "Application Status"): the status select and the vertical timeline (Saved, Applied,
  * Screen, Interviewing, Offer, plus an ending that happened). A reached step shows its date with a pencil; the others
  * "Add date". Both open a calendar with Clear / Save, future days disabled.
  */
@@ -71,9 +71,9 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
   });
 
   return (
-    <section aria-labelledby="status-heading" className="rounded-surface border border-border bg-surface p-5 shadow-soft">
-      <h3 id="status-heading" className="flex items-center gap-2 text-base font-semibold text-foreground">
-        Application Status
+    <section aria-labelledby="status-heading" className="rounded-card border border-border bg-surface p-5 shadow-card">
+      <h3 id="status-heading" className="flex items-center gap-2 text-[15px] leading-5 font-semibold text-foreground">
+        Stage and dates
         {isDraft && (
           <Badge tone="success" icon={<DisplayStatusIcon status="draft" size={12} />} data-detail-draft="">
             {draftLabel}
@@ -81,7 +81,7 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
         )}
       </h3>
       <Select
-        aria-label="Application status"
+        aria-label="Current stage"
         className="mt-3 w-full"
         options={statusOptions()}
         value={String(application.currentStatus)}
@@ -138,10 +138,10 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
                 aria-hidden="true"
                 className={clsx(
                   'relative z-[1] flex size-6 shrink-0 items-center justify-center rounded-full',
-                  step.reached ? colors.ring : 'border-2 border-control-strong bg-surface',
+                  step.reached ? colors.ring : 'border-2 border-border-strong bg-surface',
                 )}
               >
-                {step.reached && <span className={clsx('size-3.5 rounded-full', colors.dot)} />}
+                {step.reached && <span className={clsx('size-3 rounded-full', colors.dot)} />}
               </span>
               <div className="flex min-h-6 min-w-0 flex-1 flex-wrap items-center justify-between gap-x-2">
                 <span className={clsx('text-sm', step.current ? 'font-semibold text-foreground' : 'text-foreground')}>
@@ -169,9 +169,9 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
               <span aria-hidden="true" className={clsx('absolute top-6 bottom-0 left-[11px] w-0.5', 'bg-border')} />
               <span
                 aria-hidden="true"
-                className="relative z-[1] flex size-6 shrink-0 items-center justify-center rounded-full bg-success-container"
+                className="relative z-[1] flex size-6 shrink-0 items-center justify-center rounded-full bg-success-soft"
               >
-                <span className="size-3.5 rounded-full bg-success" />
+                <span className="size-3 rounded-full bg-success" />
               </span>
               <div className="flex min-h-6 min-w-0 flex-1 flex-col">
                 <div className="flex flex-wrap items-center justify-between gap-x-2">

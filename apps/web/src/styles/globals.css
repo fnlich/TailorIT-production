@@ -1,76 +1,129 @@
 @import "tailwindcss";
 
 /*
- * TailorIT design tokens — Simplify's visual language (light only).
- * Source of truth: docs/research/screenshots-spec.md (pixel-sampled) and
- * docs/research/simplify-tracker-documents-design.md §3 (served CSS).
- * Rule: `primary` is a BACKGROUND colour (#14a1c0). Text, borders, outlines, filled icons and the focus ring that
- * Simplify calls "primary" are `primary-ink` (#08758c).
+ * TailorIT design tokens: the "Denim & Tape" identity (v3.1, docs/design/v3.1/20-visual-identity.md).
+ * The subject is tailoring an application to a job: denim indigo for the brand and the shell, a tailor's measuring
+ * tape (yellow, with tick marks) for highlights and every meter, pattern paper (a cool canvas with a faint grid) behind
+ * empty states.
+ *
+ * Rules:
+ * - Colours come only from these tokens: no hex literal in a component (a scan test checks the kit and the shell).
+ * - `tape` is a highlight and always carries ink (`foreground`) text, never white.
+ * - Text pairs pass WCAG AA (4.5:1) on `surface`, `canvas` and their own soft tone; the numbers are in the doc.
+ * - Light only in v3.1. Every colour is a token, so a dark theme is one block that redefines the same names.
+ *
+ * `@theme static` emits every variable even when no utility uses it (inline styles, charts and the day picker read
+ * them). The second block holds the v3.0 names (primary-container, chip, amber, sky, control-*, ...) as aliases of
+ * the v3.1 ones, so older code compiles and takes the new look; new code uses the v3.1 names.
  */
-@theme {
-  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+@theme static {
+  /* ---- Type: IBM Plex Sans for the UI, Bricolage Grotesque for titles and the brand, IBM Plex Mono for measurements */
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "Cascadia Mono", Menlo, monospace;
 
-  --color-primary: #14a1c0;
-  --color-primary-ink: #08758c;
-  --color-primary-container: #ccf6ff;
-  --color-primary-50: #f2fcff;
-  --color-primary-100: #daf6ff;
-  --color-primary-200: #adebfe;
-  --color-primary-300: #44bfdf;
-  --color-primary-400: #14a1c0;
-  --color-primary-500: #0b8ba6;
+  --text-title: 26px;
+  --text-title--line-height: 32px;
+  --text-title--letter-spacing: -0.015em;
+  --text-title-sm: 22px;
+  --text-title-sm--line-height: 28px;
+  --text-title-sm--letter-spacing: -0.01em;
+  --text-heading: 18px;
+  --text-heading--line-height: 24px;
+  --text-heading--letter-spacing: -0.005em;
 
-  --color-canvas: #fcfcfc;
+  /* ---- Brand: denim */
+  --color-primary: #3a45c9;
+  --color-primary-hover: #2f38a8;
+  --color-primary-active: #262d8a;
+  --color-primary-soft: #e8eafb;
+  --color-primary-ink: #2a3196;
+  --color-on-primary: #ffffff;
+  --color-primary-50: #f4f5fd;
+  --color-primary-100: #e8eafb;
+  --color-primary-200: #cdd1f5;
+  --color-primary-300: #a4aaeb;
+  --color-primary-400: #6a73da;
+  --color-primary-500: #3a45c9;
+  --color-primary-600: #2f38a8;
+  --color-primary-700: #2a3196;
+  --color-primary-800: #222870;
+  --color-primary-900: #171c38;
+
+  /* ---- Signature: the measuring tape */
+  --color-tape: #f4c04a;
+  --color-tape-strong: #d9a021;
+  --color-tape-soft: #fdf1d3;
+
+  /* ---- Neutrals: pattern paper and white surfaces */
+  --color-canvas: #f4f5f8;
   --color-surface: #ffffff;
-  --color-surface-low: #f8f8f8;
-  --color-border: #e8e8e8;
-  --color-muted: #e8e8e8;
-  --color-divider-soft: #f2f2f2;
-  --color-control: #e6e6e6;
-  --color-control-outline: #dfdfdf;
-  --color-control-hover: #d7d7d7;
-  --color-control-focus: #969696;
-  --color-control-strong: #d7d7d7;
-  --color-chip: #ebebeb;
+  --color-surface-low: #f8f9fb;
+  --color-surface-muted: #eef0f5;
+  --color-muted: #e3e6ee;
+  --color-border: #dcdfe8;
+  --color-border-strong: #c3c7d6;
+  --color-divider-soft: #eaecf2;
+  --color-control-hover: #a9aec2;
+  --color-control-strong: #8e94ab;
+  --color-grid: rgb(58 69 201 / 0.07);
 
-  --color-foreground: #191919;
-  --color-muted-foreground: #7d7d7d;
-  --color-subtle-foreground: #a1a1a1;
-  --color-disabled-foreground: #b7b7b7;
+  --color-foreground: #191c2b;
+  --color-muted-foreground: #565b70;
+  --color-subtle-foreground: #656a80;
+  --color-disabled-foreground: #9a9fb3;
 
-  --color-sky: #e9f6ff;
-  --color-sky-foreground: #016094;
-  --color-success: #02a558;
-  --color-success-container: #d6f9e9;
-  --color-destructive: #f53b3a;
-  --color-destructive-container: #fbe5e5;
-  --color-warning: #f58e3a;
-  --color-amber: #f8f4e5;
-  --color-amber-foreground: #913f0c;
-  --color-avatar: #3ec0de;
-  --color-improve: #def9ff;
-  --color-improve-border: #d4f7ff;
-  --color-focus: #08758c;
+  /* ---- Status: each with a soft background and an ink for text on it */
+  --color-success: #1d7f4e;
+  --color-success-soft: #e3f4ea;
+  --color-success-ink: #16653e;
+  --color-warning: #9a5b00;
+  --color-warning-soft: #fff1d6;
+  --color-warning-ink: #7a4700;
+  --color-danger: #c2363a;
+  --color-danger-hover: #a92e32;
+  --color-danger-soft: #fcebeb;
+  --color-danger-ink: #a12a2e;
+  --color-info: #2563b5;
+  --color-info-soft: #e6effa;
+  --color-info-ink: #1c4f91;
 
-  --radius-control: 10px;
-  --radius-surface: 16px;
-  --radius-popup: 14px;
-  --radius-menu: 10px;
+  /* ---- The shell's dark denim sidebar */
+  --color-sidebar: #171c38;
+  --color-sidebar-foreground: #c7cae0;
+  --color-sidebar-muted: #9da2c4;
+  --color-sidebar-strong: #ffffff;
+  --color-sidebar-hover: rgb(255 255 255 / 0.05);
+  --color-sidebar-active: rgb(255 255 255 / 0.08);
+  --color-sidebar-border: rgb(255 255 255 / 0.08);
+
+  /* ---- Interaction */
+  --color-focus: #3a45c9;
+  --color-hover: rgb(23 28 56 / 0.06);
+  --color-pressed: rgb(23 28 56 / 0.1);
+  --color-overlay: rgb(23 28 56 / 0.5);
+
+  /* ---- Shape: controls 6, cards and popups 10, tags 4, pills 999 */
+  --radius-tag: 4px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-popup: 10px;
   --radius-menu-row: 6px;
 
-  --shadow-soft: 0 1px 10px rgb(0 0 0 / 0.008), 0 3px 10px -2px rgb(0 0 0 / 0.015), 0 6px 16px rgb(0 0 0 / 0.02);
-  --shadow-control: 0 1px 2px rgb(0 0 0 / 0.05);
-  --shadow-menu: 0 10px 15px -3px #0000000f;
-  --shadow-popover: 0 8px 24px -6px rgb(14 18 27 / 0.08), 0 2px 6px -2px rgb(14 18 27 / 0.04);
-  --shadow-dialog: 0 24px 48px -12px rgb(0 0 0 / 0.18), 0 8px 16px -8px rgb(0 0 0 / 0.08);
+  /* ---- Elevation: short, cool shadows */
+  --shadow-card: 0 1px 2px rgb(23 28 56 / 0.06);
+  --shadow-control: 0 1px 1px rgb(23 28 56 / 0.05);
+  --shadow-popover: 0 8px 24px rgb(23 28 56 / 0.14), 0 1px 3px rgb(23 28 56 / 0.08);
+  --shadow-dialog: 0 24px 56px -12px rgb(23 28 56 / 0.32), 0 2px 6px rgb(23 28 56 / 0.08);
+  --shadow-focus: 0 0 0 3px rgb(58 69 201 / 0.22);
+  --shadow-focus-danger: 0 0 0 3px rgb(194 54 58 / 0.2);
+
+  /* ---- Shell sizes */
+  --spacing-topbar: 56px;
+  --spacing-sidebar: 240px;
+  --spacing-rail: 64px;
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
-
-  /* Sampled from the screenshots: checkbox border, segmented track (4% black), menu row hover (6% black). */
-  --color-checkbox: #d1d1d1;
-  --color-segment: rgb(0 0 0 / 0.04);
-  --color-hover: rgb(0 0 0 / 0.06);
-  --color-overlay: rgb(0 0 0 / 0.4);
 
   --animate-shimmer: shimmer 1.4s linear infinite;
   --animate-spin-slow: spin 0.8s linear infinite;
@@ -82,6 +135,92 @@
     to {
       background-position: 0 0;
     }
+  }
+}
+
+/* The v3.0 names, kept as aliases of the v3.1 tokens (see the header). Do not use them in new code. */
+@theme inline {
+  --color-primary-container: var(--color-primary-soft);
+  --color-chip: var(--color-surface-muted);
+  --color-control: var(--color-border-strong);
+  --color-control-outline: var(--color-border-strong);
+  --color-control-focus: var(--color-primary);
+  --color-checkbox: var(--color-control-strong);
+  --color-segment: var(--color-surface-muted);
+  --color-sky: var(--color-info-soft);
+  --color-sky-foreground: var(--color-info-ink);
+  --color-success-container: var(--color-success-soft);
+  --color-destructive: var(--color-danger);
+  --color-destructive-container: var(--color-danger-soft);
+  --color-amber: var(--color-warning-soft);
+  --color-amber-foreground: var(--color-warning-ink);
+  --color-avatar: var(--color-tape);
+  --color-improve: var(--color-primary-50);
+  --color-improve-border: var(--color-primary-200);
+
+  --radius-surface: var(--radius-card);
+  --radius-menu: var(--radius-popup);
+
+  --shadow-soft: var(--shadow-card);
+  --shadow-menu: var(--shadow-popover);
+}
+
+/* Dashed "stitch" borders: drop zones and empty states (1.5 px, the strong border colour). */
+@utility stitch {
+  border: 1.5px dashed var(--color-border-strong);
+}
+
+/* Pattern paper: the faint 24 px grid, only behind empty states. */
+@utility paper-grid {
+  background-image:
+    linear-gradient(var(--color-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+}
+
+/*
+ * The tape's tick marks (TapeMeter): a short tick every 10 % and a longer one at 50 %, hanging from the top edge, in
+ * ink at 32 % (on the tape and the grey track) or, with tape-ticks-light, white at 55 % (on a denim or status fill).
+ */
+@utility tape-ticks {
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - 0.5px),
+      var(--tape-tick, rgb(25 28 43 / 0.32)) calc(50% - 0.5px) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--tape-tick, rgb(25 28 43 / 0.32)) calc(10% - 1px) 10%);
+  background-size:
+    100% 75%,
+    100% 45%;
+  background-repeat: no-repeat;
+}
+@utility tape-ticks-light {
+  --tape-tick: rgb(255 255 255 / 0.55);
+}
+
+/* A measurement (match %, a salary, usage, a count in a meter): IBM Plex Mono 500 with tabular figures. */
+@utility num {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* A page title: Bricolage Grotesque 600, 26/32 (22/28 below 640 px). */
+@utility page-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-title-sm);
+  line-height: var(--text-title-sm--line-height);
+  letter-spacing: var(--text-title-sm--letter-spacing);
+  color: var(--color-foreground);
+  @media (width >= 40rem) {
+    font-size: var(--text-title);
+    line-height: var(--text-title--line-height);
+    letter-spacing: var(--text-title--letter-spacing);
   }
 }
 
@@ -102,17 +241,23 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.45;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Keyboard-only focus ring, like Simplify. */
+  ::selection {
+    background: var(--color-tape-soft);
+    color: var(--color-foreground);
+  }
+
+  /* Keyboard-only focus ring: 2 px denim, 2 px away from the control. */
   :focus-visible {
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
 
-  /* Tailwind's preflight gives buttons the default cursor; Simplify's controls use the hand. */
+  /* Tailwind's preflight gives buttons the default cursor; TailorIT's controls use the hand. */
   button:not(:disabled),
   [role='button']:not([aria-disabled='true']),
   [role='tab']:not([aria-disabled='true']),
@@ -133,19 +278,19 @@
 }
 
 /*
- * react-day-picker, themed with the Simplify tokens (DatePickerPopover). Unlayered and one class more specific than
- * the library's own (also unlayered) stylesheet, which loads later.
+ * react-day-picker, themed with the tokens (DatePickerPopover). Unlayered and one class more specific than the
+ * library's own (also unlayered) stylesheet, which loads later.
  */
 .rdp-root.ti-day-picker {
-  --rdp-accent-color: var(--color-primary-ink);
-  --rdp-accent-background-color: var(--color-primary-container);
+  --rdp-accent-color: var(--color-primary);
+  --rdp-accent-background-color: var(--color-primary-soft);
   --rdp-day-height: 36px;
   --rdp-day-width: 36px;
   --rdp-day_button-height: 34px;
   --rdp-day_button-width: 34px;
-  --rdp-day_button-border-radius: 8px;
+  --rdp-day_button-border-radius: var(--radius-control);
   --rdp-selected-border: 2px solid var(--color-primary);
-  --rdp-today-color: var(--color-primary-ink);
+  --rdp-today-color: var(--color-primary);
   --rdp-nav-height: 2.25rem;
   --rdp-nav_button-height: 2rem;
   --rdp-nav_button-width: 2rem;
@@ -157,8 +302,13 @@
   font-size: 12px;
   font-weight: 500;
 }
-.ti-day-picker .rdp-today:not(.rdp-outside) {
+.ti-day-picker .rdp-day_button {
+  font-variant-numeric: tabular-nums;
+}
+/* Today: bold, with a short tape mark under the number. */
+.ti-day-picker .rdp-today:not(.rdp-outside) .rdp-day_button {
   font-weight: 700;
+  box-shadow: inset 0 -3px 0 -1px var(--color-tape);
 }
 .ti-day-picker .rdp-selected {
   font-size: 14px;
@@ -166,17 +316,18 @@
 }
 .ti-day-picker .rdp-selected .rdp-day_button {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 .ti-day-picker .rdp-day_button:hover:not(:disabled) {
   background: var(--color-hover);
 }
 .ti-day-picker .rdp-selected .rdp-day_button:hover:not(:disabled) {
-  background: var(--color-primary-500);
+  background: var(--color-primary-hover);
 }
 .ti-day-picker .rdp-caption_label,
 .ti-day-picker .rdp-dropdown {
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 15px;
   font-weight: 600;
 }
 .ti-day-picker .rdp-chevron {

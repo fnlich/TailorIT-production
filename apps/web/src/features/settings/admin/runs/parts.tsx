@@ -1,5 +1,6 @@
 'use client';
 
+import { PauseIcon } from '@phosphor-icons/react/Pause';
 import { SHEET_SOURCE_LABEL } from '@tailorit/shared/ingest';
 import { runErrorLabel, type JobSourceRunStatus, type JobSourceRunTrigger } from '@tailorit/shared/sourcing';
 import { Badge } from '@/components/ui/Badge';
@@ -15,16 +16,30 @@ const STATUS_LABEL: Record<JobSourceRunStatus, string> = {
   partial: 'Partial',
   failed: 'Failed',
   not_modified: 'Not modified',
+  paused: 'Paused', // v31 RUNS
 };
 
-/** A run's status as a badge: green, amber, red, grey for a 304, or blue with a spinner while it runs. */
+/**
+ * A run's status as a badge: green, amber, red, grey for a 304, or blue with a spinner while it runs. v31 RUNS: an
+ * outline badge with a pause mark once an admin paused it.
+ */
 export function RunStatusBadge({ status }: { status: JobSourceRunStatus | string | null }) {
   if (!status) return <span className="text-muted-foreground">Never run</span>;
   const known = status as JobSourceRunStatus;
   const tone =
-    known === 'succeeded' ? 'success' : known === 'partial' ? 'warning' : known === 'failed' ? 'destructive' : known === 'not_modified' ? 'neutral' : 'sky';
+    known === 'succeeded'
+      ? 'success'
+      : known === 'partial'
+        ? 'warning'
+        : known === 'failed'
+          ? 'destructive'
+          : known === 'not_modified'
+            ? 'neutral'
+            : known === 'paused'
+              ? 'outline'
+              : 'sky';
   return (
-    <Badge tone={tone} icon={known === 'running' ? <Spinner size={12} /> : undefined}>
+    <Badge tone={tone} icon={known === 'running' ? <Spinner size={12} /> : known === 'paused' ? <PauseIcon size={12} weight="fill" /> : undefined}>
       {STATUS_LABEL[known] ?? status}
     </Badge>
   );

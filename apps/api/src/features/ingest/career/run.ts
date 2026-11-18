@@ -429,6 +429,8 @@ export async function readCareerSite(source: SourceRecord, ctx: AdapterContext):
   if (disallowed > 0) ctx.log(`${disallowed} pages were not read: robots.txt disallows them (their postings are left as they are).`);
   if (stopped) ctx.log(`The run stopped reading pages: ${stopped.message}`);
 
+  // v31 RUNS: a run paused (or stopped) once its pages were read closes nothing (its next run reads them again).
+  if (ctx.signal.aborted) throw new IngestError('The run was stopped before it finished.');
   const closedByRead = testing ? 0 : await settleReads(deps, source, gone, liveRead, [...boards.values()], ctx);
   return {
     postings,

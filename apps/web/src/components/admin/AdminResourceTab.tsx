@@ -138,7 +138,7 @@ function listBody<T>(list: AdminList<T>): ReactNode {
         variant={empty.variant}
       />
     );
-    return empty.card === false ? state : <div className="rounded-surface border border-border bg-surface shadow-soft">{state}</div>;
+    return empty.card === false ? state : <div className="rounded-card border border-border bg-surface shadow-card">{state}</div>;
   }
   return (
     <>

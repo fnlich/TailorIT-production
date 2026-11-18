@@ -10,22 +10,25 @@ export type BadgeTone =
   | 'destructive'
   | 'warning'
   | 'sky'
-  | 'dark';
+  | 'dark'
+  | 'tape';
 
 const TONES: Record<BadgeTone, string> = {
-  // "Generated", "Uploaded", "PDF", "System Default"
-  outline: 'border-border bg-surface text-foreground',
+  // "Generated", "Uploaded", "PDF", "Built in"
+  outline: 'border-border-strong bg-surface text-foreground',
   // "Default" resume
-  primary: 'border-transparent bg-primary text-white',
+  primary: 'border-transparent bg-primary text-on-primary',
   // "Full-Time"
-  tint: 'border-transparent bg-primary-container text-primary-ink',
-  neutral: 'border-transparent bg-chip text-foreground',
-  success: 'border-transparent bg-success-container text-[#02703c]',
-  destructive: 'border-transparent bg-destructive-container text-[#c62a29]',
-  warning: 'border-transparent bg-amber text-amber-foreground',
-  sky: 'border-transparent bg-sky text-sky-foreground',
+  tint: 'border-transparent bg-primary-soft text-primary-ink',
+  neutral: 'border-transparent bg-surface-muted text-foreground',
+  success: 'border-transparent bg-success-soft text-success-ink',
+  destructive: 'border-transparent bg-danger-soft text-danger-ink',
+  warning: 'border-transparent bg-warning-soft text-warning-ink',
+  sky: 'border-transparent bg-info-soft text-info-ink',
   // over a page thumbnail
-  dark: 'border-transparent bg-black/75 text-white backdrop-blur-sm',
+  dark: 'border-transparent bg-sidebar/85 text-sidebar-strong backdrop-blur-sm',
+  // a highlight ("Best match", "New"): the tape, always with ink text
+  tape: 'border-transparent bg-tape text-foreground',
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
@@ -35,14 +38,16 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   wrap?: boolean;
 }
 
-/** Simplify's badge: `rounded-full border px-2 py-0.5 text-xs font-medium`, 22 px tall. */
+/**
+ * A tag: 22 px, radius 4 (a garment label, not a pill), `px-2 text-xs font-medium` with a 1 px border; one tone per
+ * meaning (see docs/design/v3.1/20-visual-identity.md, "Badges").
+ */
 export function Badge({ tone = 'outline', icon, wrap = false, className, children, ...rest }: BadgeProps) {
   return (
     <span
       className={clsx(
-        'inline-flex max-w-full shrink-0 items-center gap-1 border px-2 text-xs leading-4 font-semibold',
-        // A wrapped badge keeps the one-line badge's corners (11 px), not a stadium's.
-        wrap ? 'min-h-[22px] rounded-[11px] py-[3px]' : 'h-[22px] rounded-full whitespace-nowrap',
+        'inline-flex max-w-full shrink-0 items-center gap-1 rounded-tag border px-2 text-xs leading-4 font-medium',
+        wrap ? 'min-h-[22px] py-[2px]' : 'h-[22px] whitespace-nowrap',
         TONES[tone],
         className,
       )}
@@ -54,12 +59,12 @@ export function Badge({ tone = 'outline', icon, wrap = false, className, childre
   );
 }
 
-/** Small round count, as in Simplify's "Job Type [1]" pill. */
+/** A small round count ("Job Type 1"), set in the measurement face. */
 export function CountBadge({ count, className }: { count: number; className?: string }) {
   return (
     <span
       className={clsx(
-        'inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-chip px-1.5 text-xs leading-none font-medium text-muted-foreground tabular-nums',
+        'num inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-muted px-1.5 text-[11px] leading-none text-muted-foreground',
         className,
       )}
     >

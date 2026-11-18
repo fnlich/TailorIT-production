@@ -1,15 +1,12 @@
 import type { JobReviewDecider } from '@tailorit/shared';
 import type { AppDeps } from '../../core/context';
 import type { DbQueries, DbTx } from '../../core/db/types';
-import { AppError, conflict } from '../../core/http/errors';
+import { conflict } from '../../core/http/errors';
+import { refuse } from '../../core/http/refuse';
 import { closeLink, offerToDiscovery, projectJob, type JobLinkRef } from '../../core/seams';
 import { upgradeOwnPageJob } from '../autofill/jobs';
-import { firstSourceOfKind, insertSourceIfNameFree } from '../autofill/sources';
+import { noticeVerification } from '../jobs/add/notify'; // v31 LINK
 import { boardOfUrl } from '../ingest/discovery/boards';
-import { sourceHashOf, storedSourceJobId } from '../ingest/normalize';
-import { requireIngest } from '../ingest/service';
-import type { RawPosting, SourceRecord } from '../ingest/types';
-import { readJobText } from '../jobs/text';
 import { boardOfJob, companyOf } from './checks';
 import { pendingReview, recountReview, type ReviewRow } from './store';
 
@@ -21,11 +18,13 @@ import { pendingReview, recountReview, type ReviewRow } from './store';
 //   and leaves search in the same transaction (closeLink's projectJob);
 // - a new job read from an ATS is published: held_since cleared and projectJob in the same transaction, then its board
 //   offered to discovery (offerToDiscovery, `extension`), unless its company opted out;
-// - a new job from pages is published as a shared copy (§5.3): a new job with no owner under the one `ext_page` source,
-//   made through the ingest pipeline (its company, places, analysis, facts, keys and search row as any posting's) from
-//   the page job whose normalised text most accounts share, verified now; the page's host offered to discovery as a
-//   career site. After the commit each reporting account's page job gives way to it (upgradeOwnPageJob: its tracker
-//   entry, aliases, queue rows and marks move; the page job closes, superseded): the follow-ups.
+// - a new job from pages: v31 LINK (D2) publishes only what TailorIT read itself from the review's link (the caller's
+//   read, before this transaction: the shared job jobs/add stored from the page's schema.org JobPosting or its ATS); a
+//   page TailorIT cannot read is refused (MSG_JOB_REVIEW_PAGE_UNREADABLE), never published from a browser's text (v3.0's
+//   publishPageJob, which copied the most agreed capture into an `ext_page` job, is gone). The page's host is offered
+//   to discovery as a career site. After the commit each reporting account's page job gives way to the shared job
+//   (upgradeOwnPageJob: its tracker entry, aliases, queue rows and marks move; the page job closes, superseded): the
+//   follow-ups.
 // A rejection changes nothing else (a held job stays its adders' own; a page job its account's). A reopen brings a
 // rejected or expired review back to the queue.
 
@@ -36,27 +35,18 @@ export interface Decider {
   note?: string | null;
 }
 
-/** Work an approval leaves for after its commit: a page job giving way to the shared copy published now. */
+/** Work an approval leaves for after its commit: a page job giving way to the shared job published now. */
 export interface FollowUp {
   userId: string;
   pageJobId: number;
   sharedJobId: number;
+  /** v31 LINK: the shared job was read from the page job's own link (upgradeOwnPageJob's sameLink). */
+  sameLink?: boolean;
 }
 
-/** The one source the published page jobs are kept under: never run, checked or closed by a run. */
-export const PUBLISHED_PAGE_SOURCE_NAME = 'Published page jobs';
-
-async function publishedPageSource(t: DbTx, at: string): Promise<SourceRecord> {
-  const found = await firstSourceOfKind(t, 'ext_page');
-  if (found) return found;
-  const made = await insertSourceIfNameFree(
-    t,
-    { kind: 'ext_page', name: PUBLISHED_PAGE_SOURCE_NAME, config: {}, enabled: false, deactivateMissing: false },
-    at,
-  );
-  const source = made ?? (await firstSourceOfKind(t, 'ext_page'));
-  if (!source) throw new AppError('internal', 'TailorIT could not publish this job. Please try again.');
-  return source;
+/** v31 LINK: the shared job TailorIT read from a page review's link, before its approval's transaction. */
+export interface PageReviewRead {
+  sharedJobId: number;
 }
 
 /** The page job whose text most accounts share (ties: the first report), with every reporter's page job still there. */
@@ -83,37 +73,16 @@ export async function pageJobsOf(t: DbQueries, reviewId: number): Promise<{ chos
   return { chosen, reports: rows.map((row) => ({ userId: row.user_id, pageJobId: row.page_job_id })) };
 }
 
-/** Publishes a page review's posting as a shared job (see above); answers the shared job's id and the follow-ups. */
-async function publishPageJob(deps: AppDeps, t: DbTx, review: ReviewRow, at: string): Promise<FollowUp[]> {
-  const { chosen, reports } = await pageJobsOf(t, review.id);
-  if (chosen === null) throw conflict('No page job of this review is left to publish.');
-  const page = await t.one<{ title: string; apply_url: string; company: string; industry: string | null }>(
-    'SELECT j.title, j.apply_url, c.name AS company, j.industry FROM jobs j JOIN companies c ON c.id = j.company_id WHERE j.id = ?',
-    [chosen],
-  );
-  const text = await readJobText(t, chosen);
-  if (!page || !text) throw conflict('No page job of this review is left to publish.');
-  const places = await t.all<{ raw: string }>('SELECT raw FROM job_locations WHERE job_id = ? ORDER BY position', [chosen]);
-  const source = await publishedPageSource(t, at);
-  const raw: RawPosting = {
-    // The posting's stored address, as the review's subject keys it (the same for every account's page job of it).
-    sourceJobId: review.subject_key.slice('page:'.length),
-    title: page.title,
-    company: { name: page.company },
-    descriptionHtml: text.html,
-    url: page.apply_url,
-    locations: places.map((place) => place.raw),
-    industry: page.industry,
-    // An admin (or two accounts' agreeing captures) confirmed it now: last_verified_at = now (12 §8.3's clock).
-    verified: true,
-  };
-  const outcome = await requireIngest(deps).store.upsertBatch(source, [{ raw, sourceHash: sourceHashOf(raw) }], at);
-  const link = await t.one<{ job_id: number }>('SELECT job_id FROM job_source_links WHERE source_id = ? AND source_job_id = ?', [
-    source.id,
-    storedSourceJobId(raw.sourceJobId),
-  ]);
-  if (outcome.failures.length > 0 || !link) throw new AppError('internal', 'TailorIT could not publish this job. Please try again.');
-  return reports.map((report) => ({ ...report, sharedJobId: link.job_id }));
+/**
+ * v31 LINK (D2): a page review's approval publishes only what TailorIT read itself. The caller read the review's link
+ * outside the transaction (readPageReviewLink) and hands the shared job it stored (`read`); each reporting account's page
+ * job then gives way to it (the follow-ups). With no read (the page could not be read), the approval is refused: an
+ * admin never publishes the text a person's browser captured (v3.0's publishPageJob is gone).
+ */
+async function followUpsOfRead(deps: AppDeps, t: DbTx, review: ReviewRow, read: PageReviewRead | undefined): Promise<FollowUp[]> {
+  if (!read) throw refuse(deps, 'conflict', 'MSG_JOB_REVIEW_PAGE_UNREADABLE');
+  const { reports } = await pageJobsOf(t, review.id);
+  return reports.map((report) => ({ ...report, sharedJobId: read.sharedJobId, sameLink: true }));
 }
 
 /**
@@ -141,7 +110,14 @@ async function markDecided(t: DbQueries, review: ReviewRow, state: 'approved' | 
 }
 
 /** Approves a pending review (see above), in the caller's transaction; answers the follow-ups for after the commit. */
-export async function approveReview(deps: AppDeps, t: DbTx, review: ReviewRow, decider: Decider, at: string): Promise<FollowUp[]> {
+export async function approveReview(
+  deps: AppDeps,
+  t: DbTx,
+  review: ReviewRow,
+  decider: Decider,
+  at: string,
+  read?: PageReviewRead,
+): Promise<FollowUp[]> {
   if (review.state !== 'pending') throw conflict('This review was decided already.');
   let followUps: FollowUp[] = [];
   if (review.kind === 'closed') {
@@ -155,8 +131,8 @@ export async function approveReview(deps: AppDeps, t: DbTx, review: ReviewRow, d
     await projectJob(t, review.job_id);
     await offerBoard(deps, t, review.job_id, null, at);
   } else {
-    followUps = await publishPageJob(deps, t, review, at);
-    if (review.page_host) await offerBoard(deps, t, followUps[0]!.sharedJobId, { kind: 'career_site', name: review.page_host }, at);
+    followUps = await followUpsOfRead(deps, t, review, read);
+    if (review.page_host && read) await offerBoard(deps, t, read.sharedJobId, { kind: 'career_site', name: review.page_host }, at);
   }
   await markDecided(t, review, 'approved', decider, at);
   return followUps;
@@ -192,7 +168,9 @@ export async function reopenReview(deps: AppDeps, t: DbTx, review: ReviewRow, no
 export async function runFollowUps(deps: AppDeps, followUps: readonly FollowUp[]): Promise<void> {
   for (const followUp of [...followUps].sort((a, b) => a.userId.localeCompare(b.userId))) {
     try {
-      await upgradeOwnPageJob(deps, followUp.userId, followUp.pageJobId, followUp.sharedJobId);
+      const moved = await upgradeOwnPageJob(deps, followUp.userId, followUp.pageJobId, followUp.sharedJobId, { sameLink: followUp.sameLink === true });
+      // v31 LINK: the reporter hears that TailorIT read their job and published it.
+      if (moved) await noticeVerification(deps, { userId: followUp.userId, jobId: followUp.sharedJobId, state: 'published' });
     } catch (error) {
       deps.log.warn('[job-reviews] a page job could not give way to its published copy', error instanceof Error ? error.name : 'unknown');
     }

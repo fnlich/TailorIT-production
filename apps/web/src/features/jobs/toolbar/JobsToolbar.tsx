@@ -1,11 +1,12 @@
 'use client';
 
-import { hasJobFilters, type JobsQuery } from '@tailorit/shared';
+import type { JobsQuery } from '@tailorit/shared';
 import { clsx } from 'clsx';
-import { useEffect, useRef, useState } from 'react';
-import { XIcon } from '@/components/ui/icons';
-import { IconButton } from '@/components/ui/IconButton';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Chip } from '@/components/ui/Chip';
 import { SearchPill } from '@/components/ui/SearchPill';
+import { usePublicConstants } from '@/lib/constants';
+import { activeFilters } from '../filters';
 import { AiSearchInput, AiSearchStatus, SearchModeControl, useAiSearch } from './AiSearch';
 import { AllFiltersDialog } from './AllFiltersDialog';
 import { CanApplyPill } from './CanApplySwitch';
@@ -18,10 +19,11 @@ import { SavedSearches } from './SavedSearches';
 const SEARCH_DELAY_MS = 350;
 
 /**
- * "Find your dream role": typing searches after a short pause, Enter at once. The box follows the address when it
- * changes elsewhere (Clear all, a saved search, back).
+ * The search box (LABEL_JOBS_SEARCH): typing searches after a short pause, Enter at once. The box follows the address
+ * when it changes elsewhere (Clear all, a saved search, back).
  */
 function SearchBox({ q, onSearch, className }: { q: string; onSearch: (q: string) => void; className?: string }) {
+  const { t } = usePublicConstants();
   const [text, setText] = useState(q);
   const sent = useRef(q);
   const search = useRef(onSearch);
@@ -50,7 +52,7 @@ function SearchBox({ q, onSearch, className }: { q: string; onSearch: (q: string
     <SearchPill
       value={text}
       onValueChange={setText}
-      placeholder="Find your dream role"
+      placeholder={t('LABEL_JOBS_SEARCH')}
       onKeyDown={(event) => {
         if (event.key !== 'Enter') return;
         const value = text.trim();
@@ -62,64 +64,89 @@ function SearchBox({ q, onSearch, className }: { q: string; onSearch: (q: string
   );
 }
 
-function Divider({ className }: { className?: string }) {
-  return <span aria-hidden="true" data-toolbar-divider className={clsx('h-5 w-px shrink-0 bg-border', className)} />;
-}
-
 export interface JobsToolbarProps {
   query: JobsQuery;
   onChange: (patch: Partial<JobsQuery>) => void;
   onReplace: (query: JobsQuery) => void;
   onClearAll: () => void;
+  /** Labels the company filter's ids in the chips. */
+  companyNames?: ReadonlyMap<string, string>;
   className?: string;
 }
 
 /**
- * The toolbar on the canvas: Classic | AI (v2.0), the search pill (as wide as the list panel), then right-aligned
- * Location ⇕, Job Type, Experience Level and Category pills, All filters, the saved-search bookmark and ✕ (clear all).
- * When the row wraps (narrow screens), All filters, the bookmark and ✕ move as one group, and no divider is left at a
- * row's end. In AI mode (Paid) the box takes a sentence, and the AI's filters go into the address; under the row,
- * the limit message, the AI's progress, or the summary of what it set.
+ * v31 FIX-JOBS: the search panel, a white card above the feed. Its first line is the search (Classic | AI (v2.0), the
+ * box, the saved searches); its second the filters (Location, Job Type, Experience Level, Category, "Jobs I can apply
+ * to", All filters), wrapping on a narrow column; while anything filters the list, a third line names each filter as
+ * a removable chip ("Filtering by: Full-Time ×  Senior ×") with Clear all. The search words stay in the box, not in
+ * a chip. In AI mode (Paid) the box takes a sentence and the AI's filters go into the address; under the card, the
+ * limit message, the AI's progress, or the summary of what it set.
  */
-export function JobsToolbar({ query, onChange, onReplace, onClearAll, className }: JobsToolbarProps) {
+export function JobsToolbar({ query, onChange, onReplace, onClearAll, companyNames, className }: JobsToolbarProps) {
+  const { t } = usePublicConstants();
   const ai = useAiSearch({ query, onReplace });
   const [editFilters, setEditFilters] = useState(0);
+  const chips = useMemo(() => activeFilters(query, companyNames).filter((chip) => chip.key !== 'q'), [query, companyNames]);
   return (
     <div className={clsx('flex flex-col gap-3', className)}>
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-3" role="search" aria-label="Job search">
-      <div className="flex w-full min-w-0 items-center gap-2 lg:w-[40%]">
-        <SearchModeControl state={ai} />
-        {ai.mode === 'ai' ? (
-          <AiSearchInput state={ai} className="min-w-0 flex-1" />
-        ) : (
-          <SearchBox q={query.q ?? ''} onSearch={(q) => onChange({ q: q || undefined })} className="min-w-0 flex-1" />
+      <div
+        className="@container/jobs-toolbar rounded-card border border-border bg-surface p-3 shadow-card sm:p-4"
+        role="search"
+        aria-label="Job search"
+        data-jobs-toolbar=""
+      >
+        {/* A narrow panel puts the search box on its own line, under Classic | AI and the saved searches. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <SearchModeControl state={ai} />
+          <div className="order-last w-full min-w-0 @min-[36rem]/jobs-toolbar:order-none @min-[36rem]/jobs-toolbar:w-auto @min-[36rem]/jobs-toolbar:flex-1">
+            {ai.mode === 'ai' ? (
+              <AiSearchInput state={ai} className="w-full" />
+            ) : (
+              <SearchBox q={query.q ?? ''} onSearch={(q) => onChange({ q: q || undefined })} className="w-full" />
+            )}
+          </div>
+          <div className="ml-auto flex @min-[36rem]/jobs-toolbar:ml-0">
+            <SavedSearches query={query} onApply={onReplace} />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2" data-jobs-filters="">
+          <LocationFilter query={query} onChange={onChange} />
+          <JobTypeFilter query={query} onChange={onChange} />
+          <ExperienceLevelFilter query={query} onChange={onChange} />
+          <CategoryFilter query={query} onChange={onChange} />
+          {/* v30 FIX-WEB (INT-4 #8): "Jobs I can apply to" beside the other filters, pressed while on. */}
+          <CanApplyPill on={Boolean(query.canApply)} onChange={(on) => onChange({ canApply: on || undefined })} />
+          <AllFiltersDialog query={query} onApply={onReplace} requestOpen={editFilters} />
+        </div>
+        {chips.length > 0 && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-divider-soft pt-3"
+            data-active-filters=""
+          >
+            <span id="jobs-filtering-by" className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
+              {t('LABEL_JOBS_FILTERING_BY')}
+            </span>
+            <ul className="flex min-w-0 flex-wrap items-center gap-2" aria-labelledby="jobs-filtering-by">
+              {chips.map((chip) => (
+                <li key={chip.key} className="max-w-full" data-filter-chip={chip.key}>
+                  <Chip tone="tint" size="sm" onRemove={() => onChange(chip.remove)} removeLabel={`Remove ${chip.label}`}>
+                    {chip.label}
+                  </Chip>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={onClearAll}
+              aria-label="Clear all filters"
+              className="ml-auto inline-flex h-7 items-center rounded-control px-2 text-[13px] font-medium text-primary hover:bg-primary-50 hover:underline"
+            >
+              Clear all
+            </button>
+          </div>
         )}
       </div>
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        <LocationFilter query={query} onChange={onChange} />
-        <JobTypeFilter query={query} onChange={onChange} />
-        <ExperienceLevelFilter query={query} onChange={onChange} />
-        <CategoryFilter query={query} onChange={onChange} />
-        {/* v30 FIX-WEB (INT-4 #8): "Jobs I can apply to" beside the other filters, pressed while on. */}
-        <CanApplyPill on={Boolean(query.canApply)} onChange={(on) => onChange({ canApply: on || undefined })} />
-        <Divider className="hidden lg:block" />
-        <div className="flex items-center gap-2">
-          <AllFiltersDialog query={query} onApply={onReplace} requestOpen={editFilters} />
-          <Divider />
-          <SavedSearches query={query} onApply={onReplace} />
-          <IconButton
-            label="Clear all filters"
-            tooltip="Clear all"
-            variant="outline"
-            shape="round"
-            icon={<XIcon size={18} weight="bold" />}
-            disabled={!hasJobFilters(query)}
-            onClick={onClearAll}
-          />
-        </div>
-      </div>
-    </div>
-    <AiSearchStatus state={ai} onEditFilters={() => setEditFilters((count) => count + 1)} />
+      <AiSearchStatus state={ai} onEditFilters={() => setEditFilters((count) => count + 1)} />
     </div>
   );
 }

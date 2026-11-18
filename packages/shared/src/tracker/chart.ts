@@ -63,7 +63,7 @@ export function sankeyData(applications: readonly ChartApplication[]): SankeyDat
   const nodes = APPLICATION_STATUSES.filter((status) => reached.has(status)).map((status) => ({
     id: STATUS_INFO[status].sankeyLabel,
     status,
-    color: STATUS_INFO[status].sankeyColor ?? '#a1a1a1',
+    color: STATUS_INFO[status].sankeyColor ?? '#8e94ab', // v31 INT-2: the v3.1 control-strong grey
     value: reached.get(status) ?? 0,
   }));
   return { nodes, links: [...links.values()], total };

@@ -16,6 +16,7 @@ import { useToast } from '@/components/ui/Toast';
 import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { ArchiveIcon, ArrowCounterClockwiseIcon, HeartIcon, PencilSimpleIcon, TrashIcon, XIcon } from '@/components/ui/icons';
 import { userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { CompanyLogo } from '../CompanyLogo';
 import { invalidateApplications, trackerApi, trackerKeys, useApplication, useMoveStatus, useToggleFavorite } from '../data';
@@ -35,7 +36,7 @@ const TABS: Array<{ value: DetailTab; label: string }> = [
   { value: 'documents', label: 'Documents' },
   // v1.5 P: the prepared draft (Prepare on the Auto-apply page); labelled "Prepared" from v2.0.
   { value: 'draft', label: 'Prepared' },
-  { value: 'score', label: 'Resume Score' },
+  { value: 'score', label: 'Your match' },
   { value: 'questions', label: 'Questions' },
   // v1.3 A: read-only, what the person submitted through the extension.
   { value: 'submitted', label: 'Submitted answers' },
@@ -43,7 +44,7 @@ const TABS: Array<{ value: DetailTab; label: string }> = [
 
 /**
  * Below this width the status and notes column would sit under the whole description, so it becomes a "Status" tab
- * (Simplify's mobile layout).
+ * (the phone layout).
  */
 const TWO_COLUMNS_QUERY = '(min-width: 64rem)';
 const NARROW_TABS: Array<{ value: DetailTab; label: string }> = [TABS[0]!, { value: 'status', label: 'Status' }, ...TABS.slice(1)];
@@ -60,6 +61,7 @@ function DetailBody({
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  const { t } = usePublicConstants();
   const toast = useToast();
   const wide = useMediaQuery(TWO_COLUMNS_QUERY);
   const [tab, setTab] = useState<DetailTab>('overview');
@@ -145,7 +147,7 @@ function DetailBody({
             }
             onClick={() => favorite.mutate({ id: application.id, favorite: !application.favorite })}
           >
-            {application.favorite ? 'Unfavorite' : 'Favorite'}
+            {application.favorite ? 'Remove from favorites' : 'Add to favorites'}
           </Button>
           <Button
             variant="outline"
@@ -153,7 +155,7 @@ function DetailBody({
             icon={application.archivedAt ? <ArrowCounterClockwiseIcon size={16} /> : <ArchiveIcon size={16} />}
             onClick={() => void toggleArchive()}
           >
-            {application.archivedAt ? 'Unarchive' : 'Archive'}
+            {application.archivedAt ? 'Restore' : 'Archive'}
           </Button>
           <Button variant="destructive-outline" icon={<TrashIcon size={16} />} onClick={() => setConfirmDelete(true)}>
             Delete
@@ -171,7 +173,7 @@ function DetailBody({
             items={wide ? TABS : NARROW_TABS}
             className="min-w-0"
           >
-            {/* Kept mounted so an unsaved Edit Job Posting survives a look at another tab. */}
+            {/* Kept mounted so an unsaved edit of the job's details survives a look at another tab. */}
             <TabPanel value="overview" className="pt-5" keepMounted>
               <OverviewTab application={application} editing={editing} onEditingChange={setEditing} />
             </TabPanel>
@@ -207,8 +209,8 @@ function DetailBody({
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Delete Application"
-        description="Are you sure you want to delete this application? You won't be able to undo this action."
+        title={t('MSG_TRACKER_DELETE_ONE_TITLE')}
+        description={t('MSG_TRACKER_DELETE_ONE_TEXT', { title: application.title, company: application.companyName })}
         confirmLabel="Delete"
         busyLabel="Deleting..."
         onConfirm={async () => {
@@ -221,8 +223,8 @@ function DetailBody({
       <ConfirmDialog
         open={askApplied}
         onOpenChange={setAskApplied}
-        title="Did you apply?"
-        description={`Let us know if you finished applying to ${application.title} at ${application.companyName}, and we'll move it to Applied.`}
+        title="Applied to this job?"
+        description={`If you finished applying to ${application.title} at ${application.companyName}, Yes moves it to Applied.`}
         confirmLabel="Yes, I applied"
         cancelLabel="Not yet"
         tone="primary"
@@ -253,8 +255,8 @@ function DetailSkeleton() {
 }
 
 /**
- * Simplify's application detail: a right sheet (max-w-7xl) with the header actions, the Overview / Documents /
- * Resume Score / Questions / Submitted answers tabs, and the status timeline and notes on the right.
+ * The application detail: a right sheet (max-w-7xl) with the header actions, the Overview / Documents /
+ * Your match / Questions / Submitted answers tabs, and the status timeline and notes on the right.
  */
 export function DetailSheet({
   id,

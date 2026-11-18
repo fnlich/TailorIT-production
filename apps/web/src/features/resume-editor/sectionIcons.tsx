@@ -43,7 +43,7 @@ export function SectionGlyph({ icon, size = 36 }: { icon: SectionIcon; size?: 32
   return (
     <span
       aria-hidden="true"
-      className="flex shrink-0 items-center justify-center rounded-control bg-primary-container text-primary-ink"
+      className="flex shrink-0 items-center justify-center rounded-control bg-primary-soft text-primary-ink"
       style={{ width: size, height: size }}
     >
       <Glyph size={size >= 40 ? 20 : 18} />

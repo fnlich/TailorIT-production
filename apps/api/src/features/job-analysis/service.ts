@@ -28,6 +28,7 @@ import {
   type ViewFacets,
 } from './store';
 import type { EnsuredAnalysis, JobAnalysisService } from './types';
+import { ADDED_BY_AUTOFILL } from '../ingest/types'; // v31 FIX-LINK (SEC-7)
 
 // The analysis a job shows (docs/ARCHITECTURE.md §9): the best one stored for its text (AI > free_tailor lake >
 // deterministic), with the posting's facets (soft skills, certifications and industries, required years).
@@ -213,10 +214,14 @@ export const SERVICE_SQL = {
     'WHERE j.content_hash = ? AND p.current_status = 1 AND p.archived_at IS NULL LIMIT 1',
   // A text a person's page gave (autofill API version 5): quoted as untrusted. Any job of the text that an account
   // owns (made from a page; so whatever became of the job pages' source) or that the job pages' source holds.
+  // v31 FIX-LINK (REV-SEC SEC-7): or that a page an add read holds (Add job's career-site source: disabled, marked
+  // `addedBy: autofill`; the page's JSON-LD is whatever its owner wrote), or v3.0's published page copies (`ext_page`:
+  // a browser's text). Its two parameters: the text's hash, Add job's marker (ingest/types.ts ADDED_BY_AUTOFILL).
   fromPage: `SELECT 1 AS found FROM jobs WHERE content_hash = ? AND owner_user_id IS NOT NULL
        UNION ALL
        SELECT 1 FROM jobs j JOIN job_source_links l ON l.job_id = j.id JOIN job_sources s ON s.id = l.source_id
-       WHERE j.content_hash = ? AND s.kind = 'page' LIMIT 1`,
+       WHERE j.content_hash = ? AND (s.kind IN ('page', 'ext_page')
+         OR (s.kind = 'career_site' AND NOT s.enabled AND s.config ->> 'addedBy' = ?)) LIMIT 1`,
 } as const;
 
 /** A job row as the service reads it. */
@@ -513,7 +518,7 @@ export function createJobAnalysisService(deps: AppDeps, memory: JobAnalysisMemor
         company: target.company_name,
         locations: target.locations_text,
         description: target.description_text,
-        fromPage: (await db.one(SERVICE_SQL.fromPage, [target.content_hash, target.content_hash])) !== undefined,
+        fromPage: (await db.one(SERVICE_SQL.fromPage, [target.content_hash, target.content_hash, ADDED_BY_AUTOFILL])) !== undefined,
       });
       const deterministic = (await analysesOf(target)).find((record) => record.source === 'deterministic' && record.version === DETERMINISTIC_VERSION);
       const finished = finishAiAnalysis(

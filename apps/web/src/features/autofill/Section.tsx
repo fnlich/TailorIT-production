@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, type ReactNode } from 'react';
+import { Card } from '@/components/ui/Card';
 
 /**
  * The level of a card's heading: 2 on a tab of its own, 3 inside the profile wizard (v1.4 E), whose step title is the
@@ -8,7 +9,10 @@ import { createContext, useContext, type ReactNode } from 'react';
  */
 export const SectionHeadingLevel = createContext<2 | 3>(2);
 
-/** A card of Settings › Autofill: Simplify's settings section, with an optional button at its top right. */
+/**
+ * A card of Settings › Autofill: its title and one line under it, an optional button at its top right, then its
+ * content. A white `Card` on the page's canvas, the title in the section-heading style.
+ */
 export function Section({
   id,
   title,
@@ -25,20 +29,22 @@ export function Section({
 }) {
   const Heading = useContext(SectionHeadingLevel) === 3 ? 'h3' : 'h2';
   return (
-    <section
+    <Card
+      as="section"
+      padding="none"
       id={id}
       tabIndex={id ? -1 : undefined}
-      className="scroll-mt-20 rounded-surface border border-border bg-surface p-6 shadow-soft outline-none"
+      className="scroll-mt-[calc(var(--spacing-topbar)_+_16px)] p-5 outline-none sm:p-6"
       aria-label={title}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <Heading className="text-base leading-6 font-semibold text-foreground">{title}</Heading>
-          {description && <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{description}</p>}
+          <Heading className="text-heading font-semibold text-foreground">{title}</Heading>
+          {description && <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{description}</p>}
         </div>
         {action}
       </div>
       <div className="mt-5">{children}</div>
-    </section>
+    </Card>
   );
 }

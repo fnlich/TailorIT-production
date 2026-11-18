@@ -1,8 +1,9 @@
 // v3.0 PG-0: the embedded PostgreSQL's start and stop for the launchers (scripts/dev.mjs and start.mjs: the owner's
 // cluster; scripts/test-servers.mjs: a test cluster). One small entry with no feature imports, so it starts fast.
 //
-//   cluster-cli start [--test] [--database <name> [--fresh]]   prints one JSON line: {"started":bool,"port",url?}
-//                                                              (url, with its password: test clusters only)
+//   cluster-cli start [--test] [--database <name> [--fresh]]   prints one JSON line: {"started":bool,"port",url?,dataDir?}
+//                                                              (url, with its password, and v31 FIX-AUTH's dataDir: test
+//                                                              clusters only; scripts/test-servers.mjs hands them on)
 //   cluster-cli stop  [--test] [--if-idle]                      --if-idle: only when no other session is open
 //   cluster-cli status [--test]
 //
@@ -37,7 +38,8 @@ async function main(): Promise<void> {
     if (database) await ensureDatabase(cluster, database, { fresh: args.includes('--fresh') });
     // The URL (with its password) only for a test cluster: the owner's password stays in its file.
     const url = test && database ? { url: urlOf(cluster, database) } : {};
-    console.log(JSON.stringify({ started, port: cluster.port, ...url }));
+    const folder = test ? { dataDir: cluster.dataDir } : {}; // v31 FIX-AUTH (SEC-9)
+    console.log(JSON.stringify({ started, port: cluster.port, ...url, ...folder }));
     return;
   }
   if (command === 'stop') {

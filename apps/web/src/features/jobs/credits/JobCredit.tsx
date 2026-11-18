@@ -31,16 +31,13 @@ function CreditText({ credit }: { credit: JobCreditValue | null | undefined }) {
 }
 
 /**
- * The card's credit line, under its link and in line with its words: `inset` follows the card's left edge (its logo,
- * or the box before the logo while jobs are chosen to save).
+ * The feed row's credit line, under the row's words. v31 FIX-JOBS: the row's title link is stretched over the row, so
+ * the line sits above it (`relative z-10`) and its own link stays its own.
  */
-export function CardCredit({ credit, inset = 'logo' }: { credit: JobCreditValue | null | undefined; inset?: 'logo' | 'box' }) {
+export function CardCredit({ credit, className }: { credit: JobCreditValue | null | undefined; className?: string }) {
   if (!creditLine(credit)) return null;
   return (
-    <p
-      className={clsx('-mt-3 truncate pr-14 pb-3 text-xs leading-4 text-muted-foreground', inset === 'box' ? 'pl-[100px]' : 'pl-[68px]')}
-      data-job-credit="card"
-    >
+    <p className={clsx('relative z-10 w-fit max-w-full truncate text-xs leading-4 text-muted-foreground', className)} data-job-credit="card">
       <CreditText credit={credit} />
     </p>
   );

@@ -67,7 +67,7 @@ export function PurgesSheet({ open, onOpenChange }: { open: boolean; onOpenChang
           ) : items.length === 0 ? (
             <EmptyState size="sm" title="No purges" description="Purge a source from its menu on the Sources tab." />
           ) : (
-            <ul className="flex flex-col divide-y divide-border rounded-surface border border-border" aria-label="Purges">
+            <ul className="flex flex-col divide-y divide-divider-soft rounded-card border border-border" aria-label="Purges">
               {items.map((purge) => (
                 <li key={purge.id} className="flex flex-col gap-1 px-4 py-3" data-purge={purge.id}>
                   <div className="flex flex-wrap items-center gap-2">

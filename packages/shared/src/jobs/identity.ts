@@ -1,5 +1,8 @@
 // What makes two postings, or two company names, the same. Used by ingestion's dedupe and by the tracker when a job is
 // saved. Pure string work; the API hashes `normalizeJobText` with SHA-256 for `jobs.content_hash`.
+// v31 LINK: a link's noise (tracking marks, `source`/`src`, a job board's name as a value, the keep-only boards) is
+// canonical.ts' one list (isLinkNoise), shared with canonicalJobUrl.
+import { canonicalPath, keptLinkParameters, linkQueryOf } from './canonical';
 
 interface UrlLike {
   protocol: string;
@@ -10,47 +13,10 @@ interface UrlLike {
   searchParams: Iterable<[string, string]>;
 }
 
-interface SearchParamsLike {
-  toString(): string;
-}
-
-// URL and URLSearchParams exist in every browser and in Node; this package's lib types (ES only) do not declare them.
+// URL exists in every browser and in Node; this package's lib types (ES only) do not declare it.
 const runtime = globalThis as unknown as {
   URL?: new (input: string) => UrlLike;
-  URLSearchParams?: new (init: Array<[string, string]>) => SearchParamsLike;
 };
-
-/** Query parameters that say how someone arrived at a posting, not which posting it is (compared lower-case). */
-const TRACKING_PARAMETERS = new Set([
-  'gclid',
-  'dclid',
-  'gbraid',
-  'wbraid',
-  'fbclid',
-  'msclkid',
-  'yclid',
-  'igshid',
-  'mc_cid',
-  'mc_eid',
-  '_ga',
-  '_gl',
-  '_hsenc',
-  '_hsmi',
-  'ref',
-  'ref_src',
-  'refid',
-  'referrer',
-  'trk',
-  'trackingid',
-  'gh_src',
-  'lever-source',
-  'lever-origin',
-]);
-
-function isTrackingParameter(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower.startsWith('utm_') || TRACKING_PARAMETERS.has(lower);
-}
 
 /**
  * JobDiva's candidate portal (autofill API 7): www<n>.jobdiva.com/portal/?a=<agency>#/jobs/<id>, where the job lives
@@ -68,11 +34,12 @@ function fragmentJob(url: UrlLike): string | null {
 
 /**
  * A job link as an identity (free_tailor's `linkKey`): http and https folded together, the host lower-case, a default
- * port and the #fragment dropped, tracking parameters (`utm_*`, `gclid`, `ref`, ...) removed and the rest sorted, one
- * trailing slash folded. The path keeps its case (boards put case-sensitive ids there). Null for anything that is not
- * an http(s) URL. One fragment counts (jr7, autofill API 7): a JobDiva portal's job route, #/jobs/<id>, which is the
+ * port and the #fragment dropped, the link's noise (canonical.ts isLinkNoise: `utm_*`, `source`, `src`, `gclid`, `ref`,
+ * a job board's name as a value, every parameter but its own on Indeed and Glassdoor, ...) removed and the rest sorted,
+ * a session matrix parameter (;jsessionid=...) and one trailing slash dropped. The path keeps its case (boards put case-sensitive ids there). Null for anything that is
+ * not an http(s) URL. One fragment counts (jr7, autofill API 7): a JobDiva portal's job route, #/jobs/<id>, which is the
  * only place its job is named; it is kept as the query's `id` (JobDiva's own older spelling of the same job, which it
- * replaces), so two jobs of one agency's portal never share a key.
+ * replaces), so two jobs of one agency's portal never share a key. v31 LINK: linkKey(canonicalJobUrl(x)) === linkKey(x).
  */
 export function linkKey(link: unknown): string | null {
   if (typeof link !== 'string' || !runtime.URL) return null;
@@ -87,19 +54,14 @@ export function linkKey(link: unknown): string | null {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
   if (!url.hostname) return null;
 
+  const host = url.hostname.toLowerCase().replace(/\.+$/, '');
   const job = fragmentJob(url);
-  const params = [...url.searchParams].filter(([name]) => !isTrackingParameter(name) && !(job !== null && name === 'id'));
+  const params = [...url.searchParams].filter(([name]) => !(job !== null && name === 'id'));
   if (job !== null) params.push(['id', job]);
-  const kept = params.sort(([a, aValue], [b, bValue]) => (a === b ? aValue.localeCompare(bValue) : a.localeCompare(b)));
-  const encoded = runtime.URLSearchParams
-    ? new runtime.URLSearchParams(kept).toString()
-    : kept.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join('&');
-  const search = kept.length > 0 ? `?${encoded}` : '';
+  const search = linkQueryOf(keptLinkParameters(params, host));
 
-  let pathname = url.pathname || '/';
-  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
   const port = url.port && url.port !== '80' && url.port !== '443' ? `:${url.port}` : '';
-  return `https://${url.hostname}${port}${pathname}${search}`;
+  return `https://${host}${port}${canonicalPath(url.pathname)}${search}`;
 }
 
 /** Legal suffixes dropped from the end of a company name, longest first so "pty ltd" goes before "ltd". */

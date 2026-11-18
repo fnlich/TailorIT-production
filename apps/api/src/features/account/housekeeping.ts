@@ -4,6 +4,7 @@ import { autoApplyWindow, constantsOf, dayKeyAt } from '../../core/constants/ind
 import type { AppDeps } from '../../core/context';
 import type { DailyStep } from '../../core/feature';
 import { RETENTION_DAILY } from './retention';
+import { notifyPaidEnding } from '../notifications/housekeeping'; // v31 NOTIFY
 
 // v2.0: the daily housekeeping (docs/design/v2.0/01-data-model.md, "Retention and housekeeping"). Once at start, then
 // every 24 hours, it:
@@ -89,8 +90,22 @@ export const rewriteLapsedAccounts: DailyStep = {
   },
 };
 
+// v31 NOTIFY
+/** Paid terms ending within PAID_ENDING_DAYS: one notification each (features/notifications, deduped per term). */
+export const notifyPaidEndingSoon: DailyStep = {
+  name: 'paidEnding',
+  run: (deps) => notifyPaidEnding(deps),
+};
+// end v31 NOTIFY
+
 /**
  * accountFeature.daily, in the order the v2.0 housekeeping ran them (the other steps are their own features'), then
- * v3.0's retention rules (./retention.ts, v30 DB-JOBS).
+ * v3.0's retention rules (./retention.ts, v30 DB-JOBS), then v3.1's Paid-ending notices (v31 NOTIFY).
  */
-export const ACCOUNT_DAILY: readonly DailyStep[] = [pruneAiSpendDays, pruneReservations, rewriteLapsedAccounts, ...RETENTION_DAILY];
+export const ACCOUNT_DAILY: readonly DailyStep[] = [
+  pruneAiSpendDays,
+  pruneReservations,
+  rewriteLapsedAccounts,
+  ...RETENTION_DAILY,
+  notifyPaidEndingSoon, // v31 NOTIFY
+];

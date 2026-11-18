@@ -65,8 +65,12 @@ export const JOB_SOURCE_DISCOVERED_VIA_LABEL: Record<JobSourceDiscoveredVia, str
 /** What started a run (job_source_runs, today's ingest_runs renamed; `liveness` is a per-posting read). */
 export const JOB_SOURCE_RUN_TRIGGERS = ['schedule', 'manual', 'upload', 'startup', 'liveness'] as const;
 export type JobSourceRunTrigger = (typeof JOB_SOURCE_RUN_TRIGGERS)[number];
-/** How a run ended; `not_modified` is a 304: the listing is complete and unchanged. */
-export const JOB_SOURCE_RUN_STATUSES = ['running', 'succeeded', 'failed', 'partial', 'not_modified'] as const;
+/**
+ * How a run ended; `not_modified` is a 304: the listing is complete and unchanged. v31 RUNS: `paused`, an admin paused it
+ * (or every run) and it stopped at its next safe point: what it saved stays, it closed nothing, and Continue reads the
+ * source again from the top.
+ */
+export const JOB_SOURCE_RUN_STATUSES = ['running', 'succeeded', 'failed', 'partial', 'not_modified', 'paused'] as const;
 export type JobSourceRunStatus = (typeof JOB_SOURCE_RUN_STATUSES)[number];
 
 /** A found board's state (12 §4.2): validated once, then a source, or tried again, or never run. */

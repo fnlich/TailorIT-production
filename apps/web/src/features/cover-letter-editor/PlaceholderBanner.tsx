@@ -2,8 +2,6 @@
 
 import { useState, type FormEvent } from 'react';
 import {
-  PLACEHOLDER_BANNER_TEXT,
-  PLACEHOLDER_BANNER_TITLE,
   REPLACE_PLACEHOLDER_TITLE,
   replacePlaceholderHint,
   variableDefinition,
@@ -13,23 +11,26 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
 import { WarningCircleIcon } from '@/components/ui/icons';
 import { Textarea } from '@/components/ui/Input';
+import { usePublicConstants } from '@/lib/constants';
 
 /**
- * Simplify's amber "Almost there" banner over the paper: one chip per `{{TAG}}` still in the letter; a chip opens
- * "Replace placeholder", which replaces every copy of that tag.
+ * The "A few blanks left to fill" banner over the paper (v31 FIX-DOCS: MSG_LETTER_BLANKS_TITLE / _TEXT), in the warning notice's look (warning-soft, warning ink, a 3 px leading
+ * bar): one chip per `{{TAG}}` still in the letter; a chip opens "Replace placeholder", which replaces every copy of
+ * that tag.
  */
 export function PlaceholderBanner({ names, onPick }: { names: readonly string[]; onPick: (name: string) => void }) {
+  const { t } = usePublicConstants();
   if (names.length === 0) return null;
   return (
     <section
       aria-label="Unfilled placeholders"
       data-placeholder-banner=""
-      className="flex items-start gap-3 rounded-[12px] border border-[#f1e6c4] bg-amber px-4 py-3.5 text-amber-foreground"
+      className="flex items-start gap-3 rounded-control border-l-[3px] border-warning bg-warning-soft px-4 py-3.5 text-warning-ink"
     >
       <WarningCircleIcon size={20} weight="fill" className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-5 font-semibold">{PLACEHOLDER_BANNER_TITLE}</p>
-        <p className="text-[13px] leading-5">{PLACEHOLDER_BANNER_TEXT}</p>
+        <p className="text-sm leading-5 font-semibold">{t('MSG_LETTER_BLANKS_TITLE')}</p>
+        <p className="text-[13px] leading-5">{t('MSG_LETTER_BLANKS_TEXT')}</p>
         <ul className="mt-2.5 flex flex-wrap gap-2">
           {names.map((name) => (
             <li key={name}>
@@ -37,7 +38,7 @@ export function PlaceholderBanner({ names, onPick }: { names: readonly string[];
                 type="button"
                 onClick={() => onPick(name)}
                 title={variableDefinition(name)?.description}
-                className="rounded-[4px] bg-sky px-1.5 py-px text-[13px] font-medium text-sky-foreground ring-1 ring-[#cfe7f8] transition-colors hover:bg-[#d9eefc] focus-visible:outline-offset-1"
+                className="rounded-tag bg-primary-soft px-1.5 py-px text-[13px] font-medium text-primary-ink ring-1 ring-primary-200 transition-colors hover:bg-primary-100 focus-visible:outline-offset-1"
               >
                 {`{{${name}}}`}
               </button>

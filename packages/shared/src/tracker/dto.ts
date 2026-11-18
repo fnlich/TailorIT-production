@@ -3,6 +3,8 @@ import { IsoDate, IsoDateTime, listResponse } from '../core/list';
 import { formatShortDate, type DateInput } from '../format/dates';
 import { firstParam, listParam, queryBoolean, queryEnum, queryNumber, queryText } from '../format/params';
 import { JobCreditSchema } from '../jobs/dto'; // v30 FIX-B
+import { canonicalJobUrl } from '../jobs/canonical'; // v31 LINK
+import { JobVerificationSchema } from '../jobs/add'; // v31 LINK
 import { EMPLOYMENT_TYPES, EMPLOYMENT_TYPE_LABEL, type EmploymentType } from '../jobs/enums';
 import { TRACKER_PAY_PERIODS } from './csv';
 import { RESUME_ORIGINS } from './resumeMatch';
@@ -165,6 +167,12 @@ export const ApplicationSummarySchema = z.object({
    */
   closed: z.literal(true).optional(),
   // end v30 FIX-B
+  /**
+   * v31 LINK (21-jobs-from-links.md §6): its job is one others do not see, and why: waiting for an admin, or the
+   * account's own because TailorIT could not read its link (the job DTOs' `verification`). Absent: everyone sees it,
+   * or the entry has no job.
+   */
+  verification: JobVerificationSchema.optional(),
 });
 export type ApplicationSummary = z.infer<typeof ApplicationSummarySchema>;
 
@@ -260,14 +268,17 @@ export type ApplicationDetail = z.infer<typeof ApplicationDetailSchema>;
 
 export const URL_MESSAGE = 'Must be a valid url';
 
-/** An http(s) URL, or ''. A bare domain gets "https://" ("acme.com/jobs/1" -> "https://acme.com/jobs/1"). */
+/**
+ * An http(s) URL, or ''. A bare domain gets "https://" ("acme.com/jobs/1" -> "https://acme.com/jobs/1"). v31 LINK: a
+ * posting's link is kept in its canonical form (canonicalJobUrl: no "?utm_source=..." or "?source=..." mark, https,
+ * the query sorted); a local development address (localhost) stays as written.
+ */
 export function normalizeUrlInput(value: string): string | null {
   const text = value.trim();
   if (!text) return '';
   const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`;
-  return /^https?:\/\/[^\s/$.?#][^\s]*\.[^\s]*$|^https?:\/\/localhost(?::\d+)?(?:\/\S*)?$/i.test(withScheme)
-    ? withScheme
-    : null;
+  if (/^https?:\/\/localhost(?::\d+)?(?:\/\S*)?$/i.test(withScheme)) return withScheme;
+  return /^https?:\/\/[^\s/$.?#][^\s]*\.[^\s]*$/i.test(withScheme) ? (canonicalJobUrl(withScheme) ?? null) : null;
 }
 
 const UrlField = z
@@ -306,6 +317,9 @@ export const CreateApplicationBodySchema = z
   })
   .superRefine((body, ctx) => {
     if (body.jobId) return;
+    // v31 LINK: an entry with a posting's link may come with the link alone: TailorIT reads the title and company from
+    // it (the server asks for them when it cannot read the link).
+    if (body.postingUrl) return;
     if (!body.title) ctx.addIssue({ code: 'custom', path: ['title'], message: 'Required' });
     if (!body.companyName) ctx.addIssue({ code: 'custom', path: ['companyName'], message: 'Required' });
     if (!body.employmentType) ctx.addIssue({ code: 'custom', path: ['employmentType'], message: 'Required' });
@@ -377,7 +391,7 @@ export const BULK_ACTIONS = ['archive', 'unarchive', 'delete', 'status'] as cons
 export type BulkAction = (typeof BULK_ACTIONS)[number];
 
 /**
- * POST /api/applications/bulk ("Manage jobs"). `status` is required for the status action. `onlySaved` (archive only)
+ * POST /api/applications/bulk (the Tracker's Select applications). `status` is required for the status action. `onlySaved` (archive only)
  * leaves alone the applications that have moved past Saved: Save all's Undo, which archives what the click saved.
  */
 export const BulkApplicationsBodySchema = z
@@ -407,7 +421,7 @@ export const ArchiveAllResponseSchema = z.object({ archived: z.number().int().no
 export const RESUME_ZIP_MAX_APPLICATIONS = 500;
 
 /**
- * POST /api/applications/resume-zip ("Build resumes"): 202 { buildId }. With `ids`, those applications (the Manage jobs
+ * POST /api/applications/resume-zip ("Build resumes"): 202 { buildId }. With `ids`, those applications (the Select applications
  * selection); without, every active Saved application in tracked order. `tzOffsetMinutes` is the browser's offset
  * east of UTC (-new Date().getTimezoneOffset(): -300 in New York in winter), so the files' times read as local time.
  */

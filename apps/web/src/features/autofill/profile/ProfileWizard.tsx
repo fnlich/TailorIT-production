@@ -59,18 +59,18 @@ export function StepHeader({ step, headingRef }: { step: WizardStepId; headingRe
   const info = wizardStep(step);
   return (
     <div className="flex flex-col gap-1">
-      <p className="text-xs leading-4 font-semibold tracking-[0.04em] text-primary-ink uppercase">
+      <p className="text-xs leading-4 font-semibold tracking-[0.06em] text-primary-ink uppercase">
         Step {stepIndex(step) + 1} of {WIZARD_STEPS.length}
       </p>
       <h2
         ref={headingRef}
         tabIndex={-1}
-        className="scroll-mt-24 text-xl leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none"
+        className="scroll-mt-24 font-display text-xl leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none"
         data-step-heading=""
       >
         {info.title}
       </h2>
-      <p className="text-sm leading-5 text-[#5c5c5c]">{info.description}</p>
+      <p className="text-sm leading-5 text-muted-foreground">{info.description}</p>
     </div>
   );
 }
@@ -127,7 +127,7 @@ export function ImportStep({
               </ul>
             </Notice>
           )}
-          <p className="text-[13px] leading-5 text-[#5c5c5c]">
+          <p className="text-[13px] leading-5 text-muted-foreground">
             No resume to fill from? Go on with Next and type your answers in.
           </p>
         </div>
@@ -154,8 +154,8 @@ export function ReviewStep({
   return (
     <>
       <OnceChecklistSection />
-      <section aria-label="Your profile, step by step" className="rounded-surface border border-border bg-surface shadow-soft">
-        <ul className="divide-y divide-border">
+      <section aria-label="Your profile, step by step" className="rounded-card border border-border bg-surface shadow-card">
+        <ul className="divide-y divide-divider-soft">
           {REVIEWED.map((id) => {
             const step = wizardStep(id);
             const summary = stepSummary(id, draft, names);
@@ -172,7 +172,7 @@ export function ReviewStep({
                     {needsChange ? (
                       <Badge tone="destructive">Needs a change</Badge>
                     ) : summary.filled ? (
-                      <CheckCircleIcon size={18} weight="fill" className="text-[#02703c]" aria-label="Filled in" role="img" />
+                      <CheckCircleIcon size={18} weight="fill" className="text-success" aria-label="Filled in" role="img" />
                     ) : id === 'documents' ? (
                       // Its defaults are choices too: the best match, the resume's own template, no letter template.
                       <Badge tone="neutral">Defaults</Badge>
@@ -189,7 +189,7 @@ export function ReviewStep({
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-1 text-[13px] leading-5 text-[#5c5c5c]">Nothing here yet.</p>
+                    <p className="mt-1 text-[13px] leading-5 text-muted-foreground">Nothing here yet.</p>
                   )}
                 </div>
                 <Button
@@ -232,7 +232,7 @@ export function OtherStepsNotice({ steps, onGo }: { steps: readonly WizardStepId
 
 /**
  * Back, the save status, Discard changes, Save & exit and Next (Save changes on the Review), in a bar that sticks to
- * the bottom of the window. On a phone the status and Discard go on a line of their own above the buttons.
+ * the bottom of the window (from 1024 px a card floating just over it). On a phone the status and Discard go on a line of their own above the buttons.
  */
 export function WizardFooter({
   step,
@@ -255,7 +255,7 @@ export function WizardFooter({
   const review = step === 'review';
   const status: ReactNode = saving ? 'Saving...' : dirty ? 'Unsaved changes' : savedThisVisit ? (
     <span className="inline-flex items-center gap-1">
-      <CheckCircleIcon size={14} weight="fill" className="text-[#02703c]" />
+      <CheckCircleIcon size={14} weight="fill" className="text-success" />
       All changes saved
     </span>
   ) : null;
@@ -269,13 +269,15 @@ export function WizardFooter({
       data-wizard-footer=""
       className={clsx(
         'sticky bottom-0 z-20 -mx-4 border-t border-border bg-surface/95 px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur-sm',
-        'sm:-mx-6 sm:px-6 lg:mx-0 lg:rounded-t-surface lg:border-x lg:px-5',
+        // v31 FIX-WEB (REV-UX UX-11): from 1024 px a whole card (four edges, all corners) that floats 12 px over the
+        // window's bottom, so it reads as one bar whether it is stuck there or sits under a short step.
+        'sm:-mx-6 sm:px-6 lg:bottom-3 lg:mx-0 lg:rounded-card lg:border lg:px-5 lg:shadow-popover',
       )}
     >
       {/* A phone's line: the status and Discard. */}
       {(dirty || status) && (
         <div className="mb-2 flex min-h-8 items-center justify-between gap-3 sm:hidden">
-          <p role="status" className="truncate text-[13px] leading-5 text-[#5c5c5c]">
+          <p role="status" className="truncate text-[13px] leading-5 text-muted-foreground">
             {status}
           </p>
           {dirty && discard}
@@ -285,7 +287,7 @@ export function WizardFooter({
         <Button variant="outline" icon={<CaretLeftIcon size={14} />} disabled={first || saving} onClick={onBack}>
           Back
         </Button>
-        <p role="status" className="hidden min-w-0 flex-1 truncate text-[13px] leading-5 text-[#5c5c5c] sm:block">
+        <p role="status" className="hidden min-w-0 flex-1 truncate text-[13px] leading-5 text-muted-foreground sm:block">
           {status}
         </p>
         <span className="flex-1 sm:hidden" />

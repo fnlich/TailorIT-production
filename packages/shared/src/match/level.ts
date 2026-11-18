@@ -1,11 +1,11 @@
 import { EXPERIENCE_LEVELS, EXPERIENCE_LEVEL_SHORT, type ExperienceLevel } from '../jobs/enums';
 import type { LevelMatch } from './schemas';
 
-/** Simplify's tooltip line for a posting whose level is one the user is looking for. */
-export const LEVEL_MATCH_PREFIX = 'Your experience level matches one of the following:';
+/** v31 FIX-DOCS (REV-REQ REQ-3): the line for a posting whose level is one the user is looking for, in TailorIT's words. */
+export const LEVEL_MATCH_PREFIX = "Your level fits. This job is for:";
 export const LEVEL_JOB_ASKS_PREFIX = 'This job asks for:';
 export const LEVEL_LOOKING_FOR_PREFIX = "You're looking for:";
-export const LEVEL_ADJACENT_NOTE = 'You can still be a good fit — employers often consider adjacent experience levels.';
+export const LEVEL_ADJACENT_NOTE = 'Employers often consider a level up or down, so it can still be worth applying.';
 
 function labelsOf(levels: readonly ExperienceLevel[]): string[] {
   const set = new Set(levels);
@@ -14,7 +14,7 @@ function labelsOf(levels: readonly ExperienceLevel[]): string[] {
 
 /**
  * The facts grid's experience-level check: the posting's levels against the levels the user prefers (Settings). Any
- * overlap is a match; none is a mismatch with Simplify's reassurance; no preferences, or a posting with no level,
+ * overlap is a match; none is a mismatch with a reassurance (an adjacent level is often considered); no preferences, or a posting with no level,
  * shows nothing. Labels are the short forms ("Entry", "Mid", ...), in level order.
  */
 export function levelMatch(

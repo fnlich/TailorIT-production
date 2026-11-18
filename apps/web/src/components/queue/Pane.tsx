@@ -7,6 +7,8 @@ import type { ReactNode } from 'react';
 // docs/design/v2.0/08-ui.md, "Layout"): a card with a sticky header (the `h2` title and its count, the controls), its
 // list scrolling inside the pane on wide screens so two panes stay in view. The Auto-apply page's Saved and Queue
 // panes use it, and Admin › Review (wave 2) will.
+// v31 AUTO: on the v3.1 tokens (docs/design/v3.1/20-visual-identity.md): a card (radius 10, the card shadow), the
+// title as a section heading with its count in mono, and the scrolling body's height from the top bar's token.
 
 export interface PaneProps {
   /** The h2's id (the section's aria-labelledby). */
@@ -28,20 +30,20 @@ export function Pane({ id, title, count, controls, scroll, footer, children, cla
   return (
     <section
       aria-labelledby={id}
-      className={clsx('flex min-w-0 flex-col rounded-surface border border-border bg-surface shadow-soft', className)}
+      className={clsx('flex min-w-0 flex-col rounded-card border border-border bg-surface shadow-card', className)}
     >
       <header
         className={clsx(
-          'flex flex-col gap-3 rounded-t-surface border-b border-border bg-surface px-4 pt-4 pb-3 sm:px-5',
-          !scroll && 'sticky top-[63px] z-10',
+          'flex flex-col gap-3 rounded-t-card border-b border-border bg-surface px-4 pt-4 pb-3 sm:px-5',
+          !scroll && 'sticky top-topbar z-10',
         )}
       >
         <div className="flex items-baseline gap-2">
-          <h2 id={id} className="text-base leading-6 font-semibold text-foreground">
+          <h2 id={id} className="text-heading font-semibold text-foreground">
             {title}
           </h2>
           {count !== null && (
-            <span className="text-sm text-muted-foreground tabular-nums" data-pane-count="">
+            <span className="num text-sm text-muted-foreground" data-pane-count="">
               {count}
             </span>
           )}
@@ -51,7 +53,10 @@ export function Pane({ id, title, count, controls, scroll, footer, children, cla
       {/* v2.0 fix (UX-1, UX-2): the rows lay out by the pane's width (`@container/pane`), not the viewport's: a pane is
           about 390 px wide at 1024 and 490 px at 1440, beside the other one. */}
       <div
-        className={clsx('@container/pane min-h-0', scroll && 'max-h-[calc(100dvh-220px)] overflow-y-auto overscroll-contain')}
+        className={clsx(
+          '@container/pane min-h-0',
+          scroll && 'max-h-[calc(100dvh_-_var(--spacing-topbar)_-_10rem)] overflow-y-auto overscroll-contain',
+        )}
         data-pane-body=""
       >
         {children}

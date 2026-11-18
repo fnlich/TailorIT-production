@@ -7,9 +7,9 @@ import { CaretRightIcon, CheckIcon } from './icons';
 import { MENU_GROUP_LABEL, MENU_ROW, MENU_ROW_BASE, MENU_SEPARATOR, MENU_SURFACE, Z_FLOATING } from './styles';
 
 /*
- * Simplify's dropdown menu (the tracker "Options" menu, row "More ⌄", the account menu): 240 px wide by default,
- * radius 10, rows 32 px with radius 6, small muted group headings, separators, submenus with ›, checkbox and
- * radio rows. Keyboard: arrows, Home/End, typeahead, Escape (Base UI).
+ * The dropdown menu (the tracker "Options" menu, row "More ⌄", the account menu): 240 px wide by default, radius 10,
+ * rows 32 px with radius 6 that light up denim-soft, small spaced-capital group headings, separators, submenus with ›,
+ * checkbox and radio rows. Keyboard: arrows, Home/End, typeahead, Escape (Base UI).
  *
  *   <Menu>
  *     <MenuTrigger render={<FilterPill label="Options" />} />
@@ -38,7 +38,7 @@ export interface MenuContentProps {
   align?: 'start' | 'center' | 'end';
   sideOffset?: number;
   alignOffset?: number;
-  /** Tailwind width class; Simplify's menus are w-60 (240 px), row menus w-44 (176 px). */
+  /** Tailwind width class; menus are w-60 (240 px), row menus w-44 (176 px). */
   width?: string;
   className?: string;
   'aria-label'?: string;
@@ -108,7 +108,7 @@ export function MenuItem({ children, icon, hint, trailing, tone = 'default', cla
     <BaseMenu.Item
       {...rest}
       className={clsx(
-        tone === 'danger' ? `${MENU_ROW_BASE} text-[#d93636] data-highlighted:bg-destructive-container` : MENU_ROW,
+        tone === 'danger' ? `${MENU_ROW_BASE} text-danger data-highlighted:bg-danger-soft` : MENU_ROW,
         className,
       )}
     >
@@ -160,9 +160,9 @@ export interface MenuCheckboxItemProps {
   children: ReactNode;
   icon?: ReactNode;
   disabled?: boolean;
-  /** Close the menu when toggled (default: stays open, like Simplify's "Show only favorites"). */
+  /** Close the menu when toggled (default: stays open, like "Show only favorites"). */
   closeOnClick?: boolean;
-  /** "box" draws a checkbox at the right (Simplify); "check" a tick at the left. */
+  /** "box" draws a checkbox at the right; "check" a tick at the left. */
   indicator?: 'box' | 'check';
   className?: string;
 }
@@ -186,7 +186,7 @@ export function MenuCheckboxItem({
       className={clsx(MENU_ROW, className)}
     >
       {indicator === 'check' && (
-        <span className="flex size-4 items-center justify-center text-primary-ink">
+        <span className="flex size-4 items-center justify-center text-primary">
           <BaseMenu.CheckboxItemIndicator>
             <CheckIcon size={14} weight="bold" />
           </BaseMenu.CheckboxItemIndicator>
@@ -198,8 +198,8 @@ export function MenuCheckboxItem({
         <span
           aria-hidden="true"
           className={clsx(
-            'ml-auto inline-flex size-[18px] items-center justify-center rounded-[5px] border text-white shadow-control',
-            checked ? 'border-primary bg-primary' : 'border-checkbox bg-surface',
+            'ml-auto inline-flex size-[18px] items-center justify-center rounded-tag border text-on-primary shadow-control',
+            checked ? 'border-primary bg-primary' : 'border-control-strong bg-surface',
           )}
         >
           {checked && <CheckIcon size={12} weight="bold" />}
@@ -245,7 +245,7 @@ export function MenuRadioItem({
 }) {
   return (
     <BaseMenu.RadioItem value={value} disabled={disabled} closeOnClick={closeOnClick} className={clsx(MENU_ROW, className)}>
-      <span className="flex size-4 items-center justify-center text-primary-ink">
+      <span className="flex size-4 items-center justify-center text-primary">
         <BaseMenu.RadioItemIndicator>
           <CheckIcon size={14} weight="bold" />
         </BaseMenu.RadioItemIndicator>
@@ -272,7 +272,7 @@ export function MenuSub({
 }) {
   return (
     <BaseMenu.SubmenuRoot>
-      <BaseMenu.SubmenuTrigger disabled={disabled} className={clsx(MENU_ROW, 'data-popup-open:bg-hover')}>
+      <BaseMenu.SubmenuTrigger disabled={disabled} className={clsx(MENU_ROW, 'data-popup-open:bg-primary-soft')}>
         {icon && <span className="flex text-muted-foreground">{icon}</span>}
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {trailing && <span className="text-xs text-muted-foreground">{trailing}</span>}
@@ -286,7 +286,7 @@ export function MenuSub({
 export function MenuSubContent({ children, width = 'w-56', className }: { children: ReactNode; width?: string; className?: string }) {
   return (
     <BaseMenu.Portal>
-      <BaseMenu.Positioner sideOffset={4} alignOffset={-6} collisionPadding={8} className={clsx(Z_FLOATING, 'outline-none')}>
+      <BaseMenu.Positioner sideOffset={4} alignOffset={-5} collisionPadding={8} className={clsx(Z_FLOATING, 'outline-none')}>
         <BaseMenu.Popup className={clsx(MENU_SURFACE, 'max-h-(--available-height) overflow-y-auto', width, className)}>
           {children}
         </BaseMenu.Popup>

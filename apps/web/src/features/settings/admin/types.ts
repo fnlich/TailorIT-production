@@ -36,7 +36,7 @@ export const SOURCE_KINDS = [
 ] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
-/** Kinds an admin adds from the "Add source" dialog (uploads come from Import jobs). */
+/** Kinds an admin adds from the "Add source" dialog (uploads come from Import links). */
 export const ADDABLE_KINDS = [
   'greenhouse',
   'lever',
@@ -51,7 +51,7 @@ export const ADDABLE_KINDS = [
 ] as const;
 export type AddableKind = (typeof ADDABLE_KINDS)[number];
 
-export type RunStatus = 'running' | 'succeeded' | 'failed' | 'partial' | 'not_modified';
+export type RunStatus = 'running' | 'succeeded' | 'failed' | 'partial' | 'not_modified' | 'paused'; // v31 RUNS: paused
 export type RunTrigger = 'schedule' | 'manual' | 'upload' | 'startup';
 
 export interface RunSummary {
@@ -131,6 +131,18 @@ export interface ImportResult {
   /** Null when a large file (or a slow sheet tab) is still importing in the background (follow `runId` under Runs). */
   run: AdminRunDetail | null;
   runId: number;
+  /**
+   * v31 ADMINWEB: LINK2's note on an import of links (optional: a server before LINK2 leaves it out): the link column
+   * read, the columns ignored, and its words (MSG_JOB_IMPORT_ONLY_LINKS).
+   */
+  links?: ImportLinksNote;
+}
+
+/** v31 ADMINWEB: an import answer's `links` (apps/api/src/features/jobs/add/imports.ts ImportLinksNote, LINK2). */
+export interface ImportLinksNote {
+  column: string | null;
+  ignoredColumns: string[];
+  message: string;
 }
 
 export type { AiHealth };

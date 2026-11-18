@@ -7,9 +7,11 @@ import {
   type McpTokenCreated,
   type McpTokenList,
 } from '@tailorit/shared/mcp';
+import { OAUTH_SERVER_METADATA_PATH } from '@tailorit/shared/oauth';
+import { z } from 'zod';
 import { api } from '@/lib/api';
 
-// Settings › Integrations › "Your own AI (MCP)" (v1.5 M): the session's routes for personal MCP tokens.
+// Integrations (v1.5 M; v3.1 INTEG: AI assistants › Advanced): the session's routes for personal MCP tokens.
 
 export const MCP_TOKENS_KEY = ['mcp', 'tokens'] as const;
 
@@ -41,3 +43,17 @@ export function saveMcpSettings(body: McpSettingsBody): Promise<McpSettings> {
   return api.put<McpSettings>('/api/mcp/settings', body, { schema: McpSettingsSchema });
 }
 // end v1.5 Q1
+
+// v31 INTEG: TailorIT's own address as Claude and ChatGPT see it. The authorization server's metadata (RFC 8414, served
+// beside /mcp at the address people open: Next's rewrites, Caddy's @api_direct block) names its issuer, APP_ORIGIN, from
+// the configuration (never the request's Host). The Connect dialog checks it is a public https address.
+export const OAUTH_SERVER_KEY = ['oauth', 'server'] as const;
+
+const AuthorizationServerSchema = z.object({ issuer: z.string() });
+export type AuthorizationServer = z.infer<typeof AuthorizationServerSchema>;
+
+/** GET /.well-known/oauth-authorization-server: the issuer (APP_ORIGIN). */
+export function fetchAuthorizationServer(signal?: AbortSignal): Promise<AuthorizationServer> {
+  return api.get<AuthorizationServer>(OAUTH_SERVER_METADATA_PATH, { signal, schema: AuthorizationServerSchema });
+}
+// end v31 INTEG

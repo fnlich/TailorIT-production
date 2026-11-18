@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
-import { BriefcaseIcon, PlusIcon, StarIcon, UploadSimpleIcon } from '@/components/ui/icons';
+import { BriefcaseIcon, FileTextIcon, PlusIcon, StarIcon, UploadSimpleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Spinner } from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
@@ -61,6 +61,7 @@ import { ResumeThumb } from './ResumeThumb';
 import { UploadResumeDialog, type RunOutcome, type UploadedResume } from './UploadResumeDialog';
 import { openResumeFile, resumeDetailsHref, useResumeActions } from './useResumeActions';
 import { LimitNotice } from '@/components/limits'; // v20 P8
+import { useRegisterUpload } from '../headerUpload'; // v31 FIX-DOCS
 import { useResumeLimitGate } from './resumeLimit'; // v20 P8
 
 const NOUN = { one: 'resume', many: 'resumes' };
@@ -70,7 +71,7 @@ const TAILORED_MODE_KEY = 'tailorit.documents.resumes.tailoredMode';
 const readTailoredMode = (raw: string | null): TailoredMode => (raw === 'date' ? 'date' : 'total');
 
 /**
- * Documents › Resumes: free_tailor's two views of a person's resumes in Simplify's look, in three folders (v1.5 W,
+ * Documents › Resumes: two views (Grid and List) of a person's resumes, in three folders (v1.5 W,
  * decision 6): Uploaded resumes, Edited resumes and Tailored resumes (Total, or By date: a folder per local day).
  * The folders are tiles (Grid) or rows (List), each with how many it holds and when one last changed; the place is in
  * the address (`?folder=tailored&mode=date&date=2026-11-09`), with breadcrumbs and Back. Inside a folder, Grid: a
@@ -129,6 +130,8 @@ export function ResumesTab() {
   // v20 P8: the Free resume limit: a notice above the list, and New and Upload say it when pressed.
   const resumeGate = useResumeLimitGate();
   const upload = () => !resumeGate.blocks() && setUploading(true);
+  // v31 FIX-DOCS: the page header's Upload opens this section's upload.
+  useRegisterUpload('resumes', upload);
   const actions = useResumeActions({
     visibleIds,
     onTaskStarted: ({ taskId, label }) => addTask({ key: taskId, taskId, label }),
@@ -154,9 +157,10 @@ export function ResumesTab() {
     if (summary) toast.success(summary.title, summary.description);
   };
 
+  // v31 FIX-DOCS: the empty states' own upload (the page header has "Upload"; this one says what it uploads).
   const uploadButton = (
     <Button variant="outline" icon={<UploadSimpleIcon size={16} />} onClick={upload /* v20 P8 */}>
-      Upload
+      Upload a resume
     </Button>
   );
 
@@ -222,9 +226,9 @@ export function ResumesTab() {
     action === 'upload' ? (
       uploadButton
     ) : action === 'new' ? (
-      <Link href={NEW_RESUME_HREF} className={buttonClasses()}>
+      <Link href={NEW_RESUME_HREF} className={buttonClasses()} data-new-fallback="resume">
         <PlusIcon size={16} weight="bold" />
-        New Resume
+        New resume
       </Link>
     ) : action === 'jobs' ? (
       <Link href="/jobs" className={buttonClasses({ variant: 'outline' })}>
@@ -242,11 +246,12 @@ export function ResumesTab() {
       {resumeGate.info && <LimitNotice limit={resumeGate.info} className="mb-4" /> /* v20 P8 */}
       <EditableCopiesNotices />
       <ImportTaskNotices tasks={tasks} onDismiss={(key) => setTasks((current) => current.filter((task) => task.key !== key))} />
-      {/* v1.5 W: the folders' heading at the top (for the page's outline), the folder's own inside one. */}
+      {/* v1.5 W: the folders' heading at the top (for the page's outline), the folder's own inside one (v31 FIX-DOCS: h3s
+          under the Documents panel's h2). */}
       {location.folder === null ? (
-        <h2 ref={headingRef} tabIndex={-1} className="sr-only">
+        <h3 ref={headingRef} tabIndex={-1} className="sr-only">
           {searching ? 'Results from all folders' : 'Resume folders'}
-        </h2>
+        </h3>
       ) : (
         <FolderHeader
           location={location}
@@ -333,7 +338,6 @@ export function ResumesTab() {
           void invalidateResumes(queryClient);
           toast.success(bulkDeleteResult(result));
         }}
-        toolbarExtras={uploadButton}
         loading={listQuery.isPending}
         error={
           listQuery.isError ? (
@@ -354,13 +358,15 @@ export function ResumesTab() {
           folderEmpty
             ? { title: folderEmpty.title, description: folderEmpty.description, action: emptyAction(folderEmpty.action) }
             : {
-                title: 'Create your first resume!',
-                description: 'Get started with a polished resume that highlights your skills and experience.',
+                // v31 FIX-DOCS (REQ-3): the constants' words.
+                title: t('MSG_DOCS_RESUMES_EMPTY_TITLE'),
+                description: t('MSG_DOCS_RESUMES_EMPTY_TEXT'),
+                icon: <FileTextIcon size={24} />,
                 action: (
                   <>
-                    <Link href={NEW_RESUME_HREF} className={buttonClasses()}>
+                    <Link href={NEW_RESUME_HREF} className={buttonClasses()} data-new-fallback="resume">
                       <PlusIcon size={16} weight="bold" />
-                      New Resume
+                      New resume
                     </Link>
                     {uploadButton}
                   </>

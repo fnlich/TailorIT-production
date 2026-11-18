@@ -12,6 +12,7 @@ import { keyedRateLimit } from '../../core/rate-limit';
 import { leaveRunsOf } from './agent/queue';
 import { allow, perAccountLimit, waitSentence } from './auth';
 import { listConnections, mintConnectCode, redeemConnectCode, sessionView } from './connect';
+import { notifyExtensionDisconnected } from '../notifications/emitters'; // v31 NOTIFY
 
 // Connecting the TailorIT Autofill extension (work package AF), mounted at /api/autofill:
 //   POST   /connect         Settings (session + Origin) {includeSensitive, allowSignIn?} → 201 {code, expiresAt,
@@ -110,7 +111,9 @@ export function createAutofillConnectRouter(deps: AppDeps): Router {
 
   router.delete('/session', allow('token'), disconnectLimit, async (req, res) => {
     const tokenId = req.extensionToken!.id;
-    await revokeExtensionToken(deps, userOf(req).id, tokenId, 'extension');
+    const ended = await revokeExtensionToken(deps, userOf(req).id, tokenId, 'extension');
+    // v31 NOTIFY: the person learns in TailorIT that this browser no longer works with it (after the revoke committed).
+    if (ended) await notifyExtensionDisconnected(deps, { userId: userOf(req).id, tokenId });
     deps.log.debug(`[autofill] token ${tokenId} disconnected by the extension`);
     res.status(204).end();
   });

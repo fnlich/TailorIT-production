@@ -364,7 +364,7 @@ export interface AppConfig {
   apiPort: number;
   /** The MCP endpoint (features/mcp). */
   mcp: {
-    /** What Settings shows in the setup snippets: MCP_PUBLIC_URL, else http://<API_HOST>:<API_PORT>/mcp. */
+    /** What Settings shows in the setup snippets: MCP_PUBLIC_URL, else APP_ORIGIN/mcp (v31 OAUTH). */
     endpoint: string;
     /** The names its Host and Origin checks accept: loopback, API_HOST, the endpoint's host and MCP_ALLOWED_HOSTS. */
     allowedHosts: string[];
@@ -495,7 +495,7 @@ export function buildConfig(env: NodeJS.ProcessEnv): AppConfig {
         }
       : null;
   const fixed = e.AUTH_DEV_FIXED_CODE && /^\d{6}$/.test(e.AUTH_DEV_FIXED_CODE) ? e.AUTH_DEV_FIXED_CODE : null;
-  const mcpEndpoint = e.MCP_PUBLIC_URL ?? defaultMcpEndpoint(e.API_HOST, e.API_PORT);
+  const mcpEndpoint = e.MCP_PUBLIC_URL ?? defaultMcpEndpoint(e.APP_ORIGIN); // v31 OAUTH: APP_ORIGIN/mcp
 
   const features = Object.fromEntries(
     AI_TASK_KINDS.map((kind) => {

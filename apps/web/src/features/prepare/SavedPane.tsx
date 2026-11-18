@@ -5,15 +5,16 @@ import { useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import Link from 'next/link';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { Badge, CountBadge } from '@/components/ui/Badge';
+import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { FilterPill } from '@/components/ui/FilterPill';
 import { IconButton } from '@/components/ui/IconButton';
 import { Menu, MenuContent, MenuItem, MenuLinkItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import { Notice } from '@/components/ui/Notice';
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/Popover';
+import { Popover, PopoverClose, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/Popover';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
@@ -32,7 +33,8 @@ import {
 } from '@/components/ui/icons';
 import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
-import { HeldBadge } from '@/features/jobs/detail/held/HeldNotice'; // v30 INT-3: decision 1
+import { focusSoon } from '@/lib/focusLater';
+import { VerificationBadge } from '@/features/jobs/verification/VerificationBadge'; // v31 INT-2 (v30 INT-3's HeldBadge inside)
 import { ClosedBadge, isClosed } from '@/features/jobs/closed/ClosedBadge'; // v30 FIX-WEB (UX-10)
 import { RowCredit } from '@/features/jobs/credits/JobCredit'; // v30 FIX-WEB (REQ-1)
 import { creditOf } from '@/features/jobs/credits/credit';
@@ -55,7 +57,7 @@ import { SupportIcon } from '../auto-apply/Pane';
 import { CompanyLogo } from '../tracker/CompanyLogo';
 import { invalidateApplications, trackerApi } from '../tracker/data';
 import { cancelPrepare } from './api';
-import { FILTERS_HREF, PREPARE_LABEL } from './copy';
+import { CHANGE_FILTERS, FILTERS_LABEL, filtersButtonName, PREPARE_ALL_LABEL, PREPARE_LABEL } from './copy';
 import { PrepareButton } from './PrepareButton';
 import type { PrepareAndQueue } from './usePrepareAndQueue';
 
@@ -64,6 +66,11 @@ import type { PrepareAndQueue } from './usePrepareAndQueue';
 // with its support icon, its marker (Draft, Preparing, Filtered: <reason>, Preparation failed, Not applied, Prepared)
 // and its one action (Prepare & Queue, Cancel, View in queue); All | To prepare | Filtered | Draft; Filters (the count
 // of filters on, to Settings › Prepare & Queue); Select, for Prepare & Queue on several at once.
+// v31 AUTO: the toolbar is [Filters · n on] [Select] [Prepare All]: Filters opens the filters dialog on this page (as
+// "Change filters" in a filtered row's popover does), Prepare All prepares every saved job in To prepare that passes
+// the filters (the server chooses them; usePrepareAndQueue's confirm says how many). In select mode the select bar
+// holds the pane's action, so Select and Prepare All step aside. A row's Prepare & Queue is an outline button: the
+// pane's one primary action is Prepare All (or the select bar's).
 
 const MARKER_ICON: Record<MarkerIcon, ReactNode> = {
   check: <CheckIcon size={12} weight="bold" aria-hidden="true" />,
@@ -78,6 +85,11 @@ const MARKER_ICON: Record<MarkerIcon, ReactNode> = {
 const LEAVE_MS = 200;
 
 const nameOf = (item: SavedJobItem) => `${item.title} at ${item.company}`;
+
+/** The select mode's bar (its name) and the Select button, for focus to move between them. */
+const SELECT_BAR_NAME = 'Prepare & Queue the selected jobs';
+const SELECT_BAR = `[role="toolbar"][aria-label="${SELECT_BAR_NAME}"]`;
+const SELECT_BUTTON = '[data-saved-select]';
 
 export interface SavedPaneProps {
   filter: SavedJobFilter;
@@ -110,9 +122,20 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
   const namesOf = (list: readonly SavedJobItem[]) =>
     new Map(list.map((item) => [item.applicationId, { title: item.title, company: item.company }] as const));
 
+  // v31 FIX-WEB (REV-UX UX-3): Select and the select bar take each other's place, so focus moves with them: into the bar
+  // (its select-all box) when select mode starts, back to Select when it ends from inside the bar (Cancel, or the bar's
+  // Prepare & Queue once it is done), never to the page's start.
+  const startSelection = () => {
+    setSelectMode(true);
+    focusSoon([`${SELECT_BAR} [role="checkbox"]`, `${SELECT_BAR} button`]);
+  };
+
   const endSelection = () => {
+    const active = document.activeElement;
+    const fromBar = !active || active === document.body || Boolean(active.closest(SELECT_BAR));
     setSelectMode(false);
     setSelected(new Set());
+    if (fromBar) focusSoon([SELECT_BUTTON, '[data-saved-toolbar] [data-filters-button]']);
   };
 
   const prepareOne = (item: SavedJobItem) =>
@@ -143,11 +166,15 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
     }
   };
 
+  // Nothing in the list shown could be prepared (and no more to load): Prepare All has nothing to take either. Another
+  // tab (Draft) may hide what To prepare holds, so it asks the server there.
+  const nothingToPrepare =
+    (filter === 'all' || filter === 'ready') && items !== null && choosable.length === 0 && !saved.hasNextPage;
+
   const controls = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2" data-saved-toolbar="">
       <SegmentedControl
         aria-label="Show saved jobs"
-        size="sm"
         listClassName="max-sm:h-11 max-sm:*:min-w-11"
         value={filter}
         onValueChange={(next) => {
@@ -156,20 +183,34 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
         }}
         items={SAVED_JOB_FILTERS.map((value) => ({ value, label: savedFilterLabel(value, t) }))}
       />
-      <div className="ml-auto flex items-center gap-1">
-        <Link
-          href={FILTERS_HREF}
-          className={buttonClasses({ variant: 'ghost', size: 'sm', className: 'max-sm:h-11' })}
-          aria-label={filtersOn ? `Filters, ${filtersOn} on` : 'Filters'}
-        >
-          <FunnelIcon size={14} aria-hidden="true" />
-          Filters
-          {filtersOn ? <CountBadge count={filtersOn} /> : null}
-        </Link>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <FilterPill
+          label={FILTERS_LABEL}
+          icon={<FunnelIcon size={16} aria-hidden="true" />}
+          count={filtersOn ?? undefined}
+          aria-label={filtersButtonName(filtersOn)}
+          aria-haspopup="dialog"
+          caret={false} // v31 FIX-WEB (REV-UX UX-12): it opens a dialog, not a list
+          onClick={prepare.openFilters}
+          className="max-sm:h-11"
+          data-filters-button=""
+        />
         {!selectMode && (
-          <Button variant="ghost" size="sm" className="max-sm:h-11" disabled={choosable.length === 0} onClick={() => setSelectMode(true)}>
-            Select
-          </Button>
+          <>
+            <Button variant="outline" className="max-sm:h-11" disabled={choosable.length === 0} onClick={startSelection} data-saved-select="">
+              Select
+            </Button>
+            <Button
+              className="max-sm:h-11"
+              loading={prepare.allPending}
+              disabled={nothingToPrepare}
+              focusableWhenDisabled
+              onClick={() => prepare.prepareAll({ names: namesOf(items ?? []) })}
+              data-prepare-all=""
+            >
+              {PREPARE_ALL_LABEL}
+            </Button>
+          </>
         )}
       </div>
     </div>
@@ -178,7 +219,7 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
   // v30 ST5: the select mode's bar is components/queue's SelectBar (same toolbar, select-all box and polite count).
   const footer = selectMode ? (
     <SelectBar
-      aria-label="Prepare & Queue the selected jobs"
+      aria-label={SELECT_BAR_NAME}
       selected={chosen.length}
       selectable={choosable.length}
       selectAllLabel="Select every saved job shown that can be prepared"
@@ -216,7 +257,7 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
     );
   } else if (shown === null) {
     body = (
-      <ul aria-busy="true" aria-label="Loading your saved jobs" className="divide-y divide-border">
+      <ul aria-busy="true" aria-label="Loading your saved jobs" className="divide-y divide-divider-soft">
         {Array.from({ length: 6 }, (_unused, index) => (
           <SkeletonRow key={index} />
         ))}
@@ -263,10 +304,11 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
             What is shown may be out of date.
           </Notice>
         )}
-        <ul aria-label="Saved jobs" aria-busy={saved.isFetching && saved.isPlaceholderData ? true : undefined} className="divide-y divide-border">
+        <ul aria-label="Saved jobs" aria-busy={saved.isFetching && saved.isPlaceholderData ? true : undefined} className="divide-y divide-divider-soft">
           {shown.map(({ item, leaving }) => (
             <SavedRow
               key={item.applicationId}
+              onChangeFilters={prepare.openFilters}
               item={item}
               leaving={leaving}
               marker={savedMarker(item, t)}
@@ -378,17 +420,17 @@ function useLeaving(
 function SkeletonRow() {
   return (
     <li aria-hidden="true" className="flex min-h-16 items-center gap-3 px-4 py-3 sm:px-5">
-      <Skeleton className="size-8" rounded="full" />
+      <Skeleton className="size-8" rounded="control" />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <Skeleton className="h-3.5 w-3/5" />
         <Skeleton className="h-3 w-2/5" />
       </div>
-      <Skeleton className="h-[22px] w-16" rounded="full" />
+      <Skeleton className="h-5.5 w-16" />
     </li>
   );
 }
 
-function MarkerBadge({ item, marker }: { item: SavedJobItem; marker: MarkerView }) {
+function MarkerBadge({ item, marker, onChangeFilters }: { item: SavedJobItem; marker: MarkerView; onChangeFilters: () => void }) {
   const filtered = item.marker === 'filtered';
   const badge = (
     // A filter's reason is read in full (v2.0 fix UX-1): it wraps rather than being cut.
@@ -406,7 +448,7 @@ function MarkerBadge({ item, marker }: { item: SavedJobItem; marker: MarkerView 
           // v2.0 fix UX-6: a hit area of at least 24 px (44 px on a phone) around the 22 px badge.
           <button
             type="button"
-            className="inline-flex min-h-6 max-w-full items-center rounded-full outline-offset-2 max-sm:min-h-11"
+            className="inline-flex min-h-6 max-w-full items-center rounded-tag outline-offset-2 max-sm:min-h-11"
             aria-label={`${marker.label}: why it was filtered`}
           />
         }
@@ -427,9 +469,8 @@ function MarkerBadge({ item, marker }: { item: SavedJobItem; marker: MarkerView 
         <p className="mt-2 text-[13px] leading-5 text-muted-foreground">
           Prepare &amp; Queue checks the filters again, so a changed filter can let it through.
         </p>
-        <Link href={FILTERS_HREF} className="mt-3 inline-block text-sm font-semibold text-primary-ink underline-offset-2 hover:underline">
-          Change filters
-        </Link>
+        {/* v31 AUTO: the filters dialog, on this page (the popover closes first). */}
+        <PopoverClose render={<Button variant="link" className="mt-3 h-auto px-0" onClick={onChangeFilters} />}>{CHANGE_FILTERS}</PopoverClose>
       </PopoverContent>
     </Popover>
   );
@@ -437,6 +478,7 @@ function MarkerBadge({ item, marker }: { item: SavedJobItem; marker: MarkerView 
 
 function SavedRow({
   item,
+  onChangeFilters,
   leaving,
   marker,
   selectMode,
@@ -450,6 +492,8 @@ function SavedRow({
   onRemove,
 }: {
   item: SavedJobItem;
+  /** "Change filters" in a filtered row's popover: the filters dialog. */
+  onChangeFilters: () => void;
   leaving: boolean;
   marker: MarkerView | null;
   selectMode: boolean;
@@ -480,7 +524,8 @@ function SavedRow({
       data-saved-row={item.applicationId}
       aria-hidden={leaving || undefined}
       className={clsx(
-        'flex min-h-16 items-start gap-3 px-4 py-3 transition-opacity duration-200 @lg/pane:px-5 @2xl/pane:items-center',
+        'flex min-h-16 items-start gap-3 px-4 py-3 transition-[opacity,background-color] duration-200 @lg/pane:px-5 @2xl/pane:items-center',
+        selectMode && checked ? 'bg-primary-soft' : 'hover:bg-surface-low',
         leaving && 'pointer-events-none opacity-0',
       )}
     >
@@ -496,7 +541,7 @@ function SavedRow({
       <CompanyLogo name={item.company} logoUrl={item.logoUrl} size={32} className="mt-0.5 @2xl/pane:mt-0" />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 @2xl/pane:flex-row @2xl/pane:items-center @2xl/pane:gap-3">
         <div className="min-w-0 @2xl/pane:min-w-40 @2xl/pane:flex-1" data-saved-text="">
-          <p className="truncate text-sm leading-5 font-semibold text-foreground" title={item.title}>
+          <p className="truncate text-[15px] leading-5 font-semibold text-foreground" title={item.title}>
             {item.title}
           </p>
           <p className="truncate text-[13px] leading-5 text-muted-foreground">
@@ -509,13 +554,14 @@ function SavedRow({
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
           <div className="flex min-w-0 flex-wrap items-center gap-2" data-saved-markers="">
             <SupportIcon support={item.support} id={supportId} />
-            {marker && <MarkerBadge item={item} marker={marker} />}
-            <HeldBadge held={item.held} />
+            {marker && <MarkerBadge item={item} marker={marker} onChangeFilters={onChangeFilters} />}
+            <VerificationBadge held={item.held} verification={item.verification} />
             <ClosedBadge closed={closed} sentenceId={closedId} />
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {action === 'prepare' && !selectMode && (
               <PrepareButton
+                variant="outline"
                 loading={pending}
                 disabled={closed}
                 onClick={onPrepare}

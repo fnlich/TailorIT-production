@@ -1,7 +1,7 @@
 import type { McpUnsupportedItem } from '@tailorit/shared/mcp';
 
-// v1.5 Q2: the words of Settings › Integrations › "Your own AI (MCP)" › "Requests your AI could not do", apart from
-// the view so a test reads them.
+// v1.5 Q2: the words of Integrations › AI assistants › "Requests your AI could not do", apart from the view so a test
+// reads them.
 
 export const UNSUPPORTED_TITLE = 'Requests your AI could not do';
 export const UNSUPPORTED_INTRO =
@@ -19,11 +19,14 @@ export const ALSO_ASK = [
   'Count your applications ("how many did I apply to this week", "interviews this week by job board").',
 ] as const;
 
-/** The line under a report: what the AI tried, which token sent it, and when. */
+/**
+ * The line under a report: what the AI tried, which token or connected assistant sent it (v31 OAUTH: the API names the
+ * assistant), and when.
+ */
 export function reportLine(item: McpUnsupportedItem, ago: (value: string) => string): string {
   const parts = [
     item.triedTools.length > 0 ? `Tried ${item.triedTools.join(', ')}` : null,
-    item.tokenName ? `From ${item.tokenName}` : 'From a token you revoked',
+    item.tokenName ? `From ${item.tokenName}` : 'From a token or assistant you removed',
     ago(item.createdAt),
   ];
   return parts.filter((part): part is string => part !== null).join(' · ');

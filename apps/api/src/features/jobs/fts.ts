@@ -2,8 +2,8 @@ import { RANK_WEIGHTS, rankSql, tokensOf } from './search-projection/vectors';
 
 // The job search box as a PostgreSQL tsquery (11-database.md §7.2). What a person types is never parsed by the
 // database: every word becomes the projection's own tokens (folded: lower case, accents removed; letters and digits
-// only, so they need no escaping), and the query is written as tsquery text from them. Only the columns Simplify
-// searches are matched: title, company name and places (job_search.title_tsv; not the description).
+// only, so they need no escaping), and the query is written as tsquery text from them. Only the columns the search
+// box is for are matched: title, company name and places (job_search.title_tsv; not the description).
 // v3.0 PG-SEARCH: FTS5's MATCH syntax and bm25 gave way to the tsquery and ts_rank over job_search.
 
 /** The most words of a search that count; the rest are ignored. */

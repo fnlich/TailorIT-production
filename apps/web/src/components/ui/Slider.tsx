@@ -29,14 +29,14 @@ export interface RangeSliderProps extends SliderBaseProps {
 }
 
 const THUMB =
-  'size-[18px] rounded-full border border-control-strong bg-white shadow-[0_1px_3px_rgb(0_0_0/0.15)] outline-none ' +
+  'size-[18px] rounded-full border-2 border-primary bg-surface shadow-card outline-none ' +
   'transition-[box-shadow] duration-100 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus ' +
-  'data-dragging:shadow-[0_0_0_4px_rgb(20_161_192/0.18)]';
+  'data-dragging:shadow-focus';
 
 function Track({ thumbs, thumbLabels, formatValue }: { thumbs: number; thumbLabels: string[]; formatValue?: (v: number) => string }) {
   return (
     <BaseSlider.Control className="flex w-full touch-none items-center py-2.5 select-none data-disabled:opacity-50">
-      <BaseSlider.Track className="h-1 w-full rounded-full bg-border select-none">
+      <BaseSlider.Track className="h-1.5 w-full rounded-full bg-muted select-none">
         <BaseSlider.Indicator className="rounded-full bg-primary select-none" />
         {Array.from({ length: thumbs }, (_, index) => (
           <BaseSlider.Thumb

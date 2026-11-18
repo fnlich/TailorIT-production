@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { ArrowsClockwiseIcon, SparkleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { TapeMeter } from '@/components/ui/TapeMeter';
 import { userMessage } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
@@ -35,7 +36,7 @@ export const MODEL_KIND_LABEL: Record<string, string> = {
   autofill_classify: 'Autofill: field categories',
   autofill_draft: 'Autofill: drafts',
   autofill_answer: 'Autofill: answers',
-  tailor: 'Tailor my resume',
+  tailor: 'Resume tailoring', // v31 FIX-WEB (REV-REQ REQ-3)
   job_search: 'AI job search',
   custom_filter: 'Custom filter',
   company_summary: 'Company summaries', // v30 E3
@@ -87,18 +88,18 @@ export function AiTab() {
               {userMessage(health.error)}
             </Notice>
           ) : !data ? (
-            <div className="mt-5 rounded-surface border border-border bg-surface p-6 shadow-soft">
+            <div className="mt-5 rounded-card border border-border bg-surface p-6 shadow-card">
               <Skeleton className="h-6 w-1/2" />
               <Skeleton className="mt-4 h-4 w-3/4" />
             </div>
           ) : (
-            <div className="mt-5 rounded-surface border border-border bg-surface p-6 shadow-soft" data-ai-health={data.available ? 'available' : 'unavailable'}>
+            <div className="mt-5 rounded-card border border-border bg-surface p-6 shadow-card" data-ai-health={data.available ? 'available' : 'unavailable'}>
               <div className="flex items-center gap-3">
                 <span
                   aria-hidden="true"
                   className={clsx('size-2.5 shrink-0 rounded-full', data.available ? 'bg-success' : data.enabled ? 'bg-warning' : 'bg-control-strong')}
                 />
-                <h3 className="text-base font-semibold text-foreground">
+                <h3 className="text-[15px] leading-5 font-semibold text-foreground">
                   {data.available ? 'Claude CLI is ready' : data.enabled ? 'Claude CLI is not available' : 'AI is turned off'}
                 </h3>
               </div>
@@ -109,7 +110,7 @@ export function AiTab() {
                 <Fact label="Default model" value={data.defaultModel} />
                 <Fact label="Checked" value={relativeTime(data.checkedAt, now)} />
               </dl>
-              <h4 className="mt-6 text-sm font-semibold text-foreground">Models by feature</h4>
+              <h4 className="mt-6 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">Models by feature</h4>
               <ul className="mt-2 grid gap-x-8 gap-y-1.5 text-sm sm:grid-cols-2">
                 {Object.entries(data.models).map(([kind, model]) => (
                   <li key={kind} className="flex justify-between gap-4 border-b border-divider-soft py-1.5">
@@ -139,7 +140,7 @@ export function AiTab() {
   );
 }
 
-const STATE_DOT = { open: 'bg-success', blocked: 'bg-destructive', none: 'bg-control-strong' } as const;
+const STATE_DOT = { open: 'bg-success', blocked: 'bg-danger', none: 'bg-control-strong' } as const;
 
 /**
  * v2.0: "Server AI status" (docs/design/v2.0/08-ui.md; 03-ai-usage.md): the Claude seat's usage as a large percentage
@@ -159,7 +160,7 @@ function ServerAiStatusCard() {
         {userMessage(capacity.error)}
       </Notice>
     ) : (
-      <div className="rounded-surface border border-border bg-surface p-6 shadow-soft" aria-busy="true">
+      <div className="rounded-card border border-border bg-surface p-6 shadow-card" aria-busy="true">
         <Skeleton className="h-6 w-1/3" />
         <Skeleton className="mt-4 h-3 w-full" rounded="full" />
       </div>
@@ -171,35 +172,34 @@ function ServerAiStatusCard() {
   const mark = Math.min(100, data.threshold * 100);
   const resets = resetsText(data.resetsAt, now);
   return (
-    <div className="rounded-surface border border-border bg-surface p-6 shadow-soft" data-ai-capacity={state.tone}>
+    <div className="rounded-card border border-border bg-surface p-6 shadow-card" data-ai-capacity={state.tone}>
       <div className="flex items-center gap-3">
         <span aria-hidden="true" className={clsx('size-2.5 shrink-0 rounded-full', STATE_DOT[state.tone])} />
-        <h3 className="text-base font-semibold text-foreground">Server AI status</h3>
+        <h3 className="text-[15px] leading-5 font-semibold text-foreground">Server AI status</h3>
       </div>
       <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-2">
-        <p className="text-[40px] leading-none font-bold tracking-tight text-foreground tabular-nums" data-ai-utilization="">
+        <p className="num text-[40px] leading-none tracking-tight text-foreground" data-ai-utilization="">
           {percentText(data.utilization)}
         </p>
-        <p className="pb-1 text-sm leading-5 text-muted-foreground">
+        <p className="pb-1 text-[13px] leading-5 text-muted-foreground">
           {[windowText(data.window), data.source ? CAPACITY_SOURCE_TEXT[data.source] : null, resets].filter(Boolean).join(' · ')}
         </p>
       </div>
-      <div
-        role="meter"
-        aria-label="Server AI usage"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(fill)}
-        aria-valuetext={`${percentText(data.utilization)} used; it blocks at ${percentText(data.threshold)}`}
-        className="relative mt-4 h-2.5 w-full overflow-hidden rounded-full bg-chip"
-      >
-        <span
-          className={clsx('absolute inset-y-0 left-0 rounded-full', data.blocked ? 'bg-destructive' : fill >= mark - 10 ? 'bg-warning' : 'bg-primary')}
-          style={{ width: `${fill}%` }}
+      {/* v31 ADMINWEB: the tape meter (20-visual-identity.md §7), its tone by meaning, and the block threshold marked on it. */}
+      <div className="relative mt-4">
+        <TapeMeter
+          label="Server AI usage"
+          value={fill}
+          valueText={`${percentText(data.utilization)} used; it blocks at ${percentText(data.threshold)}`}
+          showValue={false}
+          size="lg"
+          tone={data.blocked ? 'danger' : fill >= mark - 10 ? 'warning' : 'primary'}
         />
-        <span aria-hidden="true" className="absolute inset-y-0 w-0.5 bg-foreground" style={{ left: `calc(${mark}% - 1px)` }} />
+        <span aria-hidden="true" className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 rounded-full bg-danger" style={{ left: `${mark}%` }} />
       </div>
-      <p className="mt-1 text-right text-xs leading-4 text-muted-foreground">Blocks at {percentText(data.threshold)}</p>
+      <p className="mt-1.5 text-right text-xs leading-4 text-muted-foreground">
+        Blocks at <span className="num">{percentText(data.threshold)}</span>
+      </p>
       {state.tone === 'blocked' ? (
         <Notice tone="error" className="mt-3">
           {state.text}
@@ -234,7 +234,7 @@ function BackgroundWorkCard() {
         {userMessage(work.error)}
       </Notice>
     ) : (
-      <div className="mt-5 rounded-surface border border-border bg-surface p-6 shadow-soft">
+      <div className="mt-5 rounded-card border border-border bg-surface p-6 shadow-card">
         <Skeleton className="h-6 w-1/3" />
         <Skeleton className="mt-4 h-4 w-2/3" />
       </div>
@@ -245,15 +245,15 @@ function BackgroundWorkCard() {
   const tone = gateTone(gate);
   const rows = [jobsRow(work.data.jobs), resumesRow(work.data.resumes), matchesRow(work.data.matches)];
   return (
-    <div className="mt-5 rounded-surface border border-border bg-surface p-6 shadow-soft" data-ai-background={tone}>
+    <div className="mt-5 rounded-card border border-border bg-surface p-6 shadow-card" data-ai-background={tone}>
       <div className="flex items-center gap-3">
         <span aria-hidden="true" className={clsx('size-2.5 shrink-0 rounded-full', GATE_DOT[tone])} />
-        <h3 className="text-base font-semibold text-foreground">Background work</h3>
+        <h3 className="text-[15px] leading-5 font-semibold text-foreground">Background work</h3>
       </div>
       <p className="mt-2 text-sm leading-5 text-muted-foreground">{gateLine(gate, now)}</p>
-      <ul className="mt-5">
+      <ul className="mt-5 divide-y divide-divider-soft">
         {rows.map((row) => (
-          <li key={row.key} data-ai-background-row={row.key} className="border-b border-divider-soft py-3 first:pt-0 last:border-b-0 last:pb-0">
+          <li key={row.key} data-ai-background-row={row.key} className="py-3 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
               <p className="text-sm font-medium text-foreground tabular-nums">{row.title}</p>
               {row.detail && <p className="text-[13px] leading-5 text-muted-foreground tabular-nums">{row.detail}</p>}

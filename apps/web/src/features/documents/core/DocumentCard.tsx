@@ -25,8 +25,8 @@ export interface DocumentCardProps {
   /** The first page, usually <DocumentThumb …/>. */
   thumb: ReactNode;
   /**
-   * Badges under the title (★ Default, Uploaded, PDF, Generated), in Simplify's light style (`<Badge>`): the page
-   * itself stays uncovered.
+   * Badges under the title (★ Default, Uploaded, PDF, Generated), as kit tags (`<Badge>`): the page itself stays
+   * uncovered.
    */
   badges?: ReactNode;
   /** Lines under the title ("Edited 6 hours ago · Modern"). */
@@ -44,8 +44,11 @@ export interface DocumentCardProps {
 }
 
 /**
- * A document in the grid view (free_tailor's card, Simplify's colours): the first page under a link the size of it
- * (a frame may not sit inside a link), the title, its badges, meta lines and a ⋮ menu.
+ * A document in the grid view (v31 FIX-DOCS): one framed tile. Its top is a tray (surface-muted) holding the first
+ * page like a sheet on a cutting table, its foot cut by the tray's edge; the whole tray is the link that opens it (a
+ * frame may not sit inside a link). Under it, on white: the title with the ⋮ menu, the badges and the meta lines.
+ * Quick actions show on hover or focus (always on a touch screen): Preview at the tray's foot, the selection box at
+ * its corner.
  */
 export function DocumentCard({
   kind,
@@ -66,19 +69,29 @@ export function DocumentCard({
   className,
 }: DocumentCardProps) {
   const dataAttr = { [`data-${kind}-card`]: id };
-  const coverClasses = 'absolute inset-0 z-[1] rounded-[inherit] focus-visible:outline-none';
+  const coverClasses = 'absolute inset-0 z-[1] focus-visible:outline-none';
   return (
-    <article {...dataAttr} className={clsx('group/card flex min-w-0 flex-col gap-3', className)}>
-      <div
-        data-selected={selected ? '' : undefined}
-        className={clsx(
-          'relative overflow-hidden rounded-[14px] border border-border bg-white shadow-soft transition-[transform,box-shadow,border-color] duration-150 ease-out-soft',
-          'hover:-translate-y-0.5 hover:shadow-popover',
-          'has-[[data-cover]:focus-visible]:outline-2 has-[[data-cover]:focus-visible]:outline-offset-[3px] has-[[data-cover]:focus-visible]:outline-focus',
-          'data-selected:border-primary data-selected:ring-2 data-selected:ring-primary/30',
-        )}
-      >
-        <div className={clsx(dimmed && 'opacity-50')}>{thumb}</div>
+    <article
+      {...dataAttr}
+      data-selected={selected ? '' : undefined}
+      className={clsx(
+        'group/card flex h-full min-w-0 flex-col overflow-hidden rounded-card border bg-surface shadow-card',
+        'transition-[box-shadow,border-color] duration-150 ease-out-soft hover:shadow-popover',
+        'has-[[data-cover]:focus-visible]:outline-2 has-[[data-cover]:focus-visible]:outline-offset-[3px] has-[[data-cover]:focus-visible]:outline-focus',
+        selected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-control-hover',
+        className,
+      )}
+    >
+      <div className="relative aspect-[1/1] overflow-hidden border-b border-border bg-surface-muted">
+        <div
+          className={clsx(
+            'absolute inset-x-[11%] top-[9%] overflow-hidden rounded-t-[3px] bg-surface shadow-[0_1px_3px_var(--color-grid),0_0_0_1px_var(--color-border)]',
+            'transition-transform duration-200 ease-out-soft group-hover/card:-translate-y-1',
+            dimmed && 'opacity-50',
+          )}
+        >
+          {thumb}
+        </div>
         {href ? (
           <Link href={href} data-cover aria-label={`Open ${label}`} className={coverClasses} />
         ) : onOpen ? (
@@ -92,8 +105,8 @@ export function DocumentCard({
               aria-label={`Preview ${label}`}
               data-preview-button=""
               className={clsx(
-                'pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-white/95 px-3 text-[13px] font-semibold text-foreground shadow-control',
-                'transition-opacity duration-150 hover:bg-white focus-visible:opacity-100',
+                'pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-control border border-border-strong bg-surface px-3 text-[13px] font-medium text-foreground shadow-control',
+                'transition-opacity duration-150 hover:bg-surface-low focus-visible:opacity-100',
                 'opacity-0 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100',
               )}
             >
@@ -105,7 +118,7 @@ export function DocumentCard({
         {selectable && onSelectedChange && (
           <span
             className={clsx(
-              'absolute top-2.5 right-2.5 z-[2] flex rounded-md bg-white/90 p-1 shadow-control transition-opacity',
+              'absolute top-2.5 right-2.5 z-[2] flex rounded-control bg-surface p-1 shadow-control transition-opacity',
               selected ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100 focus-within:opacity-100',
             )}
           >
@@ -117,15 +130,15 @@ export function DocumentCard({
           </span>
         )}
       </div>
-      <div className="flex min-w-0 items-start justify-between gap-2">
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-1.5 px-3.5 pt-3 pb-3.5">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[15px] leading-6 font-semibold text-foreground" title={label}>
             {href ? (
-              <Link href={href} className="hover:underline hover:underline-offset-2">
+              <Link href={href} className="block truncate hover:underline hover:underline-offset-2">
                 {label}
               </Link>
             ) : onOpen ? (
-              <button type="button" onClick={onOpen} className="max-w-full truncate text-left hover:underline hover:underline-offset-2">
+              <button type="button" onClick={onOpen} className="block max-w-full truncate text-left hover:underline hover:underline-offset-2">
                 {label}
               </button>
             ) : (
@@ -138,10 +151,10 @@ export function DocumentCard({
               {line}
             </p>
           ))}
-          {warning && <p className="mt-1.5 text-xs leading-4 text-amber-foreground">{warning}</p>}
+          {warning && <p className="mt-1.5 text-xs leading-4 text-warning-ink">{warning}</p>}
         </div>
         {menuItems && menuItems.length > 0 && (
-          <ActionMenu items={menuItems} label={`Actions for ${label}`} className="-mt-1 -mr-1" />
+          <ActionMenu items={menuItems} label={`Actions for ${label}`} className="-mt-0.5 -mr-1.5" />
         )}
       </div>
     </article>

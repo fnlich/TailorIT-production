@@ -1,5 +1,7 @@
+import type { PrepareFiltersPreview } from '@tailorit/shared/filters';
 import type {
   ApplicationDraftAnswer,
+  PrepareAllPlan,
   PrepareDraft,
   PrepareOutcome,
   PreparePartStatus,
@@ -18,8 +20,79 @@ export function prepareLabel(count?: number): string {
   return count === undefined ? PREPARE_LABEL : `${PREPARE_LABEL} (${count})`;
 }
 
-/** Where "Change filters" goes: Settings › Prepare & Queue. */
-export const FILTERS_HREF = '/settings#prepare';
+// v31 AUTO: the filters are a dialog on the page that needs them (PrepareFiltersDialog), no longer a link to Settings ›
+// Prepare & Queue; "Change filters" (a filtered row's popover, the result toast) opens it too.
+
+/** The Saved pane's Filters button: "Filters", named "Filters, 2 on" while filters are on. */
+export const FILTERS_LABEL = 'Filters';
+export const filtersButtonName = (on: number | null) => (on ? `${FILTERS_LABEL}, ${on} on` : FILTERS_LABEL);
+/** "Change filters": a filtered row's popover and the result toast's action. */
+export const CHANGE_FILTERS = 'Change filters';
+
+/** The filters dialog's words (its fields are Settings' own, FILTERS_COPY). */
+export const FILTERS_DIALOG = {
+  title: 'Prepare filters',
+  cancel: 'Cancel',
+  /** Saves the filters and closes: the Saved jobs' labels follow. */
+  onlyFilter: 'Only Filter',
+  /** Saves the filters, then Prepare All for the saved jobs that pass. */
+  filterAndPrepare: 'Filter and Prepare',
+  saving: 'Saving...',
+  loadFailed: 'Your filters could not be loaded',
+  tryAgain: 'Try again',
+  loading: 'Loading your filters',
+  countLabel: 'Saved jobs that pass',
+} as const;
+
+/** The dialog's live count: "38 of 52 saved jobs pass" ("1 of 1 saved job passes"). */
+export function passCount(preview: Pick<PrepareFiltersPreview, 'pass' | 'total'>): string {
+  return preview.total === 1 ? `${preview.pass} of 1 saved job passes` : `${preview.pass} of ${preview.total} saved jobs pass`;
+}
+
+// v31 AUTO (D10): Prepare All ------------------------------------------------------------------------------------------
+
+/** The Saved pane's button beside Filters and Select. */
+export const PREPARE_ALL_LABEL = 'Prepare All';
+
+/** Prepare All's confirm: "Prepare & Queue 12 jobs" (one: "Prepare & Queue 1 job"). */
+export function prepareAllTitle(taking: number): string {
+  return `${PREPARE_LABEL} ${taking} ${taking === 1 ? 'job' : 'jobs'}`;
+}
+
+/** The confirm's button: "Prepare 12 jobs". */
+export function prepareAllConfirmLabel(taking: number): string {
+  return `Prepare ${taking} ${taking === 1 ? 'job' : 'jobs'}`;
+}
+
+/**
+ * What the confirm takes, in a sentence: "12 saved jobs in To prepare pass your filters." When the caps hold some back:
+ * "12 saved jobs in To prepare pass your filters: this takes 10 of them now."
+ */
+export function prepareAllSummary(plan: Pick<PrepareAllPlan, 'passing' | 'taking'>): string {
+  const head = plan.passing === 1 ? '1 saved job in To prepare passes your filters' : `${plan.passing} saved jobs in To prepare pass your filters`;
+  return plan.taking < plan.passing ? `${head}: this takes ${plan.taking} of them now.` : `${head}.`;
+}
+
+/** Prepare All found nothing to take. */
+export const PREPARE_ALL_NONE = {
+  title: 'Nothing to prepare',
+  description: 'No saved job in To prepare passes your filters right now.',
+  /** Passing jobs, but no room for any (the queue or the resume room): the server's words follow. */
+  heldTitle: 'Nothing can be prepared right now',
+} as const;
+
+/** The confirm's AI budget note. */
+export const PREPARE_ALL_BUDGET = {
+  meterLabel: 'AI use today',
+  /** "$0.04 of $0.10" */
+  used: (used: string, budget: string) => `${used} of ${budget}`,
+  /** "Extra usage $1.25" */
+  extra: (credit: string) => `Extra usage ${credit}`,
+  noLimit: 'Your plan has no daily AI limit.',
+  /** How a budget that runs out mid-way ends. */
+  runsOut:
+    'TailorIT prepares them one at a time. If your AI budget and extra usage run out first, the rest stop as "Preparation failed" in To prepare, ready to try again after the reset.',
+} as const;
 
 /** The confirm's title: "Prepare & Queue", or "Prepare & Queue 5 jobs". */
 export function confirmTitle(count: number): string {

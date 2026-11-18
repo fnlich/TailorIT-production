@@ -253,15 +253,13 @@ export function QueuePane({
     <div className="flex flex-wrap items-center gap-2">
       <SegmentedControl
         aria-label="Show queue rows"
-        size="sm"
         listClassName="max-sm:h-11 max-sm:*:min-w-11"
         value={filter}
         onValueChange={onFilterChange}
         items={QUEUE_FILTERS.map((value) => ({ value, label: QUEUE_FILTER_LABEL[value] }))}
       />
       <Button
-        variant="ghost"
-        size="sm"
+        variant="outline"
         className="ml-auto max-sm:h-11"
         disabled={finished === 0}
         onClick={() => setClearing(true)}
@@ -290,15 +288,15 @@ export function QueuePane({
     );
   } else if (!data) {
     body = (
-      <ul aria-busy="true" aria-label="Loading the auto-apply queue" className="divide-y divide-border">
+      <ul aria-busy="true" aria-label="Loading the auto-apply queue" className="divide-y divide-divider-soft">
         {Array.from({ length: 6 }, (_unused, index) => (
           <li key={index} aria-hidden="true" className="flex min-h-16 items-center gap-3 px-4 py-3 sm:px-5">
-            <Skeleton className="size-8" rounded="full" />
+            <Skeleton className="size-8" rounded="control" />
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               <Skeleton className="h-3.5 w-1/2" />
               <Skeleton className="h-3 w-1/3" />
             </div>
-            <Skeleton className="h-[22px] w-20" rounded="full" />
+            <Skeleton className="h-5.5 w-20" />
           </li>
         ))}
       </ul>
@@ -344,14 +342,14 @@ export function QueuePane({
               <h3
                 id={`queue-group-${group}`}
                 className={clsx(
-                  'flex items-center gap-2 border-y border-border bg-surface-low px-4 py-1.5 text-xs leading-5 font-semibold text-muted-foreground sm:px-5',
-                  scroll && 'sticky top-0 z-[1]',
+                  'flex items-center gap-2 border-y border-border bg-surface-low px-4 py-1.5 text-[11px] leading-5 font-semibold tracking-[0.06em] text-subtle-foreground uppercase sm:px-5',
+                  scroll && 'sticky top-0 z-1',
                 )}
               >
                 <span>{group === 'up_next' ? upNextTitle(waiting, resetText) : queueGroupTitle(group, t)}</span>
-                <span className="tabular-nums">{rows.length}</span>
+                <span className="num">{rows.length}</span>
               </h3>
-              <ul className="divide-y divide-border" aria-labelledby={`queue-group-${group}`}>
+              <ul className="divide-y divide-divider-soft" aria-labelledby={`queue-group-${group}`}>
                 {rows.map((row) => (
                   <QueueRowView
                     key={rowKey(row)}
@@ -450,15 +448,15 @@ function QueueRowView({
       data-display={row.kind === 'queue' ? row.item.display : `prepare-${row.item.state}`}
       className={clsx(
         'relative flex min-h-16 items-start gap-3 py-3 pr-4 pl-5 transition-colors duration-300 @lg/pane:pr-5 @lg/pane:pl-6',
-        flash && 'bg-primary-container',
+        flash ? 'bg-primary-soft' : 'hover:bg-surface-low',
       )}
     >
       {/* The accent bar (decorative: the icon and the words carry the meaning). */}
       <span
         aria-hidden="true"
         className={clsx(
-          'absolute inset-y-0 left-0 w-[3px]',
-          kind === 'manual' ? 'bg-amber-foreground/60' : kind === 'auto' ? 'bg-primary' : 'bg-border',
+          'absolute inset-y-0 left-0 w-0.75',
+          kind === 'manual' ? 'bg-warning' : kind === 'auto' ? 'bg-primary' : 'bg-border',
         )}
       />
       {kind && (
@@ -483,7 +481,7 @@ function QueueRowView({
         )}
       >
         <div className="min-w-0 flex-1" data-queue-text="">
-          <p className="truncate text-sm leading-5 font-semibold text-foreground" title={row.item.title}>
+          <p className="truncate text-[15px] leading-5 font-semibold text-foreground" title={row.item.title}>
             {row.item.title}
           </p>
           <p className="truncate text-[13px] leading-5 text-muted-foreground">{row.item.company}</p>

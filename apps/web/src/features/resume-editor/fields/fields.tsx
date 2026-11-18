@@ -235,6 +235,6 @@ export const EDIT_SLOTS: Slots = {
 export const EDIT_FIELD_CSS =
   '[data-resume-canvas] .rt-edit{outline:none;cursor:text}' +
   '[data-resume-canvas] .rt-edit[role=button]{cursor:pointer}' +
-  '[data-resume-canvas] .rt-edit[data-empty]::before{content:attr(data-placeholder);color:#a8a8a8;pointer-events:none}' +
-  '[data-resume-canvas] .rt-edit:focus,[data-resume-canvas] .rt-edit:hover{box-shadow:0 0 0 1px rgba(30,144,255,.45);border-radius:2px}' +
+  '[data-resume-canvas] .rt-edit[data-empty]::before{content:attr(data-placeholder);color:var(--color-disabled-foreground);pointer-events:none}' +
+  '[data-resume-canvas] .rt-edit:focus,[data-resume-canvas] .rt-edit:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--color-primary) 45%,transparent);border-radius:2px}' +
   '[data-resume-canvas] .rt-dot[role=radio]{cursor:pointer}';

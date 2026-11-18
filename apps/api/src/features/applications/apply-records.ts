@@ -21,7 +21,7 @@ import { loadOwnedRow } from './store';
 // - manual: Mark as applied on the Auto-apply page (the row's kit as well; never counted toward the daily limit);
 // - page: the person's own submission from a page (the extension's POST /applied or /submissions), the resume the form
 //   was sent with; a submission while an auto-apply run holds the job is that run's (agent or tab);
-// - tracker: the Tracker (status menu, drag, bulk, a step's date, "Did you apply?");
+// - tracker: the Tracker (status menu, drag, bulk, a step's date, "Applied to this job?");
 // - legacy: 0823's backfill of the applications applied before v2.0.
 // The record is written inside the transaction that moves the entry, and kept when the documents go (SET NULL).
 // v3.0 D2: async on deps.db (inside the mover's transaction, deps.db joins it).

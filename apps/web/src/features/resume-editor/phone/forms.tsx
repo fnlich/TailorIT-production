@@ -72,7 +72,7 @@ interface FormProps {
 function Group({ label, children }: { label: string; children: ReactNode }) {
   const id = useId();
   return (
-    <div role="group" aria-labelledby={id} className="flex flex-col gap-3 rounded-xl border border-border p-4">
+    <div role="group" aria-labelledby={id} className="flex flex-col gap-3 rounded-card border border-border bg-surface p-4">
       <p id={id} className={LABEL}>
         {label}
       </p>

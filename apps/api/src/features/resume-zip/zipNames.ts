@@ -155,7 +155,7 @@ export function skippedText(report: SkippedReport): string {
   if (report.leftOut > 0) {
     paragraph(
       `${plural(report.leftOut, 'more Saved application was', 'more Saved applications were')} left out, because one zip ` +
-        `holds up to ${report.maxApplications}. Select them in Manage jobs and build again.`,
+        `holds up to ${report.maxApplications}. Choose them with Select applications and build again.`,
     );
   }
   return `${lines.join('\r\n')}\r\n`;

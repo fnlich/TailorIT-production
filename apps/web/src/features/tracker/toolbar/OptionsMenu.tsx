@@ -18,7 +18,8 @@ import {
   type TrackerSort,
   type TrackerView,
 } from '@tailorit/shared';
-import { FilterPill } from '@/components/ui/FilterPill';
+import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import {
   Menu,
   MenuCheckboxItem,
@@ -34,13 +35,15 @@ import {
 } from '@/components/ui/Menu';
 import {
   ArchiveIcon,
-  CopyIcon,
+  CheckCircleIcon,
+  DotsThreeIcon,
   DownloadSimpleIcon,
   FileZipIcon,
+  FunnelIcon,
   LockSimpleIcon,
-  SlidersHorizontalIcon,
   UploadSimpleIcon,
 } from '@/components/ui/icons';
+import { usePublicConstants } from '@/lib/constants';
 import { LIMIT_COPY } from '@/components/limits/copy';
 import { useNow } from '@/lib/useNow';
 import { activeFilterCount, hasFilters, toggleStatus, DEFAULT_FILTERS, type FilterState } from '../state';
@@ -123,16 +126,16 @@ export function OptionsMenu({
   view: TrackerView;
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
-  /** Picking a status filter switches to the list (Simplify). */
+  /** Picking a status filter switches to the list. */
   onListView: () => void;
   columns: ColumnChoice[];
   onColumnToggle: (status: ApplicationStatus, visible: boolean) => void;
   archivedColumn: { count: number; visible: boolean };
   onArchivedToggle: (visible: boolean) => void;
   onManage: () => void;
-  /** v2.0: "Prepare & Queue jobs": choose Saved entries to Prepare & Queue (Manage jobs' selection). */
+  /** v2.0: "Prepare & Queue jobs": choose Saved entries to Prepare & Queue (Select applications' selection). */
   onPrepare: () => void;
-  /** v20 A30: the Draft column (between Saved and Applied in Visible columns), with Draft's words. */
+  /** v20 A30: the Draft lane (between Saved and Applied in Lanes shown), with Draft's words. */
   draftColumn: { count: number; visible: boolean; label: string };
   onDraftToggle: (visible: boolean) => void;
   onImport: () => void;
@@ -151,28 +154,38 @@ export function OptionsMenu({
   const count = activeFilterCount(filters);
   const set = (patch: Partial<FilterState>) => onFiltersChange({ ...filters, ...patch });
   const showFilters = view !== 'chart';
+  const { t } = usePublicConstants();
+  const filterLabel = t('LABEL_TRACKER_FILTER');
+  const lanesShown = columns.filter((column) => column.visible).length + (draftColumn.visible ? 1 : 0) + (archivedColumn.visible ? 1 : 0);
 
   return (
-    <Menu open={open} onOpenChange={setOpen}>
-      {/*
-        Opens on hover like Simplify's (a mouse resting on it for 100 ms), and still on click, Enter, Space or the arrow
-        keys. A hover-opened menu closes when the pointer leaves it; a click inside keeps it open.
-      */}
-      <MenuTrigger
-        openOnHover
-        render={
-          <FilterPill
-            label="Options"
-            icon={<SlidersHorizontalIcon size={16} />}
-            count={count}
-            active={count > 0}
-            aria-label={count > 0 ? `Options, ${count} filters applied` : 'Options'}
-          />
-        }
-      />
-      <MenuContent align="end" width="w-60" aria-label="Options">
-        {showFilters && (
-          <>
+    <>
+      {/* v31 FIX-DOCS: "Filter and sort" (the filters, favorites, lanes and sort) and the ⋯ of the tracker's actions. */}
+      {showFilters && (
+        <Menu open={open} onOpenChange={setOpen}>
+          {/*
+            Opens on hover (a mouse resting on it for 100 ms), and still on click, Enter, Space or the arrow keys. A
+            hover-opened menu closes when the pointer leaves it; a click inside keeps it open.
+          */}
+          <MenuTrigger
+            openOnHover
+            render={
+              <Button
+                variant="outline"
+                icon={<FunnelIcon size={16} weight={count > 0 ? 'fill' : 'regular'} className={count > 0 ? 'text-primary' : undefined} />}
+                aria-label={count > 0 ? `${filterLabel}, ${count} filters applied` : filterLabel}
+                data-tracker-filter=""
+              />
+            }
+          >
+            <span className="max-sm:sr-only">{filterLabel}</span>
+            {count > 0 && (
+              <span className="num ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] text-on-primary">
+                {count}
+              </span>
+            )}
+          </MenuTrigger>
+          <MenuContent align="end" width="w-60" aria-label={filterLabel}>
             <MenuGroup label="Filters">
               <MenuSub label="Applied from">
                 <MenuSubContent width="w-auto">
@@ -252,13 +265,13 @@ export function OptionsMenu({
               )}
             </MenuGroup>
             <MenuSeparator />
-            <MenuGroup label="View options">
+            <MenuGroup label="View">
               <MenuCheckboxItem checked={filters.favorites} onCheckedChange={(on) => set({ favorites: on })}>
                 Show only favorites
               </MenuCheckboxItem>
               {view === 'board' && (
                 <MenuSub
-                  label={`Visible columns (${columns.filter((column) => column.visible).length + (draftColumn.visible ? 1 : 0) + (archivedColumn.visible ? 1 : 0)})`}
+                  label={`${t('LABEL_TRACKER_LANES')} (${lanesShown})`}
                 >
                   <MenuSubContent width="w-60">
                     {columns.flatMap((column) => {
@@ -319,21 +332,26 @@ export function OptionsMenu({
                 </MenuSubContent>
               </MenuSub>
             </MenuGroup>
-            <MenuSeparator />
-          </>
-        )}
+          </MenuContent>
+        </Menu>
+      )}
+      <Menu>
+        <MenuTrigger
+          render={<IconButton label={t('LABEL_TRACKER_MORE')} variant="outline" icon={<DotsThreeIcon size={18} weight="bold" />} />}
+        />
+        <MenuContent align="end" width="w-60" aria-label={t('LABEL_TRACKER_MORE')}>
         <MenuGroup label="Actions">
-          <MenuItem icon={<CopyIcon size={16} />} onClick={onManage}>
-            Manage jobs
+          <MenuItem icon={<CheckCircleIcon size={16} />} onClick={onManage}>
+            {t('LABEL_TRACKER_SELECT')}
           </MenuItem>
           <MenuItem icon={<RobotIcon size={16} />} onClick={onPrepare}>
             Prepare &amp; Queue jobs
           </MenuItem>
           <MenuItem icon={<DownloadSimpleIcon size={16} />} onClick={onImport}>
-            Import CSV
+            {t('LABEL_TRACKER_IMPORT')}
           </MenuItem>
           <MenuItem icon={<UploadSimpleIcon size={16} />} onClick={onExport}>
-            Export CSV
+            {t('LABEL_TRACKER_EXPORT')}
           </MenuItem>
           <MenuItem
             icon={resumesLocked ? <LockSimpleIcon size={16} data-lock-icon="" /> : <FileZipIcon size={16} />}
@@ -348,7 +366,8 @@ export function OptionsMenu({
             Archive all applications
           </MenuItem>
         </MenuGroup>
-      </MenuContent>
-    </Menu>
+        </MenuContent>
+      </Menu>
+    </>
   );
 }

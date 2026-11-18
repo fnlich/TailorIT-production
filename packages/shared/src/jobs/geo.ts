@@ -145,7 +145,7 @@ export const COUNTRIES: Readonly<Record<string, { name: string; aliases: readonl
   CR: { name: 'Costa Rica', aliases: [] },
 };
 
-/** How a country prints on a card: Simplify writes "USA" and "UK"; every other country by its name. */
+/** How a country prints on a card: the United States as "USA", the United Kingdom as "UK", every other country by its name. */
 export function countryDisplayName(code: string | null | undefined): string {
   if (!code) return '';
   if (code === 'US') return 'USA';

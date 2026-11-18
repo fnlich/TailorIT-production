@@ -62,7 +62,7 @@ const NAME_READINGS_COMPUTED = 5;
 /** The finished zip inside a build's folder. */
 export const ZIP_FILE = 'resumes.zip';
 
-const NO_SAVED = 'You have no Saved applications. Save jobs first, or select applications in Manage jobs.';
+const NO_SAVED = 'You have no Saved applications. Save jobs first, or choose applications with Select applications.';
 const NONE_OF_THOSE = 'Those applications were not found.';
 export const NO_RESUMES = 'You have no resumes yet. Upload or create one in Documents, then try again.';
 const ALL_MISSING = 'The resume files for these applications are missing. Upload the resumes again in Documents.';

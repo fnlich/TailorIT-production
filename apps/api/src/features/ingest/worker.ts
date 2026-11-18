@@ -5,6 +5,7 @@ import { startWorkers } from '../../core/feature-hooks';
 import { workPurges } from './purge';
 import { DUE_TICK_MS, dueSources, postponeHeldSources, refreshRobotsStatuses } from './scheduler';
 import { requireIngest, WORKER_TRIGGERS, type IngestService } from './service';
+import { runsPaused } from './pause-state'; // v31 RUNS
 import { acquireWorkerLock, WorkerLockedError, type WorkerLockOptions } from './worker-lock';
 
 // v30 S1-API: the ingest worker (12-job-sourcing.md §9.2): a process of its own, `tsx src/cli.ts ingest:worker`
@@ -20,6 +21,8 @@ import { acquireWorkerLock, WorkerLockedError, type WorkerLockOptions } from './
 //   - start the due sources: at most INGEST_HOSTS_IN_FLIGHT hosts at once, one source per host at a time;
 //   - every PURGE_EVERY_MS, work the open purges (purge.ts workPurges) for a while.
 // With INGEST_ENABLED=false no source is read (the purges, which read no outside host, still run).
+// v31 RUNS: nor while an admin paused every run (pause-state.ts): no due source starts and no robots.txt is read; the
+// purges still run. A source an admin paused is never due (dueSources).
 // v30 FIX-A (REV-BEH BEH-4): one worker at a time: `ingest:worker` takes the worker lock first (worker-lock.ts); a
 // second one names the running worker and exits (code 1), so it never recovers the first one's live runs.
 
@@ -58,6 +61,7 @@ export function startDueQueue(
         await workPurges(deps, { signal: controller.signal });
       }
       if (!enabled || stopped) return 0;
+      if (await runsPaused(deps)) return 0; // v31 RUNS
       await postponeHeldSources(deps);
       // v30 INT-4: the new kinds' hosts are read with BOT_USER_AGENT (S3's edit B, S5's edit D).
       await refreshRobotsStatuses(deps, service.http, { signal: controller.signal, newKindsHttp: service.botHttp });

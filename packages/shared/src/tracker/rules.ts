@@ -12,7 +12,7 @@ import {
   type ApplicationStatus,
 } from './statuses';
 
-// The status rules (Simplify's): every application keeps one event per status it reached, each with its own editable
+// The status rules: every application keeps one event per status it reached, each with its own editable
 // date, and its current status is the highest of them. These functions take and return event lists; the API stores
 // them in `application_status_events` and denormalizes `currentStatus` onto the application.
 

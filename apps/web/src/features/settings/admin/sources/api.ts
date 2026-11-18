@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import {
   AdminPurgesListSchema,
+  AdminSourceRowSchema,
   AdminSourcesBulkResultSchema,
   AdminSourcesListSchema,
   JobSourcePurgeSchema,
   type AdminSourceBulkAction,
+  type AdminSourceRow,
   type AdminSourcesBulkResult,
   type AdminSourcesList,
   type JobSourcePurge,
@@ -73,6 +75,16 @@ export function deleteSource(id: number) {
 /** POST /api/admin/sources/:id/run: runs it now, in the background (v2.0's route, 202). */
 export function runSource(id: number) {
   return api.post<{ runId: number; sourceId: number }>(`/api/admin/sources/${id}/run`);
+}
+
+/** v31 RUNS: POST /api/admin/sources/:id/pause: no run of it starts until Continue; its running run stops. */
+export function pauseSource(id: number): Promise<AdminSourceRow> {
+  return api.post<AdminSourceRow>(`/api/admin/sources/${id}/pause`, undefined, { schema: AdminSourceRowSchema });
+}
+
+/** v31 RUNS: POST /api/admin/sources/:id/continue: it runs again (now, when its last run was paused). */
+export function continueSource(id: number): Promise<AdminSourceRow> {
+  return api.post<AdminSourceRow>(`/api/admin/sources/${id}/continue`, undefined, { schema: AdminSourceRowSchema });
 }
 
 /** POST /api/admin/sources/test: reads a board once without saving it (v2.0's route). */

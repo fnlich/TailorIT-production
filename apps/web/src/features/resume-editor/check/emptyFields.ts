@@ -69,5 +69,5 @@ const SAFE_PATH = /^[A-Za-z0-9_.:-]+$/;
 export function emptyFieldsCss(paths: readonly string[]): string {
   const selectors = paths.filter((path) => SAFE_PATH.test(path)).map((path) => `[data-resume-canvas] [data-edit-path="${path}"]`);
   if (selectors.length === 0) return '';
-  return `${selectors.join(',')}{background-color:#fff3b0;border-radius:2px}`;
+  return `${selectors.join(',')}{background-color:color-mix(in srgb,var(--color-tape) 50%,var(--color-surface));border-radius:2px}`;
 }

@@ -56,25 +56,25 @@ export function SiteRequestsSection() {
           <table className="w-full min-w-[420px] text-left text-sm leading-5">
             <caption className="sr-only">Sites you asked TailorIT to support, the latest first</caption>
             <thead>
-              <tr className="border-b border-border text-[13px] text-muted-foreground">
-                <th scope="col" className="py-2 pr-4 font-medium">
+              <tr className="border-b border-border text-[11px] leading-4 tracking-[0.06em] text-subtle-foreground uppercase">
+                <th scope="col" className="py-2 pr-4 font-semibold">
                   Site
                 </th>
-                <th scope="col" className="py-2 pr-4 text-right font-medium">
+                <th scope="col" className="py-2 pr-4 text-right font-semibold">
                   Times asked
                 </th>
-                <th scope="col" className="py-2 font-medium">
+                <th scope="col" className="py-2 font-semibold">
                   Last asked
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-divider-soft">
               {items.map((item) => (
                 <tr key={item.host}>
                   <th scope="row" className="py-2.5 pr-4 font-medium break-all text-foreground">
                     {item.host}
                   </th>
-                  <td className="py-2.5 pr-4 text-right text-foreground tabular-nums">{item.count}</td>
+                  <td className="num py-2.5 pr-4 text-right text-foreground">{item.count}</td>
                   <td className="py-2.5 whitespace-nowrap text-muted-foreground">
                     <time dateTime={item.lastRequestedAt} title={formatDate(item.lastRequestedAt)}>
                       {relativeTime(item.lastRequestedAt, now)}

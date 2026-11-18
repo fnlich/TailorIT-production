@@ -139,7 +139,7 @@ export function FormatPopup() {
       // Keep the words selected: the press must not move the focus out of the field.
       onMouseDown={(event) => event.preventDefault()}
       onClick={onPress}
-      className={clsx('flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-sm', pressed ? 'bg-hover text-foreground' : 'text-foreground hover:bg-hover')}
+      className={clsx('flex h-8 min-w-8 items-center justify-center rounded-control px-2 text-sm', pressed ? 'bg-primary-soft text-primary-ink' : 'text-foreground hover:bg-hover')}
     >
       {content}
     </button>
@@ -150,7 +150,7 @@ export function FormatPopup() {
       ref={popup}
       role="toolbar"
       aria-label="Text formatting"
-      className={clsx(Z_FLOATING, 'absolute flex -translate-x-1/2 -translate-y-full items-center gap-0.5 rounded-lg border border-border bg-surface p-1 shadow-lg')}
+      className={clsx(Z_FLOATING, 'absolute flex -translate-x-1/2 -translate-y-full items-center gap-0.5 rounded-popup border border-border bg-surface p-1 shadow-popover')}
       style={{ top: anchor.top, left: anchor.left }}
     >
       {linking ? (
@@ -167,12 +167,12 @@ export function FormatPopup() {
                 setLinking(false);
               }
             }}
-            className="h-8 w-56 rounded-md border border-border px-2 text-sm outline-none focus:border-primary"
+            className="h-8 w-56 rounded-control border border-border-strong bg-surface px-2 text-sm outline-none focus:border-primary focus:shadow-focus"
           />
-          <button type="submit" className="h-8 rounded-md bg-primary px-3 text-sm font-medium text-white">
+          <button type="submit" className="h-8 rounded-control bg-primary px-3 text-sm font-medium text-on-primary hover:bg-primary-hover">
             Apply
           </button>
-          <button type="button" className="h-8 rounded-md px-2 text-sm text-muted-foreground hover:bg-hover" onClick={removeLink}>
+          <button type="button" className="h-8 rounded-control px-2 text-sm text-muted-foreground hover:bg-hover" onClick={removeLink}>
             Remove
           </button>
         </form>

@@ -2,8 +2,8 @@ import { clsx } from 'clsx';
 
 /** A grey placeholder block while content loads (pulses unless reduced motion is preferred). */
 export function Skeleton({ className, rounded = 'md' }: { className?: string; rounded?: 'md' | 'full' | 'control' | 'surface' }) {
-  const radius = { md: 'rounded-md', full: 'rounded-full', control: 'rounded-control', surface: 'rounded-surface' }[rounded];
-  return <span aria-hidden="true" className={clsx('block animate-pulse bg-black/[0.06] motion-reduce:animate-none', radius, className)} />;
+  const radius = { md: 'rounded-tag', full: 'rounded-full', control: 'rounded-control', surface: 'rounded-card' }[rounded];
+  return <span aria-hidden="true" className={clsx('block animate-pulse bg-muted motion-reduce:animate-none', radius, className)} />;
 }
 
 /** A few skeleton lines of text. */

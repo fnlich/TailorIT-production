@@ -13,12 +13,12 @@ export interface ActionMenuProps {
   /** The trigger's accessible name: "Actions for {label}". */
   label: string;
   /**
-   * "kebab": a ⋮ icon button (cards and list rows); "more": Simplify's "More ⌄" text button (table rows); or any
+   * "kebab": a ⋮ icon button (cards and list rows); "more": a "More ⌄" text button (table rows); or any
    * ref-forwarding element.
    */
   trigger?: 'kebab' | 'more' | ReactElement;
   align?: 'start' | 'end';
-  /** Tailwind width class; Simplify's row menus are 176 px (w-44). */
+  /** Tailwind width class; the row menus are 176 px (w-44). */
   width?: string;
   disabled?: boolean;
   className?: string;
@@ -46,8 +46,8 @@ export function ActionMenu({ items, label, trigger = 'kebab', align = 'end', wid
       <button
         type="button"
         className={clsx(
-          'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2 text-[13px] font-semibold whitespace-nowrap text-foreground',
-          'transition-colors duration-150 hover:bg-hover data-popup-open:bg-hover disabled:opacity-50',
+          'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2 text-[13px] font-medium whitespace-nowrap text-foreground',
+          'transition-colors duration-150 hover:bg-hover active:bg-pressed data-popup-open:bg-hover disabled:opacity-50',
           className,
         )}
       >

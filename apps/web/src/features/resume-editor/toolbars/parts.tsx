@@ -9,15 +9,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover
 import { Tooltip } from '@/components/ui/Tooltip';
 import type { Box } from './dom';
 
-// The pieces every toolbar is made of: a white bar in Simplify's menu style (Base UI Toolbar: one tab stop, the
+// The pieces every toolbar is made of: a white bar on the popup surface (Base UI Toolbar: one tab stop, the
 // arrows move between the buttons, Escape goes back to the page), icon buttons with their tooltip, text buttons
 // ("+ Entry"), and buttons that open a popover. A bar floats above the box it acts on and stays inside the canvas.
 
 export const TOOLBAR_SHORTCUT = 'Alt+F10';
 
 const BAR =
-  'flex items-center gap-0.5 rounded-menu bg-white p-1 text-sm text-foreground shadow-menu outline outline-1 ' +
-  'outline-black/[0.08]';
+  'flex items-center gap-0.5 rounded-popup border border-border bg-surface p-1 text-sm text-foreground shadow-popover';
 
 export function ToolbarShell({
   label,
@@ -164,7 +163,7 @@ export function ToolPopover({
           // Said in the page's live region; this is the picture of it.
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute top-full right-0 z-10 mt-2 rounded-[8px] bg-foreground px-2.5 py-1.5 text-xs leading-4 font-medium whitespace-nowrap text-white shadow-popover"
+            className="pointer-events-none absolute top-full right-0 z-10 mt-2 rounded-control bg-sidebar px-2.5 py-1.5 text-xs leading-4 font-medium whitespace-nowrap text-on-primary shadow-popover"
           >
             {hint?.text}
           </span>
@@ -246,7 +245,7 @@ export function Outline({ box, tone }: { box: Box; tone: 'selected' | 'section' 
     <div
       aria-hidden="true"
       className={clsx(
-        'pointer-events-none absolute rounded-[6px]',
+        'pointer-events-none absolute rounded-control',
         tone === 'selected' && 'border-[1.5px] border-primary',
         tone === 'section' && 'border border-primary/45 bg-primary/[0.025]',
         tone === 'hover' && 'border border-dashed border-primary/50',

@@ -31,7 +31,7 @@ import { PrepareFilters } from './PrepareFilters';
 // - the Prepare filters, with a live preview and their own save bar.
 // The three settings save as they change (PUT /api/prepare/settings); the filters save together.
 
-/** The section's anchor: the Auto-apply page's Filters button links to /settings#prepare. */
+/** The section's anchor (/settings#prepare). v31 AUTO: the Auto-apply page opens the same filters in a dialog instead. */
 export const PREPARE_ANCHOR = 'prepare';
 
 export function PrepareSection({ className }: { className?: string }) {

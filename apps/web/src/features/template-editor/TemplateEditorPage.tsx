@@ -16,6 +16,7 @@ import {
 } from '@tailorit/shared/letters';
 import { EditorBar, EditorBarButton } from '@/components/shell/EditorBar';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CirclesFourIcon, LockIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
@@ -44,9 +45,11 @@ import { saveStatusText, useAutosave } from '../letter-editor/useAutosave';
 import { AiPromptDialog } from './AiPromptDialog';
 import { BaseFromTemplateSelect } from './BaseFromTemplateSelect';
 import { InsertVariableSelect } from './InsertVariableSelect';
+import { usePublicConstants } from '@/lib/constants';
+import { deleteOneWords } from '@/features/documents/core';
 
 /*
- * The cover letter template editor (/cover-letter-template/[id], Simplify screenshot 5): EditorBar with rename and
+ * The cover letter template editor (/cover-letter-template/[id]): EditorBar with rename and
  * ✨ AI Prompt, the toolbar, "Insert variable..." and "Base from template..." under it, and the paper with
  * `{{VARIABLE}}` chips. TailorIT's starter templates open read-only, with "Duplicate to edit".
  */
@@ -75,7 +78,7 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
       <>
         <EditorBar name="Template" documentsHref={DOCUMENTS_HREF} />
         <main className="flex flex-1 items-start justify-center px-4 py-16">
-          <div className="w-full max-w-lg rounded-surface border border-border bg-surface shadow-soft">
+          <Card padding="none" className="w-full max-w-lg">
             <EmptyState
               icon={<CirclesFourIcon size={22} />}
               title={missing ? 'This template was not found' : 'This template could not be opened'}
@@ -86,7 +89,7 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
                 </Link>
               }
             />
-          </div>
+          </Card>
         </main>
       </>
     );
@@ -96,6 +99,7 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
 
 function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
   const router = useRouter();
+  const { t } = usePublicConstants();
   const queryClient = useQueryClient();
   const toast = useToast();
   const now = useNow();
@@ -260,7 +264,7 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
               />
             ) : null}
             <EditorBarButton
-              label="AI Prompt"
+              label={t('LABEL_LETTER_AI_NOTES')}
               variant="outline"
               icon={<SparkleIcon size={16} weight="fill" className="text-primary-ink" />}
               onClick={() => setPromptOpen(true)}
@@ -347,8 +351,7 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Delete Template"
-        description="Are you sure you want to delete this template? You won't be able to undo this action."
+        {...deleteOneWords(template.name, { one: 'template', many: 'templates' }, t)}
         confirmLabel="Delete"
         busyLabel="Deleting..."
         onConfirm={async () => {

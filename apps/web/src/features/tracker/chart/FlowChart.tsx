@@ -2,7 +2,7 @@
 
 import { ResponsiveSankey, type CustomSankeyLayerProps, type SankeyLinkDatum, type SankeyNodeDatum } from '@nivo/sankey';
 import { createContext, useCallback, useContext, useMemo, useRef, type PointerEvent } from 'react';
-import type { SankeyResponse } from '@tailorit/shared';
+import type { ApplicationStatus, SankeyResponse } from '@tailorit/shared';
 import { useStoredValue, writeStored } from '@/lib/storage';
 
 /*
@@ -31,6 +31,36 @@ type LayerProps = CustomSankeyLayerProps<FlowNode, FlowLink>;
 type Offsets = Record<string, { x: number; y: number }>;
 
 export const CHART_POSITIONS_KEY = 'tailorit.tracker.chartPositions';
+
+/**
+ * v31 JOBSWEB: each stage's colour is one of the identity's tokens (docs/design/v3.1/20-visual-identity.md §2), read
+ * from the page when the chart draws, so the chart and its PNG follow the palette: Applied denim, Screening info blue,
+ * Interviewing a lighter denim, Offer and Accepted greens, Withdrawn the tape's strong edge, Ghosted grey, Rejected red.
+ */
+export const STAGE_TOKEN: Readonly<Record<ApplicationStatus, string>> = {
+  1: '--color-control-strong',
+  2: '--color-primary',
+  11: '--color-info',
+  12: '--color-primary-400',
+  13: '--color-success',
+  21: '--color-tape-strong',
+  22: '--color-control-strong',
+  23: '--color-danger',
+  24: '--color-success-ink',
+};
+
+/** A stage's colour: its token's value through `read` (the root's computed style), else the colour the server sent. */
+export function stageColor(status: ApplicationStatus, fallback: string, read: ((token: string) => string) | null): string {
+  const value = read?.(STAGE_TOKEN[status])?.trim();
+  return value || fallback;
+}
+
+/** Reads a token's value from the page's root (null while there is no page: a server render). */
+function rootTokenReader(): ((token: string) => string) | null {
+  if (typeof window === 'undefined') return null;
+  const style = getComputedStyle(document.documentElement);
+  return (token) => style.getPropertyValue(token);
+}
 
 function readOffsets(raw: string): Offsets {
   try {
@@ -103,7 +133,7 @@ function LinksLayer({ links }: LayerProps) {
           d={linkPath(link, offsets)}
           fill={link.source.color}
           fillOpacity={0.32}
-          className="transition-[fill-opacity] duration-150 hover:fill-opacity-60"
+          className="transition-[fill-opacity] duration-150 hover:[fill-opacity:0.6]"
         >
           <title>{`${link.source.id} → ${link.target.id}: ${link.value}`}</title>
         </path>
@@ -174,7 +204,7 @@ export function FlowChart({ data, height = 420 }: { data: SankeyResponse; height
 
   const chartData = useMemo(
     () => ({
-      nodes: data.nodes.map((node) => ({ id: node.id, fill: node.color, fixedValue: node.value })),
+      nodes: data.nodes.map((node) => ({ id: node.id, fill: stageColor(node.status, node.color, rootTokenReader()), fixedValue: node.value })),
       links: data.links.map((link) => ({ source: link.source, target: link.target, value: link.value })),
     }),
     [data],

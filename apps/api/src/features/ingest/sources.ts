@@ -75,6 +75,9 @@ export interface SourceRow {
   lease_until?: string | null;
   ai_input?: boolean;
   discovered_via?: string | null;
+  // v31 RUNS: an admin's pause of the source (job_sources.paused_at, paused_by: a users.id).
+  paused_at?: string | null;
+  paused_by?: string | null;
 }
 
 /** A flag column as read (boolean on PostgreSQL) as a boolean. */
@@ -126,6 +129,7 @@ export function toSourceRecord(row: SourceRow): SourceRecord {
     leaseUntil: row.lease_until ?? null,
     aiInput: row.ai_input ?? true,
     discoveredVia: row.discovered_via ?? null,
+    pausedAt: row.paused_at ?? null, // v31 RUNS
   };
 }
 
@@ -402,6 +406,8 @@ interface RunRow {
   error_code: string | null;
   error: string | null;
   log: string | null;
+  /** v31 RUNS: when an admin asked it to pause. */
+  stop_requested_at?: string | null;
   kind?: SourceKind;
   name?: string;
   /** The source's config (joined in by the run queries, for its kind label). */
@@ -438,12 +444,15 @@ function toAdminRun(row: RunRow): AdminRun {
     requests: row.requests ?? 0,
     reopened: row.reopened ?? 0,
     errorCode: row.error_code,
+    stopRequestedAt: row.stop_requested_at ?? null, // v31 RUNS
   };
 }
 
 /** A source row with the company's name and the job counts the v2.0 console shows. */
 type ListedRow = SourceRow & {
   company_name: string | null;
+  /** v31 RUNS: the email of the admin who paused it. */
+  paused_by_email?: string | null;
   cadence_hours: number | null;
   terms_url: string | null;
   terms_note: string | null;
@@ -452,8 +461,9 @@ type ListedRow = SourceRow & {
 };
 
 const LISTED_COLUMNS =
-  's.*, c.name AS company_name, extract(epoch from s.cadence) / 3600 AS cadence_hours';
-const LISTED_FROM = 'job_sources s LEFT JOIN companies c ON c.id = s.company_id';
+  's.*, c.name AS company_name, extract(epoch from s.cadence) / 3600 AS cadence_hours, pu.email AS paused_by_email';
+// v31 RUNS: the admin who paused a source (paused_by: a users.id), by their email.
+const LISTED_FROM = 'job_sources s LEFT JOIN companies c ON c.id = s.company_id LEFT JOIN users pu ON pu.id = s.paused_by';
 
 /** Each source's job counts and latest run, for the rows of one page (read through job_source_links' key and the runs index). */
 async function extrasOf(db: DbQueries, ids: readonly number[]) {
@@ -504,6 +514,9 @@ function toAdminRow(row: ListedRow, at: string): AdminSourceRow {
     openJobs: source.openJobs ?? 0,
     aiInput: source.aiInput ?? true,
     running: source.leaseUntil !== null && source.leaseUntil !== undefined && Date.parse(source.leaseUntil) > Date.parse(at),
+    // v31 RUNS
+    pausedAt: source.pausedAt ?? null,
+    pausedBy: source.pausedAt ? (row.paused_by_email ?? null) : null,
   };
 }
 
@@ -688,6 +701,8 @@ const SKIP_WORDS = {
   not_scheduled: 'This kind of source runs only by hand (Run now).',
   /** v30 FIX-A: its company opted out (the words are MSG_INGEST_SOURCE_OPTED_OUT's, given by the route). */
   opted_out: "This source's company asked TailorIT not to read its jobs.",
+  /** v31 RUNS: an admin paused it (the words are MSG_INGEST_SOURCE_PAUSED's, given by the route). */
+  paused: 'It is paused: continue it first.',
 } as const;
 
 /**
@@ -699,6 +714,7 @@ export async function bulkSources(
   body: AdminSourcesBulkBody,
   now: string,
   optedOutWords: string = SKIP_WORDS.opted_out,
+  pausedWords: string = SKIP_WORDS.paused, // v31 RUNS
 ): Promise<{ ids: number[]; body: AdminSourcesBulkResult }> {
   // v30 FIX-A (SEC-2, BEH-3): enable and run now skip a source whose company opted out (opt-out-gate.ts).
   const optedOut = body.action === 'disable' ? new Set<number>() : await optedOutSources(db, body.ids);
@@ -712,7 +728,11 @@ export async function bulkSources(
   for (const id of body.ids) {
     const source = rows.get(id);
     const skip = (why: keyof typeof SKIP_WORDS) =>
-      results.push({ id, outcome: 'skipped', message: why === 'opted_out' ? optedOutWords : SKIP_WORDS[why] });
+      results.push({
+        id,
+        outcome: 'skipped',
+        message: why === 'opted_out' ? optedOutWords : why === 'paused' ? pausedWords : SKIP_WORDS[why],
+      });
     if (!source) skip('gone');
     else if (optedOut.has(id) && !(body.action === 'enable' && source.enabled)) skip('opted_out');
     else if (body.action === 'enable') {
@@ -727,6 +747,7 @@ export async function bulkSources(
     else if (!source.enabled) skip('disabled');
     else if (!['allowed', 'allowed_with_conditions'].includes(source.termsStatus ?? '')) skip('terms');
     else if (!['allowed', 'not_applicable'].includes(source.robotsStatus ?? '')) skip('robots');
+    else if (source.pausedAt) skip('paused'); // v31 RUNS: run now waits for Continue
     else chosen.push(id);
   }
   if (chosen.length > 0) {

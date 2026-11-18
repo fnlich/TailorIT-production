@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { SHEET_MAX_HEADER_ROW, parseSpreadsheetRef } from '@tailorit/shared/ingest';
 import { Button, buttonClasses } from '@/components/ui/Button';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { Field } from '@/components/ui/Field';
 import { ArrowSquareOutIcon, CopyIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
@@ -37,8 +36,10 @@ interface ReadRequest {
 }
 
 /**
- * Admin > Import jobs > Google Sheet: a one-time, read-only import of one tab. Share the sheet with the service
- * account, paste its link, check the tab, header row and columns, then import. TailorIT never writes to the sheet.
+ * Admin › Import links › Google Sheet: a one-time, read-only import of one tab's link column. Share the sheet with the
+ * service account, paste its link, check the tab, header row and link column, then import. TailorIT never writes to
+ * the sheet. v31 ADMINWEB: the posted date is the posting's own (TailorIT reads it from the link), so the tab-name date
+ * choice is gone; a re-import still sends the stored choice.
  */
 export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | null; onShowRuns: (sourceId: number) => void }) {
   const queryClient = useQueryClient();
@@ -121,7 +122,6 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
   const reading = read.isPending;
   const readingSheet = reading && read.variables?.body.refresh !== false;
   const mapping = chosenMapping ?? preview?.mapping ?? null;
-  const usesTabDate = preview ? (fromTab ?? preview.postedAtFromTab) && preview.tabDate !== null : false;
   const fields = isApiError(readError) ? (readError.fields ?? {}) : {};
   const linkError = fields.url ?? (linkTouched && link.trim() && !ref.ok ? ref.message : undefined);
   const tabError = preview ? fields.gid : undefined;
@@ -210,11 +210,6 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
     remap({ mapping: next });
   };
 
-  const toggleTabDate = (checked: boolean) => {
-    setFromTab(checked);
-    remap({ postedAtFromTab: checked });
-  };
-
   const checkName = () => {
     if (!preview || typedName === checkedName) return;
     setCheckedName(typedName);
@@ -246,7 +241,7 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
   return (
     <div>
       {account.isPending ? (
-        <div className="rounded-surface border border-border bg-surface p-6 shadow-soft" aria-busy="true">
+        <div className="rounded-card border border-border bg-surface p-6 shadow-card" aria-busy="true">
           <Skeleton className="h-5 w-64" />
           <Skeleton className="mt-3 h-4 w-full max-w-2xl" />
           <Skeleton className="mt-5 h-9 w-full max-w-xl" rounded="control" />
@@ -286,10 +281,10 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
               </ol>
             </Notice>
           )}
-          <div className="rounded-surface border border-border bg-surface p-6 shadow-soft">
+          <div className="rounded-card border border-border bg-surface p-6 shadow-card">
             {configured && account.data.clientEmail && (
               <>
-                <h3 className="text-base font-semibold text-foreground">Share the sheet with TailorIT</h3>
+                <h3 className="text-[15px] leading-5 font-semibold text-foreground">Share the sheet with TailorIT</h3>
                 <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
                   TailorIT reads Google Sheets as this service account. In the sheet, click Share, add the address below as a Viewer, then paste
                   the sheet&apos;s link here. TailorIT only reads the sheet: it never changes it, and it imports it once (import it again to pick
@@ -340,9 +335,9 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
 
       {preview && mapping && (
         <div className="mt-6 flex flex-col gap-6">
-          <div className="rounded-surface border border-border bg-surface p-6 shadow-soft">
+          <div className="rounded-card border border-border bg-surface p-6 shadow-card">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <h3 className="min-w-0 truncate text-base font-semibold text-foreground">{preview.spreadsheetTitle}</h3>
+              <h3 className="min-w-0 truncate text-[15px] leading-5 font-semibold text-foreground">{preview.spreadsheetTitle}</h3>
               <a href={preview.url} target="_blank" rel="noopener noreferrer" className={buttonClasses({ variant: 'outline', size: 'sm' })}>
                 <ArrowSquareOutIcon size={14} />
                 Open in Google Sheets
@@ -387,16 +382,6 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
                 Row {preview.suggestedHeaderRow} looks like the header row.
               </Notice>
             )}
-            {preview.tabDate && (
-              <div className="mt-4 flex flex-col gap-1">
-                <Checkbox
-                  checked={usesTabDate}
-                  onCheckedChange={(checked) => toggleTabDate(checked)}
-                  label={`Use the tab name (${preview.tab.title}) as every job's posted date`}
-                />
-                <p className="pl-7 text-[13px] leading-5 text-muted-foreground">For free_tailor sheets, where each day has its own tab.</p>
-              </div>
-            )}
             {preview.notes.length > 0 && (
               <Notice tone="info" className="mt-4" title="About this tab">
                 <ul className="list-disc pl-5">
@@ -426,7 +411,6 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
             countLabel="Google Sheet"
             sampleLabel="First rows of the sheet"
             noneLabel="Not in this tab"
-            disabledFields={usesTabDate ? { postedAt: 'From the tab name' } : undefined}
             name={name}
             onNameChange={setName}
             onNameBlur={checkName}

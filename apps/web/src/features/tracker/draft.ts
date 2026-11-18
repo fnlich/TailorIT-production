@@ -19,7 +19,7 @@ import {
 
 /** localStorage key of the Draft column's mode (the stored statuses' modes are in COLUMN_PREFS_STORAGE_KEY). */
 export const DRAFT_COLUMN_STORAGE_KEY = 'tailorit.tracker.draftColumn';
-/** Shown by default, as Saved and Applied are: hideable with its eye, or in Visible columns. */
+/** Shown by default, as Saved and Applied are: hideable with its eye, or in Lanes shown. */
 export const DRAFT_COLUMN_DEFAULT: ColumnMode = 'forced';
 
 export function readDraftColumnMode(raw: string | null): ColumnMode {

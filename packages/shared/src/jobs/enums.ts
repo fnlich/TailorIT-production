@@ -1,4 +1,4 @@
-// Job vocabulary shared by Jobs, the Tracker, preferences and ingestion. Labels are Simplify's wording.
+// Job vocabulary shared by Jobs, the Tracker, preferences and ingestion. Labels are the words the filters and cards show.
 
 export const EMPLOYMENT_TYPES = ['internship', 'full_time', 'part_time', 'contract'] as const;
 export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];

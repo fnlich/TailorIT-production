@@ -136,9 +136,9 @@ export function AddSectionDialog({ open, onOpenChange, document, onAdd, onAddCus
                       finish();
                     }}
                     className={clsx(
-                      'flex h-full w-full items-start gap-3 rounded-[12px] border border-border bg-surface p-3.5 text-left',
+                      'flex h-full w-full items-start gap-3 rounded-card border border-border bg-surface p-3.5 text-left',
                       'transition-[border-color,background-color] duration-150',
-                      tile.used ? 'cursor-not-allowed opacity-60' : 'hover:border-primary hover:bg-primary-50',
+                      tile.used ? 'cursor-not-allowed opacity-60' : 'hover:border-primary hover:bg-primary-50 hover:shadow-card',
                     )}
                   >
                     <SectionGlyph icon={tile.icon} />
@@ -156,7 +156,7 @@ export function AddSectionDialog({ open, onOpenChange, document, onAdd, onAddCus
           ) : (
             <p className="text-sm text-muted-foreground">Every section is on the page already. A custom section can still be added.</p>
           )}
-          <div className="rounded-[12px] border border-dashed border-control-strong bg-surface-low p-3.5">
+          <div className="stitch rounded-card bg-surface-low p-3.5">
             {custom ? (
               <form
                 className="flex flex-col gap-3"

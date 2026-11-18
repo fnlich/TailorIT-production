@@ -165,7 +165,7 @@ export function PhotoDialog({
               />
             </>
           ) : (
-            <div className="flex h-40 w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border">
+            <div className="stitch flex h-40 w-full flex-col items-center justify-center gap-3 rounded-card bg-surface">
               <p className="text-sm text-muted-foreground">JPG, PNG or BMP, up to {MAX_PHOTO_FILE_MB} MB</p>
               <Button variant="outline" onClick={() => input.current?.click()}>
                 Choose a photo

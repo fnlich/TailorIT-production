@@ -16,6 +16,7 @@ import { agentCanApply, queueCanOpen } from '@tailorit/shared/autofill';
 import type { DbQueries } from '../../core/db/types';
 import { notFound } from '../../core/http/errors';
 import { creditFieldOf, jobCreditOfJobSql } from '../jobs/credit'; // v30 FIX-B
+import { verificationOfJson, verificationRowSql } from '../jobs/add/verification'; // v31 LINK
 import { descriptionHtmlOf } from './description';
 
 // Rows of the tracker tables and their DTOs. Every read is scoped by user_id: another account's application is
@@ -69,6 +70,8 @@ export interface ApplicationRow {
   job_closed?: boolean | null;
   /** v30 FIX-B (REQ-1): the job's source's credit line as JSON text (jobs/credit.ts), or null. */
   job_credit?: string | null;
+  /** v31 LINK: the job's verification as one JSON value (jobs/add/verification.ts verificationRowSql), or null. */
+  job_verification?: unknown;
   /** The job's address (jobs.apply_url), when the entry is of a job. */
   job_apply_url?: string | null;
   // v20 P3 (A30)
@@ -89,7 +92,9 @@ export const APPLICATION_COLUMNS =
   `a.*, (SELECT cp.logo_path FROM company_profiles cp WHERE cp.company_id = c.id) AS logo_path, (SELECT j.apply_url FROM jobs j WHERE j.id = a.job_id) AS job_apply_url, ${LIVE_QUEUE_ROW_AT_SQL} AS queued_at, ` +
   '(SELECT j.held_since IS NOT NULL FROM jobs j WHERE j.id = a.job_id) AS job_held, ' +
   // v30 FIX-B (UX-10, REQ-1): the job's closed mark and its source's credit line.
-  `(SELECT NOT j.active FROM jobs j WHERE j.id = a.job_id) AS job_closed, ${jobCreditOfJobSql('a.job_id')} AS job_credit`;
+  `(SELECT NOT j.active FROM jobs j WHERE j.id = a.job_id) AS job_closed, ${jobCreditOfJobSql('a.job_id')} AS job_credit, ` +
+  // v31 LINK: the job's verification (a job of the account's own: why TailorIT could not read it).
+  `(SELECT ${verificationRowSql('j')} FROM jobs j WHERE j.id = a.job_id) AS job_verification`;
 export const APPLICATION_FROM = 'applications a LEFT JOIN companies c ON c.id = a.company_id';
 
 interface EventRow {
@@ -272,6 +277,8 @@ export function toSummary(row: ApplicationRow, events: readonly StatusEvent[]): 
     // v30 FIX-B: the job's closed mark (UX-10) and its source's credit line (REQ-1).
     ...(row.job_closed === true ? { closed: true as const } : {}),
     ...creditFieldOf(row.job_credit),
+    // v31 LINK: a job others do not see says why (absent: everyone sees it).
+    ...verificationOfJson(row.job_verification),
   };
 }
 

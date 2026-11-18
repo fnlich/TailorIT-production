@@ -33,7 +33,7 @@ export const SPLIT_NAME_MAX = 300;
 export function EditorSection({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
   return (
     <section aria-label={title} className="border-t border-border pt-6">
-      <h3 className="text-sm leading-5 font-semibold text-foreground">{title}</h3>
+      <h3 className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{title}</h3>
       {description && <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{description}</p>}
       <div className="mt-3">{children}</div>
     </section>
@@ -286,7 +286,7 @@ export function SplitSection({
       title="Boards"
       description="The job sources that list this company's jobs. To split a board that belongs to another employer off to a new company, tick it and name the new company."
     >
-      <ul className="flex flex-col divide-y divide-border rounded-control border border-border" aria-label="Boards">
+      <ul className="flex flex-col divide-y divide-divider-soft rounded-card border border-border" aria-label="Boards">
         {company.boards.map((board) => (
           <li key={board.sourceId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5" data-company-board={board.sourceId}>
             <Checkbox

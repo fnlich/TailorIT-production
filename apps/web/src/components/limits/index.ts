@@ -32,4 +32,4 @@ export {
 } from './limits';
 export { PurchaseActionBody } from './PurchaseActionDialog';
 export { SubscribeDialog, type SubscribeDialogProps } from './SubscribeDialog';
-export { USAGE_SEGMENTS_MAX, UsageMeter, UsageMeterSkeleton, type UsageMeterProps } from './UsageMeter';
+export { UsageMeter, UsageMeterSkeleton, type UsageMeterProps } from './UsageMeter';

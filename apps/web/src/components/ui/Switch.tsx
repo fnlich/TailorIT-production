@@ -19,7 +19,7 @@ export interface SwitchProps {
   className?: string;
 }
 
-/** An on/off toggle: 36×20 track, #d7d7d7 off, #14a1c0 on, white thumb. */
+/** An on/off toggle: 36×20 track, the strong control grey off (3:1 with the thumb), denim on, white thumb. */
 export function Switch({
   checked,
   onCheckedChange,
@@ -42,12 +42,12 @@ export function Switch({
       aria-labelledby={label ? labelId : aria['aria-label'] ? undefined : field.labelId}
       aria-describedby={[field['aria-describedby'], aria['aria-describedby']].filter(Boolean).join(' ') || undefined}
       className={clsx(
-        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-control-strong p-0.5 transition-colors duration-150',
-        'data-checked:bg-primary data-disabled:cursor-not-allowed data-disabled:opacity-50',
+        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-control-strong p-0.5 transition-colors duration-150 hover:bg-muted-foreground',
+        'data-checked:bg-primary data-checked:hover:bg-primary-hover data-disabled:cursor-not-allowed data-disabled:opacity-50',
         !label && className,
       )}
     >
-      <BaseSwitch.Thumb className="size-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.2)] transition-transform duration-150 ease-out-soft data-checked:translate-x-4" />
+      <BaseSwitch.Thumb className="size-4 rounded-full bg-surface shadow-control transition-transform duration-150 ease-out-soft data-checked:translate-x-4" />
     </BaseSwitch.Root>
   );
   if (!label) return control;

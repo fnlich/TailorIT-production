@@ -7,12 +7,13 @@ import { NOT_SPECIFIED_INDUSTRY, industryLabel, type JobAnalysisView, type Match
  */
 
 /**
- * The facts grid's required experience, "Experience: 7+ years"; '' when the posting asks for no minimum: it does not
+ * The spec sheet's required experience, "7+ years" (v31 FIX-JOBS: under its own "Required experience" label, the
+ * value no longer repeats "Experience:"); '' when the posting asks for no minimum: it does not
  * say (null), or it starts at 0 ("0-2 years of experience"), which tells a reader nothing.
  */
 export function requiredExperienceText(years: number | null | undefined): string {
   if (typeof years !== 'number' || !Number.isFinite(years) || years < 1) return '';
-  return `Experience: ${Math.floor(years)}+ years`;
+  return `${Math.floor(years)}+ years`;
 }
 
 /** Industry ids never shown as a posting's industry: they say nothing about it (the shared reading never names them). */

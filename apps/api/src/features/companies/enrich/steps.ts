@@ -21,6 +21,7 @@ const E2_STEPS: readonly EnrichmentStep[] = E2_ENRICHMENT_STEPS.map(({ step, run
   defineEnrichmentStep({
     name: step,
     handles: [step],
+    readsOutside: () => true, // v31 RUNS: the company's website, logo.dev
     async run(deps, work) {
       const outcome = await run(deps, { companyId: work.companyId, at: work.at });
       return outcome.status === 'done' ? { kind: 'done' } : { kind: 'wait', until: outcome.retryAt, reason: outcome.note };

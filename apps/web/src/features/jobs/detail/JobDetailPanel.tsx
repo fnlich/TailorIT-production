@@ -1,28 +1,33 @@
 'use client';
 
-import {
-  EMPLOYMENT_TYPE_LABEL,
-  appliedChipLabel,
-  formatMediumDate,
-  liveChip,
-  type JobDetail,
-} from '@tailorit/shared';
+import { Dialog as BaseDialog } from '@base-ui/react/dialog';
+import { EMPLOYMENT_TYPE_LABEL, appliedChipLabel, formatMediumDate, liveChip, type JobDetail } from '@tailorit/shared';
 import { clsx } from 'clsx';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
+import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
-import { BookmarkSimpleIcon, BriefcaseIcon, CaretDownIcon, ClockIcon, EyeIcon, EyeSlashIcon } from '@/components/ui/icons';
+import {
+  ArrowSquareOutIcon,
+  BookmarkSimpleIcon,
+  CaretDownIcon,
+  CaretUpIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  XIcon,
+} from '@/components/ui/icons';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/Menu';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton, SkeletonText } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { isApiError, userMessage } from '@/lib/api';
 import { companyHref } from '@/features/companies/routes'; // v30 WEB-JOBS
-import { usePublicConstants } from '@/lib/constants';
+import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
 import { useNow } from '@/lib/useNow';
 import { CompanyLogo } from '../CompanyLogo';
 import { useHideCompany, useHideJob, useJobDetail, useJobInsights, useMarkApplied, useSaveToggle } from '../hooks';
@@ -34,202 +39,256 @@ import { AddedFromChip } from './AddedFrom';
 import { ApplyDialog } from './ApplyDialog';
 import { CompanySection } from './company/CompanySection';
 import { FactsGrid } from './FactsGrid';
-import { ImproveResumeCard } from './ImproveResumeCard';
+import { MatchSection, TailorSection } from './MatchSection';
 import { ReportDialog } from '../report/ReportDialog';
 import { HeldNotice } from './held/HeldNotice'; // v30 X1-WEB
 import { DetailCredit } from '../credits/JobCredit'; // v30 S4
+import { VerificationNotice } from '../verification/VerificationNotice'; // v31 JOBSWEB
 
-type Section = 'overview' | 'company';
-const SECTIONS = [
-  { value: 'overview', label: 'Overview' },
-  { value: 'company', label: 'Company' },
-] as const;
-
-/** The sticky header's height: the Company anchor scrolls to just under it. */
-const HEADER_HEIGHT = 61;
-
-export interface JobDetailPanelProps {
-  jobId: number | null;
-  /** No job is chosen yet because the list is still loading (shows the skeleton, not "Select a job"). */
-  waiting?: boolean;
-  /** Called after jobs left the list (this one, or its company's): the page opens the next job. */
-  onJobsHidden: (hidden: { jobId?: number; companyId?: number }) => void;
-  /** Changes when a job is chosen in the one-column layout: the panel scrolls itself into view. */
-  revealSignal?: number;
-  /** Back to the list (one column only: the back arrow shows below `lg`). */
-  onShowList?: () => void;
-  /** Leaves a job that no longer exists ("Back to jobs"). */
-  onBackToJobs?: () => void;
-  className?: string;
+/** v31 FIX-JOBS: the drawer's place in the feed and its Previous / Next (null at either end, or for a job the feed lacks). */
+export interface DrawerNav {
+  /** "Job 3 of 133": the job's place in the loaded feed and the feed's count in words; null when it is not in the feed. */
+  position: { index: number; total: string } | null;
+  onPrevious: (() => void) | null;
+  onNext: (() => void) | null;
 }
 
-/** A quiet round icon button of the company row (hide, share, report): #191919 icons. */
-const TOOL_BUTTON =
-  'inline-flex h-8 min-w-8 shrink-0 items-center justify-center gap-1.5 rounded-control px-2 text-black transition-colors duration-150 ' +
-  'hover:bg-hover data-popup-open:bg-hover';
+export interface JobDetailPanelProps {
+  jobId: number;
+  nav: DrawerNav;
+  /** Closes the drawer (×, the phone's back arrow, "Back to jobs" for a job that is gone). */
+  onClose: () => void;
+  /** Called after jobs left the list (this one, or its company's): the page closes the drawer, focus on the next row. */
+  onJobsHidden: (hidden: { jobId?: number; companyId?: number }) => void;
+  /** The row's quick Apply: open the posting (and "Applied to this job?") once the job is read. */
+  applyIntent?: boolean;
+  onApplyIntentHandled?: () => void;
+}
 
-function Pill({ tone, icon, children, tooltip }: { tone: 'tint' | 'neutral'; icon?: ReactNode; children: ReactNode; tooltip?: string }) {
-  const pill = (
-    <span
-      tabIndex={tooltip ? 0 : undefined}
-      className={clsx(
-        'inline-flex h-6 items-center gap-1.5 rounded-full px-3 text-[13px] leading-none font-medium whitespace-nowrap',
-        tone === 'tint' ? 'bg-primary-container text-primary-ink' : 'bg-chip text-foreground',
+/** The jumps of the section bar: Your match (with Tailor for this job), About the role, the company. */
+const SECTIONS: ReadonlyArray<{ id: string; label: PublicMessageKey }> = [
+  { id: 'job-match', label: 'LABEL_JOB_NAV_MATCH' },
+  { id: 'job-role', label: 'LABEL_JOB_NAV_ROLE' },
+  { id: 'job-company', label: 'LABEL_JOB_NAV_COMPANY' },
+];
+
+/** The drawer's padding at the sides (20 px, 28 px from 640 px). */
+const GUTTER = 'px-5 sm:px-7';
+
+/**
+ * The drawer's top bar: on a phone the back arrow (the drawer is the whole window), then Previous / Next with the job's
+ * place in the feed (said when it changes), the job's tools (hide, share, report: the job's body puts them in
+ * `toolsRef`'s slot) and, from 640 px, Close. It stays mounted while Previous / Next change the job, so the button
+ * pressed keeps focus.
+ */
+function DrawerBar({ nav, onClose, toolsRef }: { nav: DrawerNav; onClose: () => void; toolsRef: (element: HTMLDivElement | null) => void }) {
+  const { t } = usePublicConstants();
+  return (
+    <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3 sm:px-5" data-drawer-bar="">
+      <IconButton
+        label="Back to the job list"
+        icon={<ArrowLeftIcon size={18} weight="bold" />}
+        onClick={onClose}
+        tooltip={false}
+        className="-ml-1 sm:hidden"
+      />
+      {nav.position && (
+        <div className="flex min-w-0 items-center gap-0.5" data-drawer-nav="">
+          <IconButton
+            label={t('LABEL_JOB_PREVIOUS')}
+            icon={<CaretUpIcon size={18} weight="bold" />}
+            onClick={() => nav.onPrevious?.()}
+            disabled={!nav.onPrevious}
+            focusableWhenDisabled
+          />
+          <IconButton
+            label={t('LABEL_JOB_NEXT')}
+            icon={<CaretDownIcon size={18} weight="bold" />}
+            onClick={() => nav.onNext?.()}
+            disabled={!nav.onNext}
+            focusableWhenDisabled
+          />
+          <span className="ml-1.5 truncate text-[13px] leading-5 text-muted-foreground max-[400px]:sr-only" aria-live="polite" data-drawer-position="">
+            {t('MSG_JOB_POSITION', { index: nav.position.index.toLocaleString('en-US'), total: nav.position.total })}
+          </span>
+        </div>
       )}
-    >
-      {icon}
-      {children}
-    </span>
+      <div ref={toolsRef} className="ml-auto flex shrink-0 items-center gap-0.5" data-drawer-tools="" />
+      <span aria-hidden="true" className="mx-1.5 h-6 w-px bg-border max-sm:hidden" />
+      <IconButton label="Close" icon={<XIcon size={18} />} onClick={onClose} tooltip={false} className="max-sm:hidden" data-drawer-close="" />
+    </div>
   );
-  return tooltip ? <Tooltip content={tooltip}>{pill}</Tooltip> : pill;
 }
 
 function DetailSkeleton() {
   return (
-    <div aria-hidden="true">
-      <div className="flex h-[61px] items-center gap-8 px-6 shadow-[inset_0_-1px_0_var(--color-border)]">
-        <Skeleton className="h-4 w-20" />
-        <Skeleton className="h-4 w-20" />
-        <Skeleton className="ml-auto h-9 w-20" rounded="control" />
-        <Skeleton className="h-9 w-24" rounded="control" />
-      </div>
-      <div className="px-6 pt-5">
-        <div className="flex items-center gap-3">
-          <Skeleton className="size-12" rounded="control" />
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3.5 w-64" />
-          </div>
+    <div aria-hidden="true" className={clsx('pt-6 pb-10', GUTTER)}>
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-10" rounded="control" />
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-3.5 w-56" />
         </div>
-        <Skeleton className="mt-6 h-7 w-3/5" />
-        <div className="mt-4 flex gap-2">
-          <Skeleton className="h-6 w-20" rounded="full" />
-          <Skeleton className="h-6 w-56" rounded="full" />
-        </div>
-        <SkeletonText lines={4} className="mt-9 max-w-2xl" />
       </div>
+      <Skeleton className="mt-5 h-7 w-4/5" />
+      <div className="mt-4 flex gap-2">
+        <Skeleton className="h-6 w-20" rounded="control" />
+        <Skeleton className="h-6 w-48" rounded="control" />
+      </div>
+      <Skeleton className="mt-6 h-28 w-full" rounded="surface" />
+      <SkeletonText lines={5} className="mt-8" />
     </div>
   );
 }
 
 /**
- * The right panel: a sticky header (Overview | Company anchors, the Applied chip or "Already Applied?", Save, Apply
- * or INACTIVE), then the company row with hide / share / report, the title, chips, the facts grid, "About the job"
- * beside the "Improve Your Resume" card, and the Company section. It scrolls on its own from `lg` up; below, the page
- * scrolls and the header sticks under the app header.
+ * v31 FIX-JOBS: the drawer's content (the region "Job details"): its bar, then the job, scrolling on its own between
+ * the bar and the actions. The job reads top down in TailorIT's sections: the header (company, the title as the
+ * drawer's h2, its tags), the notices (held, only you, hidden), the spec sheet of facts, a sticky bar of jumps (Match,
+ * Role, Company: the one that is in view is marked), Your match, Tailor for this job, About the role and About
+ * {company}. The actions sit in a bar under the top bar: Mark as applied (or the Applied date, a link to the
+ * tracker), Save, Apply.
  */
-export function JobDetailPanel({
-  jobId,
-  waiting = false,
-  onJobsHidden,
-  revealSignal = 0,
-  onShowList,
-  onBackToJobs,
-  className,
-}: JobDetailPanelProps) {
+export function JobDetailPanel({ jobId, nav, onClose, onJobsHidden, applyIntent = false, onApplyIntentHandled }: JobDetailPanelProps) {
   const { t } = usePublicConstants();
   const detail = useJobDetail(jobId);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  // A new job starts at the top.
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 });
-  }, [jobId]);
-
-  // In one column the panel sits under the list: a job chosen there brings it into view (under the app header).
-  useEffect(() => {
-    if (revealSignal > 0) scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [revealSignal]);
+  const [toolsSlot, setToolsSlot] = useState<HTMLDivElement | null>(null);
 
   let content: ReactNode;
-  if (jobId === null && waiting) {
-    content = <DetailSkeleton />;
-  } else if (jobId === null) {
+  if (detail.isPending) {
     content = (
-      <EmptyState
-        icon={<BriefcaseIcon size={22} />}
-        title="Select a job"
-        description="Choose a job from the list to see its details and how your resume matches."
-        className="h-full"
-      />
-    );
-  } else if (detail.isPending) {
-    content = <DetailSkeleton />;
-  } else if (detail.isError && isApiError(detail.error) && detail.error.code === 'not_found') {
-    // Trying again cannot bring back a job that is gone.
-    content = (
-      <div className="p-6">
-        <Notice
-          tone="info"
-          title={t('MSG_JOB_GONE')}
-          action={
-            onBackToJobs && (
-              <Button variant="outline" size="sm" onClick={onBackToJobs}>
-                Back to jobs
-              </Button>
-            )
-          }
-        >
-          {t('MSG_JOB_GONE_DETAIL')}
-        </Notice>
-      </div>
+      <>
+        <BaseDialog.Title className="sr-only">Job details</BaseDialog.Title>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <DetailSkeleton />
+        </div>
+      </>
     );
   } else if (detail.isError) {
+    const gone = isApiError(detail.error) && detail.error.code === 'not_found';
     content = (
-      <div className="p-6">
-        <Notice
-          tone="error"
-          title="This job could not be opened"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void detail.refetch()}>
-              Try again
-            </Button>
-          }
-        >
-          {userMessage(detail.error)}
-        </Notice>
-      </div>
+      <>
+        <BaseDialog.Title className="sr-only">{gone ? t('MSG_JOB_GONE') : 'This job could not be opened'}</BaseDialog.Title>
+        <div className={clsx('min-h-0 flex-1 overflow-y-auto py-6', GUTTER)}>
+          {gone ? (
+            // Trying again cannot bring back a job that is gone.
+            <Notice
+              tone="info"
+              title={t('MSG_JOB_GONE')}
+              action={
+                <Button variant="outline" size="sm" onClick={onClose}>
+                  Back to jobs
+                </Button>
+              }
+            >
+              {t('MSG_JOB_GONE_DETAIL')}
+            </Notice>
+          ) : (
+            <Notice
+              tone="error"
+              title="This job could not be opened"
+              action={
+                <Button variant="outline" size="sm" onClick={() => void detail.refetch()}>
+                  Try again
+                </Button>
+              }
+            >
+              {userMessage(detail.error)}
+            </Notice>
+          )}
+        </div>
+      </>
     );
   } else {
     content = (
       <JobDetailBody
         key={detail.data.id}
         job={detail.data}
-        scrollRef={scrollRef}
+        toolsSlot={toolsSlot}
         onJobsHidden={onJobsHidden}
-        onShowList={onShowList}
+        applyIntent={applyIntent}
+        onApplyIntentHandled={onApplyIntentHandled}
       />
     );
   }
 
   return (
     <div
-      ref={scrollRef}
-      className={clsx('relative h-full min-h-0 scroll-mt-[63px] lg:overflow-y-auto', className)}
+      className="flex min-h-0 flex-1 flex-col"
       aria-label="Job details"
       role="region"
       aria-busy={detail.isFetching || undefined}
+      data-job-detail=""
     >
+      <DrawerBar nav={nav} onClose={onClose} toolsRef={setToolsSlot} />
       {content}
     </div>
   );
 }
 
+/** One tag under the title (the kit's Badge): the job type in denim-soft, the live line neutral; a tooltip makes it focusable. */
+function Tag({
+  tone,
+  icon,
+  children,
+  tooltip,
+  dataAttrs,
+}: {
+  tone: 'tint' | 'neutral';
+  icon?: ReactNode;
+  children: ReactNode;
+  tooltip?: string;
+  dataAttrs?: Record<`data-${string}`, string>;
+}) {
+  const tag = (
+    <Badge tone={tone} icon={icon} tabIndex={tooltip ? 0 : undefined} {...dataAttrs}>
+      {children}
+    </Badge>
+  );
+  return tooltip ? <Tooltip content={tooltip}>{tag}</Tooltip> : tag;
+}
+
+/** The section in view: the last one whose top has passed under the jump bar (the last one at the very bottom). */
+function useSectionInView(scrollRef: RefObject<HTMLDivElement | null>, navRef: RefObject<HTMLElement | null>) {
+  const [active, setActive] = useState(SECTIONS[0]!.id);
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const line = (navRef.current?.getBoundingClientRect().bottom ?? container.getBoundingClientRect().top) + 24;
+      const atBottom = container.scrollTop > 0 && container.scrollTop + container.clientHeight >= container.scrollHeight - 4;
+      let current = SECTIONS[0]!.id;
+      for (const section of SECTIONS) {
+        const element = container.querySelector(`#${section.id}`);
+        if (element && element.getBoundingClientRect().top <= line) current = section.id;
+      }
+      setActive(atBottom ? SECTIONS[SECTIONS.length - 1]!.id : current);
+    };
+    onScroll();
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, [scrollRef, navRef]);
+  return [active, setActive] as const;
+}
+
 function JobDetailBody({
   job,
-  scrollRef,
+  toolsSlot,
   onJobsHidden,
-  onShowList,
+  applyIntent,
+  onApplyIntentHandled,
 }: {
   job: JobDetail;
-  scrollRef: RefObject<HTMLDivElement | null>;
+  /** The drawer bar's slot for the job's tools. */
+  toolsSlot: HTMLDivElement | null;
   onJobsHidden: JobDetailPanelProps['onJobsHidden'];
-  onShowList?: () => void;
+  applyIntent: boolean;
+  onApplyIntentHandled?: () => void;
 }) {
   const toast = useToast();
   const now = useNow();
   const { t } = usePublicConstants();
-  // "About the job" and the keyword card come from one answer, so they always change together.
+  // "About the role" and Your match come from one answer, so they always change together.
   const insights = useJobInsights(job.id);
   const analysis = insights.data?.analysis;
   const match = insights.data?.match ?? undefined;
@@ -237,17 +296,31 @@ function JobDetailBody({
   const markApplied = useMarkApplied();
   const hideJob = useHideJob();
   const hideCompany = useHideCompany();
-  const [applyOpen, setApplyOpen] = useState(false);
+  // The row's quick Apply: "Applied to this job?" asks as the job opens (its posting opens in the effect below).
+  const quickApply = applyIntent && job.active && Boolean(job.applyUrl) && !job.userState.appliedOn;
+  const [applyOpen, setApplyOpen] = useState(quickApply);
   const [reportOpen, setReportOpen] = useState(false);
-  const [section, setSection] = useState<Section>('overview');
-  const companyRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const applyRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const [section, setSection] = useSectionInView(scrollRef, navRef);
+
+  // The drawer opened before the job was read (focus went to the drawer itself): the title takes it now. A job
+  // reached with Previous / Next leaves focus on the button pressed.
+  useEffect(() => {
+    const title = titleRef.current;
+    const active = document.activeElement;
+    if (!title || (active && active !== document.body && active !== title.closest('[data-job-drawer]'))) return;
+    title.focus({ preventScroll: true });
+  }, []);
 
   const { saved, appliedOn, applicationId, hidden, companyHidden } = job.userState;
   const chip = liveChip({ active: job.active, postedAt: job.postedAt, updatedAt: job.updatedAt }, now, t);
   const levels = jobLevelsOf(job.experienceLevels, analysis);
 
-  // The keyword card scores the resume linked to the job's application while the job is tracked (saved, or applied),
-  // else the default resume. Saving, un-saving or applying, here or from the list, can change which: read it again.
+  // Your match scores the resume linked to the job's application while the job is tracked (saved, or applied), else
+  // the default resume. Saving, un-saving or applying, here or from the feed, can change which: read it again.
   const trackedState = `${applicationId ?? ''}|${saved}|${appliedOn ?? ''}`;
   const scoredFor = useRef(trackedState);
   const refetchInsights = insights.refetch;
@@ -257,51 +330,38 @@ function JobDetailBody({
     void refetchInsights();
   }, [trackedState, refetchInsights]);
 
-  // Overview | Company follow the scroll position (the Company tab lights up once its section reaches the header).
-  useEffect(() => {
-    const container = scrollRef.current;
-    if (!container) return;
-    const onScroll = () => {
-      const company = companyRef.current;
-      if (!company) return;
-      const top = company.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 4;
-      setSection(top <= HEADER_HEIGHT + 48 || (atBottom && container.scrollTop > 0) ? 'company' : 'overview');
-    };
-    onScroll();
-    container.addEventListener('scroll', onScroll, { passive: true });
-    return () => container.removeEventListener('scroll', onScroll);
-  }, [scrollRef]);
-
   const jumpTo = useCallback(
-    (next: Section) => {
+    (id: string) => {
       const container = scrollRef.current;
-      if (!container) return;
-      setSection(next);
-      if (next === 'overview') {
-        container.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-      const company = companyRef.current;
-      if (!company) return;
-      // On narrow screens the page scrolls, not the panel.
-      if (container.scrollHeight <= container.clientHeight) {
-        company.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-      }
-      const offset = company.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-      container.scrollTo({ top: Math.max(0, offset - HEADER_HEIGHT - 16), behavior: 'smooth' });
+      const target = container?.querySelector<HTMLElement>(`#${id}`);
+      if (!container || !target) return;
+      setSection(id);
+      const navHeight = navRef.current?.offsetHeight ?? 0;
+      const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - navHeight - 16;
+      container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
     },
-    [scrollRef],
+    [setSection],
   );
 
   const toggleSave = () => saveToggle.toggle({ jobId: job.id, saved, appliedOn, applicationId }, { confirmSave: true });
 
-  const openPosting = () => {
+  const openPosting = useCallback(() => {
     if (job.applyUrl) window.open(job.applyUrl, '_blank', 'noopener,noreferrer');
     markApplied.reset();
     setApplyOpen(true);
-  };
+  }, [job.applyUrl, markApplied]);
+
+  // The row's quick Apply: the posting opens as soon as the job is read (once, even when effects run twice); a job
+  // that cannot be applied to from here puts focus on its Apply (or its closed mark's row) instead.
+  const applyHandled = useRef(false);
+  const postingUrl = job.applyUrl;
+  useEffect(() => {
+    if (!applyIntent || applyHandled.current) return;
+    applyHandled.current = true;
+    onApplyIntentHandled?.();
+    if (quickApply && postingUrl) window.open(postingUrl, '_blank', 'noopener,noreferrer');
+    else applyRef.current?.focus();
+  }, [applyIntent, onApplyIntentHandled, quickApply, postingUrl]);
 
   const recordApplied = (fromDialog: boolean) => {
     markApplied.mutate(
@@ -348,188 +408,221 @@ function JobDetailBody({
   };
 
   const trackerHref = applicationId ? `/tracker?app=${encodeURIComponent(applicationId)}` : '/tracker';
+  const showTailor = !insights.isPending && match !== undefined && match.state !== 'no_resume';
+
+  const tools = (
+    <>
+      <Menu>
+        <Tooltip content="Hide">
+          <MenuTrigger
+            aria-label="Hide options"
+            className="inline-flex h-9 items-center gap-1 rounded-control px-2 text-muted-foreground hover:bg-hover hover:text-foreground data-popup-open:bg-hover data-popup-open:text-foreground"
+          >
+            <EyeSlashIcon size={18} weight="bold" />
+            <CaretDownIcon size={12} weight="bold" />
+          </MenuTrigger>
+        </Tooltip>
+        <MenuContent align="end" width="w-64" aria-label="Hide options">
+          <MenuItem icon={<EyeSlashIcon size={16} />} onClick={() => hide('job')} disabled={hidden}>
+            Hide this job
+          </MenuItem>
+          <MenuItem icon={<EyeSlashIcon size={16} />} onClick={() => hide('company')} disabled={companyHidden}>
+            Hide jobs from {job.company.name}
+          </MenuItem>
+        </MenuContent>
+      </Menu>
+      <IconButton label="Share: copy a link to this job" tooltip="Copy link" icon={<ExportIcon size={18} weight="bold" />} onClick={() => void copyLink()} />
+      <IconButton label="Report this job" tooltip="Report" icon={<FlagIcon size={18} weight="bold" />} onClick={() => setReportOpen(true)} />
+    </>
+  );
+
+  // The actions: at the top, under the bar (the toasts they raise stack at the window's bottom right, over a footer).
+  const actions = (
+    <div className={clsx('flex shrink-0 items-center gap-2 border-b border-border bg-surface-low py-2.5', GUTTER)} data-drawer-actions="">
+      {appliedOn ? (
+        <Link
+          href={trackerHref}
+          className={buttonClasses({ variant: 'ghost', className: '-ml-3 text-success-ink max-sm:px-3' })}
+          data-applied-chip=""
+        >
+          <CheckCircleIcon size={16} weight="fill" aria-hidden="true" />
+          {appliedChipLabel(appliedOn)}
+        </Link>
+      ) : job.active ? (
+        <Button
+          variant="ghost"
+          icon={<CheckCircleIcon size={16} />}
+          onClick={() => recordApplied(false)}
+          loading={markApplied.isPending && !applyOpen}
+          className="-ml-3 max-sm:px-3"
+          data-mark-applied=""
+        >
+          {t('LABEL_JOB_MARK_APPLIED')}
+        </Button>
+      ) : null}
+      <div className="ml-auto flex items-center gap-2">
+        <Button
+          variant="outline"
+          aria-pressed={saved}
+          icon={<BookmarkSimpleIcon size={16} weight={saved ? 'fill' : 'bold'} />}
+          onClick={toggleSave}
+          disabled={saveToggle.pending}
+        >
+          {saved ? 'Saved' : 'Save'}
+        </Button>
+        {job.active ? (
+          <Button
+            ref={applyRef}
+            onClick={openPosting}
+            className="sm:min-w-24"
+            disabled={!job.applyUrl}
+            trailingIcon={<ArrowSquareOutIcon size={15} aria-hidden="true" className="max-sm:hidden" />}
+          >
+            Apply
+          </Button>
+        ) : (
+          <span className="inline-flex h-9 items-center rounded-control bg-surface-muted px-3 text-[13px] font-medium text-muted-foreground" data-inactive-mark="">
+            {t('LABEL_JOB_CLOSED')}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <>
-      {/*
-        Sticks to the panel's top on wide screens (the panel scrolls), under the app header on narrow ones. Narrow, the
-        actions get their own row and wrap from the left (never off the panel's edge), and a back arrow leads to the list.
-      */}
-      <div
-        data-detail-header
-        className="sticky top-[63px] z-20 flex flex-wrap items-stretch gap-x-4 bg-surface px-4 pb-3 shadow-[inset_0_-1px_0_var(--color-border)] sm:px-6 lg:top-0 lg:h-[61px] lg:flex-nowrap lg:pb-0"
-      >
-        {onShowList && (
-          <IconButton
-            label="Back to the job list"
-            icon={<ArrowLeftIcon size={18} weight="bold" />}
-            onClick={onShowList}
-            className="-ml-2 self-center lg:hidden"
-          />
-        )}
-        <UnderlineTabs
-          aria-label="Job sections"
-          size="tight"
-          items={SECTIONS}
-          value={section}
-          onValueChange={jumpTo}
-          listClassName="h-[61px] shadow-none"
-        />
-        <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:ml-auto sm:w-auto sm:flex-nowrap sm:justify-end sm:gap-4">
-          {appliedOn ? (
-            <Link href={trackerHref} className={buttonClasses({ variant: 'secondary' })} data-applied-chip>
-              {appliedChipLabel(appliedOn)}
-            </Link>
-          ) : job.active ? (
-            <Button variant="ghost" onClick={() => recordApplied(false)} loading={markApplied.isPending && !applyOpen}>
-              Already Applied?
-            </Button>
-          ) : null}
-          <Button
-            variant="outline"
-            aria-pressed={saved}
-            icon={<BookmarkSimpleIcon size={16} weight={saved ? 'fill' : 'bold'} />}
-            onClick={toggleSave}
-            disabled={saveToggle.pending}
-          >
-            {saved ? 'Saved' : 'Save'}
-          </Button>
-          {job.active ? (
-            <Button onClick={openPosting} className="sm:min-w-24" disabled={!job.applyUrl}>
-              Apply
-            </Button>
-          ) : (
-            <span className="inline-flex h-9 min-w-24 items-center justify-center rounded-control bg-chip px-4 text-sm font-semibold tracking-wide text-muted-foreground">
-              INACTIVE
-            </span>
-          )}
-        </div>
-      </div>
+      {toolsSlot && createPortal(tools, toolsSlot)}
+      {actions}
 
-      <div className="px-4 pt-5 pb-12 sm:px-6">
-        {/* v30 X1-WEB: the held line (14 §4.3): a job the person added waits for an admin's approval. */}
-        <HeldNotice held={job.held} className="mb-5" />
-        {(hidden || companyHidden) && (
-          <Notice
-            tone="info"
-            className="mb-5"
-            title={hidden ? 'You hid this job' : `You hid jobs from ${job.company.name}`}
-            action={
-              <Button
-                variant="outline"
-                size="sm"
-                icon={<EyeIcon size={14} />}
-                onClick={() =>
-                  hidden
-                    ? hideJob.mutate({ jobId: job.id, hidden: false })
-                    : hideCompany.mutate({ companyId: job.company.id, hidden: false })
-                }
-              >
-                {hidden ? 'Unhide this job' : `Show jobs from ${job.company.name}`}
-              </Button>
-            }
-          >
-            It won&apos;t appear in your search results.
-          </Notice>
-        )}
-
-        <section id="job-overview" aria-label="Overview">
-          <div className="flex items-start gap-3">
-            <CompanyLogo name={job.company.name} url={job.company.logoUrl} size={48} />
-            <div className="min-w-0 flex-1 pt-0.5">
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" data-drawer-scroll="">
+        <div className={clsx('pt-6 pb-6', GUTTER)} data-detail-header="">
+          <div className="flex items-center gap-3">
+            <CompanyLogo name={job.company.name} url={job.company.logoUrl} size={40} />
+            <div className="min-w-0">
               {/* v30 WEB-JOBS: the company's name opens its page (/companies/:id). */}
-              <p className="truncate text-lg leading-6 font-bold text-foreground">
-                <Link href={companyHref(job.company.id)} className="rounded-sm hover:underline hover:underline-offset-2" data-company-page-link="">
+              <p className="truncate text-sm leading-5 font-semibold text-foreground">
+                <Link
+                  href={companyHref(job.company.id)}
+                  className="rounded-tag hover:text-primary hover:underline hover:underline-offset-2"
+                  data-company-page-link=""
+                >
                   {job.company.name}
                 </Link>
               </p>
-              {job.company.tagline && <p className="truncate text-sm leading-5 text-muted-foreground">{job.company.tagline}</p>}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Menu>
-                <Tooltip content="Hide">
-                  <MenuTrigger aria-label="Hide options" className={TOOL_BUTTON}>
-                    <EyeIcon size={18} weight="bold" />
-                    <CaretDownIcon size={14} weight="bold" />
-                  </MenuTrigger>
-                </Tooltip>
-                <MenuContent align="end" width="w-64" aria-label="Hide options">
-                  <MenuItem icon={<EyeSlashIcon size={16} />} onClick={() => hide('job')} disabled={hidden}>
-                    Hide this job
-                  </MenuItem>
-                  <MenuItem icon={<EyeSlashIcon size={16} />} onClick={() => hide('company')} disabled={companyHidden}>
-                    Hide jobs from {job.company.name}
-                  </MenuItem>
-                </MenuContent>
-              </Menu>
-              <Tooltip content="Copy link">
-                <button type="button" aria-label="Share: copy a link to this job" onClick={() => void copyLink()} className={TOOL_BUTTON}>
-                  <ExportIcon size={17} weight="bold" />
-                </button>
-              </Tooltip>
-              <Tooltip content="Report">
-                <button type="button" aria-label="Report this job" onClick={() => setReportOpen(true)} className={TOOL_BUTTON}>
-                  <FlagIcon size={17} weight="bold" />
-                </button>
-              </Tooltip>
+              {job.company.tagline && <p className="truncate text-[13px] leading-5 text-muted-foreground">{job.company.tagline}</p>}
             </div>
           </div>
 
-          <h1 className="mt-5 text-2xl leading-8 font-bold tracking-[-0.01em] text-foreground">{job.title}</h1>
+          <BaseDialog.Title
+            ref={titleRef}
+            tabIndex={-1}
+            className="mt-4 font-display text-[22px] leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none sm:text-2xl sm:leading-[30px]"
+            data-drawer-title=""
+          >
+            {job.title}
+          </BaseDialog.Title>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {job.employmentType && <Pill tone="tint">{EMPLOYMENT_TYPE_LABEL[job.employmentType]}</Pill>}
-            <Pill
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {job.employmentType && (
+              <Tag tone="tint" dataAttrs={{ 'data-job-type-tag': '' }}>
+                {EMPLOYMENT_TYPE_LABEL[job.employmentType]}
+              </Tag>
+            )}
+            <Tag
               tone="neutral"
-              icon={<ClockIcon size={14} />}
+              icon={<ClockIcon size={12} aria-hidden="true" />}
               tooltip={chip.kind === 'live' && job.postedAt ? `Posted on ${formatMediumDate(job.postedAt)}` : undefined}
+              dataAttrs={{ 'data-live-chip': chip.kind }}
             >
-              <span data-live-chip={chip.kind}>{chip.label}</span>
-            </Pill>
+              {chip.label}
+            </Tag>
             {/* A job added from its page (a LinkedIn job, a careers page): Apply opens the employer's link it was saved with. */}
             <AddedFromChip addedFrom={job.addedFrom} />
           </div>
           {/* v30 S4: the credit line its source asks for ("Source: Himalayas"). */}
           <DetailCredit credit={job.credit} className="mt-3" />
 
-          <FactsGrid
-            job={job}
-            levels={levels}
-            levelMatch={match?.levelMatch}
-            requiredYears={analysis?.requiredYears}
-            className="mt-8"
-          />
-        </section>
+          <div className="mt-5 flex flex-col gap-3 empty:hidden">
+            {/* v30 X1-WEB: the held line (14 §4.3): a job the person added waits for an admin's approval. */}
+            <HeldNotice held={job.held} />
+            {/* v31 JOBSWEB: the person's own job TailorIT could not read: only they see it; Retry read. */}
+            <VerificationNotice jobId={job.id} verification={job.verification} />
+            {(hidden || companyHidden) && (
+              <Notice
+                tone="info"
+                title={hidden ? 'You hid this job' : `You hid jobs from ${job.company.name}`}
+                action={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={<EyeIcon size={14} />}
+                    onClick={() =>
+                      hidden
+                        ? hideJob.mutate({ jobId: job.id, hidden: false })
+                        : hideCompany.mutate({ companyId: job.company.id, hidden: false })
+                    }
+                  >
+                    {hidden ? 'Unhide this job' : `Show jobs from ${job.company.name}`}
+                  </Button>
+                }
+              >
+                It won&apos;t appear in your search results.
+              </Notice>
+            )}
+          </div>
 
-        <hr className="mt-5 border-border" />
+          <FactsGrid job={job} levels={levels} levelMatch={match?.levelMatch} requiredYears={analysis?.requiredYears} className="mt-5" />
+        </div>
 
-        <div className="mt-5 flex flex-col gap-8 xl:flex-row">
-          <div className="min-w-0 flex-1">
+        <nav
+          ref={navRef}
+          aria-label="Job sections"
+          className={clsx('sticky top-0 z-10 border-y border-border bg-surface/95 backdrop-blur-sm', GUTTER)}
+          data-section-nav=""
+        >
+          <ul className="-mx-2.5 flex">
+            {SECTIONS.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  aria-current={section === item.id ? 'true' : undefined}
+                  onClick={() => jumpTo(item.id)}
+                  className={clsx(
+                    'relative inline-flex h-11 items-center px-2.5 text-sm font-medium transition-colors duration-150',
+                    'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[3px] after:rounded-t-full',
+                    section === item.id ? 'text-foreground after:bg-tape' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {t(item.label)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <div className={clsx('flex flex-col gap-10 pt-7 pb-12', GUTTER)}>
+          <div id="job-match" className="flex flex-col gap-6">
+            {/* A failed poll keeps what is shown; only a first load that fails shows the error. */}
+            <MatchSection
+              match={match}
+              pending={insights.isPending}
+              error={insights.data ? null : insights.error}
+              onRetry={() => void insights.refetch()}
+            />
+            {showTailor && <TailorSection tailor={{ jobId: job.id, company: job.company.name, title: job.title }} />}
+          </div>
+          <div id="job-role">
             <AboutJob
               analysis={analysis}
               analysisPending={insights.isPending}
               analysisFailed={insights.isError && !insights.data}
               descriptionHtml={job.descriptionHtml}
             />
-            <div
-              ref={companyRef}
-              id="job-company"
-              className="mt-12 scroll-mt-[180px] border-t border-border pt-8 sm:scroll-mt-[140px] lg:scroll-mt-[77px]"
-            >
-              {/* v30 E0-WEB: the job's id, for the section's "Report company information" */}
-              <CompanySection company={job.company} jobId={job.id} />
-            </div>
           </div>
-          <aside className="w-full shrink-0 xl:w-[300px]" aria-label="Job analysis">
-            {/* A failed poll keeps what is shown; only a first load that fails shows the error. */}
-            <ImproveResumeCard
-              match={match}
-              pending={insights.isPending}
-              error={insights.data ? null : insights.error}
-              onRetry={() => void insights.refetch()}
-              tailor={{ jobId: job.id, company: job.company.name, title: job.title }}
-            />
-          </aside>
+          <div id="job-company" className="border-t border-divider-soft pt-8">
+            {/* v30 E0-WEB: the job's id, for the section's "Report company information" */}
+            <CompanySection company={job.company} jobId={job.id} />
+          </div>
         </div>
       </div>
 

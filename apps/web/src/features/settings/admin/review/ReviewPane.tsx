@@ -1,17 +1,14 @@
 'use client';
 
 import {
-  REVIEW_LANE_LABEL,
-  REVIEW_LANES,
   type AdminFlag,
   type AdminReviewCounts,
   type AdminReviewRow,
   type JobReviewKind,
   type ReviewDecision,
-  type ReviewLane,
   type ReviewStateFilter,
 } from '@tailorit/shared/reviews';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
@@ -28,7 +25,7 @@ import { userMessage } from '@/lib/api';
 import { focusLater, focusSoon } from '@/lib/focusLater';
 import { useNow } from '@/lib/useNow';
 import { Pane, SelectBar } from '../../../../components/queue';
-import { bulkFlags, bulkReviews, decideFlag, decideReview, fetchFlags, fetchReviews, reviewKeys, type ReviewListQuery } from './api';
+import { bulkFlags, bulkReviews, decideFlag, decideReview, fetchFlags, fetchReviewCounts, fetchReviews, reviewKeys, type ReviewListQuery } from './api';
 import { AutoApproveStrip } from './AutoApprove';
 import { BulkDialog, type BulkAction } from './BulkDialog';
 import {
@@ -55,12 +52,17 @@ import {
 } from './copy';
 import { FlagRowView, ReviewRowView, type FlagChange } from './ReviewRows';
 import { ReviewSheet } from './ReviewSheet';
+import { UnverifiedLane } from './UnverifiedLane'; // v31 ADMINWEB
+import { ADMIN_REVIEW_LANE_LABEL, ADMIN_REVIEW_LANES, fetchUnverifiedCount, isQueueLane, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
 
 // v30 X1-WEB: Admin › Review's queue (docs/design/part2/14-extension-reports.md §6.2), on components/queue like the
 // Auto-apply page's Queue pane: the lane tabs (a select at phone width) with their counts, the state filter, a search,
 // the auto-approve strip, the rows in their groups, a select mode with its action bar (one request per 100 rows, each
 // row saying what happened), the evidence sheet, one polite live region, and a read every 30 s while the tab is
 // visible, paused while an action is in flight.
+// v31 ADMINWEB: a fourth lane, "Couldn't verify" (UnverifiedLane: LINK's links TailorIT could not read, Retry read and
+// Reject only); its count comes from GET /api/admin/jobs/unverified/count, and the other lanes' counts from the counts
+// route while it is open.
 
 /** `value`, once it has stayed the same for `delay` ms. */
 function useSettled(value: string, delay: number): string {
@@ -87,7 +89,12 @@ const AFTER_SELECT_MODE = [
 /** After the empty state's button went: the search box, else the first row's action. */
 const AFTER_EMPTY = [`${PANE} input[type="search"]`, `${PANE} li [data-row-action]`];
 
-export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts | undefined) => void }) {
+export function ReviewPane({
+  onCounts,
+}: {
+  /** The lanes' counts (v31 ADMINWEB: and "Couldn't verify"'s, null while it loads). */
+  onCounts: (counts: AdminReviewCounts | undefined, unverified: number | null) => void;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -95,7 +102,7 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
   const toast = useToast();
   const now = useNow();
 
-  const [lane, setLane] = useState<ReviewLane>(() => laneFromAddress(searchParams.get('tab'), searchParams.get('lane')));
+  const [lane, setLane] = useState<AdminReviewLane>(() => laneFromAddress(searchParams.get('tab'), searchParams.get('lane')));
   const [state, setState] = useState<ReviewStateFilter>('needs_review');
   const [search, setSearch] = useState('');
   const q = useSettled(search.trim(), REVIEW_SEARCH_DEBOUNCE_MS);
@@ -112,13 +119,15 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
 
   const list: ReviewListQuery = { state, q };
   const poll = inFlight ? false : REVIEW_POLL_MS;
-  const reviewLane: JobReviewKind = lane === 'flags' ? 'closed' : lane;
+  const reviewLane: JobReviewKind = lane === 'new_job' ? 'new_job' : 'closed';
+  const reviewing = lane === 'closed' || lane === 'new_job';
+  const unverifiedLane = lane === 'unverified';
   const reviews = useInfiniteQuery({
     queryKey: reviewKeys.lane(reviewLane, state, q),
     queryFn: ({ pageParam, signal }) => fetchReviews(reviewLane, { ...list, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor,
-    enabled: lane !== 'flags',
+    enabled: reviewing,
     refetchInterval: poll,
   });
   const flags = useInfiniteQuery({
@@ -129,9 +138,15 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
     enabled: lane === 'flags',
     refetchInterval: poll,
   });
+  // v31 ADMINWEB: the counts route (the admin nav's, so one cache) while "Couldn't verify" is open; its own count beside.
+  const countsRoute = useQuery({ queryKey: reviewKeys.counts, queryFn: ({ signal }) => fetchReviewCounts(signal), enabled: unverifiedLane, refetchInterval: REVIEW_POLL_MS });
+  const unverifiedCount = useQuery({ queryKey: reviewKeys.unverifiedCount, queryFn: ({ signal }) => fetchUnverifiedCount(signal), refetchInterval: REVIEW_POLL_MS });
+  const unverified = unverifiedCount.data ?? null;
   const active = lane === 'flags' ? flags : reviews;
-  const counts = active.data?.pages[0]?.counts ?? (lane === 'flags' ? reviews : flags).data?.pages[0]?.counts;
-  useEffect(() => onCounts(counts), [counts, onCounts]);
+  const counts = unverifiedLane
+    ? (countsRoute.data ?? reviews.data?.pages[0]?.counts ?? flags.data?.pages[0]?.counts)
+    : (active.data?.pages[0]?.counts ?? (lane === 'flags' ? reviews : flags).data?.pages[0]?.counts);
+  useEffect(() => onCounts(counts, unverified), [counts, unverified, onCounts]);
 
   const reviewRows = useMemo(() => (lane === 'flags' ? [] : (reviews.data?.pages.flatMap((page) => page.items) ?? [])), [lane, reviews.data]);
   const flagRows = useMemo(() => (lane === 'flags' ? (flags.data?.pages.flatMap((page) => page.items) ?? []) : []), [lane, flags.data]);
@@ -170,7 +185,7 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
     focusAt.current = { id, index };
   };
 
-  const changeLane = (next: ReviewLane) => {
+  const changeLane = (next: AdminReviewLane) => {
     if (next === lane) return;
     setLane(next);
     setState((current) => stateForLane(next, current));
@@ -290,7 +305,7 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
         className="max-sm:hidden"
         value={lane}
         onValueChange={changeLane}
-        items={REVIEW_LANES.map((value) => ({ value, label: laneLabel(value, counts) }))}
+        items={ADMIN_REVIEW_LANES.map((value) => ({ value, label: laneLabel(value, counts, unverified) }))}
       />
       <Select
         aria-label="Review lane"
@@ -298,46 +313,48 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
         size="lg"
         value={lane}
         onValueChange={changeLane}
-        options={REVIEW_LANES.map((value) => ({ value, label: laneLabel(value, counts) }))}
+        options={ADMIN_REVIEW_LANES.map((value) => ({ value, label: laneLabel(value, counts, unverified) }))}
       />
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedControl
-          aria-label="Show reviews"
-          size="sm"
-          listClassName="max-sm:h-11"
-          value={state}
-          onValueChange={changeState}
-          items={filters.map((value) => ({ value, label: stateFilterLabel(value) }))}
-        />
-        <SearchPill
-          value={search}
-          onValueChange={setSearch}
-          label="Search by job title or company"
-          placeholder="Search title or company"
-          className="w-full sm:ml-auto sm:w-64 max-sm:h-11"
-        />
-        {!selectMode && (
-          <Button
-            variant="ghost"
+      {/* v31 ADMINWEB: "Couldn't verify" has no state filter, search or select mode. */}
+      {!unverifiedLane && (
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl
+            aria-label="Show reviews"
             size="sm"
-            className="max-sm:h-11"
-            disabled={decidable.length === 0}
-            data-review-select=""
-            onClick={() => {
-              setSelectMode(true);
-              // v30 FIX-WEB (UX-4): the bar replaces the button: focus goes to its first control.
-              focusLater(`${SELECT_BAR(lane !== 'flags')} [role="checkbox"]`, `${SELECT_BAR(lane !== 'flags')} button`);
-            }}
-          >
-            Select
-          </Button>
-        )}
-      </div>
+            listClassName="max-sm:h-11"
+            value={state}
+            onValueChange={changeState}
+            items={filters.map((value) => ({ value, label: stateFilterLabel(value) }))}
+          />
+          <SearchPill
+            value={search}
+            onValueChange={setSearch}
+            label="Search by job title or company"
+            placeholder="Search title or company"
+            className="w-full sm:ml-auto sm:w-64 max-sm:h-11"
+          />
+          {!selectMode && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="max-sm:h-11"
+              disabled={decidable.length === 0}
+              data-review-select=""
+              onClick={() => {
+                setSelectMode(true);
+                // v30 FIX-WEB (UX-4): the bar replaces the button: focus goes to its first control.
+                focusLater(`${SELECT_BAR(lane !== 'flags')} [role="checkbox"]`, `${SELECT_BAR(lane !== 'flags')} button`);
+              }}
+            >
+              Select
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 
-  const reviewing = lane !== 'flags';
-  const footer = selectMode ? (
+  const footer = selectMode && !unverifiedLane ? (
     <SelectBar
       aria-label={reviewing ? 'Approve or reject the selected reviews' : 'Resolve or dismiss the selected flags'}
       selected={chosen.length}
@@ -400,7 +417,7 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
     );
   } else if (!loaded) {
     body = (
-      <ul aria-busy="true" aria-label="Loading the review queue" className="divide-y divide-border">
+      <ul aria-busy="true" aria-label="Loading the review queue" className="divide-y divide-divider-soft">
         {Array.from({ length: 5 }, (_unused, index) => (
           <li key={index} aria-hidden="true" className="flex min-h-20 items-start gap-3 px-5 py-3">
             <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -413,7 +430,7 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
         ))}
       </ul>
     );
-  } else if (rowCount === 0) {
+  } else if (rowCount === 0 && isQueueLane(lane)) {
     const empty = emptyText(lane, state, q !== '');
     body = (
       <EmptyState
@@ -474,7 +491,7 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
               <span>{title}</span>
               <span className="tabular-nums">{rows.length}</span>
             </h3>
-            <ul className="divide-y divide-border" aria-labelledby={`review-group-${group}`}>
+            <ul className="divide-y divide-divider-soft" aria-labelledby={`review-group-${group}`}>
               {lane === 'flags'
                 ? (rows as AdminFlag[]).map((flag) => (
                     <FlagRowView
@@ -528,9 +545,22 @@ export function ReviewPane({ onCounts }: { onCounts: (counts: AdminReviewCounts 
   return (
     <>
       <div ref={listRef} data-review-pane="">
-        <Pane id={PANE_TITLE_ID} title={REVIEW_LANE_LABEL[lane]} count={loaded ? laneCount(counts, lane) : null} controls={controls} scroll={false} footer={footer}>
-          <AutoApproveStrip lane={lane} />
-          {body}
+        <Pane
+          id={PANE_TITLE_ID}
+          title={ADMIN_REVIEW_LANE_LABEL[lane]}
+          count={unverifiedLane ? unverified : loaded ? laneCount(counts, lane) : null}
+          controls={controls}
+          scroll={false}
+          footer={footer}
+        >
+          {isQueueLane(lane) ? (
+            <>
+              <AutoApproveStrip lane={lane} />
+              {body}
+            </>
+          ) : (
+            <UnverifiedLane onLive={setLive} />
+          )}
           <p className="sr-only" role="status" aria-live="polite" data-review-live="">
             {live}
           </p>

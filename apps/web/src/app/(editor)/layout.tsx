@@ -1,7 +1,7 @@
 import { AuthGate } from '@/components/shell/AuthGate';
 import { AuthProvider } from '@/lib/auth';
 
-/** Full-screen editors: no app header; each editor draws its own EditorBar over the #f8f8f8 canvas. */
+/** Full-screen editors: no sidebar or top bar; each editor draws its own EditorBar over the low surface. */
 export default function EditorLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>

@@ -39,7 +39,7 @@ function sizeText(bytes: number): string {
 }
 
 /**
- * Simplify's "Upload Resume", for one resume or many (PDF, DOC or DOCX up to 5 MB each; dropped or chosen, up to 50
+ * The "Upload resumes" dialog, for one resume or many (PDF, DOC or DOCX up to 5 MB each; dropped or chosen, up to 50
  * at a time). One file has a name for the documents list, and its editable copy starts at once. Several files are each
  * named after their file; they go two at a time with a status per file, the dialog stays open while they are sent,
  * and their copies wait in the server's line, made one at a time and followed by one notice on the Resumes tab. Either
@@ -213,7 +213,7 @@ function UploadForm({
     <button
       type="button"
       disabled={running}
-      className="font-semibold text-primary-ink hover:underline disabled:pointer-events-none disabled:opacity-50"
+      className="font-medium text-primary hover:underline disabled:pointer-events-none disabled:opacity-50"
       onClick={() => input.current?.click()}
     >
       {text}
@@ -225,13 +225,13 @@ function UploadForm({
   if (only) {
     zone = (
       <>
-        <div className="flex w-full max-w-sm items-center gap-3 rounded-control border border-border bg-surface px-3 py-2.5 text-left shadow-soft">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-primary-container text-primary-ink">
+        <div className="flex w-full max-w-sm items-center gap-3 rounded-control border border-border bg-surface px-3 py-2.5 text-left shadow-card">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-primary-soft text-primary">
             <FileTextIcon size={18} />
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-sm font-semibold text-foreground">{only.file.name}</span>
-            <span className={clsx('text-[13px]', only.status.kind === 'waiting' ? 'text-amber-foreground' : 'text-muted-foreground')}>
+            <span className={clsx('text-[13px]', only.status.kind === 'waiting' ? 'text-warning' : 'text-muted-foreground')}>
               {sizeText(only.file.size)}
               {only.status.kind === 'waiting' ? ` · ${rowStatusText(only, now)}` : ''}
             </span>
@@ -241,7 +241,7 @@ function UploadForm({
             aria-label="Remove the file"
             disabled={running}
             onClick={() => remove(only)}
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground disabled:opacity-50"
+            className="inline-flex size-7 items-center justify-center rounded-tag text-muted-foreground hover:bg-hover hover:text-foreground disabled:opacity-50"
           >
             <XIcon size={14} />
           </button>
@@ -254,7 +254,7 @@ function UploadForm({
   } else {
     zone = (
       <>
-        <span className="flex size-11 items-center justify-center rounded-full bg-primary-container text-primary-ink">
+        <span className="flex size-12 items-center justify-center rounded-card bg-primary-soft text-primary">
           <FileArrowUpIcon size={22} />
         </span>
         <p className="text-sm text-foreground">Drag files here, or {chooseLink('choose files')}</p>
@@ -323,7 +323,7 @@ function UploadForm({
 
   return (
     <DialogContent
-      title="Upload Resume"
+      title={t('LABEL_DOCS_UPLOAD_RESUMES')}
       description="Keep the resumes you already have with your documents."
       size="lg"
       showClose={!running}
@@ -353,9 +353,10 @@ function UploadForm({
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             className={clsx(
-              'flex flex-col items-center justify-center gap-2 rounded-[12px] border-2 border-dashed px-4 text-center transition-colors duration-150',
+              // A drop zone: the stitch (1.5 px dashed) on white; denim over a denim wash while files are dragged over it.
+              'flex flex-col items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed px-4 text-center transition-colors duration-150',
               several ? 'py-4' : 'py-7',
-              dragging ? 'border-primary bg-primary-50' : 'border-control-strong bg-surface-low',
+              dragging ? 'border-primary bg-primary-50' : 'border-border-strong bg-surface',
             )}
           >
             {zone}
@@ -399,16 +400,16 @@ function UploadForm({
               disabled={running || choiceFixed}
               label="Make an editable copy with AI"
             />
-            <p className="pl-[28px] text-[13px] leading-5 text-muted-foreground">
+            <p className="pl-7 text-[13px] leading-5 text-muted-foreground">
               {several
                 ? 'An AI reads each file into a resume you can edit here. The copies are made one at a time after the upload, so they can take a while. The files themselves are kept as uploaded.'
                 : 'An AI reads the file into a resume you can edit here, on any template. The file itself is kept as uploaded.'}
             </p>
             {choiceFixed && (
-              <p className="pl-[28px] text-[13px] leading-5 text-muted-foreground">This choice applies to every file of this upload.</p>
+              <p className="pl-7 text-[13px] leading-5 text-muted-foreground">This choice applies to every file of this upload.</p>
             )}
             {parse && (
-              <div className="mt-2 pl-[28px]">
+              <div className="mt-2 pl-7">
                 <CopyTemplateField
                   several={several}
                   value={copyTemplate}
@@ -441,24 +442,24 @@ function FileRow({ row, now, onRemove }: { row: UploadRow<File>; now: number; on
   const { status } = row;
   const tone =
     status.kind === 'failed'
-      ? 'text-[#b42625]'
+      ? 'text-danger'
       : status.kind === 'done'
-        ? 'text-[#02703c]'
+        ? 'text-success'
         : status.kind === 'waiting'
-          ? 'text-amber-foreground'
+          ? 'text-warning'
           : 'text-muted-foreground';
   let mark: ReactNode = null;
-  if (status.kind === 'uploading') mark = <Spinner size={16} className="text-primary-ink" />;
+  if (status.kind === 'uploading') mark = <Spinner size={16} className="text-primary" />;
   else if (status.kind === 'done') mark = <CheckCircleIcon size={18} weight="fill" className="text-success" />;
-  else if (status.kind === 'failed') mark = <WarningCircleIcon size={18} weight="fill" className="text-destructive" />;
-  else if (status.kind === 'waiting') mark = <ClockIcon size={18} className="text-amber-foreground" />;
+  else if (status.kind === 'failed') mark = <WarningCircleIcon size={18} weight="fill" className="text-danger" />;
+  else if (status.kind === 'waiting') mark = <ClockIcon size={18} className="text-warning" />;
   return (
     <li
       data-upload-row={row.file.name}
       data-upload-status={status.kind}
       className="flex items-center gap-3 rounded-control border border-border bg-surface px-3 py-2"
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-primary-container text-primary-ink">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-primary-soft text-primary">
         <FileTextIcon size={16} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
@@ -476,7 +477,7 @@ function FileRow({ row, now, onRemove }: { row: UploadRow<File>; now: number; on
           aria-label={`Remove ${row.file.name}`}
           disabled={status.kind === 'uploading'}
           onClick={onRemove}
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-tag text-muted-foreground hover:bg-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
         >
           <XIcon size={14} />
         </button>

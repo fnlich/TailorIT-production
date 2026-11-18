@@ -8,7 +8,7 @@ import type { LetterTemplateSummary } from '@tailorit/shared/letters';
 import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { PlusIcon, TrashIcon } from '@/components/ui/icons';
+import { CirclesFourIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { useToast } from '@/components/ui/Toast';
 import { userMessage } from '@/lib/api';
@@ -23,20 +23,24 @@ import {
   uploadTemplate,
 } from '../../letter-editor/data';
 import { CopyIcon } from '../../letter-editor/icons';
-import { UploadButton } from '../../letter-editor/UploadButton';
+import { useLetterUpload } from '../../letter-editor/UploadButton';
+import { useRegisterUpload } from '../headerUpload'; // v31 FIX-DOCS
+import { usePublicConstants } from '@/lib/constants';
 import {
   DocumentCollection,
   DocumentNameCell,
   TableRowActions,
   TextCell,
+  deleteOneWords,
   type ActionMenuItem,
   type DocumentColumn,
 } from '../core';
 
 /*
- * Documents › Templates (Simplify, list only): Name + "System Default" badge + an 80-character preview of the body,
- * Created, Last Edited, ✎ Edit + More ⌄ (Duplicate, Delete). TailorIT's starter templates come first; they cannot
- * be selected or deleted, only opened (read-only) and duplicated.
+ * Documents › Templates (a table, list only): Name + "Built in" badge + an 80-character preview of the body, Created,
+ * Edited, ✎ and ⋮ (Duplicate, Delete). TailorIT's starter templates come first; they cannot be selected or deleted,
+ * only opened (read-only) and duplicated. v31 FIX-DOCS: the page header's Upload uploads a template here; the words
+ * are the constants'.
  */
 
 const NOUN = { one: 'template', many: 'templates' };
@@ -46,11 +50,21 @@ export function TemplatesTab() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const now = useNow();
+  const { t } = usePublicConstants();
   const query = useQuery({ queryKey: templateKeys.all, queryFn: fetchTemplates });
   const templates = query.data?.items ?? [];
   const [deleting, setDeleting] = useState<LetterTemplateSummary | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: templateKeys.all });
+  // v31 FIX-DOCS: the page header's Upload: a template file, opened in the editor once read.
+  const templateUpload = useLetterUpload({
+    upload: uploadTemplate,
+    onUploaded: (template) => {
+      void refresh();
+      router.push(`/cover-letter-template/${template.id}`);
+    },
+  });
+  useRegisterUpload('templates', templateUpload.open, templateUpload.busy);
 
   const duplicate = async (template: LetterTemplateSummary) => {
     try {
@@ -71,7 +85,7 @@ export function TemplatesTab() {
       tone: 'danger',
       ruleBefore: true,
       disabled: template.isSystem,
-      title: template.isSystem ? 'System templates cannot be deleted. Duplicate one to make your own.' : undefined,
+      title: template.isSystem ? t('MSG_DOCS_TEMPLATE_BUILT_IN_KEPT') : undefined,
       onSelect: () => setDeleting(template),
     },
   ];
@@ -85,7 +99,7 @@ export function TemplatesTab() {
         <DocumentNameCell
           name={template.name}
           href={`/cover-letter-template/${template.id}`}
-          badges={template.isSystem ? <Badge>System Default</Badge> : undefined}
+          badges={template.isSystem ? <Badge tone="tint">{t('LABEL_DOCS_TEMPLATE_BUILT_IN')}</Badge> : undefined}
           preview={template.preview || undefined}
         />
       ),
@@ -98,7 +112,7 @@ export function TemplatesTab() {
     },
     {
       key: 'edited',
-      header: 'Last Edited',
+      header: 'Edited',
       track: 'minmax(0,0.97fr)',
       cell: (template) => <TextCell>{relativeTime(template.lastEditedAt, now)}</TextCell>,
     },
@@ -113,6 +127,7 @@ export function TemplatesTab() {
         getId={(template) => template.id}
         getLabel={(template) => template.name}
         searchFields={(template) => [template.name]}
+        searchPlaceholder="Search templates"
         columns={columns}
         renderActions={(template) => (
           <TableRowActions label={template.name} editHref={`/cover-letter-template/${template.id}`} menuItems={menu(template)} />
@@ -121,22 +136,13 @@ export function TemplatesTab() {
         isSelectable={(template) => !template.isSystem}
         bulkDeleteNote={(selected) => {
           const system = selected.filter((template) => template.isSystem).length;
-          return system ? `${system} system default ${system === 1 ? 'template' : 'templates'} will be skipped` : null;
+          return system ? t('MSG_DOCS_TEMPLATES_SKIPPED', { count: system }) : null;
         }}
         onBulkDelete={async (ids) => {
           const { deleted } = await bulkDeleteTemplates(ids);
           await refresh();
           toast.success(`Deleted ${deleted} ${deleted === 1 ? 'template' : 'templates'}`);
         }}
-        toolbarExtras={
-          <UploadButton
-            upload={uploadTemplate}
-            onUploaded={(template) => {
-              void refresh();
-              router.push(`/cover-letter-template/${template.id}`);
-            }}
-          />
-        }
         loading={query.isPending}
         error={
           query.isError ? (
@@ -154,22 +160,25 @@ export function TemplatesTab() {
           ) : undefined
         }
         empty={{
-          title: 'Create your first template!',
-          description: 'Get started by creating a reusable cover letter template with dynamic placeholders.',
+          // v31 FIX-DOCS (REQ-3): the constants' words.
+          title: t('MSG_DOCS_TEMPLATES_EMPTY_TITLE'),
+          description: t('MSG_DOCS_TEMPLATES_EMPTY_TEXT'),
+          icon: <CirclesFourIcon size={24} />,
           action: (
-            <Link href="/cover-letter-template/new" className={buttonClasses()}>
+            <Link href="/cover-letter-template/new" className={buttonClasses()} data-new-fallback="template">
               <PlusIcon size={16} />
-              New Template
+              New template
             </Link>
           ),
         }}
       />
 
+      {templateUpload.input}
+
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete Template"
-        description="Are you sure you want to delete this template? You won't be able to undo this action."
+        {...deleteOneWords(deleting?.name ?? '', NOUN, t)}
         confirmLabel="Delete"
         busyLabel="Deleting..."
         onConfirm={async () => {

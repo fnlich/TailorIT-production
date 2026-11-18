@@ -29,9 +29,9 @@ import {
 } from './icons';
 
 /*
- * Simplify's formatting toolbar (screenshot 5), centred under the editor bar: font, B U I, link, H1-H3, four
- * alignments, quote, bullets, numbers, undo, redo, and (letters) ✨ Generate. Each button has a tooltip with its
- * shortcut and reflects the selection (aria-pressed).
+ * The formatting toolbar, centred under the editor bar: font, B U I, link, H1-H3, four alignments, quote, bullets,
+ * numbers, undo, redo, and (letters) ✨ Generate. Each button has a tooltip with its shortcut and reflects the
+ * selection (aria-pressed: a denim-soft tile with primary ink). Groups are split by thin dividers.
  */
 
 const isMacPlatform = () =>
@@ -66,9 +66,9 @@ const ToolButton = forwardRef<HTMLButtonElement, ToolButtonProps>(function ToolB
         // Keep the editor's selection: the click must not move focus away first.
         onMouseDown={(event) => event.preventDefault()}
         className={clsx(
-          'inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] transition-colors duration-150',
-          'disabled:cursor-not-allowed disabled:text-[#c4c4c4]',
-          active ? 'bg-[#ececec] text-foreground' : 'text-[#2b2b2b] hover:bg-hover',
+          'inline-flex size-9 shrink-0 items-center justify-center rounded-control transition-colors duration-150',
+          'disabled:cursor-not-allowed disabled:text-disabled-foreground disabled:hover:bg-transparent',
+          active ? 'bg-primary-soft text-primary-ink' : 'text-foreground hover:bg-hover',
           className,
         )}
         {...rest}
@@ -80,7 +80,7 @@ const ToolButton = forwardRef<HTMLButtonElement, ToolButtonProps>(function ToolB
 });
 
 function Group({ children }: { children: ReactNode }) {
-  return <div className="flex items-center gap-1">{children}</div>;
+  return <div className="flex items-center gap-0.5 border-l border-divider-soft pl-2.5">{children}</div>;
 }
 
 export interface ToolbarProps {
@@ -132,9 +132,9 @@ export function Toolbar({ editor, documentFont, onFontChange, onLink, onGenerate
       role="toolbar"
       aria-label="Formatting"
       data-letter-toolbar=""
-      className="sticky top-[63px] z-20 overflow-x-auto border-b border-border bg-surface"
+      className="sticky top-topbar z-20 overflow-x-auto border-b border-border bg-surface"
     >
-      <div className="mx-auto flex h-[63px] w-max items-center gap-3 px-4">
+      <div className="mx-auto flex h-14 w-max items-center gap-2.5 px-4">
         <FontSelect value={state?.markFont ?? documentFont} onValueChange={onFontChange} disabled={off} />
         <Group>
           <ToolButton label="Bold" shortcut="Mod+B" isMac={isMac} active={state?.bold} disabled={off} icon={<TextBIcon size={20} weight="bold" />} onClick={() => run((c) => c.toggleBold())} />
@@ -168,7 +168,7 @@ export function Toolbar({ editor, documentFont, onFontChange, onLink, onGenerate
               type="button"
               onClick={onGenerate}
               disabled={disabled}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[8px] px-3 text-sm font-semibold text-primary-ink transition-colors hover:bg-primary-50 disabled:opacity-50"
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-control px-3 text-sm font-medium text-primary-ink transition-colors hover:bg-primary-soft disabled:cursor-not-allowed disabled:text-disabled-foreground disabled:hover:bg-transparent"
             >
               <SparkleIcon size={18} weight="fill" />
               {generateLabel}

@@ -41,6 +41,9 @@ import {
 } from './types';
 import { clearUnverifiedOf } from './unverified';
 import { lockNewCompanyNames } from '../companies/resolve';
+import { notifyRunFinished } from '../notifications/emitters'; // v31 NOTIFY
+import { PAUSABLE_TRIGGERS, pausedBy, RunPausedError, RUNS_PAUSED_KEY, runsPaused } from './pause-state'; // v31 RUNS
+import { isLinkListKind, queueLinksOfRun } from '../jobs/add/imports'; // v31 LINK
 
 // Runs sources: one run per source at a time. Every run is a job_source_runs row with its counts and a log. Missing
 // postings are closed only after a successful, complete listing.
@@ -69,6 +72,15 @@ import { lockNewCompanyNames } from '../companies/resolve';
 //     cadence and next run (scheduler.ts nextScheduleOf), its open jobs, its last complete and last change times, its
 //     validators, and turns off a source that keeps failing or whose board is gone; a complete run brings its jobs
 //     back from unverified (unverified.ts, projectJob in the same transaction).
+//
+// v31 RUNS (docs/design/v3.1/22-runs-pause.md, PLAN D5): an admin pauses every run, one source or one run (pause.ts).
+// Each process looks every RUN_STOP_POLL_MS for stop requests on its own runs (checkStops: job_source_runs.
+// stop_requested_at, or a paused source or every run paused for a run the schedule or Run now started) and aborts them
+// with RunPausedError. The run stops at its next safe point: its read's abort signal, or between two batches of
+// BATCH_SIZE postings. It ends `paused`: the batches it saved stay, it closes nothing (no markMissing), its source keeps
+// its failures, tier, validators and verified links, and gives its lease back. The schedule and Run now start no run
+// of a paused source, or while every run is paused (MSG_INGEST_RUNS_PAUSED, MSG_INGEST_SOURCE_PAUSED); Continue starts
+// the source again from the top (upserts are idempotent).
 
 /** The runs this process (the API: Run now, imports) makes at once; the worker has its own limit per host. */
 export const PARALLEL_RUNS = 2;
@@ -137,6 +149,11 @@ export interface IngestService {
    * start) those of `triggers` (default: every trigger), never one this process runs now.
    */
   recoverInterrupted(options?: { triggers?: readonly RunTrigger[] }): Promise<number>;
+  /**
+   * v31 RUNS: looks now for pause requests on this process's runs and stops them at their next safe point (each process
+   * also looks every RUN_STOP_POLL_MS while it runs any). Answers how many it stopped.
+   */
+  checkStops(): Promise<number>;
   /** Stops every run (shutdown). */
   stop(): Promise<void>;
 }
@@ -258,6 +275,16 @@ export class LeaseLostError extends IngestError {
 }
 const INSERT_RUN_SQL = "INSERT INTO job_source_runs(source_id, trigger, status, started_at) VALUES (?, ?, 'running', ?) RETURNING id";
 
+/**
+ * v31 RUNS: which of this process's runs must stop now: asked to (stop_requested_at), or (a run the schedule or Run now
+ * started) its source or every run is paused.
+ */
+const STOP_SQL = `SELECT r.id FROM job_source_runs r JOIN job_sources s ON s.id = r.source_id
+  WHERE r.id = ANY(CAST(string_to_array(@ids, ',') AS bigint[])) AND r.status = 'running'
+    AND (r.stop_requested_at IS NOT NULL
+      OR (r.trigger = ANY(string_to_array(@pausable, ','))
+        AND (s.paused_at IS NOT NULL OR EXISTS (SELECT 1 FROM app_settings WHERE key = @key))))`;
+
 /** A run's tally of its reads (job_source_runs.requests, bytes_fetched, http_status). */
 interface ReadTally {
   requests: number;
@@ -337,6 +364,53 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
   const leaseMs = () => constantsOf(deps).get('INGEST_LEASE_MINUTES') * 60_000;
   /** The client a kind reads with: BOT_USER_AGENT for a new kind of read, today's identity otherwise. */
   const httpFor = (kind: string) => (NEW_READ_KIND_OF[kind] ? botHttp : http);
+
+  // v31 RUNS: the stop poll. While this process runs any source, it looks every RUN_STOP_POLL_MS for pause requests on
+  // its own runs (STOP_SQL) and aborts them with RunPausedError; nothing is read while it runs none.
+  let stopTimer: ReturnType<typeof setInterval> | null = null;
+  let stopLook: Promise<number> | null = null;
+
+  async function lookForStops(): Promise<number> {
+    const live = [...running.values()].filter((run) => !run.controller.signal.aborted);
+    if (live.length === 0) return 0;
+    const rows = await db.all<{ id: number }>(STOP_SQL, {
+      ids: live.map((run) => run.runId).join(','),
+      pausable: PAUSABLE_TRIGGERS.join(','),
+      key: RUNS_PAUSED_KEY,
+    });
+    const asked = new Set(rows.map((row) => Number(row.id)));
+    let stopped = 0;
+    for (const run of live) {
+      if (!asked.has(run.runId) || run.controller.signal.aborted) continue;
+      run.controller.abort(new RunPausedError());
+      stopped += 1;
+      log.info(`[ingest] run ${run.runId} was paused by an admin; it stops at its next safe point`);
+    }
+    return stopped;
+  }
+
+  /** One look at a time; a second ask waits for the look going on. */
+  function checkStops(): Promise<number> {
+    stopLook ??= lookForStops().finally(() => {
+      stopLook = null;
+    });
+    return stopLook;
+  }
+
+  function watchStops(): void {
+    if (stopTimer || running.size === 0) return;
+    const every = Math.max(100, constantsOf(deps).get('RUN_STOP_POLL_MS'));
+    stopTimer = setInterval(() => {
+      checkStops().catch((error: unknown) => log.warn('[ingest] could not look for paused runs; it looks again soon', error));
+    }, every);
+    stopTimer.unref?.();
+  }
+
+  function unwatchStops(): void {
+    if (running.size > 0 || !stopTimer) return;
+    clearInterval(stopTimer);
+    stopTimer = null;
+  }
 
   // v30 FIX-A (BEH-6, REQ-6): the run history's retention is the daily step run-history.ts (batched deletes); the tick
   // no longer trims old logs (a scan of the whole table every 15 seconds).
@@ -429,6 +503,10 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
             runId,
           ],
         );
+        if (end.status === 'paused') {
+          await finishPaused(t, source, runId, now);
+          return;
+        }
         const current = await t.one<{ consecutive_failures: number; tier: string; last_change_at: string | null; suspect_at: string | null }>(
           'SELECT consecutive_failures, tier, last_change_at, suspect_at FROM job_sources WHERE id = ?',
           [source.id],
@@ -442,7 +520,8 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
             )
           )?.n ?? 0;
         const recent = await t.all<{ changed: boolean }>(
-          "SELECT (created + updated + deactivated + reopened) > 0 AS changed FROM job_source_runs WHERE source_id = ? AND id <> ? AND status <> 'running' " +
+          // v31 RUNS: a paused run read part of the listing: it says nothing of the source's changes.
+          "SELECT (created + updated + deactivated + reopened) > 0 AS changed FROM job_source_runs WHERE source_id = ? AND id <> ? AND status NOT IN ('running', 'paused') " +
             'ORDER BY started_at DESC, id DESC LIMIT 2',
           [source.id, runId],
         );
@@ -511,8 +590,38 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         }
         // A complete listing (or a 304) verifies the source's live links: their jobs come back from unverified.
         if (end.complete) await clearUnverifiedOf(t, source.id);
+        // v31 NOTIFY: a failed run, or the source turned off, told to the admins (once an hour at most) in this
+        // transaction (never throws).
+        if (!ok || next.disable) {
+          await notifyRunFinished(deps, {
+            sourceId: source.id,
+            sourceName: source.name,
+            failed: !ok,
+            disabled: next.disable,
+            failures: next.consecutiveFailures,
+          });
+        }
       },
       { label: 'ingest run finished' },
+    );
+  }
+
+  /**
+   * v31 RUNS: a paused run's source (in finish's transaction, its lease checked): its state and lease only. Its failures,
+   * tier, validators, open jobs and verified links stay as they were. A source the worker schedules is due again after
+   * its cadence (Continue makes it due now); due now when the pause was taken back before the run stopped (a Continue
+   * between the request and the stop: no stop asked any more, the source and every run going).
+   */
+  async function finishPaused(t: DbTx, source: SourceRecord, runId: number, now: string): Promise<void> {
+    const scheduled = SCHEDULED_KINDS.includes(source.kind) || Boolean(NEW_READ_KIND_OF[source.kind]);
+    await t.run(
+      `UPDATE job_sources s SET last_status = 'paused', lease_until = NULL, lease_owner = NULL,
+         next_run_at = CASE WHEN NOT CAST(@scheduled AS boolean) THEN s.next_run_at
+           WHEN s.paused_at IS NULL AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key = @key)
+             AND (SELECT r.stop_requested_at FROM job_source_runs r WHERE r.id = @runId) IS NULL THEN CAST(@now AS timestamptz)
+           ELSE CAST(@now AS timestamptz) + s.cadence END
+       WHERE s.id = @id`,
+      { id: source.id, runId, now, scheduled, key: RUNS_PAUSED_KEY },
     );
   }
 
@@ -539,7 +648,13 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
       if (failureLines <= MAX_FAILURE_LINES) runLog.add(text);
       else if (failureLines === MAX_FAILURE_LINES + 1) runLog.add('More failures were not logged.');
     };
+    /** v31 RUNS: a safe point: a run asked to stop (paused, or its lease lost) stops here. */
+    const stopHere = () => {
+      if (!signal.aborted) return;
+      throw signal.reason instanceof RunPausedError ? signal.reason : new IngestError('The run was stopped before it finished.');
+    };
     try {
+      stopHere(); // v31 RUNS: paused while it waited for a slot or was prepared
       const adapter = adapters[source.kind];
       if (!adapter) throw new IngestError(`There is no reader for "${source.kind}" sources.`);
       const newKind = NEW_READ_KIND_OF[source.kind];
@@ -574,10 +689,13 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         counts.failed += result.failures.length;
         for (const failure of result.failures) noteFailure(failure.message);
 
-        const items: BatchItem[] = [...unique.values()].map((raw) => ({ raw, sourceHash: sourceHashOf(raw) }));
+        // v31 LINK: an import's rows (CSV, JSON, a Google Sheet, the lake) are links, each queued for TailorIT's own read
+        // (jobs/add/imports.ts); nothing a row says is stored.
+        const linkList = isLinkListKind(source.kind) && (await queueLinksOfRun(deps, source, runId, [...unique.values()], (line) => runLog.add(line)));
+        const items: BatchItem[] = linkList ? [] : [...unique.values()].map((raw) => ({ raw, sourceHash: sourceHashOf(raw) }));
         if (items.length > 0) await ensureRawPartition(source.kind);
         for (let start = 0; start < items.length; start += BATCH_SIZE) {
-          if (signal.aborted) throw new IngestError('The run was stopped before it finished.');
+          stopHere(); // between two batches (v31 RUNS: a pause stops here, the batches saved kept)
           const batch = items.slice(start, start + BATCH_SIZE);
           const outcome = await saveBatch(db, store, source, batch, nowIso(deps));
           for (const key of Object.keys(counts) as Array<keyof UpsertCounts>) counts[key] += outcome.counts[key];
@@ -587,6 +705,8 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         runLog.add(
           `Saved: ${counts.created} new, ${counts.updated} updated, ${counts.unchanged} unchanged${counts.reactivated ? `, ${counts.reactivated} reopened` : ''}${counts.failed ? `, ${counts.failed} failed` : ''}.`,
         );
+        // v31 RUNS: a run paused once its batches were saved closes nothing (markMissing is not reached).
+        stopHere();
 
         if (!result.complete) {
           end.status = 'partial';
@@ -631,6 +751,18 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         if (end.status === 'succeeded' && counts.failed > 0) end.status = 'partial';
       }
     } catch (caught) {
+      if (pausedBy(signal)) {
+        // v31 RUNS: paused, not failed: what it saved stays, nothing was closed, the source keeps its schedule's state.
+        end.status = 'paused';
+        end.complete = false;
+        end.error = null;
+        end.errorCode = null;
+        runLog.add(
+          `Paused by an admin: ${counts.created} new and ${counts.updated} updated postings were saved; nothing was closed. ` +
+            'Continue reads the source again from the top.',
+        );
+        return finishRun(source, runId, end, runLog, owner);
+      }
       end.status = 'failed';
       end.complete = false;
       end.error = messageOf(caught);
@@ -646,6 +778,12 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
       if (!plainError(caught)) log.error(`[ingest] run ${runId} of source ${source.id} failed`, caught);
       runLog.add(`Failed: ${end.error} Nothing was closed.`);
     }
+    return finishRun(source, runId, end, runLog, owner);
+  }
+
+  /** A run's last log line, its finish, its line in the server log, and the run as stored. */
+  async function finishRun(source: SourceRecord, runId: number, end: Finish, runLog: RunLog, owner: string): Promise<AdminRunDetail> {
+    const { counts, tally } = end;
     runLog.add(`Finished: ${end.status}.`);
     await finish(source, runId, end, runLog, owner);
     log.info(
@@ -740,6 +878,7 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
     /** This run is no longer going here (a newer run of the source, leased once this one gave it back, stays listed). */
     const forget = () => {
       if (running.get(source.id)?.runId === runId) running.delete(source.id);
+      unwatchStops(); // v31 RUNS
     };
     /** The run as stored, or (the database closing under a shutdown) what is known of it. */
     const recorded = async (error: string): Promise<AdminRunDetail> => {
@@ -774,8 +913,13 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         log: [],
       };
     };
-    /** A run that ends before it reads anything: recorded failed, its lease given back. */
-    const failEarly = async (message: string): Promise<AdminRunDetail> => {
+    /**
+     * A run that ends before it reads anything: recorded failed, its lease given back. v31 RUNS: recorded paused when an
+     * admin paused it meanwhile (it waited for a slot).
+     */
+    const failEarly = async (failure: string): Promise<AdminRunDetail> => {
+      const paused = pausedBy(controller.signal);
+      const message = paused ? 'Paused by an admin before it read anything. Continue reads the source from the top.' : failure;
       const runLog = new RunLog(deps.now);
       runLog.add(message);
       try {
@@ -783,11 +927,11 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
           source,
           runId,
           {
-            status: 'failed',
+            status: paused ? 'paused' : 'failed',
             fetched: 0,
             counts: emptyCounts(),
-            error: message,
-            errorCode: 'error',
+            error: paused ? null : message,
+            errorCode: paused ? null : 'error',
             tally: { requests: 0, bytes: 0, firstStatus: null },
             complete: false,
             validators: null,
@@ -838,6 +982,7 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
       }
     })();
     running.set(source.id, { runId, controller, done });
+    watchStops(); // v31 RUNS
     return { runId, done };
   }
 
@@ -850,6 +995,12 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
       const source = checkRunnable(await getSourceRecord(db, sourceId));
       // v30 FIX-A (SEC-2, BEH-3): a source of a company that opted out is never read (Run now, the worker, an import).
       if (await sourceOptedOut(db, source.id)) throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_OPTED_OUT');
+      // v31 RUNS: the schedule and Run now start nothing while every run, or this source, is paused (a run that starts
+      // while the pause is written stops at the next look: STOP_SQL).
+      if (PAUSABLE_TRIGGERS.includes(trigger)) {
+        if (await runsPaused(deps)) throw refuse(deps, 'conflict', 'MSG_INGEST_RUNS_PAUSED');
+        if (source.pausedAt) throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_PAUSED');
+      }
       const startedAt = nowIso(deps);
       const until = new Date(deps.now().getTime() + leaseMs()).toISOString();
       // v30 FIX-A (BEH-4): the run's own id on the lease.
@@ -941,15 +1092,19 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
       const now = nowIso(deps);
       const changed = await db.tx(
         async (t) => {
-          // A run whose source's lease ran out (its process stopped), or (at a process's start) one of its own kind.
-          const runs = await t.all<{ source_id: number }>(
-            `UPDATE job_source_runs r SET status = 'failed', finished_at = CAST(@now AS timestamptz), error = @error, error_code = 'interrupted'
+          // A run whose source's lease ran out (its process stopped), or (at a process's start) one of its own kind. v31
+          // RUNS: one an admin asked to pause is recorded paused (it stopped, as asked), not failed.
+          const runs = await t.all<{ source_id: number; status: string }>(
+            `UPDATE job_source_runs r SET status = CASE WHEN r.stop_requested_at IS NULL THEN 'failed' ELSE 'paused' END,
+               finished_at = CAST(@now AS timestamptz),
+               error = CASE WHEN r.stop_requested_at IS NULL THEN @error END,
+               error_code = CASE WHEN r.stop_requested_at IS NULL THEN 'interrupted' END
              FROM job_sources s
              WHERE s.id = r.source_id AND r.status = 'running'
                AND NOT (r.source_id = ANY(CAST(string_to_array(@mine, ',') AS bigint[])))
                AND (s.lease_until IS NULL OR s.lease_until < CAST(@now AS timestamptz)
                  OR (CAST(@all AS boolean) OR r.trigger = ANY(string_to_array(@triggers, ','))))
-             RETURNING r.source_id`,
+             RETURNING r.source_id, r.status`,
             {
               now,
               error: 'The server stopped during this run.',
@@ -959,11 +1114,13 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
             },
           );
           const ids = [...new Set(runs.map((run) => run.source_id))];
+          const paused = runs.filter((run) => run.status === 'paused').map((run) => run.source_id);
           // The leases those runs held.
           if (ids.length > 0) {
             await t.run(
-              "UPDATE job_sources SET last_status = 'failed', lease_until = NULL, lease_owner = NULL WHERE id = ANY(CAST(string_to_array(?, ',') AS bigint[]))",
-              [ids.join(',')],
+              `UPDATE job_sources SET last_status = CASE WHEN id = ANY(CAST(string_to_array(@paused, ',') AS bigint[])) THEN 'paused' ELSE 'failed' END,
+                 lease_until = NULL, lease_owner = NULL WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))`,
+              { ids: ids.join(','), paused: paused.join(',') },
             );
           }
           return runs.length;
@@ -974,7 +1131,11 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
       return changed;
     },
 
+    checkStops,
+
     async stop() {
+      if (stopTimer) clearInterval(stopTimer); // v31 RUNS
+      stopTimer = null;
       const runs = [...running.values()];
       for (const run of runs) run.controller.abort();
       await Promise.race([

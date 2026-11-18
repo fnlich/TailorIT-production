@@ -5,7 +5,7 @@ import type { MessageKey } from '../constants/constants';
 import { PUBLIC_CONSTANT_SPECS } from '../constants/public/specs';
 // end v20 A30
 
-// The tracker's statuses, Simplify's numeric codes in the order every select lists them. Archived is not a status: it
+// The tracker's statuses, numeric codes (as stored) in the order every select lists them. Archived is not a status: it
 // is the application's `archived_at`.
 
 export const APPLICATION_STATUSES = [1, 2, 11, 12, 13, 21, 22, 23, 24] as const;
@@ -67,7 +67,11 @@ export interface StatusInfo {
   sankeyLabel: string;
   icon: StatusIcon;
   tone: StatusTone;
-  /** The chart colour; Saved is not charted. */
+  /**
+   * The chart colour; Saved is not charted. v31 INT-2: the v3.1 stage colours (the values of the tokens the web's chart
+   * reads, apps/web/src/features/tracker/chart/FlowChart.tsx STAGE_TOKEN; a web test keeps them equal), so the
+   * Sankey report's answer and the chart's fallback match what the page draws.
+   */
   sankeyColor: string | null;
   column: ColumnDefault;
   terminal: boolean;
@@ -97,14 +101,14 @@ const info = (
 
 export const STATUS_INFO: Readonly<Record<ApplicationStatus, StatusInfo>> = {
   1: info(1, 'saved', 'Saved', 'bookmark', 'neutral', null, 'forced'),
-  2: info(2, 'applied', 'Applied', 'paper-plane', 'blue', '#4a86e8', 'forced'),
-  11: info(11, 'screen', 'Screen', 'file-search', 'orange', '#5E97B7', 'default', { sankeyLabel: 'Screening' }),
-  12: info(12, 'interviewing', 'Interviewing', 'chats', 'purple', '#47C1AD', 'forced', { stepLabel: 'Interview' }),
-  13: info(13, 'offer', 'Offer', 'envelope-open', 'green', '#8BC34A', 'forced'),
-  21: info(21, 'withdrawn', 'Withdrawn', 'undo', 'red', '#FFA07A', 'default'),
-  22: info(22, 'ghosted', 'Ghosted', 'chat-slash', 'red', '#DDA0DD', 'default'),
-  23: info(23, 'rejected', 'Rejected', 'x-circle', 'red', '#FF6B6B', 'forced'),
-  24: info(24, 'accepted', 'Accepted', 'confetti', 'green', '#4CAF50', 'default'),
+  2: info(2, 'applied', 'Applied', 'paper-plane', 'blue', '#3a45c9', 'forced'),
+  11: info(11, 'screen', 'Screen', 'file-search', 'orange', '#2563b5', 'default', { sankeyLabel: 'Screening' }),
+  12: info(12, 'interviewing', 'Interviewing', 'chats', 'purple', '#6a73da', 'forced', { stepLabel: 'Interview' }),
+  13: info(13, 'offer', 'Offer', 'envelope-open', 'green', '#1d7f4e', 'forced'),
+  21: info(21, 'withdrawn', 'Withdrawn', 'undo', 'red', '#d9a021', 'default'),
+  22: info(22, 'ghosted', 'Ghosted', 'chat-slash', 'red', '#8e94ab', 'default'),
+  23: info(23, 'rejected', 'Rejected', 'x-circle', 'red', '#c2363a', 'forced'),
+  24: info(24, 'accepted', 'Accepted', 'confetti', 'green', '#16653e', 'default'),
 };
 
 export function isApplicationStatus(value: unknown): value is ApplicationStatus {
@@ -135,13 +139,8 @@ export function isCelebratedStatus(status: ApplicationStatus): boolean {
   return status === STATUS.offer || status === STATUS.accepted;
 }
 
-/** An empty board column: "No applications" / "Move applications into interviewing." */
-export const EMPTY_COLUMN_TITLE = 'No applications';
-export const DROP_HERE_TEXT = 'Drop application here';
-
-export function emptyColumnText(status: ApplicationStatus): string {
-  return `Move applications into ${statusLabel(status).toLowerCase()}.`;
-}
+// v31 FIX-DOCS: an empty board lane's words are the constants MSG_TRACKER_LANE_EMPTY_TITLE / _TEXT / _DROP (the web's
+// BoardView reads them), no longer copies here.
 
 // v20 A30 -------------------------------------------------------------------------------------------------------------
 // "Draft" (DECISIONS A30): a Tracker entry at Saved whose job has a live queue row (prepared, its kit frozen, waiting

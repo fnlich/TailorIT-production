@@ -86,8 +86,8 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
         }}
       />
       <main className={clsx('mx-auto w-full max-w-4xl pt-10 pb-16', PAGE_GUTTER)}>
-        <div className="grid grid-cols-1 gap-8 rounded-surface border border-border bg-surface p-6 shadow-soft sm:grid-cols-[15rem_minmax(0,1fr)] sm:p-8">
-          <div className="overflow-hidden rounded-[10px] border border-border bg-white shadow-soft">
+        <div className="grid grid-cols-1 gap-8 rounded-card border border-border bg-surface p-6 shadow-card sm:grid-cols-[15rem_minmax(0,1fr)] sm:p-8">
+          <div className="overflow-hidden rounded-control border border-border bg-surface">
             <ResumeThumb resume={resume} title={`${title} first page`} />
           </div>
           <div className="flex min-w-0 flex-col">
@@ -96,7 +96,7 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
               <Badge>Uploaded</Badge>
               {kind && <Badge>{kind}</Badge>}
             </div>
-            <h1 className="mt-3 text-2xl leading-8 font-bold text-foreground [overflow-wrap:anywhere]">{title}</h1>
+            <h1 className="page-title mt-3 [overflow-wrap:anywhere]">{title}</h1>
             {resume.file && (
               <p className="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
                 {resume.file.name} · {sizeText(resume.file.sizeBytes)}

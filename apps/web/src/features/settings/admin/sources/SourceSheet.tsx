@@ -7,6 +7,8 @@ import {
   JOB_SOURCE_TIER_LABEL,
   type AdminSourceRow,
 } from '@tailorit/shared/sourcing';
+import { PauseIcon } from '@phosphor-icons/react/Pause';
+import { PlayIcon } from '@phosphor-icons/react/Play';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { RowDetailSheet } from '@/components/queue';
@@ -15,11 +17,13 @@ import { Button } from '@/components/ui/Button';
 import { ArrowSquareOutIcon, ArrowsClockwiseIcon } from '@/components/ui/icons';
 import { relativeTime } from '@/lib/format';
 import { RunStatusBadge } from '../runs/parts';
+import { sourcePausedText } from '../runs/pause'; // v31 RUNS
 import { fetchSourceSettings, sourceKeys, type SourceSettings } from './api';
 import {
   TIER_TONE,
   failureText,
   formatCount,
+  isPaused,
   isUnrun,
   robotsTone,
   runNowHint,
@@ -33,6 +37,7 @@ import {
 // v30 S1-WEB: one source's sheet (12 §9.8): its schedule (tier, next run, the last complete listing that verified its
 // links, failures), whether its terms and robots.txt let it run, whether its postings may go to AI, how it was found,
 // its host and company, and what it reads. The row is CT's AdminSourceRow; its settings come from its own route.
+// v31 RUNS: whether an admin paused it (by whom, since when), and its Pause or Continue beside Run now.
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -69,11 +74,12 @@ export function SourceDetails({
   return (
     <div className="flex flex-col gap-6" data-source-details={source.id}>
       <section aria-labelledby={`source-${source.id}-schedule`}>
-        <h3 id={`source-${source.id}-schedule`} className="text-sm font-semibold text-foreground">
+        <h3 id={`source-${source.id}-schedule`} className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
           Schedule
         </h3>
-        <dl className="mt-1 divide-y divide-border">
-          <Fact label="State">{source.enabled ? 'Enabled' : 'Paused'}</Fact>
+        <dl className="mt-1 divide-y divide-divider-soft">
+          <Fact label="State">{source.enabled ? 'Enabled' : 'Disabled'}</Fact>
+          {isPaused(source) && <Fact label="Paused">{sourcePausedText(source, now)}</Fact>}
           <Fact label="Tier">
             <Badge tone={TIER_TONE[source.tier]}>{JOB_SOURCE_TIER_LABEL[source.tier]}</Badge>
           </Fact>
@@ -95,10 +101,10 @@ export function SourceDetails({
         </dl>
       </section>
       <section aria-labelledby={`source-${source.id}-access`}>
-        <h3 id={`source-${source.id}-access`} className="text-sm font-semibold text-foreground">
+        <h3 id={`source-${source.id}-access`} className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
           Access
         </h3>
-        <dl className="mt-1 divide-y divide-border">
+        <dl className="mt-1 divide-y divide-divider-soft">
           <Fact label="Terms">
             <Badge tone={termsTone(source.termsStatus)}>{JOB_SOURCE_TERMS_LABEL[source.termsStatus]}</Badge>
           </Fact>
@@ -110,10 +116,10 @@ export function SourceDetails({
         </dl>
       </section>
       <section aria-labelledby={`source-${source.id}-where`}>
-        <h3 id={`source-${source.id}-where`} className="text-sm font-semibold text-foreground">
+        <h3 id={`source-${source.id}-where`} className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
           Where it reads
         </h3>
-        <dl className="mt-1 divide-y divide-border">
+        <dl className="mt-1 divide-y divide-divider-soft">
           <Fact label="Kind">{source.kindLabel}</Fact>
           {detail && <Fact label="Reads">{detail}</Fact>}
           <Fact label="Host">
@@ -153,6 +159,9 @@ export function SourceSheet({
   onShowRuns,
   onShowHost,
   onPurge,
+  onPauseToggle,
+  pauseBusy = false,
+  pausedHint = null,
 }: {
   source: AdminSourceRow | null;
   open: boolean;
@@ -164,6 +173,12 @@ export function SourceSheet({
   onShowRuns: (id: number) => void;
   onShowHost: (host: string) => void;
   onPurge: (source: AdminSourceRow) => void;
+  /** v31 RUNS: pauses the source, or continues it once paused. */
+  onPauseToggle?: (source: AdminSourceRow) => void;
+  /** Its Pause or Continue is on its way. */
+  pauseBusy?: boolean;
+  /** Why Run now waits (the source, or every run, is paused), or null. */
+  pausedHint?: string | null;
 }) {
   const settings = useQuery({
     queryKey: sourceKeys.detail(source?.id ?? 0),
@@ -178,7 +193,7 @@ export function SourceSheet({
       title={(item) => item.name}
       description={source ? sourceLine(source) : undefined}
       footer={(item) => {
-        const hint = runNowHint({ kind: item.kind, config: settings.data?.config });
+        const hint = pausedHint ?? runNowHint({ kind: item.kind, config: settings.data?.config });
         return (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {hint && <p className="mr-auto max-w-sm text-[13px] text-muted-foreground">{hint}</p>}
@@ -188,8 +203,24 @@ export function SourceSheet({
             <Button variant="destructive-outline" onClick={() => onPurge(item)}>
               Purge source
             </Button>
+            {/* v31 RUNS: Pause or Continue the source. */}
+            {!isUnrun(item) && onPauseToggle && (
+              <Button
+                variant="outline"
+                icon={isPaused(item) ? <PlayIcon size={16} weight="fill" /> : <PauseIcon size={16} weight="fill" />}
+                loading={pauseBusy}
+                onClick={() => onPauseToggle(item)}
+              >
+                {isPaused(item) ? 'Continue' : 'Pause'}
+              </Button>
+            )}
             {!isUnrun(item) && (
-              <Button icon={<ArrowsClockwiseIcon size={16} />} loading={running} disabled={item.running} onClick={() => onRun(item)}>
+              <Button
+                icon={<ArrowsClockwiseIcon size={16} />}
+                loading={running}
+                disabled={item.running || pausedHint !== null}
+                onClick={() => onRun(item)}
+              >
                 {item.running ? 'Running' : 'Run now'}
               </Button>
             )}

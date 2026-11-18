@@ -1,6 +1,6 @@
 import { escapeHtml } from '../format/text';
 
-// Cover-letter template variables: TailorIT's own registry (Simplify's full list is server-side and unknown). A
+// Cover-letter template variables: TailorIT's own registry. A
 // variable is written `{{UPPER_SNAKE}}` and stored as that literal text; the editor shows it as a chip.
 
 export const VARIABLE_GROUPS = ['profile', 'dynamic', 'structural', 'ai'] as const;

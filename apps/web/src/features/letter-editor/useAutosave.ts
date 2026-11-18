@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /*
- * Autosave for the letter and template editors (Simplify: 1 second after typing stops). Changes are merged into one
+ * Autosave for the letter and template editors (1 second after typing stops). Changes are merged into one
  * pending patch; saves never overlap (a change during a save is sent right after it); a failed save keeps its patch
  * for the next change or flush. Leaving the page with unsaved changes sends them with `keepalive`.
  */

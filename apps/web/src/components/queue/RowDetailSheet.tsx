@@ -17,7 +17,7 @@ export interface RowDetailSheetProps<T> {
   description?: ReactNode;
   /** Buttons at the sheet's foot (Approve, Reject). */
   footer?: (item: T) => ReactNode;
-  /** The sheet's width classes (the kit sheet: "sm:max-w-[480px]!"). */
+  /** The sheet's width classes (the kit sheet: "sm:max-w-120!"). */
   className?: string;
   children: (item: T) => ReactNode;
 }
@@ -41,7 +41,7 @@ export function DetailStep({ number, title, children }: { number: number; title:
     <li className="flex gap-3" aria-labelledby={id}>
       <span
         aria-hidden="true"
-        className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-container text-xs font-semibold text-primary-ink"
+        className="num flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs text-primary-ink"
       >
         {number}
       </span>

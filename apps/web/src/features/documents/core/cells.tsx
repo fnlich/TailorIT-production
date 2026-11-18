@@ -9,7 +9,7 @@ import { ActionMenu } from './ActionMenu';
 import type { ActionMenuItem } from './types';
 
 /*
- * Cell renderers for DocumentList columns, in Simplify's table style. A tab builds its columns from these:
+ * Cell renderers for DocumentList columns (the documents table). A section builds its columns from these:
  *   { key: 'name', header: 'Name', track: 'minmax(0,1.06fr)', cell: (r) => <DocumentNameCell name={r.title} badges={…} /> }
  */
 
@@ -24,12 +24,12 @@ export function DocumentNameCell({
   name: string;
   href?: string;
   onOpen?: () => void;
-  /** <Badge/>s: Default, Uploaded, PDF, Generated, System Default… */
+  /** <Badge/>s: Default, Uploaded, PDF, Generated, Built in… */
   badges?: ReactNode;
   /** A muted line under the badges (templates: the first 80 characters of the body). */
   preview?: ReactNode;
 }) {
-  // Simplify sets the name solid (14 px lines) with the badges 8 px under it: 76 px rows, 90 px for two lines.
+  // The name is set solid (14 px lines) with the badges 8 px under it: a 72 px row (14 px padding) with one badge line.
   const nameClasses =
     'text-left text-sm leading-none font-semibold text-foreground [overflow-wrap:anywhere] hover:underline hover:underline-offset-2';
   return (
@@ -57,7 +57,8 @@ export function TextCell({ children, muted }: { children: ReactNode; muted?: boo
 }
 
 /**
- * Simplify's row actions: "✎ Edit" (greyed when the document cannot be edited, e.g. an uploaded PDF) and "More ⌄".
+ * v31 FIX-DOCS: a table row's actions, two icon buttons: ✎ "Edit {label}" (a link to the editor; shown disabled with
+ * its reason when the document cannot be edited, e.g. an uploaded PDF) and ⋮ "Actions for {label}" (the menu).
  */
 export function TableRowActions({
   label,
@@ -77,44 +78,42 @@ export function TableRowActions({
   editLabel?: string;
   menuItems?: readonly ActionMenuItem[];
 }) {
+  const name = `${editLabel} ${label}`;
   const classes = clsx(
-    'inline-flex h-8 shrink-0 items-center gap-2 rounded-control -ml-2 px-2 text-[13px] font-semibold whitespace-nowrap transition-colors duration-150',
-    // Simplify greys "Edit" out (#b7b7b7) for documents that cannot be edited, e.g. an uploaded PDF.
-    editDisabled ? 'cursor-not-allowed text-disabled-foreground' : 'text-foreground hover:bg-hover active:bg-black/[0.08]',
+    'inline-flex size-8 shrink-0 items-center justify-center rounded-control transition-colors duration-150',
+    editDisabled ? 'cursor-not-allowed text-disabled-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground active:bg-pressed',
   );
-  const content = (
-    <>
-      <PencilSimpleIcon size={14} />
-      {editLabel}
-      <span className="sr-only"> {label}</span>
-    </>
-  );
+  const icon = <PencilSimpleIcon size={18} aria-hidden="true" />;
   let edit: ReactNode = null;
   if (editDisabled) {
     edit = (
       <Tooltip content={editDisabledReason} disabled={!editDisabledReason}>
-        <button type="button" aria-disabled="true" className={classes}>
-          {content}
+        <button type="button" aria-disabled="true" aria-label={name} className={classes}>
+          {icon}
         </button>
       </Tooltip>
     );
   } else if (editHref) {
     edit = (
-      <Link href={editHref} className={classes}>
-        {content}
-      </Link>
+      <Tooltip content={editLabel}>
+        <Link href={editHref} aria-label={name} className={classes}>
+          {icon}
+        </Link>
+      </Tooltip>
     );
   } else if (onEdit) {
     edit = (
-      <button type="button" onClick={onEdit} className={classes}>
-        {content}
-      </button>
+      <Tooltip content={editLabel}>
+        <button type="button" onClick={onEdit} aria-label={name} className={classes}>
+          {icon}
+        </button>
+      </Tooltip>
     );
   }
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-1">
       {edit}
-      {menuItems && menuItems.length > 0 && <ActionMenu items={menuItems} label={`Actions for ${label}`} trigger="more" />}
+      {menuItems && menuItems.length > 0 && <ActionMenu items={menuItems} label={`Actions for ${label}`} />}
     </div>
   );
 }

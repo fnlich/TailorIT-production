@@ -146,14 +146,14 @@ export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
 
   const ruleEnabled = queued?.ruleEnabled ?? settings.ruleEnabled;
   return (
-    <section aria-label="Auto-save new jobs" className="rounded-surface border border-border bg-surface shadow-soft" data-rule-section="">
-      <h2 id={headingId} className="text-base leading-6 font-semibold text-foreground">
+    <section aria-label="Auto-save new jobs" className="rounded-card border border-border bg-surface shadow-card" data-rule-section="">
+      <h2 id={headingId} className="text-[15px] leading-5 font-semibold text-foreground">
         <button
           type="button"
           aria-expanded={expanded}
           aria-controls={panelId}
           onClick={() => setExpanded((open) => !open)}
-          className="flex w-full items-center gap-3 rounded-surface px-4 py-3.5 text-left outline-offset-[-2px] sm:px-5"
+          className="flex w-full items-center gap-3 rounded-card px-4 py-3.5 text-left -outline-offset-2 hover:bg-surface-low sm:px-5"
         >
           <span className="min-w-0 flex-1">
             Auto-save new jobs
@@ -161,7 +161,11 @@ export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
               {ruleEnabled ? `On: new jobs of at least ${minMatch}% match are saved` : 'Off'}
             </span>
           </span>
-          <CaretDownIcon size={16} aria-hidden="true" className={clsx('shrink-0 transition-transform duration-150', expanded && 'rotate-180')} />
+          <CaretDownIcon
+            size={16}
+            aria-hidden="true"
+            className={clsx('shrink-0 text-muted-foreground transition-transform duration-150', expanded && 'rotate-180')}
+          />
         </button>
       </h2>
       <div id={panelId} hidden={!expanded} className="border-t border-border px-4 py-4 sm:px-5">

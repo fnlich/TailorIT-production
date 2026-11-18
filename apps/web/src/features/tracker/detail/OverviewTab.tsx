@@ -26,6 +26,8 @@ import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
 import { ArrowSquareOutIcon, BriefcaseIcon, MapPinIcon, PencilSimpleIcon } from '@/components/ui/icons';
 import { isApiError, userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
+import { VerificationNotice } from '@/features/jobs/verification/VerificationNotice'; // v31 JOBSWEB
 import { CompanyInput } from '../CompanyInput';
 import { invalidateApplications, trackerApi, trackerKeys } from '../data';
 import { PROSE, RichTextEditor } from '../RichTextEditor';
@@ -37,7 +39,7 @@ const JOB_TYPES: Array<{ value: EmploymentType; label: string }> = [
   { value: 'contract', label: 'Contract' },
 ];
 
-/** Simplify's currency select reads "USD$"; the usual codes first, then the rest of the symbol table. */
+/** The currency select reads "USD$"; the usual codes first, then the rest of the symbol table. */
 const CURRENCIES = ['USD', 'CAD', 'EUR', 'GBP', 'AUD', 'INR', ...Object.keys(CURRENCY_SYMBOL)].filter(
   (code, index, all) => all.indexOf(code) === index,
 );
@@ -66,6 +68,8 @@ function ReadView({ application, onEdit }: { application: ApplicationDetail; onE
   const range = formatSalaryRange(salary.min, salary.max, salary.currency, null);
   return (
     <div className="flex flex-col gap-6">
+      {/* v31 JOBSWEB: the entry's job is the person's own (TailorIT could not read its link): only they see it; Retry read. */}
+      {application.jobId !== null && <VerificationNotice jobId={application.jobId} verification={application.verification} />}
       <div className="grid gap-5 sm:grid-cols-2">
         <Fact icon={<MapPinIcon size={16} />} label="Location">
           {application.location || <span className="font-normal text-muted-foreground">No location</span>}
@@ -134,9 +138,10 @@ type Errors = Partial<Record<'title' | 'companyName' | 'postingUrl' | 'salaryMin
 /** The pay fields are checked together, so a change to any of them clears all their errors. */
 const SALARY_FIELDS: ReadonlyArray<keyof Errors> = ['salaryMin', 'salaryMax', 'salaryPeriod'];
 
-/** "Edit Job Posting": the fields Simplify edits here, saved together. */
+/** "Edit job details" (v31 FIX-DOCS: LABEL_TRACKER_EDIT_POSTING): the fields edited here, saved together. */
 function EditForm({ application, onDone }: { application: ApplicationDetail; onDone: () => void }) {
   const client = useQueryClient();
+  const { t } = usePublicConstants();
   const [title, setTitle] = useState(application.title);
   const [companyName, setCompanyName] = useState(application.companyName);
   const [location, setLocation] = useState(application.location);
@@ -206,10 +211,10 @@ function EditForm({ application, onDone }: { application: ApplicationDetail; onD
   return (
     <form onSubmit={submit} noValidate className="flex flex-col gap-5" aria-labelledby="edit-posting-heading">
       <h3 id="edit-posting-heading" className="text-base font-semibold text-foreground">
-        Edit Job Posting
+        {t('LABEL_TRACKER_EDIT_POSTING')}
       </h3>
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="Position Title" required error={errors.title}>
+        <Field label={t('LABEL_TRACKER_FIELD_TITLE')} required error={errors.title}>
           <Input
             value={title}
             maxLength={200}
@@ -274,12 +279,12 @@ function EditForm({ application, onDone }: { application: ApplicationDetail; onD
           />
         </div>
         {(errors.salaryMin || errors.salaryMax || errors.salaryPeriod) && (
-          <p className="text-[13px] leading-5 text-[#c62a29]">{errors.salaryMax ?? errors.salaryMin ?? errors.salaryPeriod}</p>
+          <p className="text-[13px] leading-5 text-danger">{errors.salaryMax ?? errors.salaryMin ?? errors.salaryPeriod}</p>
         )}
       </fieldset>
       <Field label="URL" error={errors.postingUrl}>
         <div className="flex w-full items-stretch">
-          <span className="flex items-center rounded-l-control border border-r-0 border-control bg-surface-low px-3 text-sm text-muted-foreground">
+          <span className="flex items-center rounded-l-control border border-r-0 border-border-strong bg-surface-low px-3 text-sm text-muted-foreground">
             https://
           </span>
           <Input

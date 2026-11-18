@@ -21,7 +21,7 @@ export function SidePanel({ title, onClose, children }: PanelFrameProps) {
   return (
     <aside
       aria-label={title}
-      className="sticky top-4 flex max-h-[calc(100dvh-6rem)] w-[340px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
+      className="sticky top-4 flex max-h-[calc(100dvh-6rem)] w-[340px] shrink-0 flex-col overflow-hidden rounded-card border border-border bg-surface shadow-card"
     >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h2 className="text-[15px] font-semibold text-foreground">{title}</h2>
@@ -42,7 +42,7 @@ export function PanelSection({ title, hint, children }: { title: string; hint?: 
     <section className="flex flex-col gap-2.5">
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-medium text-foreground">{title}</h3>
-        {hint ? <span className="text-[12px] text-muted-foreground">{hint}</span> : null}
+        {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
       </div>
       {children}
     </section>

@@ -101,7 +101,8 @@ export function sourceText(candidate: Pick<JobSourceCandidate, 'sourceId' | 'sou
   const parts = [open === null ? null : countLabel(open, 'open job', 'open jobs')];
   const life = openLifeText(candidate.openLifeDays);
   if (life) parts.push(`jobs stay open about ${life}`);
-  if (candidate.sourceEnabled === false) parts.push('paused');
+  // v31 ADMINWEB (RUNS' wording): a source turned off reads "disabled"; "paused" means Pause/Continue now (22-runs-pause.md).
+  if (candidate.sourceEnabled === false) parts.push('disabled');
   return parts.filter(Boolean).join(', ') || 'A source';
 }
 

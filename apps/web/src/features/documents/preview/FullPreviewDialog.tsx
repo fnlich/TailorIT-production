@@ -99,7 +99,7 @@ function PreviewWindow({ title, kind, actions, stack, children, status }: FullPr
     <DialogContent size="full" showClose={false} initialFocus={desk} className="overflow-hidden">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 sm:gap-3 sm:px-4">
         <div className="min-w-0 flex-1">
-          <p className="text-xs leading-4 text-[#5c5c5c]">{kind}</p>
+          <p className="text-xs leading-4 text-muted-foreground">{kind}</p>
           <DialogTitle className="truncate text-base leading-6">{title}</DialogTitle>
           <DialogDescription className="sr-only">
             The pages as they print. Escape closes the preview.
@@ -114,7 +114,7 @@ function PreviewWindow({ title, kind, actions, stack, children, status }: FullPr
         role="region"
         aria-label={`${kind}: pages`}
         onScroll={track}
-        className="relative min-h-0 flex-1 overflow-auto bg-[#eceef0] outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
+        className="relative min-h-0 flex-1 overflow-auto bg-surface-muted outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
         style={{ padding: DESK_PADDING }}
         data-preview-desk=""
       >
@@ -139,7 +139,7 @@ function PreviewWindow({ title, kind, actions, stack, children, status }: FullPr
           <div
             role="toolbar"
             aria-label="Pages and zoom"
-            className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-popover"
+            className="pointer-events-auto flex items-center gap-0.5 rounded-popup border border-border bg-surface px-1.5 py-1 shadow-popover"
           >
             <IconButton
               label="Previous page"
@@ -149,7 +149,7 @@ function PreviewWindow({ title, kind, actions, stack, children, status }: FullPr
               disabled={page === 0}
               onClick={() => goToPage(page - 1)}
             />
-            <span className="min-w-[88px] px-1 text-center text-[13px] leading-5 font-medium text-foreground tabular-nums" data-preview-page="">
+            <span className="min-w-22 px-1 text-center text-[13px] leading-5 font-medium text-foreground tabular-nums" data-preview-page="">
               Page {page + 1} of {pages}
             </span>
             <IconButton
@@ -174,7 +174,7 @@ function PreviewWindow({ title, kind, actions, stack, children, status }: FullPr
               aria-pressed={zoom.mode === 'fit'}
               onClick={() => setZoom(FIT_WIDTH)}
               title="Fit the page to the width"
-              className="h-8 min-w-[72px] rounded-control px-2 text-[13px] leading-5 font-medium text-foreground tabular-nums hover:bg-hover"
+              className="h-8 min-w-18 rounded-control px-2 text-[13px] leading-5 font-medium text-foreground tabular-nums hover:bg-hover active:bg-pressed aria-pressed:text-primary-ink"
               data-preview-zoom=""
             >
               {zoomLabel(zoom, scale)}

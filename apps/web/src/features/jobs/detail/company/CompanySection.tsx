@@ -3,12 +3,14 @@
 import type { CompanyDetail } from '@tailorit/shared';
 import Link from 'next/link';
 import { useState } from 'react';
-import { CaretRightIcon } from '@/components/ui/icons';
+import { BuildingsIcon, CaretRightIcon } from '@/components/ui/icons';
 import { companyFacts, companyLinks } from '@/features/companies/format';
 import { CompanyAbout, CompanyFactsGrid, CompanyLinksRow, ParentLine, SourcesLine } from '@/features/companies/parts';
 import { companyHref } from '@/features/companies/routes';
+import { usePublicConstants } from '@/lib/constants';
 import { CompanyLogo } from '../../CompanyLogo';
 import { FlagIcon } from '../../icons';
+import { SectionHeading } from '../MatchSection';
 import { CompanyReportDialog } from './CompanyReportDialog';
 
 /** The link to the company page: "See all 12 jobs at Acme" (or "See the 1 job at Acme"), else "See Acme's company page". */
@@ -20,7 +22,7 @@ export function allJobsLabel(company: Pick<CompanyDetail, 'name' | 'jobCount'>):
 }
 
 /**
- * The detail's Company section (the "Company" tab scrolls here): about the company, its links and whichever stats are
+ * The detail's company section (v31 FIX-JOBS: "About {company}"; the drawer's Company jump scrolls here): about the company, its links and whichever stats are
  * known. v30 E0-WEB (13-company-enrichment.md §6.3, §10; 00-overview §1): the name opens the company page
  * (/companies/:id, owner question 24); "Part of {parent}"; the description's origin ("Summary written by AI from …");
  * "Incorporated" when a registry gave the year; no "Total Funding" (no licensed source); the LinkedIn page only when an
@@ -28,6 +30,7 @@ export function allJobsLabel(company: Pick<CompanyDetail, 'name' | 'jobCount'>):
  * company_info_wrong, 13 §6.4).
  */
 export function CompanySection({ company, jobId, className, id }: { company: CompanyDetail; jobId?: number; className?: string; id?: string }) {
+  const { t } = usePublicConstants();
   const [reportOpen, setReportOpen] = useState(false);
   const facts = companyFacts({
     sizeBucket: company.sizeBucket,
@@ -42,18 +45,19 @@ export function CompanySection({ company, jobId, className, id }: { company: Com
 
   return (
     <section id={id} aria-labelledby="about-the-company" className={className} data-company-section={company.id}>
-      <h2 id="about-the-company" className="text-[22px] leading-9 font-bold text-foreground">
-        About the company
-      </h2>
+      {/* v31 FIX-JOBS: "About {company}", a drawer section's heading (an h3 under the job's h2). */}
+      <SectionHeading id="about-the-company" icon={<BuildingsIcon size={18} weight="bold" />}>
+        {t('LABEL_JOB_ABOUT_COMPANY', { company: company.name })}
+      </SectionHeading>
       <div className="mt-4 flex items-center gap-3">
         <CompanyLogo name={company.name} url={company.logoUrl} size={48} />
         <div className="min-w-0">
-          <p className="truncate text-lg leading-6 font-semibold text-foreground">
-            <Link href={href} className="hover:underline">
+          <p className="truncate text-[15px] leading-6 font-semibold text-foreground">
+            <Link href={href} className="rounded-tag hover:text-primary hover:underline">
               {company.name}
             </Link>
           </p>
-          {company.tagline && <p className="truncate text-sm leading-5 text-muted-foreground">{company.tagline}</p>}
+          {company.tagline && <p className="truncate text-[13px] leading-5 text-muted-foreground">{company.tagline}</p>}
           <ParentLine parent={company.parent} />
         </div>
       </div>
@@ -62,7 +66,7 @@ export function CompanySection({ company, jobId, className, id }: { company: Com
       <CompanyFactsGrid facts={facts} className="mt-5" />
       <SourcesLine sources={company.sources} updatedAt={company.updatedAt} className="mt-3" />
       <div className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        <Link href={href} className="inline-flex min-h-6 items-center gap-1 text-sm font-semibold text-primary-ink hover:underline">
+        <Link href={href} className="inline-flex min-h-6 items-center gap-1 rounded-tag text-sm font-medium text-primary hover:underline">
           {allJobsLabel(company)}
           <CaretRightIcon size={14} weight="bold" aria-hidden />
         </Link>

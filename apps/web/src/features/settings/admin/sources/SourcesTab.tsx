@@ -1,5 +1,7 @@
 'use client';
 
+import { PauseIcon } from '@phosphor-icons/react/Pause';
+import { PlayIcon } from '@phosphor-icons/react/Play';
 import {
   ADMIN_SOURCE_BULK_ACTIONS,
   JOB_SOURCE_ROBOTS_LABEL,
@@ -27,14 +29,17 @@ import { Switch } from '@/components/ui/Switch';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 import { focusLater } from '@/lib/focusLater';
 import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { fetchSourcingReport, runKeys } from '../runs/api';
 import { RunStatusBadge } from '../runs/parts';
+import { runsBarText, sourcePausedText, sourcePauseToast } from '../runs/pause'; // v31 RUNS
 import { alarmCount, alarmText } from '../runs/report';
+import { useRunsPause } from '../runs/useRunsPause'; // v31 RUNS
 import { AddSourceDialog } from './AddSourceDialog';
-import { bulkSources, deleteSource, fetchSourcesPage, runSource, setSourceEnabled, sourceKeys } from './api';
+import { bulkSources, continueSource, deleteSource, fetchSourcesPage, pauseSource, runSource, setSourceEnabled, sourceKeys } from './api';
 import { BULK_ACTION_LABEL, bulkProblems, bulkSummary, runBulk, type BulkProblem } from './bulk';
 import { clearedFilters, filtersFromAddress, isFiltered, type SourceFilters } from './filters';
 import { useAdminLink } from './links';
@@ -47,8 +52,10 @@ import {
   failureText,
   formatCount,
   isDeletable,
+  isPaused,
   isSheetRow,
   isUnrun,
+  pausedRunNowHint,
   robotsTone,
   runNowHint,
   scheduleText,
@@ -61,14 +68,23 @@ const SEARCH_DELAY_MS = 300;
 /** The bulk problems listed above the table (the rest are counted). */
 const PROBLEMS_SHOWN = 5;
 const NO_IDS: ReadonlySet<number> = new Set();
+/**
+ * v31 FIX-WEB (REV-UX UX-2): the table's two layouts, by its own width (AdminTable's `@container/table`). From 70 rem
+ * (1120 px: a 1440 px window with the sidebar open) the terms and robots and the open jobs have columns; narrower, they
+ * sit under the source's name, so every column and the row's Run now and More actions fit without a sideways scroll
+ * from a 1024 px window up.
+ */
+const SOURCES_WIDE = { show: 'hidden @min-[70rem]/table:table-cell', hide: '@min-[70rem]/table:hidden' } as const;
 /** v30 FIX-WEB (REV-UX UX-4): where focus goes when Clear filters goes (with the filters it cleared). */
 const SOURCES_SEARCH = 'input[aria-label="Search sources by name or host"]';
 
 /**
  * Admin › Sources (v30 S1-WEB, 12 §9.8): every job source, at 80,000 rows. The server pages, searches (name or host),
  * filters (kind, tier, terms, robots, how it was found, enabled, failing, one host or company) and orders them; rows
- * are chosen for bulk Enable, Pause and Run now (one request per ADMIN_BULK_MAX). A row opens its sheet; Purges lists
+ * are chosen for bulk Enable, Disable and Run now (one request per ADMIN_BULK_MAX). A row opens its sheet; Purges lists
  * the purges by source. Today's alarms (the daily report's) show above the filters.
+ * v31 RUNS: a source is paused and continued from its row's menu and its sheet (apart from Enabled); while every run is
+ * paused a notice says so, with Continue; Run now waits for a pause to end.
  */
 export function SourcesTab({
   onShowRuns,
@@ -83,6 +99,8 @@ export function SourcesTab({
   const now = useNow();
   const link = useAdminLink();
   const address = useSearchParams();
+  const runsPause = useRunsPause(); // v31 RUNS
+  const { t } = usePublicConstants();
   const [filters, setFilters] = useState<SourceFilters>(() => filtersFromAddress(address));
   const [search, setSearch] = useState('');
   // The choice belongs to the filters it was made under: another filter starts with nothing chosen.
@@ -178,6 +196,18 @@ export function SourcesTab({
     onError: (error) => toast.error('The run did not start', userMessage(error)),
   });
 
+  // v31 RUNS: Pause or Continue one source.
+  const pauseToggle = useMutation({
+    mutationFn: (source: AdminSourceRow) => (isPaused(source) ? continueSource(source.id) : pauseSource(source.id)),
+    onSuccess: (row, source) => {
+      patchRows(new Set([source.id]), { pausedAt: row.pausedAt ?? null, pausedBy: row.pausedBy ?? null, nextRunAt: row.nextRunAt });
+      const words = sourcePauseToast(source.name, Boolean(row.pausedAt));
+      toast.success(words.title, words.description);
+      void queryClient.invalidateQueries({ queryKey: runKeys.all });
+    },
+    onError: (error, source) => toast.error(isPaused(source) ? 'The source did not continue' : 'The source was not paused', userMessage(error)),
+  });
+
   const toggle = useMutation({
     mutationFn: (source: AdminSourceRow) => setSourceEnabled(source.id, !source.enabled),
     onSuccess: (_answer, source) => patchRows(new Set([source.id]), { enabled: !source.enabled }),
@@ -222,21 +252,31 @@ export function SourcesTab({
     {
       key: 'source',
       header: 'Source',
+      sticky: true, // v31 FIX-WEB (REV-UX UX-2): on a narrow screen the name stays beside Run now while the row scrolls
       cell: (source) => (
-        <div className="min-w-0">
+        // v31 FIX-WEB (UX-2): 160-256 px (160 in a phone's table, which scrolls under it), so the name and its line
+        // truncate instead of widening the table.
+        <div className="max-w-64 min-w-40 @max-[40rem]/table:max-w-40">
           <button type="button" onClick={() => openSheet(source)} className="block min-w-0 max-w-full rounded-control text-left">
             {/* v30 FIX-WEB (REV-UX UX-9): the name is the visible words after a hidden verb (Label in Name). */}
             <span className="sr-only">Open </span>
             <span className="block truncate font-semibold hover:underline">{source.name}</span>
             <span className="block truncate text-[13px] text-muted-foreground">{sourceLine(source)}</span>
           </button>
-          {/* v30 FIX-WEB (REV-UX UX-7): below 1280 px the tier, terms, robots and open jobs sit here, so the row's actions
-              stay in view. */}
-          <span className="mt-1 flex flex-wrap items-center gap-1 xl:hidden" data-source-access-inline="">
-            <span className="mr-1 text-[13px] text-muted-foreground tabular-nums">{`${formatCount(source.openJobs)} open ${source.openJobs === 1 ? 'job' : 'jobs'}`}</span>
+          {/* v30 FIX-WEB (REV-UX UX-7): in a narrow table the open jobs, terms and robots sit here, so the row's actions stay
+              in view. v31 FIX-WEB (REV-UX UX-2): by the table's own width (a container query), not the window's: with
+              the sidebar a 1440 px window has a 1142 px table; and the tier is always here (no column of its own). */}
+          <span className="mt-1 flex flex-wrap items-center gap-1" data-source-access-inline="">
+            <span className={clsx('mr-1 text-[13px] text-muted-foreground tabular-nums', SOURCES_WIDE.hide)}>
+              {`${formatCount(source.openJobs)} open ${source.openJobs === 1 ? 'job' : 'jobs'}`}
+            </span>
             <Badge tone={TIER_TONE[source.tier]}>{JOB_SOURCE_TIER_LABEL[source.tier]}</Badge>
-            <Badge tone={termsTone(source.termsStatus)}>Terms: {JOB_SOURCE_TERMS_LABEL[source.termsStatus]}</Badge>
-            <Badge tone={robotsTone(source.robotsStatus)}>Robots: {JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}</Badge>
+            <Badge tone={termsTone(source.termsStatus)} className={SOURCES_WIDE.hide} wrap>
+              Terms: {JOB_SOURCE_TERMS_LABEL[source.termsStatus]}
+            </Badge>
+            <Badge tone={robotsTone(source.robotsStatus)} className={SOURCES_WIDE.hide} wrap>
+              Robots: {JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}
+            </Badge>
           </span>
         </div>
       ),
@@ -250,23 +290,17 @@ export function SourcesTab({
           checked={source.enabled}
           onCheckedChange={() => toggle.mutate(source)}
           disabled={toggle.isPending || (!source.enabled && isUnrun(source))}
-          aria-label={`${source.enabled ? 'Pause' : 'Enable'} ${source.name}`}
+          aria-label={`${source.enabled ? 'Disable' : 'Enable'} ${source.name}`}
         />
       ),
     },
     {
-      key: 'tier',
-      header: 'Tier',
-      // v30 FIX-WEB (UX-7): from 1280 px; below, in the Source cell.
-      className: 'hidden w-28 xl:table-cell',
-      cell: (source) => <Badge tone={TIER_TONE[source.tier]}>{JOB_SOURCE_TIER_LABEL[source.tier]}</Badge>,
-    },
-    {
       key: 'runs',
       header: 'Runs',
-      className: 'w-44',
+      className: 'w-40',
       cell: (source) => (
-        <div className="text-[13px] leading-5">
+        // v31 FIX-WEB (REV-UX UX-2): at least 128 px, so a line wraps between phrases, never a word a line.
+        <div className="min-w-32 text-[13px] leading-5">
           {source.nextRunAt && source.enabled && !source.running ? (
             <Tooltip content={new Date(source.nextRunAt).toLocaleString('en-US')}>
               <span className="block">{scheduleText(source, now)}</span>
@@ -281,30 +315,36 @@ export function SourcesTab({
     {
       key: 'status',
       header: 'Status',
-      className: 'w-40',
+      className: 'w-36',
       cell: (source) => (
         <div className="flex flex-col items-start gap-1">
-          <RunStatusBadge status={source.running ? 'running' : source.lastStatus} />
-          {failureText(source) && <span className="text-[13px] text-[#c62a29]">{failureText(source)}</span>}
+          {/* v31 RUNS: a paused source reads Paused, by whom and since when. */}
+          <RunStatusBadge status={source.running ? 'running' : isPaused(source) ? 'paused' : source.lastStatus} />
+          {isPaused(source) && <span className="text-[13px] text-muted-foreground">{sourcePausedText(source, now)}</span>}
+          {failureText(source) && <span className="text-[13px] text-danger">{failureText(source)}</span>}
         </div>
       ),
     },
     {
       key: 'access',
       header: 'Terms and robots',
-      className: 'hidden w-48 xl:table-cell', // v30 FIX-WEB (UX-7)
+      className: clsx('w-40', SOURCES_WIDE.show), // v30 FIX-WEB (UX-7), v31 FIX-WEB (UX-2): a wide table only
       cell: (source) => (
         <div className="flex flex-col items-start gap-1">
-          <Badge tone={termsTone(source.termsStatus)}>Terms: {JOB_SOURCE_TERMS_LABEL[source.termsStatus]}</Badge>
-          <Badge tone={robotsTone(source.robotsStatus)}>Robots: {JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}</Badge>
+          <Badge tone={termsTone(source.termsStatus)} wrap>
+            Terms: {JOB_SOURCE_TERMS_LABEL[source.termsStatus]}
+          </Badge>
+          <Badge tone={robotsTone(source.robotsStatus)} wrap>
+            Robots: {JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}
+          </Badge>
         </div>
       ),
     },
     {
       key: 'jobs',
       header: 'Open jobs',
-      className: 'hidden w-24 text-right tabular-nums xl:table-cell', // v30 FIX-WEB (UX-7): below 1280 px, in the Source cell
-      cell: (source) => <span className="font-semibold">{formatCount(source.openJobs)}</span>,
+      className: clsx('w-28 text-right', SOURCES_WIDE.show), // v30 FIX-WEB (UX-7): in a narrow table, in the Source cell
+      cell: (source) => <span className="num">{formatCount(source.openJobs)}</span>,
     },
     {
       key: 'actions',
@@ -312,12 +352,18 @@ export function SourcesTab({
       className: 'w-40 text-right',
       cell: (source) => (
         <div className="flex items-center justify-end gap-1.5">
-          <Tooltip content={source.running ? null : runNowHint(source)}>
+          <Tooltip content={source.running ? null : (pausedRunNowHint(source, Boolean(runsPause.paused), t) ?? runNowHint(source))}>
             <Button
               variant="outline"
               size="sm"
               icon={<ArrowsClockwiseIcon size={14} />}
-              disabled={source.running || isUnrun(source) || (run.isPending && run.variables?.id === source.id)}
+              disabled={
+                source.running ||
+                isUnrun(source) ||
+                isPaused(source) || // v31 RUNS
+                Boolean(runsPause.paused) ||
+                (run.isPending && run.variables?.id === source.id)
+              }
               onClick={() => run.mutate(source)}
             >
               {source.running ? 'Running' : 'Run now'}
@@ -330,6 +376,16 @@ export function SourcesTab({
             <MenuContent align="end" width="w-56">
               <MenuItem onClick={() => openSheet(source)}>Details</MenuItem>
               <MenuItem onClick={() => onShowRuns(source.id)}>See runs</MenuItem>
+              {/* v31 RUNS */}
+              {!isUnrun(source) && (
+                <MenuItem
+                  icon={isPaused(source) ? <PlayIcon size={16} weight="fill" /> : <PauseIcon size={16} weight="fill" />}
+                  disabled={pauseToggle.isPending}
+                  onClick={() => pauseToggle.mutate(source)}
+                >
+                  {isPaused(source) ? 'Continue source' : 'Pause source'}
+                </MenuItem>
+              )}
               {source.host && <MenuItem onClick={() => link({ tab: 'hosts', host: source.host })}>Open its host</MenuItem>}
               {isSheetRow(source) && onImportAgain && (
                 <MenuItem icon={<ArrowsClockwiseIcon size={16} />} disabled={source.running} onClick={() => onImportAgain(source.id)}>
@@ -376,6 +432,26 @@ export function SourcesTab({
           <span id="admin-sources-title" className="sr-only">
             Job sources
           </span>
+          {/* v31 RUNS: every run paused: no source runs until Continue. */}
+          {runsPause.paused && (
+            <Notice
+              tone="warning"
+              className="mb-4"
+              title={runsBarText(runsPause.paused, now).title}
+              action={
+                <Button
+                  size="sm"
+                  icon={<PlayIcon size={14} weight="fill" />}
+                  loading={runsPause.continueAll.isPending}
+                  onClick={() => runsPause.continueAll.mutate()}
+                >
+                  Continue runs
+                </Button>
+              }
+            >
+              {runsBarText(runsPause.paused, now).description}
+            </Notice>
+          )}
           {alarms.length > 0 && (
             <Notice
               tone="warning"
@@ -517,6 +593,9 @@ export function SourcesTab({
         now={now}
         onRun={(source) => run.mutate(source)}
         running={run.isPending && run.variables?.id === opened?.id}
+        onPauseToggle={(source) => pauseToggle.mutate(source)}
+        pauseBusy={pauseToggle.isPending && pauseToggle.variables?.id === opened?.id}
+        pausedHint={opened ? pausedRunNowHint(opened, Boolean(runsPause.paused), t) : null}
         onShowRuns={onShowRuns}
         onShowHost={(host) => link({ tab: 'hosts', host })}
         onPurge={(source) => setPurging(source)}
@@ -546,7 +625,7 @@ export function SourcesTab({
         title="Delete source"
         description={
           deleting
-            ? `Delete ${deleting.name}? Jobs only this source lists are closed, and its run history is deleted. You won't be able to undo this action.${isSheetRow(deleting) ? ' The Google Sheet itself is not changed.' : ''}`
+            ? `Delete ${deleting.name}? Jobs only this source lists are closed, and its run history is deleted. There is no undo.${isSheetRow(deleting) ? ' The Google Sheet itself is not changed.' : ''}`
             : undefined
         }
         confirmLabel="Delete"

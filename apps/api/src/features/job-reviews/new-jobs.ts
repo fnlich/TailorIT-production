@@ -10,15 +10,19 @@ import { autoDecide } from './auto';
 import { runFollowUps, type FollowUp } from './decide';
 import { isRefusedPageHost, normalHost } from './hosts';
 import { openReview, recountReview, upsertReport } from './store';
+import { REVIEW_HELD_SQL } from '../jobs/add/review-held'; // v31 FIX-LINK
 
 // v30 X1-API: new jobs from the extension (docs/design/part2/14-extension-reports.md §4, §5.2, §5.3).
-// - A posting TailorIT reads from an ATS for the first time, from a board no enabled source runs, is HELD (holdNewJob,
-//   in the store's transaction): `jobs.held_since` set, out of every search at once (projectJob), and its `new_job`
+// - A posting TailorIT reads from an ATS for the first time is HELD (holdNewJob, in the store's transaction; v31 LINK:
+//   only while NEW_JOBS_ADMIN_APPROVAL is on, v3.0 held every posting of a board no enabled source runs): `jobs.held_since` set, out of every search at once (projectJob), and its `new_job`
 //   review (origin `ats`, subject 'job:<id>') opened. Each account that adds it then writes its report row (via `add`)
 //   BEFORE its tracker entry (noteHeldAdd, from saveToTracker): the held rule (jobs/visibility.ts) shows a held job to
 //   its adders alone, through that row or their tracker. A later add of a rejected job bumps the rejected review without
 //   reopening it; the job stays held.
-// - A job made from a page's text stays the account's own; it is queued (queuePageJob) only from an employer's own page
+// - v31 LINK: no add path opens a page review any more (a page job is "Couldn't verify", jobs/add/verification.ts, and
+//   only TailorIT's own read of its link is ever published: job-reviews/page-read.ts); queuePageJob stays for the page
+//   reviews v3.0 opened and their tests. In v3.0:
+//   A job made from a page's text stays the account's own; it is queued (queuePageJob) only from an employer's own page
 //   (an ATS's or a site's, https, never LinkedIn or a refused job board), its company not opted out, while
 //   EXT_NEW_PAGE_JOBS_REVIEW is on. Page jobs of one posting from several accounts merge into one review, keyed by the
 //   posting's stored address ('page:<linkKey>'), each account's page job and the hash of its normalised text on its row.
@@ -70,14 +74,22 @@ async function reviewForAdd(
  * Behind the account's lock, as its tracker entry is.
  */
 export async function noteHeldAdd(deps: AppDeps, userId: string, jobId: number): Promise<void> {
-  const held = await deps.db.one('SELECT 1 FROM jobs WHERE id = ? AND owner_user_id IS NULL AND held_since IS NOT NULL', [jobId]);
+  // v31 FIX-LINK: a job the legacy pass holds (no review holds it: jobs/add/held.ts) is no new job to review: an add of
+  // it opens no review (an approval would publish the row's or the browser's words); its own read settles it.
+  const held = await deps.db.one(
+    `SELECT 1 FROM jobs j WHERE j.id = ? AND j.owner_user_id IS NULL AND j.held_since IS NOT NULL AND ${REVIEW_HELD_SQL}`,
+    [jobId],
+  );
   if (!held) return;
   const now = deps.now();
   const at = now.toISOString();
   const followUps = await deps.db.tx(
     async (t): Promise<FollowUp[]> => {
       await t.lockPerson(userId);
-      const still = await t.one('SELECT 1 FROM jobs WHERE id = ? AND owner_user_id IS NULL AND held_since IS NOT NULL', [jobId]);
+      const still = await t.one(
+        `SELECT 1 FROM jobs j WHERE j.id = ? AND j.owner_user_id IS NULL AND j.held_since IS NOT NULL AND ${REVIEW_HELD_SQL}`,
+        [jobId],
+      );
       if (!still) return [];
       const review = await reviewForAdd(t, jobReviewSubject(jobId), { jobId, origin: 'ats' }, at);
       await upsertReport(t, review.id, userId, { via: 'add', seenAt: at, dayKey: dayKeyAt(deps, now), at });

@@ -117,7 +117,7 @@ function EditorThumb({ id, updatedAt, title }: { id: string; updatedAt: string; 
       ref={box}
       role="img"
       aria-label={title}
-      className="relative w-full overflow-hidden bg-white"
+      className="relative w-full overflow-hidden bg-surface"
       style={{ aspectRatio: `${page.widthPx} / ${page.heightPx}` }}
     >
       {document ? (

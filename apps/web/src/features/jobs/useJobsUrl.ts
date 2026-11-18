@@ -6,15 +6,24 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { jobsHref, readJobsUrl, type JobsUrlState } from './url';
 
 export interface JobsUrlApi extends JobsUrlState {
-  /** Replaces the filters (the selection resets: the first job of the new list is opened). */
+  /** Replaces the filters (any open job closes). */
   setQuery: (query: JobsQuery) => void;
   /** Changes some filters, starting from the latest ones (so quick successive clicks all count). */
   updateQuery: (patch: Partial<JobsQuery>) => void;
-  /** Opens a job in the detail panel, keeping the filters. */
+  /** Shows another job in the open drawer (or none), keeping the filters; the address is replaced, not pushed. */
   selectJob: (jobId: number | null) => void;
+  /**
+   * v31 FIX-JOBS: opens a job's drawer from the feed. The address gets its own history entry, so the browser's Back
+   * closes the drawer and the job's link can be shared.
+   */
+  openJob: (jobId: number) => void;
+  /** v31 FIX-JOBS: closes the drawer: back to the entry `openJob` added, or (a job opened from a link) the address without the job. */
+  closeJob: () => void;
+  /** v31 FIX-JOBS: the job in the address as last asked for, before the router has applied it (quick Next presses). */
+  currentJobId: () => number | null;
 }
 
-/** The page state in the address bar, and the ways to change it (history is replaced, not pushed). */
+/** The page state in the address bar, and the ways to change it. */
 export function useJobsUrl(): JobsUrlApi {
   const router = useRouter();
   const params = useSearchParams();
@@ -25,11 +34,19 @@ export function useJobsUrl(): JobsUrlApi {
   useEffect(() => {
     latest.current = state;
   }, [state]);
+  /** The drawer's job came with a history entry of this page's own (openJob), which Back removes. */
+  const pushed = useRef(false);
+  useEffect(() => {
+    // Back, Forward or a link that left no job open: nothing of ours is on the stack any more.
+    if (state.jobId === null) pushed.current = false;
+  }, [state.jobId]);
 
   const go = useCallback(
-    (next: JobsUrlState) => {
+    (next: JobsUrlState, mode: 'replace' | 'push' = 'replace') => {
       latest.current = next;
-      router.replace(jobsHref(next.query, next.jobId), { scroll: false });
+      const href = jobsHref(next.query, next.jobId);
+      if (mode === 'push') router.push(href, { scroll: false });
+      else router.replace(href, { scroll: false });
     },
     [router],
   );
@@ -40,6 +57,28 @@ export function useJobsUrl(): JobsUrlApi {
     [go],
   );
   const selectJob = useCallback((jobId: number | null) => go({ query: latest.current.query, jobId }), [go]);
+  const openJob = useCallback(
+    (jobId: number) => {
+      if (latest.current.jobId === jobId) return;
+      // A job already open (Add job's "Open the job" over a drawer) changes in place.
+      const mode = latest.current.jobId === null ? 'push' : 'replace';
+      if (mode === 'push') pushed.current = true;
+      go({ query: latest.current.query, jobId }, mode);
+    },
+    [go],
+  );
+  const closeJob = useCallback(() => {
+    if (latest.current.jobId === null) return;
+    if (pushed.current) {
+      pushed.current = false;
+      latest.current = { query: latest.current.query, jobId: null };
+      router.back();
+      return;
+    }
+    go({ query: latest.current.query, jobId: null });
+  }, [go, router]);
 
-  return { ...state, setQuery, updateQuery, selectJob };
+  const currentJobId = useCallback(() => latest.current.jobId, []);
+
+  return { ...state, setQuery, updateQuery, selectJob, openJob, closeJob, currentJobId };
 }

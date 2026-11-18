@@ -3,13 +3,15 @@ import { dayKeyAt } from '../constants/day';
 import type { AppDeps } from '../context';
 import { notFound, validationFailed } from '../http/errors';
 import { entitlementsOf } from './entitlements';
+import { notifyChargeCrossings } from '../../features/notifications/emitters'; // v31 NOTIFY
 
 // v2.0: server-AI money (docs/design/v2.0/03-ai-usage.md, "Spend order and overshoot"; 04-accounts-limits.md). The only
 // code that writes ai_spend_daily and ai_credit_ledger: the AI queue's charge (P1) and the admin (P6b) call it. Money is
 // whole micro-dollars ($1 = 1,000,000) everywhere, never summed as floats. Extra credit is an append-only ledger whose
 // newest row's balance_after_micros is the balance; it never goes below 0 and never expires. A run's cost is taken
 // from the day's budget first, then from extra credit down to 0; the rest is written off and logged for the admin.
-// Nothing here is ever shown to the person but their credit balance.
+// Nothing here is ever shown to the person but their credit balance. v31 NOTIFY (D9): and, in the header, their own
+// day's spend against their own budget (features/notifications/header.ts reads them in one statement).
 //
 // v3.0 D2 (the concurrency audit, 11-database.md §9.3): a charge and a credit add read the newest balance and the day's
 // spend, then append, so each starts with lockPerson(userId) inside its transaction. SQLite's single writer serialised
@@ -184,6 +186,17 @@ export async function chargeAi(deps: Deps, input: ChargeInput): Promise<Charge> 
           [input.userId, -fromCredit, balance - fromCredit, input.dayKey, input.taskId, now],
         );
       }
+      // v31 NOTIFY: the day's budget reached, extra credit low or used up, told in this charge's transaction (never
+      // throws; nothing is read or written unless this charge crossed a line).
+      await notifyChargeCrossings(deps, {
+        userId: input.userId,
+        dayKey: input.dayKey,
+        budgetMicros: budget,
+        dailyBeforeMicros: spent.dailySpentMicros,
+        fromDailyMicros: fromDaily,
+        creditBeforeMicros: balance,
+        fromCreditMicros: fromCredit,
+      });
       return { fromDaily, fromCredit, writtenOff };
     },
     { label: 'chargeAi' },

@@ -129,13 +129,13 @@ export function EditRouteView({
       <section
         aria-labelledby="edit-route-title"
         aria-busy="true"
-        className="rounded-surface border border-border bg-surface p-6 text-center shadow-soft sm:p-10"
+        className="rounded-card border border-border bg-surface p-6 text-center shadow-card sm:p-10"
         data-edit-route={phase.kind}
       >
-        <span aria-hidden="true" className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary-container text-primary-ink">
+        <span aria-hidden="true" className="mx-auto flex size-14 items-center justify-center rounded-card bg-primary-soft text-primary">
           {making ? <SparkleIcon size={26} weight="fill" /> : <Spinner size={24} />}
         </span>
-        <h1 id="edit-route-title" className="mt-5 text-xl leading-7 font-semibold text-foreground">
+        <h1 id="edit-route-title" className="mt-5 font-display text-xl leading-7 font-semibold text-foreground">
           {title}
         </h1>
         {making && (
@@ -155,9 +155,9 @@ export function EditRouteView({
           role="progressbar"
           aria-label={making ? 'Making the editable copy' : 'Opening the resume'}
           aria-valuetext={line}
-          className="mx-auto mt-6 h-2 w-full max-w-sm overflow-hidden rounded-full bg-primary-container"
+          className="mx-auto mt-6 h-2 w-full max-w-sm overflow-hidden rounded-[3px] bg-surface-muted ring-1 ring-border ring-inset"
         >
-          <div className="h-full w-full rounded-full bg-[linear-gradient(90deg,transparent_0%,var(--color-primary)_40%,var(--color-primary)_60%,transparent_100%)] bg-[length:200%_100%] motion-safe:animate-shimmer motion-reduce:bg-primary" />
+          <div className="h-full w-full rounded-[3px] bg-[linear-gradient(90deg,transparent_0%,var(--color-primary)_40%,var(--color-primary)_60%,transparent_100%)] bg-[length:200%_100%] motion-safe:animate-shimmer motion-reduce:bg-primary" />
         </div>
         <p className="mt-3 text-[13px] leading-5 text-muted-foreground" aria-live="polite">
           {line}

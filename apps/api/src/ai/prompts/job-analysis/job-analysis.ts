@@ -6,7 +6,7 @@ import { capWithFacts, withoutBoilerplate } from '../../../features/job-analysis
 import { definePrompt } from '../types';
 
 // v30 ST1: moved word for word from features/job-analysis/prompt.ts (which re-exports it until INT-0 repoints its
-// importers). The `job_analysis` prompt: a posting read for Simplify's "About the job" summary, the resume keyword card
+// importers). The `job_analysis` prompt: a posting read for the job's "About the role" summary, the resume keyword match
 // and the resume fit (soft skills, certifications and industries, required years). The rule it is built on
 // (free_tailor's keyword extractor, reworded): take what the posting says, in the posting's own words; never what such
 // a role usually involves.

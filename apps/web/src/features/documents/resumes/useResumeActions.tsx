@@ -22,6 +22,7 @@ import {
 import { useToast } from '@/components/ui/Toast';
 import { userMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { usePublicConstants } from '@/lib/constants';
 import {
   deleteResume,
   duplicateResume,
@@ -35,11 +36,13 @@ import {
 } from '../../resume-editor/api';
 import { dropResumesFromList, invalidateResumes, markDefaultInList, putResumeInList } from '../../resume-editor/cache';
 import { downloadFrom } from '../../resume-editor/files';
-import { RenameDialog, focusDocument, neighbourOf, type ActionMenuItem } from '../core';
+import { RenameDialog, deleteOneWords, focusDocument, neighbourOf, type ActionMenuItem } from '../core';
 import { ResumePreviewDialog } from '../preview/ResumePreviewDialog';
 import { menuKeysFor, withKnownReading, type ResumeMenuKey } from './list';
 import { useResumeLimitGate } from './resumeLimit'; // v20 P8
 import { useUploadEdit } from './uploadEdit';
+
+const RESUME_NOUN = { one: 'resume', many: 'resumes' };
 
 /** Opens an uploaded resume's file in a new tab (a PDF shows in the browser; a Word file downloads). */
 export function openResumeFile(id: string): void {
@@ -53,7 +56,7 @@ export function resumeDetailsHref(id: string): string {
 
 /**
  * What a resume's ⋮ does (free_tailor's menu, for TailorIT): Edit or View, Skills and details (an upload's reading),
- * Rename ("Change resume name"), Duplicate, Set as default, the downloads, Make editable copy and Delete (a styled
+ * Rename ("Rename this resume"), Duplicate, Set as default, the downloads, Make editable copy and Delete (a styled
  * confirmation). `itemsFor(resume)` is the menu; `dialogs` is drawn once by the tab. After a delete, focus moves to
  * the neighbouring card or row.
  */
@@ -72,6 +75,7 @@ export function useResumeActions({
 } {
   const router = useRouter();
   const toast = useToast();
+  const { t } = usePublicConstants();
   const queryClient = useQueryClient();
   const { setAccount } = useAuth();
   const [renaming, setRenaming] = useState<ResumeSummary | null>(null);
@@ -237,7 +241,7 @@ export function useResumeActions({
         onOpenChange={(open) => {
           if (!open) setRenaming(null);
         }}
-        title="Change resume name"
+        title={t('LABEL_DOCS_RENAME_TITLE', { noun: RESUME_NOUN.one })}
         description="The name shown in your documents list."
         label="Resume name"
         initialValue={renaming?.label ?? ''}
@@ -256,8 +260,7 @@ export function useResumeActions({
         onOpenChange={(open) => {
           if (!open) setDeleting(null);
         }}
-        title="Delete Resume"
-        description="Are you sure you want to delete this resume? You won't be able to undo this action."
+        {...deleteOneWords(deleting?.label ?? '', RESUME_NOUN, t)}
         confirmLabel="Delete"
         busyLabel="Deleting..."
         onConfirm={async () => {

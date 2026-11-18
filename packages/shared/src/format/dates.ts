@@ -138,7 +138,7 @@ export function relativeTime(input: DateInput | null | undefined, now: DateInput
   return `${count(Math.floor(days / 365), 'year')} ago`;
 }
 
-/** `relativeTime`, or "-" when there is no date (Simplify's "Last Edited" column before any content edit). */
+/** `relativeTime`, or "-" when there is no date (the Documents table's "Last Edited" column before any content edit). */
 export function relativeOrDash(input: DateInput | null | undefined, now: DateInput): string {
   return relativeTime(input, now) || '-';
 }

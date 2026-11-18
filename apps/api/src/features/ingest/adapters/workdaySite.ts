@@ -331,6 +331,8 @@ export const workdaySiteAdapter = defineAdapter({
     }
 
     // 4. The links read get their liveness time; the gone ones close (their jobs once no live link is left).
+    // v31 RUNS: a run paused (or stopped) once its postings were read closes nothing (its next run reads them again).
+    if (signal.aborted) throw new IngestError('The run was stopped before it finished.');
     const at = nowIso(deps);
     if (checked.length > 0) {
       await deps.db.run(

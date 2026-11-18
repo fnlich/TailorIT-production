@@ -7,11 +7,12 @@ import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 
 export interface RenameDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** "Change resume name" */
+  /** "Rename this resume" (LABEL_DOCS_RENAME_TITLE) */
   title: string;
   description?: string;
   /** The field's label (default "Name"). */
@@ -22,11 +23,13 @@ export interface RenameDialogProps {
   maxLength?: number;
   /** Resolve to close; reject to stay open with the error's sentence. Called with the trimmed name. */
   onSubmit: (name: string) => Promise<void> | void;
+  /** The button that leaves the name as it is (default "Cancel"). */
   keepLabel?: string;
+  /** The button that saves the name (default LABEL_DOCS_RENAME_SAVE, "Save name"). */
   changeLabel?: string;
 }
 
-/** Simplify's rename modal ("Change resume name" with "Keep it" / "Change"). */
+/** The rename dialog (v31 FIX-DOCS: "Rename this resume" with Cancel / "Save name"). */
 export function RenameDialog(props: RenameDialogProps) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -45,9 +48,10 @@ function RenameForm({
   validate,
   maxLength = 120,
   onSubmit,
-  keepLabel = 'Keep it',
-  changeLabel = 'Change',
+  keepLabel = 'Cancel',
+  changeLabel,
 }: RenameDialogProps) {
+  const { t } = usePublicConstants();
   const [value, setValue] = useState(initialValue);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +103,7 @@ function RenameForm({
             {keepLabel}
           </Button>
           <Button type="submit" loading={busy}>
-            {changeLabel}
+            {changeLabel ?? t('LABEL_DOCS_RENAME_SAVE')}
           </Button>
         </DialogFooter>
       </form>

@@ -69,7 +69,6 @@ export function SavedSearches({ query, onApply }: { query: JobsQuery; onApply: (
           <IconButton
             label="Saved searches"
             variant="outline"
-            shape="round"
             icon={<BookmarkSimpleIcon size={18} weight={alreadySaved ? 'fill' : 'regular'} />}
           />
         }
@@ -95,7 +94,7 @@ export function SavedSearches({ query, onApply }: { query: JobsQuery; onApply: (
               autoFocus
               onChange={(event) => setName(event.target.value)}
             />
-            {create.isError && <p className="text-[13px] text-[#c62a29]">{userMessage(create.error)}</p>}
+            {create.isError && <p className="text-[13px] text-danger">{userMessage(create.error)}</p>}
             <div className="mt-1 flex justify-end gap-2">
               <Button size="sm" variant="ghost" onClick={() => setNaming(false)}>
                 Cancel

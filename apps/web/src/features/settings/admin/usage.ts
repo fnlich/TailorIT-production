@@ -22,7 +22,7 @@ export const USAGE_KIND_LABEL: Record<string, string> = {
   autofill_draft: 'Autofill: drafts',
   autofill_answer: 'Autofill: answers',
   // v2.0 fix (UX-16): every kind has words (Tailor from v1.4, the two of v2.0).
-  tailor: 'Tailor my resume',
+  tailor: 'Resume tailoring', // v31 FIX-WEB (REV-REQ REQ-3)
   job_search: 'AI job search',
   custom_filter: 'Custom filter',
   company_summary: 'Company summaries', // v30 E3

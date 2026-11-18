@@ -24,7 +24,7 @@ export interface CheckboxProps {
   stopPropagation?: boolean;
 }
 
-/** Simplify's 18 px checkbox: white, #d1d1d1 border, radius 5; checked = #14a1c0 with a white tick. */
+/** An 18 px checkbox: white with the strong control border (3:1), radius 4; checked = denim with a white tick. */
 export const Checkbox = forwardRef<HTMLSpanElement, CheckboxProps>(function Checkbox(
   {
     checked,
@@ -70,8 +70,8 @@ export const Checkbox = forwardRef<HTMLSpanElement, CheckboxProps>(function Chec
         shift.current = false;
       }}
       className={clsx(
-        'inline-flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border border-checkbox bg-surface text-white',
-        'shadow-control transition-[background-color,border-color] duration-100 hover:border-control-focus',
+        'inline-flex size-[18px] shrink-0 items-center justify-center rounded-tag border border-control-strong bg-surface text-on-primary',
+        'shadow-control transition-[background-color,border-color] duration-100 hover:border-primary',
         'data-checked:border-primary data-checked:bg-primary data-indeterminate:border-primary data-indeterminate:bg-primary',
         'data-disabled:cursor-not-allowed data-disabled:opacity-40',
         !label && className,

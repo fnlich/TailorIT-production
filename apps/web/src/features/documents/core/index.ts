@@ -9,13 +9,14 @@ export { DocumentList, type DocumentListProps, type DocumentListVariant } from '
 export { DocumentThumb, type DocumentThumbProps } from './DocumentThumb';
 export { focusDocument, neighbourOf } from './focusAfterRemoval';
 export {
-  bulkDeleteSentence,
+  bulkDeleteWords,
+  deleteOneWords,
   describeMatches,
   matchesQuery,
   newestFirst,
   noMatchTitle,
   thumbKey,
-  titleCase,
+  type Words,
 } from './gallery';
 export { NewTile, type NewTileProps } from './NewTile';
 export { PageThumb, ThumbLoading, ThumbState } from './PageThumb';

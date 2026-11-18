@@ -2,7 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { Suspense, useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { Suspense, useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   APPLICATION_STATUSES,
   DISPLAY_STATUS_DRAFT,
@@ -22,13 +22,16 @@ import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { PageSpinner } from '@/components/ui/Spinner';
+import { PlusIcon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/Toast';
 import { isFeatureLocked, useAccount } from '@/lib/account';
 import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { savedMarker, type MarkerView } from '../auto-apply/copy';
 import { usePrepareAndQueue } from '../prepare/usePrepareAndQueue';
+import { useRetryRead } from '../jobs/verification/useRetryRead'; // v31 JOBSWEB
 import type { CardHandlers } from './board/ApplicationCard';
 import { BoardView } from './board/BoardView';
 import { ChartView } from './chart/ChartView';
@@ -79,8 +82,10 @@ function ZipProgressLine() {
 }
 
 /**
- * The Job Tracker (Simplify's): Active / Archived, Board | List | Chart, search, the Options menu, Add application
- * and the application detail, with the state in the URL: ?view=board|list|chart&tab=active|archived&app=<id>.
+ * The Job Tracker: Active / Archived, Board | List | Chart, search, Filter and sort, the tracker's actions (⋯), Add
+ * application and the application detail, with the state in the URL: ?view=board|list|chart&tab=active|archived&app=<id>.
+ * v31 FIX-DOCS (REV-UX UX-1): the page header, then one toolbar row; the board's cards and the list's table are
+ * TailorIT's own (CardFace, StageMeter); the words are the constants'.
  */
 function Tracker() {
   const client = useQueryClient();
@@ -105,10 +110,13 @@ function Tracker() {
   const [archivedShown, setArchivedShown] = useArchivedColumn();
   const { t } = usePublicConstants();
   const draftLabel = t('STATUS_DRAFT_LABEL');
+  const addButton = useRef<HTMLButtonElement>(null);
   const prepare = usePrepareAndQueue();
+  // v31 JOBSWEB: Retry read of an entry's job only the person sees (the card and row menu).
+  const retryRead = useRetryRead();
 
   const [selectMode, setSelectMode] = useState(false);
-  /** What the selection is for: Manage jobs' bulk actions, or Prepare & Queue jobs (v2.0). */
+  /** What the selection is for: Select applications' bulk actions, or Prepare & Queue jobs (v2.0). */
   const [selectPurpose, setSelectPurpose] = useState<'manage' | 'prepare'>('manage');
   const prepareMode = selectMode && selectPurpose === 'prepare';
   const [selection, setSelection] = useState<{ key: string; ids: ReadonlySet<string> }>(() => ({ key, ids: new Set() }));
@@ -120,6 +128,12 @@ function Tracker() {
       return { key, ids: typeof update === 'function' ? update(base) : update };
     });
   const [addOpen, setAddOpen] = useState(false);
+  // v31 FIX-DOCS (REV-UX UX-3): what opened Add application gets focus back when it closes without adding.
+  const addOpener = useRef<HTMLElement | null>(null);
+  const openAdd = () => {
+    addOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAddOpen(true);
+  };
   const [importOpen, setImportOpen] = useState(false);
   const [archiveAllOpen, setArchiveAllOpen] = useState(false);
   const [lastApp, setLastApp] = useState<string | null>(url.app);
@@ -186,7 +200,7 @@ function Tracker() {
     setUrl({ ...url, tab });
   };
 
-  /** Manage jobs or Prepare & Queue jobs: the cards and rows get their boxes; the chart has none, so the list shows. */
+  /** Select applications or Prepare & Queue jobs: the cards and rows get their boxes; the chart has none, so the list shows. */
   const startSelecting = (purpose: 'manage' | 'prepare') => {
     if (view === 'chart') setUrl({ ...url, view: 'list' });
     if (purpose !== selectPurpose) setSelected(new Set());
@@ -200,7 +214,7 @@ function Tracker() {
 
   const moveApplication = (application: ApplicationSummary, status: ApplicationStatus) => {
     if (status === application.currentStatus) return;
-    // Moving a card into a hidden column on the board shows that column from now on (Simplify).
+    // Moving a card into a hidden column on the board shows that column from now on.
     if (view === 'board' && !visible.includes(status)) setPrefs(showColumn(prefs, status));
     move.mutate(
       { id: application.id, status, from: application.currentStatus },
@@ -253,6 +267,9 @@ function Tracker() {
     markerOf,
     // The card menu's Prepare & Queue (Saved entries with a job).
     onPrepare: (application) => prepare.prepare({ applicationIds: [application.id], names: namesOf([application]) }),
+    onRetryRead: (application) => {
+      if (application.jobId !== null) retryRead.retry(application.jobId);
+    },
     onToggleSelected: (application, on) =>
       setSelected((current) => {
         const next = new Set(current);
@@ -316,7 +333,7 @@ function Tracker() {
   const zipLimits = useLimitDialog();
 
   /**
-   * "Build resumes": a zip of each application's resume. `ids`: the Manage jobs selection (only what is on screen, as
+   * "Build resumes": a zip of each application's resume. `ids`: the Select applications selection (only what is on screen, as
    * the bulk actions do); null: every active Saved application. The waiting toast stays until the zip is saved.
    */
   const buildResumes = async (ids: string[] | null) => {
@@ -326,7 +343,7 @@ function Tracker() {
       return;
     }
     if (ids === null && counts.data && (counts.data.byStatus['1'] ?? 0) === 0) {
-      toast.info('No Saved applications', 'Save jobs from the Jobs page, or select applications in Manage jobs.');
+      toast.info('No Saved applications', 'Save jobs from the Jobs page, or choose applications with Select applications.');
       return;
     }
     if (ids !== null && ids.length === 0) return;
@@ -377,15 +394,25 @@ function Tracker() {
   const emptyKind: ListEmptyKind = filtered ? 'no-match' : url.tab === 'archived' ? 'archived' : 'first';
 
   return (
-    <div className={clsx('flex flex-col', view === 'board' ? 'h-[calc(100dvh-63px)] min-h-[560px]' : 'min-h-full')}>
-      <h1 className="sr-only">Job Tracker</h1>
-      <div className={clsx(PAGE_GUTTER, 'flex shrink-0 flex-col gap-3 pt-4', view === 'board' ? 'pb-5' : 'pb-6')}>
-        <TabsRow tab={url.tab} counts={counts.data} onTabChange={changeTab} onAdd={() => setAddOpen(true)} />
+    <div className={clsx('flex flex-col', view === 'board' ? 'h-[calc(100dvh_-_var(--spacing-topbar))] min-h-[560px]' : 'min-h-full')}>
+      <div className={clsx(PAGE_GUTTER, 'flex shrink-0 flex-col gap-3 pt-6', view === 'board' ? 'pb-5' : 'pb-6')}>
+        {/* v31 JOBSWEB: the page header (the visual identity's page pattern), "Add application" its main action. */}
+        <PageHeader
+          title="Job Tracker"
+          description={t('MSG_TRACKER_PAGE_DESCRIPTION')}
+          actions={
+            <Button ref={addButton} icon={<PlusIcon size={16} weight="bold" />} onClick={openAdd} data-add-application="">
+              Add application
+            </Button>
+          }
+          className="mb-3"
+        />
         <SearchRow
           view={view}
           search={search}
           onSearchChange={setSearch}
           onViewChange={changeView}
+          tabs={<TabsRow tab={url.tab} counts={counts.data} onTabChange={changeTab} />}
           options={
             <OptionsMenu
               view={view}
@@ -504,7 +531,7 @@ function Tracker() {
               loadingMore={list.isFetchingNextPage}
               failed={list.isFetchNextPageError}
               onLoadMore={() => void list.fetchNextPage()}
-              onAdd={() => setAddOpen(true)}
+              onAdd={openAdd}
             />
           )}
         </div>
@@ -523,10 +550,12 @@ function Tracker() {
       <AddApplicationSheet
         open={addOpen}
         onOpenChange={setAddOpen}
-        onAdded={(application: ApplicationDetail) => {
+        returnFocus={() => (addOpener.current?.isConnected ? addOpener.current : addButton.current)}
+        onAdded={(application: ApplicationDetail, fromLink: boolean) => {
           void invalidateApplications(client);
           toast.success('Application added');
-          openApplication(application.id, true);
+          // v31 JOBSWEB: an entry TailorIT read from its link opens as it is; a typed one in edit mode.
+          openApplication(application.id, !fromLink);
         }}
       />
       <DetailSheet
@@ -543,8 +572,8 @@ function Tracker() {
       <ConfirmDialog
         open={archiveAllOpen}
         onOpenChange={setArchiveAllOpen}
-        title="Archive all applications"
-        description="Are you sure you want to archive all applications?"
+        title={t('MSG_TRACKER_ARCHIVE_ALL_TITLE')}
+        description={t('MSG_TRACKER_ARCHIVE_ALL_TEXT')}
         confirmLabel="Archive"
         tone="primary"
         onConfirm={async () => {

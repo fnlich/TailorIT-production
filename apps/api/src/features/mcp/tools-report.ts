@@ -5,6 +5,7 @@ import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
 import { untrustedText } from '../autofill/ai/untrusted';
+import { credentialColumns } from './tokens'; // v31 OAUTH
 
 // v1.5 Q2: report_unsupported (migration 0818, mcp_unsupported_reports). When no tool or filter can do what the
 // person asked, their AI reports it here instead of guessing; the person reads the reports in Settings ›
@@ -14,6 +15,8 @@ import { untrustedText } from '../autofill/ai/untrusted';
 // file touches the table.
 // v3.0 D2 (the concurrency audit): the token's hourly count and the account's cap are checks, then writes: one
 // transaction behind the person's lock (a token is one account's), so two reports at once keep both limits.
+// v31 OAUTH: a report made with an OAuth access token names its grant (grant_id, migration 0041) instead of a personal
+// token, and its hourly count is the grant's (credentialColumns); the list names the connected app.
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
@@ -35,10 +38,12 @@ export async function reportUnsupported(deps: Deps, userId: string, tokenId: str
   const kept = constantsOf(deps).get('MCP_REPORTS_KEPT');
   return deps.db.tx(async (t) => {
     await t.lockPerson(userId);
-    if (tokenId) {
+    const credential = credentialColumns(tokenId); // v31 OAUTH
+    if (credential.tokenId || credential.grantId) {
       const since = new Date(now.getTime() - 60 * 60_000).toISOString();
-      const recent = await t.one<{ n: number }>('SELECT count(*) AS n FROM mcp_unsupported_reports WHERE token_id = ? AND created_at > ?', [
-        tokenId,
+      const column = credential.tokenId ? 'token_id' : 'grant_id';
+      const recent = await t.one<{ n: number }>(`SELECT count(*) AS n FROM mcp_unsupported_reports WHERE ${column} = ? AND created_at > ?`, [
+        credential.tokenId ?? credential.grantId,
         since,
       ]);
       if ((recent?.n ?? 0) >= MCP_REPORTS_PER_HOUR) {
@@ -47,9 +52,9 @@ export async function reportUnsupported(deps: Deps, userId: string, tokenId: str
     }
     const id = randomUUID();
     await t.run(
-      `INSERT INTO mcp_unsupported_reports(id, user_id, token_id, request, missing, tried_tools, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, userId, tokenId, request, missing, JSON.stringify(tried), now.toISOString()],
+      `INSERT INTO mcp_unsupported_reports(id, user_id, token_id, grant_id, request, missing, tried_tools, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, userId, credential.tokenId, credential.grantId, request, missing, JSON.stringify(tried), now.toISOString()],
     );
     // seq: the insertion order among reports of one instant (v3.0 PG-G: the baseline's identity column).
     await t.run(
@@ -71,8 +76,9 @@ export async function listUnsupported(deps: Pick<AppDeps, 'db'>, userId: string)
     created_at: string;
     token_name: string | null;
   }>(
-    `SELECT r.id, r.request, r.missing, r.tried_tools, r.created_at, t.name AS token_name
+    `SELECT r.id, r.request, r.missing, r.tried_tools, r.created_at, COALESCE(t.name, c.name) AS token_name
      FROM mcp_unsupported_reports r LEFT JOIN mcp_tokens t ON t.id = r.token_id
+     LEFT JOIN oauth_grants g ON g.id = r.grant_id LEFT JOIN oauth_clients c ON c.id = g.client_id
      WHERE r.user_id = ? ORDER BY r.created_at DESC, ${deps.db.dialect.seq('r')} DESC`,
     [userId],
   );

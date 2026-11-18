@@ -75,7 +75,7 @@ export function letterVariableValues(input: {
 }
 
 /**
- * A letter generated without a template, in Simplify's wrapper: the name as a centred heading, the contact line
+ * A letter generated without a template, in TailorIT's plain wrapper: the name as a centred heading, the contact line
  * centred under it, "Dear Hiring Manager,", the paragraphs, "Sincerely," and the name.
  */
 export function composeLetterHtml(input: {

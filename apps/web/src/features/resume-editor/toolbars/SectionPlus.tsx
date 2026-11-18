@@ -44,8 +44,8 @@ export function SectionPlus({ name, canAddEntry, at, open, onOpenChange, onNewEn
           <BaseMenu.Trigger
             aria-label={`Add below ${name}`}
             className={clsx(
-              'flex size-[22px] items-center justify-center rounded-full bg-success text-white shadow-control',
-              'ring-2 ring-white transition-transform duration-150 hover:scale-110 data-popup-open:scale-110',
+              'flex size-[22px] items-center justify-center rounded-tag bg-primary text-on-primary shadow-control',
+              'ring-2 ring-surface transition-transform duration-150 hover:scale-110 hover:bg-primary-hover data-popup-open:scale-110',
             )}
             data-section-plus=""
           >

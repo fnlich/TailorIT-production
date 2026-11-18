@@ -114,6 +114,26 @@ export const SOURCE_PRECEDENCE: Record<SourceKind, number> = {
   career_site: 3, // v30 S5 (job_source_kinds' precedence: below the ATS APIs)
 };
 
+/** What a source Add job made carries in its config (`addedBy`; liveness.ts names it ADDED_BY_AUTOFILL too). */
+export const ADDED_BY_AUTOFILL = 'autofill';
+
+/**
+ * v31 FIX-LINK (SEC-1, SEC-3): Add job's source of one host's pages (a `career_site` made disabled and marked as Add
+ * job's, jobs/add/page.ts): what a page read under it says (its JSON-LD) is whatever the page's owner wrote, so the store
+ * never lets it rewrite a job another source made, never finds its job by text, and names its company only as the page
+ * may (store.ts). A career site an admin made (enabled or not) is the admin's word for the host.
+ */
+export function isAddedPageSource(source: Pick<SourceRecord, 'kind' | 'enabled' | 'config'>): boolean {
+  return source.kind === 'career_site' && !source.enabled && source.config?.addedBy === ADDED_BY_AUTOFILL;
+}
+
+/**
+ * v31 FIX-LINK: the kinds whose jobs were stored from what a row or a browser said, never from TailorIT's own read (an
+ * import's rows, the lake's, v3.0's published page copies): the legacy pass's (jobs/add/legacy.ts), and the only jobs a
+ * page an add read may rewrite (store.ts).
+ */
+export const ROW_SOURCE_KINDS = ['csv', 'json', 'ft_lake', 'ext_page'] as const satisfies readonly SourceKind[];
+
 export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   greenhouse: 'Greenhouse',
   lever: 'Lever',
@@ -141,8 +161,11 @@ export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
 export const RUN_TRIGGERS = ['schedule', 'manual', 'upload', 'startup'] as const;
 export type RunTrigger = (typeof RUN_TRIGGERS)[number];
 
-/** v30 S1-API: `not_modified` is a conditional GET's 304 (12 §9.4): the listing is complete and unchanged. */
-export const RUN_STATUSES = ['running', 'succeeded', 'failed', 'partial', 'not_modified'] as const;
+/**
+ * v30 S1-API: `not_modified` is a conditional GET's 304 (12 §9.4): the listing is complete and unchanged. v31 RUNS:
+ * `paused`, an admin paused it and it stopped at its next safe point (pause.ts).
+ */
+export const RUN_STATUSES = ['running', 'succeeded', 'failed', 'partial', 'not_modified', 'paused'] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 /** The validators of a source's last complete listing: sent as a conditional GET (If-None-Match, If-Modified-Since). */
@@ -186,6 +209,8 @@ export interface SourceRecord {
   leaseUntil?: string | null;
   aiInput?: boolean;
   discoveredVia?: string | null;
+  /** v31 RUNS: an admin paused it (no run starts until Continue); null while it is not paused. */
+  pausedAt?: string | null;
 }
 
 export interface RawCompany {

@@ -2,7 +2,7 @@ import { sharedMessage } from '../constants/public/defaults';
 import { collapseWhitespace, truncateText } from '../format/text';
 import { formatEnUsDateTime, formatMDYYYY, type DateInput } from '../format/dates';
 
-// Cover letter and template constants: fonts, default names, limits and Simplify's generic UI copy.
+// Cover letter and template constants: fonts, default names, limits and the editors' generic UI copy.
 
 export interface LetterFont {
   name: string;
@@ -89,9 +89,8 @@ export const CUSTOM_PROMPT_EXAMPLE =
 
 export const LETTER_EDITOR_PLACEHOLDER = 'Dear Hiring Manager...';
 export const TEMPLATE_EDITOR_PLACEHOLDER =
-  'Write your template here using placeholders, or leave it empty and use the AI Prompt to generate the entire cover letter.';
-export const PLACEHOLDER_BANNER_TITLE = 'Almost there - fill in these details to finish your letter';
-export const PLACEHOLDER_BANNER_TEXT = 'Click a tag to replace it.';
+  'Write your template here using placeholders, or leave it empty and use AI notes to draft the whole letter.';
+// v31 FIX-DOCS: the unfilled-placeholder banner's words are the constants MSG_LETTER_BLANKS_TITLE / _TEXT.
 export const REPLACE_PLACEHOLDER_TITLE = 'Replace placeholder';
 export function replacePlaceholderHint(name: string): string {
   return `All tags named {{${name}}} will become the text you enter below.`;

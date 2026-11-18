@@ -35,8 +35,8 @@ export interface ConfirmDialogProps {
 }
 
 /**
- * A yes/no question that must be answered (Simplify: "Delete Application" / "Are you sure you want to delete this
- * application? You won't be able to undo this action."). Built on Base UI AlertDialog: no outside-press dismissal.
+ * A yes/no question that must be answered ("Disconnect Claude?" / "Claude can no longer reach your TailorIT account.").
+ * Built on Base UI AlertDialog: no outside-press dismissal.
  */
 export function ConfirmDialog({
   open,
@@ -86,12 +86,12 @@ export function ConfirmDialog({
             initialFocus={focusConfirm ? confirmRef : undefined}
             finalFocus={finalFocus}
             className={clsx(
-              'w-full max-w-md rounded-surface bg-surface p-6 text-foreground shadow-dialog outline-none',
+              'w-full max-w-md rounded-popup border border-border bg-surface p-6 text-foreground shadow-dialog outline-none',
               'transition-[opacity,scale] duration-200 ease-out-soft data-starting-style:scale-[0.97] data-starting-style:opacity-0',
               'data-ending-style:scale-[0.97] data-ending-style:opacity-0',
             )}
           >
-            <AlertDialog.Title className="text-lg leading-7 font-semibold tracking-tight">{title}</AlertDialog.Title>
+            <AlertDialog.Title className="text-heading font-semibold">{title}</AlertDialog.Title>
             {description && (
               <AlertDialog.Description className="mt-2 text-sm leading-5 text-muted-foreground">
                 {description}
@@ -103,7 +103,7 @@ export function ConfirmDialog({
                 {error}
               </Notice>
             )}
-            <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
               <AlertDialog.Close render={<Button variant="outline" disabled={busy} />}>{cancelLabel}</AlertDialog.Close>
               <Button ref={confirmRef} variant={variant} loading={busy} onClick={() => void confirm()}>
                 {busy && busyLabel ? busyLabel : confirmLabel}

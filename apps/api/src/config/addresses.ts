@@ -1,5 +1,5 @@
 import { isIPv4, isIPv6 } from 'node:net';
-import { MCP_PATH, mcpEndpointUrl } from '@tailorit/shared/mcp';
+import { MCP_PATH } from '@tailorit/shared/mcp';
 
 // The API's addresses, from .env (config/env.ts reads them): where it listens (API_HOST, API_PORT), the MCP endpoint's
 // address that Settings shows (MCP_PUBLIC_URL), and the names /mcp answers to (features/mcp/endpoint.ts). Pure, so each
@@ -59,9 +59,13 @@ export function dialHost(host: string): string {
   return urlHost(host);
 }
 
-/** The MCP endpoint's address when MCP_PUBLIC_URL is unset: http://<API_HOST>:<API_PORT>/mcp, dialable. */
-export function defaultMcpEndpoint(apiHost: string, apiPort: number): string {
-  return mcpEndpointUrl(apiPort, dialHost(apiHost));
+/**
+ * The MCP endpoint's address when MCP_PUBLIC_URL is unset. v31 OAUTH: APP_ORIGIN/mcp, the address people open (it was
+ * http://<API_HOST>:<API_PORT>/mcp): Claude and ChatGPT connect there, as the web's rewrite and the reverse proxy pass
+ * /mcp on to the API, and it is the resource OAuth tokens are issued for (features/oauth).
+ */
+export function defaultMcpEndpoint(appOrigin: string): string {
+  return `${appOrigin.replace(/\/+$/, '')}${MCP_PATH}`;
 }
 
 /**

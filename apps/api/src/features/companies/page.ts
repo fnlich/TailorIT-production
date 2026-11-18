@@ -48,6 +48,11 @@ export async function companyPage(deps: Pick<AppDeps, 'db'>, companyId: number, 
   const id = await visibleCompanyId(db, companyId, userId);
   const row = (await db.one<{ name: string; detail: string | null }>(`SELECT c.name, ${COMPANY_DETAIL_SQL('c')} AS detail FROM companies c WHERE c.id = ?`, [id]))!;
   const { profile, row: profileRow, json } = profileOfDetail(row.detail);
+  const counts = await countsOf(db, id, userId);
+  // v31 LINK (21-jobs-from-links.md §6): a company whose jobs all wait for an admin (held: TailorIT read them, an
+  // admin approves new jobs by hand) is shown to no one until one of them is public, but to an account that added one.
+  // Only a company with no job the viewer sees is looked at (a few rows: its jobs are all held or others' own).
+  if (counts.openJobs === 0 && counts.closedJobs === 0 && (await onlyHeldJobs(db, id, userId))) throw notFound('That company');
   return {
     id,
     name: row.name,
@@ -55,8 +60,20 @@ export async function companyPage(deps: Pick<AppDeps, 'db'>, companyId: number, 
     parent: json.parent ? { id: json.parent.id, name: json.parent.name } : null,
     sources: sourcesLineOf(json.sources),
     updatedAt: profileRow?.updated_at ? new Date(profileRow.updated_at).toISOString() : null,
-    counts: await countsOf(db, id, userId),
+    counts,
   };
+}
+
+/** v31 LINK: whether the company has a held job and no job the viewer sees (each side on its partial index). */
+async function onlyHeldJobs(t: DbQueries, companyId: number, userId: string): Promise<boolean> {
+  const row = await t.one<{ held: boolean; seen: boolean }>(
+    `SELECT (EXISTS (SELECT 1 FROM jobs h WHERE h.company_id = @companyId AND h.active AND h.held_since IS NOT NULL)
+          OR EXISTS (SELECT 1 FROM jobs h WHERE h.company_id = @companyId AND NOT h.active AND h.held_since IS NOT NULL)) AS held,
+       (EXISTS (SELECT 1 FROM jobs j WHERE j.company_id = @companyId AND j.active AND ${jobVisibleTo('j', '@userId')})
+          OR EXISTS (SELECT 1 FROM jobs j WHERE j.company_id = @companyId AND NOT j.active AND ${jobVisibleTo('j', '@userId')})) AS seen`,
+    { companyId, userId },
+  );
+  return row?.held === true && row.seen !== true;
 }
 
 /** A page's cursor: the last card's sort time and id. */

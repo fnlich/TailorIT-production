@@ -4,6 +4,7 @@ import {
   JobDetailSchema,
   JobFacetResponseSchema,
   JobFacetsSummarySchema,
+  JobRowMatchesResponseSchema, // v31 FIX-JOBS
   JobSummarySchema,
   LevelMatchSchema,
   MatchResultSchema,
@@ -18,6 +19,7 @@ import {
   type JobFacet,
   type JobFacetResponse,
   type JobFacetsSummary,
+  type JobRowMatchesResponse, // v31 FIX-JOBS
   type JobsQuery,
   type SaveAllBody,
   type SaveAllPreview,
@@ -38,12 +40,12 @@ export type JobListItem = z.infer<typeof JobListItemSchema>;
 export const JobListPageSchema = listResponse(JobListItemSchema);
 export type JobListPage = z.infer<typeof JobListPageSchema>;
 
-/** The "Improve Your Resume" card plus the facts grid's experience-level check. */
+/** Your match (the drawer's keyword match) plus the spec sheet's experience-level check. */
 export const JobMatchSchema = MatchResultSchema.extend({ levelMatch: LevelMatchSchema.optional() });
 export type JobMatch = z.infer<typeof JobMatchSchema>;
 
 /**
- * GET /api/jobs/:id/insights: the analysis ("About the job") and the match computed from that same analysis (the
+ * GET /api/jobs/:id/insights: the analysis ("About the role") and the match computed from that same analysis (the
  * keyword card), so the two always change together. `match` is null when it could not be computed.
  */
 export const JobInsightsSchema = z.object({ analysis: JobAnalysisViewSchema, match: JobMatchSchema.nullable() });
@@ -65,6 +67,9 @@ export const jobsKeys = {
   facet: (facet: JobFacet, q: string) => ['jobs', 'facets', facet, q] as const,
   facetsSummary: ['jobs', 'facets', 'summary'] as const,
   savedSearches: ['jobs', 'saved-searches'] as const,
+  /** v31 FIX-JOBS: the feed's per-row keyword match of one list page's jobs (under 'jobs', so saves refresh it). */
+  allRowMatches: ['jobs', 'row-matches'] as const,
+  rowMatches: (ids: readonly number[]) => ['jobs', 'row-matches', ids.join(',')] as const,
 };
 
 /** The list's query string: the filters without a cursor (the cursor is the page parameter). */
@@ -91,6 +96,14 @@ export function fetchJob(id: number, signal?: AbortSignal) {
 
 export function fetchInsights(id: number, signal?: AbortSignal) {
   return api.get<JobInsights>(`/api/jobs/${id}/insights`, { schema: JobInsightsSchema, signal });
+}
+
+/**
+ * v31 FIX-JOBS: the keyword match of each listed job (GET /api/jobs/matches?ids=…, at most JOB_ROW_MATCHES_MAX_IDS):
+ * the numbers each job's detail shows, read without starting an analysis.
+ */
+export function fetchRowMatches(ids: readonly number[], signal?: AbortSignal) {
+  return api.get<JobRowMatchesResponse>(`/api/jobs/matches`, { schema: JobRowMatchesResponseSchema, query: { ids: ids.join(',') }, signal });
 }
 
 export function fetchFacet(facet: JobFacet, q: string, signal?: AbortSignal) {
@@ -122,7 +135,7 @@ export const deleteSavedSearch = (id: string) => api.delete(`/api/saved-searches
 
 // ------------------------------------------------------------------------------------------- the tracker (T)
 
-/** Application statuses the Jobs page sets: Saved (bookmark) and Applied ("Did you apply?" → Yes). */
+/** Application statuses the Jobs page sets: Saved (bookmark) and Applied ("Applied to this job?" → Yes). */
 export const SAVED_STATUS = 1 as const;
 export const APPLIED_STATUS = 2 as const;
 

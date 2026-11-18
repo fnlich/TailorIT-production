@@ -27,7 +27,7 @@ const usable = (value: number | null | undefined): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0;
 
 /**
- * Simplify's salary text: "$120k - $150k/yr", "£325k - £390k/yr", "$60/hr", "$120k+/yr" (no maximum),
+ * A salary as a card shows it: "$120k - $150k/yr", "£325k - £390k/yr", "$60/hr", "$120k+/yr" (no maximum),
  * "Up to $150k/yr" (no minimum). '' when there is no amount; see `salaryLabel` for the "No salary listed" fallback.
  */
 export function formatSalaryRange(
@@ -88,7 +88,7 @@ export interface LiveChip {
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Simplify's freshness chip. An inactive posting, or one posted in the last 7 days: "Posted on {date}"; else one
+ * The job's freshness chip. An inactive posting, or one posted in the last 7 days: "Posted on {date}"; else one
  * updated in the last 7 days: "Updated on {date}"; else "Confirmed live in the last 24 hours" (the daily ATS check
  * keeps `active` honest). An inactive posting with no dates at all reads "No longer accepting applications". v30 INT-0:
  * those two are the constants LABEL_JOB_CLOSED and LABEL_JOB_LIVE (a page passes its `t`; their defaults otherwise).

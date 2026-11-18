@@ -68,7 +68,7 @@ export function Field({ label, children, hint, error, required, optional, inline
           </FieldLabel>
         )}
         {error ? (
-          <p id={errorId} className="text-[13px] leading-5 text-[#c62a29]">
+          <p id={errorId} className="text-[13px] leading-5 text-danger">
             {error}
           </p>
         ) : null}
@@ -107,7 +107,7 @@ export function FieldLabel({
     >
       {children}
       {required && (
-        <span aria-hidden="true" className="ml-0.5 text-[#c62a29]">
+        <span aria-hidden="true" className="ml-0.5 text-danger">
           *
         </span>
       )}

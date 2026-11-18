@@ -16,15 +16,16 @@ export interface StepperStep {
 export type StepperTone = 'primary' | 'success' | 'muted';
 
 const TONE: Record<StepperTone, { ring: string; dot: string; line: string }> = {
-  primary: { ring: 'bg-primary-container', dot: 'bg-primary-ink', line: 'bg-primary-container' },
-  success: { ring: 'bg-success-container', dot: 'bg-success', line: 'bg-success-container' },
-  muted: { ring: 'bg-muted', dot: 'bg-subtle-foreground', line: 'bg-muted' },
+  primary: { ring: 'bg-primary-soft', dot: 'bg-primary', line: 'bg-primary' },
+  success: { ring: 'bg-success-soft', dot: 'bg-success', line: 'bg-success' },
+  muted: { ring: 'bg-surface-muted', dot: 'bg-control-strong', line: 'bg-control-strong' },
 };
 
 /**
- * Simplify's horizontal progress stepper (tracker list rows): label above each 24 px dot, the date below; reached
- * dots are a #08758c centre in a #ccf6ff ring, the rest white with a #d7d7d7 border, joined by 4 px connectors.
- * `tone` turns it green (Offer/Accepted) or grey (Rejected/Withdrawn/Ghosted).
+ * The horizontal progress stepper (tracker list rows): label above each 24 px dot, the date below in the measurement
+ * face; reached dots are a solid centre in a soft ring, joined by a 2 px seam; the way still to go is a stitch
+ * (dashed) line to white dots with the strong border. `tone` turns it green (Offer/Accepted) or grey
+ * (Rejected/Withdrawn/Ghosted).
  */
 export function Stepper({
   steps,
@@ -51,8 +52,8 @@ export function Stepper({
                 <span
                   aria-hidden="true"
                   className={clsx(
-                    'absolute top-1/2 left-1/2 h-1 w-full -translate-y-1/2',
-                    step.reached && next.reached ? colors.line : 'bg-border',
+                    'absolute top-1/2 left-1/2 w-full -translate-y-1/2',
+                    step.reached && next.reached ? clsx('h-0.5', colors.line) : 'h-0 border-t-[1.5px] border-dashed border-border-strong',
                   )}
                 />
               )}
@@ -60,13 +61,13 @@ export function Stepper({
                 aria-hidden="true"
                 className={clsx(
                   'relative z-[1] flex size-6 items-center justify-center rounded-full',
-                  step.reached ? colors.ring : 'border-2 border-control-strong bg-surface',
+                  step.reached ? colors.ring : 'border-2 border-border-strong bg-surface',
                 )}
               >
-                {step.reached && <span className={clsx('size-3.5 rounded-full', colors.dot)} />}
+                {step.reached && <span className={clsx('size-3 rounded-full', colors.dot)} />}
               </span>
             </span>
-            <span className="mt-3 min-h-4 text-xs leading-4 whitespace-nowrap text-foreground">{step.caption}</span>
+            <span className="num mt-3 min-h-4 text-[11px] leading-4 whitespace-nowrap text-muted-foreground">{step.caption}</span>
             <span className="sr-only">{step.reached ? ', reached' : ', not reached'}</span>
           </li>
         );
@@ -95,7 +96,7 @@ const STATE_WORDS: Record<WizardStepState, string> = {
 };
 
 /**
- * A clickable progress stepper: numbered 28 px dots joined by 2 px connectors, teal up to the current step, each with
+ * A clickable progress stepper: numbered 28 px dots joined by 2 px connectors, denim up to the current step, each with
  * its label under it from the small breakpoint up (below it the page says the step's name). Every dot is a button named
  * "Step 3 of 9: Education, filled in" (an aria-label: the browser would put a space before the comma of a name read
  * from its parts).
@@ -168,12 +169,12 @@ export function WizardStepper({
                   className={clsx(
                     'flex size-7 items-center justify-center rounded-full text-xs leading-none font-semibold transition-[background-color,box-shadow] duration-150',
                     isCurrent
-                      ? clsx('bg-primary-ink text-white ring-4', step.state === 'error' ? 'ring-destructive-container' : 'ring-primary-container')
+                      ? clsx('bg-primary text-on-primary ring-4', step.state === 'error' ? 'ring-danger-soft' : 'ring-primary-soft')
                       : step.state === 'error'
-                        ? 'border border-[#f3c2c2] bg-destructive-container text-[#c62a29]'
+                        ? 'border border-danger/45 bg-danger-soft text-danger-ink'
                         : step.state === 'complete'
-                          ? 'bg-primary-container text-primary-ink group-hover:bg-primary-200'
-                          : 'border-2 border-control-strong bg-surface text-[#5c5c5c] group-hover:border-control-focus',
+                          ? 'bg-primary-soft text-primary-ink group-hover:bg-primary-200'
+                          : 'border-2 border-border-strong bg-surface text-muted-foreground group-hover:border-primary',
                   )}
                 >
                   {!isCurrent && step.state === 'error' ? (
@@ -188,7 +189,7 @@ export function WizardStepper({
                   aria-hidden="true"
                   className={clsx(
                     'sr-only max-w-full truncate text-xs leading-4 sm:not-sr-only',
-                    isCurrent ? 'font-semibold text-foreground' : step.state === 'error' ? 'text-[#c62a29]' : 'text-[#5c5c5c] group-hover:text-foreground',
+                    isCurrent ? 'font-semibold text-foreground' : step.state === 'error' ? 'text-danger' : 'text-muted-foreground group-hover:text-foreground',
                   )}
                 >
                   {step.label}

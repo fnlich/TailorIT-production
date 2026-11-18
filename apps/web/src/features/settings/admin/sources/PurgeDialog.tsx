@@ -45,7 +45,7 @@ export function PurgeDialog({
       title="Purge source"
       description={
         source
-          ? `Purge ${source.name}? It is paused, the jobs only it lists are closed and their raw payloads deleted, in batches. You won't be able to undo this action.`
+          ? `Purge ${source.name}? It is paused, the jobs only it lists are closed and their raw payloads deleted, in batches. There is no undo.`
           : undefined
       }
       confirmLabel="Purge"

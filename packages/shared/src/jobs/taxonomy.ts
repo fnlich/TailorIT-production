@@ -546,7 +546,7 @@ export function normalizeIndustry(value: unknown): IndustryId | null {
 
 // --------------------------------------------------------------------------------------- other job facets
 
-/** Simplify's company-size buckets. */
+/** The company-size buckets (the Jobs filter's and the company facts'). */
 export const COMPANY_SIZES = [
   { id: '1-10', label: '1-10' },
   { id: '11-50', label: '11-50' },

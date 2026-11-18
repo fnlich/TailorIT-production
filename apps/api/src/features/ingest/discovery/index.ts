@@ -1,6 +1,8 @@
+import { constantsOf } from '../../../core/constants/index'; // v31 RUNS
 import type { AppDeps } from '../../../core/context';
 import type { Feature } from '../../../core/feature';
 import { newReadsAllowed } from '../../../core/http/identity';
+import { pauseAwareSignal, runsPaused } from '../pause-state'; // v31 RUNS
 import { commonCrawlPass } from './common-crawl';
 import { sweepLinks } from './links';
 import { measureBoards } from './measures';
@@ -29,6 +31,8 @@ import { validateCandidates, validationAllowed } from './validate';
 // placeholder). v30 FIX-A (DECISIONS P6.1): validation of the v2.0 kinds' boards runs before that, with today's
 // identity, while DISCOVERY_VALIDATE_V2_KINDS_TODAY is on. The API process's daily housekeeping runs the link sweep, the
 // measures and the counters' pruning (no outside read).
+// v31 RUNS: none of these passes runs while an admin paused every run (pause-state.ts), and a pass going on stops at
+// its next candidate within RUN_STOP_POLL_MS of the pause.
 
 /** How often the worker runs discovery's passes. */
 export const DISCOVERY_TICK_MS = 60_000;
@@ -39,18 +43,26 @@ export function discoveryWorker(deps: AppDeps, options: { everyMs?: number } = {
   let running: Promise<void> | null = null;
   const tick = async () => {
     if (!deps.config.ingest.enabled || !validationAllowed(deps) || controller.signal.aborted) return;
-    const passes: Array<[string, () => Promise<unknown>]> = [['validation', () => validateCandidates(deps, { signal: controller.signal })]];
+    if (await runsPaused(deps)) return; // v31 RUNS
+    // v31 RUNS: the passes' signal also aborts once an admin pauses every run.
+    const pass = pauseAwareSignal(deps, controller.signal, constantsOf(deps).get('RUN_STOP_POLL_MS'));
+    const signal = pass.signal;
+    const passes: Array<[string, () => Promise<unknown>]> = [['validation', () => validateCandidates(deps, { signal })]];
     // Common Crawl and the name probes are new reads only (no v2.0 read is like them).
     if (newReadsAllowed(deps)) {
-      passes.push(['Common Crawl', () => commonCrawlPass(deps, { signal: controller.signal })], ['name probes', () => probePass(deps)]);
+      passes.push(['Common Crawl', () => commonCrawlPass(deps, { signal })], ['name probes', () => probePass(deps)]);
     }
-    for (const [name, run] of passes) {
-      if (controller.signal.aborted) return;
-      try {
-        await run();
-      } catch (error) {
-        if (!controller.signal.aborted) deps.log.error(`[discovery] the ${name} pass failed; it runs again at the next tick`, error);
+    try {
+      for (const [name, run] of passes) {
+        if (signal.aborted) return;
+        try {
+          await run();
+        } catch (error) {
+          if (!signal.aborted) deps.log.error(`[discovery] the ${name} pass failed; it runs again at the next tick`, error);
+        }
       }
+    } finally {
+      pass.done();
     }
   };
   const kick = () => {

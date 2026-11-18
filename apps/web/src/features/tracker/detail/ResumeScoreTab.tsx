@@ -8,8 +8,10 @@ import { buttonClasses } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { TapeMeter } from '@/components/ui/TapeMeter';
 import { CaretDownIcon, CaretUpIcon, CheckCircleIcon } from '@/components/ui/icons';
 import { userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 import { useResumeOptions, useResumeScore } from '../data';
 
 const COLLAPSED = 12;
@@ -39,7 +41,7 @@ function KeywordChips({ matched, missing }: { matched: MatchedKeyword[]; missing
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="inline-flex items-center gap-1 text-sm font-medium text-primary-ink hover:underline"
+          className="inline-flex items-center gap-1 rounded-tag text-sm font-medium text-primary hover:underline"
         >
           {expanded ? 'Show less' : `Show ${hidden} more`}
           {expanded ? <CaretUpIcon size={14} /> : <CaretDownIcon size={14} />}
@@ -50,12 +52,13 @@ function KeywordChips({ matched, missing }: { matched: MatchedKeyword[]; missing
 }
 
 /**
- * Resume Score: the posting's keywords against the linked resume (else the default one), as Simplify's "Improve your
- * resume" card shows them: matched chips first, then the missing ones. An application tracked from the Jobs page
+ * Your match (v31 FIX-DOCS: was "Resume Score"): the posting's keywords against the linked resume (else the default
+ * one), as the Jobs page's match shows them: matched chips first, then the missing ones. An application tracked from the Jobs page
  * uses that job's keywords (the score agrees with the Jobs page's); one added by hand, its description's.
  */
 export function ResumeScoreTab({ application, onDocuments }: { application: ApplicationDetail; onDocuments: () => void }) {
   const score = useResumeScore(application.id, true);
+  const { t } = usePublicConstants();
   const resumes = useResumeOptions(true);
 
   if (score.isLoading) return <Skeleton className="h-48 w-full" rounded="surface" />;
@@ -68,17 +71,20 @@ export function ResumeScoreTab({ application, onDocuments }: { application: Appl
   return (
     <section
       aria-labelledby="score-heading"
-      className="flex flex-col gap-4 rounded-surface border border-improve-border bg-improve p-5"
+      className="flex flex-col gap-4 rounded-card border border-primary-200 bg-linear-to-b from-primary-50 to-surface p-5"
     >
       <header className="flex items-center gap-2.5">
-        <TargetIcon size={20} className="text-primary-ink" />
-        <h3 id="score-heading" className="text-base font-semibold text-foreground">
-          Resume Score
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-primary-soft text-primary">
+          <TargetIcon size={20} aria-hidden="true" />
+        </span>
+        <h3 id="score-heading" className="text-[15px] leading-5 font-semibold text-foreground">
+          {t('LABEL_TRACKER_MATCH')}
         </h3>
-        {result.state === 'ok' && result.total > 0 && (
-          <span className="ml-auto text-2xl leading-8 font-semibold text-primary-ink tabular-nums">{result.percentage}%</span>
-        )}
       </header>
+      {/* v31 JOBSWEB: the score as a tape meter (the visual identity's measure for a match). */}
+      {result.state === 'ok' && result.total > 0 && (
+        <TapeMeter label="Match" value={result.percentage} size="lg" showLabel />
+      )}
       {result.state === 'no_resume' ? (
         <div className="flex flex-col items-start gap-3">
           <div>
@@ -101,14 +107,11 @@ export function ResumeScoreTab({ application, onDocuments }: { application: Appl
         </div>
       ) : (
         <>
-          <p className="text-sm text-foreground">
-            <strong className="font-semibold">{result.matchedCount}</strong> out of <strong className="font-semibold">{result.total}</strong>{' '}
-            keywords found
-          </p>
+          <p className="text-sm text-foreground">{t('MSG_TRACKER_MATCH_COUNT', { matched: result.matchedCount, total: result.total })}</p>
           <KeywordChips matched={result.matched} missing={result.missing} />
-          <p className="border-t border-improve-border pt-3 text-xs text-muted-foreground">
+          <p className="border-t border-primary-200 pt-3 text-xs text-muted-foreground">
             Scored against {resume ? <span className="font-medium text-foreground">{resume.label}</span> : 'your resume'}.{' '}
-            <button type="button" onClick={onDocuments} className="font-medium text-primary-ink hover:underline">
+            <button type="button" onClick={onDocuments} className="rounded-tag font-medium text-primary hover:underline">
               Change resume
             </button>
           </p>

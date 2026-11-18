@@ -50,7 +50,7 @@ function ToolButton({
       onClick={onClick}
       className={clsx(
         'inline-flex size-7 items-center justify-center rounded-md transition-colors duration-150',
-        active ? 'bg-primary-container text-primary-ink' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
+        active ? 'bg-primary-soft text-primary-ink' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
       )}
     >
       {children}
@@ -150,8 +150,8 @@ export function RichTextEditor({
   return (
     <div
       className={clsx(
-        'overflow-hidden rounded-control border border-control bg-surface shadow-soft transition-[border-color] duration-150',
-        'focus-within:border-control-focus hover:border-control-hover',
+        'overflow-hidden rounded-control border border-border-strong bg-surface shadow-control transition-[border-color,box-shadow] duration-150',
+        'hover:border-control-hover focus-within:border-primary focus-within:shadow-focus',
         className,
       )}
     >

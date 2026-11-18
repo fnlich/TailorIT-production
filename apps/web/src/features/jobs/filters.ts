@@ -31,7 +31,7 @@ function without<T>(list: readonly T[], value: T): T[] {
 
 const SIZE_LABEL = new Map<string, string>(COMPANY_SIZES.map((size) => [size.id, size.label]));
 
-/** Yearly salary floor as Simplify writes it: "$120k+/yr". */
+/** Yearly salary floor, as the chip writes it: "$120k+/yr". */
 export function minSalaryLabel(amount: number, period: JobsQuery['payPeriod']): string {
   const range = formatSalaryRange(amount, null, 'USD', period ?? 'year');
   return range || `$${amount}${SALARY_PERIOD_SUFFIX[period ?? 'year']}`;

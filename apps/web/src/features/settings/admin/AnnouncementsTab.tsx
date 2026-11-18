@@ -81,7 +81,7 @@ export function AnnouncementsTab() {
       className: 'w-24',
       cell: (item) => (item.active ? <Badge tone="success">Active</Badge> : <Badge tone="neutral">Expired</Badge>),
     },
-    { key: 'dismissed', header: 'Dismissed', className: 'w-24 tabular-nums', cell: (item) => item.dismissedCount },
+    { key: 'dismissed', header: 'Dismissed', className: 'w-24', numeric: true, cell: (item) => item.dismissedCount },
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
@@ -251,12 +251,12 @@ function AnnouncementDialog({
                   />
                 </div>
               )}
-              {errors.expires && <p className="text-[13px] leading-5 text-[#c62a29]">{errors.expires}</p>}
+              {errors.expires && <p className="text-[13px] leading-5 text-danger">{errors.expires}</p>}
             </div>
           </div>
           <div>
             <p className="mb-1.5 text-sm leading-5 font-medium text-foreground">Preview</p>
-            <div className="overflow-hidden rounded-control border border-border" data-announcement-preview="">
+            <div className="overflow-hidden rounded-card border border-border" data-announcement-preview="">
               <AnnouncementList items={[preview]} alertIds={new Set()} onDismiss={() => {}} preview />
             </div>
           </div>

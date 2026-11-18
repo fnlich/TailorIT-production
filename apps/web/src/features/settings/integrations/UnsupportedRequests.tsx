@@ -14,13 +14,14 @@ import { useToast } from '@/components/ui/Toast';
 import { ApiError, userMessage } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
+import { IntegrationSection } from './IntegrationSection';
 import { ALSO_ASK, reportLine, UNSUPPORTED_EMPTY, UNSUPPORTED_INTRO, UNSUPPORTED_TITLE } from './unsupported';
 import { clearUnsupported, deleteUnsupported, fetchUnsupported, MCP_UNSUPPORTED_KEY } from './unsupported-api';
 
 /**
- * Settings › Integrations › "Your own AI (MCP)" › "Requests your AI could not do" (v1.5 Q2): what the person asked their
- * AI that no TailorIT tool or filter can do (the MCP tool report_unsupported), newest first, each with Delete, and
- * Delete all behind a confirm. The reports are the AI's words, shown as plain text.
+ * Integrations › AI assistants › "Requests your AI could not do" (v1.5 Q2; a card of its own since v3.1 INTEG): what the
+ * person asked their AI that no TailorIT tool or filter can do (the MCP tool report_unsupported), newest first, each with
+ * Delete, and Delete all behind a confirm. The reports are the AI's words, shown as plain text.
  */
 export function UnsupportedRequests() {
   const queryClient = useQueryClient();
@@ -50,18 +51,17 @@ export function UnsupportedRequests() {
 
   const items = reports.data?.items ?? [];
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm leading-5 font-semibold text-foreground">{UNSUPPORTED_TITLE}</h3>
-          <p className="text-[13px] leading-5 text-muted-foreground">{UNSUPPORTED_INTRO}</p>
-        </div>
-        {items.length > 1 && (
+    <IntegrationSection
+      title={UNSUPPORTED_TITLE}
+      description={UNSUPPORTED_INTRO}
+      action={
+        items.length > 1 ? (
           <Button variant="outline" size="sm" onClick={() => setClearing(true)}>
             Delete all
           </Button>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
       <AlsoAsk />
       {reports.isError ? (
         <Notice
@@ -95,7 +95,7 @@ export function UnsupportedRequests() {
           toast.success(`${removed} report${removed === 1 ? '' : 's'} deleted`);
         }}
       />
-    </div>
+    </IntegrationSection>
   );
 }
 
@@ -129,7 +129,7 @@ export function ReportList({
     return <EmptyState icon={<QuestionIcon size={24} />} title="No reports" description={UNSUPPORTED_EMPTY} variant="dashed" size="sm" />;
   }
   return (
-    <ul className="flex flex-col divide-y divide-border" aria-label={UNSUPPORTED_TITLE}>
+    <ul className="flex flex-col divide-y divide-divider-soft" aria-label={UNSUPPORTED_TITLE}>
       {items.map((item) => (
         <li key={item.id} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 py-3 first:pt-0 last:pb-0">
           <div className="min-w-0 flex-1 basis-64">

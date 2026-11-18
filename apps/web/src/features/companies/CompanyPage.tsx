@@ -57,12 +57,12 @@ export function CompanyPage({ idParam }: { idParam: string }) {
 
   return (
     <div className={clsx('mx-auto w-full max-w-[1200px] pt-6 pb-20 sm:pt-9', PAGE_GUTTER)}>
-      <Link href="/jobs" className="inline-flex min-h-6 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+      <Link href="/jobs" className="inline-flex min-h-6 items-center gap-1.5 rounded-tag text-sm font-medium text-muted-foreground hover:text-foreground">
         <ArrowLeftIcon size={16} aria-hidden />
         Jobs
       </Link>
       {notFound ? (
-        <div className="mt-6 rounded-surface border border-border bg-surface shadow-soft">
+        <div className="mt-6 rounded-card border border-border bg-surface shadow-card">
           <EmptyState
             icon={<BuildingsIcon size={22} />}
             title="That company was not found"
@@ -99,14 +99,14 @@ export function CompanyPage({ idParam }: { idParam: string }) {
 function CompanyPageSkeleton() {
   return (
     <div className="mt-6" aria-busy="true" aria-label="Loading the company">
-      <div className="flex items-center gap-4 rounded-surface border border-border bg-surface p-6 shadow-soft">
-        <Skeleton className="size-16 shrink-0 rounded-[12px]" />
+      <div className="flex items-center gap-4 rounded-card border border-border bg-surface shadow-card p-6">
+        <Skeleton className="size-16 shrink-0" rounded="control" />
         <div className="flex-1">
           <Skeleton className="h-7 w-56" />
           <Skeleton className="mt-2 h-4 w-80 max-w-full" />
         </div>
       </div>
-      <div className="mt-8 rounded-surface border border-border bg-surface p-6 shadow-soft">
+      <div className="mt-8 rounded-card border border-border bg-surface shadow-card p-6">
         <SkeletonText lines={4} />
       </div>
     </div>
@@ -133,18 +133,18 @@ function CompanyProfileView({ company }: { company: CompanyPageData }) {
 
   return (
     <article aria-labelledby="company-name" data-company-page={company.id}>
-      <header className="mt-4 flex flex-col gap-4 rounded-surface border border-border bg-surface p-5 shadow-soft sm:flex-row sm:items-start sm:gap-5 sm:p-6">
+      <header className="mt-4 flex flex-col gap-4 rounded-card border border-border bg-surface shadow-card p-5 sm:flex-row sm:items-start sm:gap-5 sm:p-6">
         <CompanyLogo name={name} url={profile.logoUrl} size={64} />
         <div className="min-w-0 flex-1">
-          <h1 id="company-name" className="text-[26px] leading-8 font-bold tracking-[-0.01em] break-words text-foreground sm:text-[30px] sm:leading-10">
+          <h1 id="company-name" className="page-title break-words text-foreground">
             {name}
           </h1>
-          {profile.tagline && <p className="mt-1 text-[15px] leading-6 text-muted-foreground">{profile.tagline}</p>}
+          {profile.tagline && <p className="mt-1 text-sm leading-5 text-muted-foreground">{profile.tagline}</p>}
           <ParentLine parent={company.parent} className="mt-1" />
           <CompanyLinksRow name={name} links={links} className="mt-3" />
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-          <p className="text-sm font-medium text-foreground" data-company-counts="">
+          <p className="text-[13px] leading-5 font-medium text-muted-foreground" data-company-counts="">
             {countsLine(company.counts)}
           </p>
           {company.counts.openJobs > 0 && (
@@ -155,22 +155,22 @@ function CompanyProfileView({ company }: { company: CompanyPageData }) {
         </div>
       </header>
 
-      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-        <section aria-labelledby="company-about" className="min-w-0 lg:col-start-1">
-          <h2 id="company-about" className="text-xl leading-7 font-bold text-foreground">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        <section aria-labelledby="company-about" className="min-w-0 rounded-card border border-border bg-surface shadow-card p-5 sm:p-6 lg:col-start-1">
+          <h2 id="company-about" className="text-heading font-semibold text-foreground">
             About {name}
           </h2>
           <CompanyAbout summary={profile.summary} origin={profile.summaryOrigin} sources={company.sources} className="mt-3" />
         </section>
 
-        <aside aria-labelledby="company-facts" className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
-          <h2 id="company-facts" className="text-xl leading-7 font-bold text-foreground">
+        <aside aria-labelledby="company-facts" className="min-w-0 rounded-card border border-border bg-surface shadow-card p-5 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <h2 id="company-facts" className="text-heading font-semibold text-foreground">
             Company facts
           </h2>
           {facts.length > 0 ? (
-            <CompanyFactsGrid facts={facts} className="mt-3 bg-surface lg:grid-cols-1" />
+            <CompanyFactsGrid facts={facts} className="mt-3 lg:grid-cols-1" />
           ) : (
-            <p className="mt-3 text-[15px] leading-6 text-muted-foreground">No facts about this company yet.</p>
+            <p className="mt-3 text-sm leading-5 text-muted-foreground">No facts about this company yet.</p>
           )}
           <SourcesLine sources={company.sources} updatedAt={company.updatedAt} className="mt-3" />
         </aside>

@@ -4,9 +4,11 @@ import { Combobox as BaseCombobox } from '@base-ui/react/combobox';
 import { clsx } from 'clsx';
 import { useState } from 'react';
 import type { LetterTemplateSummary } from '@tailorit/shared/letters';
+import { Badge } from '@/components/ui/Badge';
 import { MENU_ROW, MENU_SURFACE, Z_FLOATING } from '@/components/ui/styles';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { SHELL, ShellIndicator } from '../letter-editor/controlShell';
+import { SHELL, SHELL_INPUT, ShellIndicator } from '../letter-editor/controlShell';
+import { usePublicConstants } from '@/lib/constants';
 
 /** "Base from template...": the other templates (starters included); choosing one asks the page to copy it in. */
 export function BaseFromTemplateSelect({
@@ -18,6 +20,7 @@ export function BaseFromTemplateSelect({
   onPick: (template: LetterTemplateSummary) => void;
   disabled?: boolean;
 }) {
+  const { t } = usePublicConstants();
   const [input, setInput] = useState('');
   const needle = input.trim().toLowerCase();
   const filtered = needle ? templates.filter((template) => template.name.toLowerCase().includes(needle)) : templates;
@@ -42,11 +45,11 @@ export function BaseFromTemplateSelect({
       <Tooltip content="Replace editor content with a copy of another template">
         <div className={clsx(SHELL, 'w-full sm:w-[284px]')} data-base-from-template="">
           <BaseCombobox.Input
-            aria-label="Base from template"
-            placeholder="Base from template..."
-            className="h-full min-w-0 flex-1 rounded-[6px] bg-transparent pl-2.5 text-[14px] outline-none placeholder:text-[#8f8f8f]"
+            aria-label={t('LABEL_LETTER_START_FROM_TEMPLATE').replace(/\.+$/, '')}
+            placeholder={t('LABEL_LETTER_START_FROM_TEMPLATE')}
+            className={SHELL_INPUT}
           />
-          <BaseCombobox.Trigger aria-label="Show templates" className="flex h-full items-center rounded-r-[6px] outline-offset-0">
+          <BaseCombobox.Trigger aria-label="Show templates" className="flex h-full items-center rounded-r-control outline-offset-0">
             <ShellIndicator />
           </BaseCombobox.Trigger>
         </div>
@@ -67,9 +70,9 @@ export function BaseFromTemplateSelect({
                     <span className="flex w-full items-center gap-2">
                       <span className="min-w-0 truncate font-medium">{template.name}</span>
                       {template.isSystem && (
-                        <span className="ml-auto shrink-0 rounded-full border border-border px-1.5 text-[11px] leading-[18px] font-semibold">
-                          System Default
-                        </span>
+                        <Badge tone="outline" className="ml-auto">
+                          {t('LABEL_DOCS_TEMPLATE_BUILT_IN')}
+                        </Badge>
                       )}
                     </span>
                     {template.preview && <span className="truncate text-xs leading-4 text-muted-foreground">{template.preview}</span>}

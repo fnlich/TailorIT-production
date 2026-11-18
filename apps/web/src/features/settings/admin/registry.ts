@@ -65,7 +65,7 @@ export const ADMIN_TAB_ENTRIES: readonly AdminTabEntry[] = [
   },
   {
     value: 'import',
-    label: 'Import jobs',
+    label: 'Import links', // v31 ADMINWEB: an import is a list of links (21-jobs-from-links.md §5)
     render: ({ go, tab, sourceId }) =>
       createElement(ImportTab, { sourceId: tab === 'import' ? sourceId : null, onShowRuns: (source) => go('runs', source) }),
   },

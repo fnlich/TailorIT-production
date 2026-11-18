@@ -40,6 +40,7 @@ import {
   type DraftTarget,
 } from './kit';
 import { draftValueOf, planQuestions, type PlannedQuestion } from './questions';
+import { notifyPrepareBatch } from '../notifications/emitters'; // v31 NOTIFY
 import {
   answerRows,
   draftOf,
@@ -280,6 +281,7 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
       );
       const draft = await draftOf(db, row.user_id, row.application_id);
       if (draft?.prepare_id === row.id) await restoreDraft(deps, draft, now());
+      await notifyPrepareBatch(deps, row); // v31 NOTIFY: the batch's summary when this was its last active Prepare
     });
     deps.log.debug(`[prepare] Prepare ${row.id} ${state}${details.reason ? ` (${details.reason})` : ''}`);
   }

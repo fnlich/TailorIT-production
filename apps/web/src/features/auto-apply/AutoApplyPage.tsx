@@ -9,6 +9,7 @@ import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/Popover';
 import { TabPanel } from '@/components/ui/SegmentedControl';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -48,6 +49,8 @@ import { RuleSection } from './RuleSection';
 // attention, done), the Free account's usage line in the header, the kit sheet of the manual flow. Two panes from
 // 1024 px (5 : 7), tabs below. Both panes are read every 3 s while anything is preparing or applying, every 30 s
 // otherwise; nothing is read while the tab is hidden.
+// v31 AUTO: the page's header is the kit's PageHeader (docs/design/v3.1/20-visual-identity.md §8) with the usage tape
+// meter as its action; the Saved pane's toolbar carries Filters (a dialog), Select and Prepare All.
 
 /** Two panes side by side from Tailwind's `lg`. */
 const TWO_PANES_QUERY = '(min-width: 64rem)';
@@ -149,17 +152,17 @@ export function AutoApplyPage() {
   };
 
   const header = (
-    <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-      <div className="min-w-0 flex-1">
-        <h1 className="text-[30px] leading-10 font-bold tracking-[-0.01em] text-foreground">{PAGE_TITLE}</h1>
-        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-base text-muted-foreground">
+    <PageHeader
+      title={PAGE_TITLE}
+      description={
+        <span className="flex flex-wrap items-center gap-x-2">
           <span>{PAGE_LEAD}</span>
           <Popover>
             <PopoverTrigger
               render={
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 rounded-control px-1 text-sm font-semibold text-primary-ink underline-offset-2 hover:underline max-sm:min-h-11"
+                  className="inline-flex items-center gap-1 rounded-control px-1 text-sm font-medium text-primary underline-offset-2 hover:underline max-sm:min-h-11"
                 />
               }
             >
@@ -175,19 +178,21 @@ export function AutoApplyPage() {
               </div>
             </PopoverContent>
           </Popover>
-        </p>
-      </div>
-      {/* v2.0 fix (UX-14): no empty band for an account with no meter (Paid), nor when the queue could not be read. */}
-      {(queue.isPending || usage) && (
-        <div className="flex min-h-10 items-center max-lg:basis-full" data-usage="">
-          {usage ? (
-            <UsageMeter used={usage.used} limit={usage.limit} reserved={usage.reserved} resetText={usage.resetText} />
-          ) : (
-            <UsageMeterSkeleton />
-          )}
-        </div>
-      )}
-    </div>
+        </span>
+      }
+      actions={
+        // v2.0 fix (UX-14): no empty band for an account with no meter (Paid), nor when the queue could not be read.
+        queue.isPending || usage ? (
+          <div className="flex min-h-10 items-center max-lg:basis-full" data-usage="">
+            {usage ? (
+              <UsageMeter used={usage.used} limit={usage.limit} reserved={usage.reserved} resetText={usage.resetText} />
+            ) : (
+              <UsageMeterSkeleton />
+            )}
+          </div>
+        ) : undefined
+      }
+    />
   );
 
   const savedPane = (
@@ -214,7 +219,7 @@ export function AutoApplyPage() {
           {userMessage(rule.error)}
         </Notice>
       ) : rule.isPending ? (
-        <Skeleton className="h-16 w-full" rounded="surface" />
+        <Skeleton className="h-16 w-full" rounded="control" />
       ) : (
         <RuleSection settings={rule.data} />
       )}
@@ -252,10 +257,10 @@ export function AutoApplyPage() {
   );
 
   return (
-    <div className={clsx('mx-auto w-full max-w-[1280px] pt-9 pb-20', PAGE_GUTTER)}>
+    <div className={clsx('mx-auto w-full max-w-[1280px] pt-7 pb-20', PAGE_GUTTER)}>
       {header}
       {wide ? (
-        <div className="mt-8 grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-6" data-auto-apply-layout="panes">
+        <div className="mt-6 grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-6" data-auto-apply-layout="panes">
           {savedPane}
           {queuePane}
         </div>

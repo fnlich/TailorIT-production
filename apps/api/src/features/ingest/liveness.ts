@@ -24,8 +24,8 @@ import type { SourceRecord } from './types';
 // first); never a page job's (nothing reads those again). A posting still there is stored as a run stores it (its
 // last-verified time moves on, and the link's liveness_checked_at); a gone one changes nothing here.
 
-/** What a source Add job made carries in its config (`addedBy`). */
-export const ADDED_BY_AUTOFILL = 'autofill';
+/** What a source Add job made carries in its config (`addedBy`): v31 FIX-LINK, kept in types.ts (the store reads it). */
+export { ADDED_BY_AUTOFILL } from './types';
 
 /**
  * The kinds whose postings TailorIT can read one at a time. v30 FIX-A (INT-4 open item S3 C): a Workday career site's

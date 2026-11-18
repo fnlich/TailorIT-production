@@ -17,28 +17,28 @@ export type ButtonVariant =
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 const BASE =
-  'inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-control font-semibold ' +
+  'inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium ' +
   'transition-[background-color,border-color,color,box-shadow] duration-150 ease-out-soft ' +
   'disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 ' +
   '[&_svg]:shrink-0';
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-primary text-white hover:bg-primary-500 active:bg-[#0a7c95]',
-  secondary: 'bg-chip text-foreground hover:bg-[#e3e3e3] active:bg-[#dcdcdc]',
+  primary: 'bg-primary text-on-primary shadow-control hover:bg-primary-hover active:bg-primary-active',
+  secondary: 'bg-surface-muted text-foreground hover:bg-muted active:bg-border',
   outline:
-    'border border-control-outline bg-surface text-foreground shadow-control hover:border-control-hover hover:bg-[#fafafa] active:bg-surface-low',
-  ghost: 'text-foreground hover:bg-hover active:bg-black/[0.08]',
-  destructive: 'bg-destructive text-white hover:bg-[#e2302f] active:bg-[#cf2a29]',
-  'destructive-soft': 'bg-destructive-container text-[#c62a29] hover:bg-[#f8d5d5] active:bg-[#f3c9c9]',
+    'border border-border-strong bg-surface text-foreground shadow-control hover:border-control-hover hover:bg-surface-low active:bg-surface-muted',
+  ghost: 'text-foreground hover:bg-hover active:bg-pressed',
+  destructive: 'bg-danger text-on-primary shadow-control hover:bg-danger-hover active:bg-danger-ink',
+  'destructive-soft': 'bg-danger-soft text-danger-ink hover:bg-danger/15 active:bg-danger/20',
   'destructive-outline':
-    'border border-[#f3c2c2] bg-surface text-[#c62a29] shadow-control hover:bg-destructive-container active:bg-[#f8d5d5]',
-  link: 'h-auto px-0 text-primary-ink underline-offset-4 hover:underline',
+    'border border-danger/45 bg-surface text-danger-ink shadow-control hover:bg-danger-soft active:bg-danger/15',
+  link: 'h-auto px-0 text-primary underline-offset-4 hover:underline',
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: 'h-8 px-3 text-xs',
-  md: 'h-9 px-4 text-sm',
-  lg: 'h-10 px-8 text-sm',
+  sm: 'h-8 px-3 text-[13px]',
+  md: 'h-9 px-3.5 text-sm',
+  lg: 'h-10 px-5 text-sm',
 };
 
 export interface ButtonStyleOptions {
@@ -66,8 +66,9 @@ export interface ButtonProps
 }
 
 /**
- * Simplify's button: `h-9 px-4 text-sm`, radius 10. Variants primary (#14a1c0), secondary (#ebebeb), outline
- * (#dfdfdf border + control shadow), ghost, destructive(-soft/-outline) and link; sizes sm / md / lg.
+ * The kit's button: 36 px (`md`), radius 6, IBM Plex Sans 500. Variants primary (denim), secondary (a quiet grey
+ * fill), outline (white with the strong border), ghost, destructive(-soft/-outline) and link; sizes sm 32 / md 36 /
+ * lg 40.
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant, size, fullWidth, className, loading = false, icon, trailingIcon, disabled, children, type, ...rest },

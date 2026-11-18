@@ -2,6 +2,7 @@ import { constantsOf } from '../../core/constants/service';
 import { dayKeyAt } from '../../core/constants/day';
 import type { AppDeps } from '../../core/context';
 import { recheckPosting, type RecheckPostingResult } from '../../core/seams';
+import { runsPaused } from '../ingest/pause-state'; // v31 FIX-LINK (BEH-9)
 import { autoDecide } from './auto';
 import { runFollowUps, type FollowUp } from './decide';
 import { recountReview, reviewById } from './store';
@@ -89,10 +90,13 @@ async function checkOne(deps: AppDeps): Promise<boolean> {
   return true;
 }
 
-/** One pass of the re-check queue: at most `max` reviews. Answers how many were checked. */
+/**
+ * One pass of the re-check queue: at most `max` reviews. Answers how many were checked. v31 FIX-LINK (REV-BEH BEH-9):
+ * each re-check reads an outside host, so Pause all stops the pass before the next one (v31 RUNS looked once a pass).
+ */
 export async function runRecheckPass(deps: AppDeps, max = RECHECKS_PER_PASS): Promise<number> {
   let checked = 0;
-  while (checked < max && (await checkOne(deps))) checked += 1;
+  while (checked < max && !(await runsPaused(deps)) && (await checkOne(deps))) checked += 1;
   return checked;
 }
 

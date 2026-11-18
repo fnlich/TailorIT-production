@@ -16,6 +16,7 @@ import type { MessageKey } from '../constants/constants';
 import { messageError } from '../constants/public/defaults';
 import { PUBLIC_CONSTANT_SPECS } from '../constants/public/specs';
 import { IsoDate, IsoDateTime } from '../core/list';
+import { JobVerificationSchema } from '../jobs/add'; // v31 INT-2
 import { JobCreditSchema } from '../jobs/dto'; // v30 FIX-B
 
 // v2.0: Prepare & Queue (docs/design/v2.0/05-prepare-flow.md), which replaces v1.5's Prebuild. A job reaches the
@@ -185,6 +186,70 @@ export const PrepareStartResponseSchema = z.object({
   ),
 });
 export type PrepareStartResponse = z.infer<typeof PrepareStartResponseSchema>;
+
+// v31 AUTO (D10): Prepare All -----------------------------------------------------------------------------------------
+//   GET  /api/prepare/all   → PrepareAllPlan (the confirm's numbers and the jobs it names; nothing starts)
+//   POST /api/prepare/all   PrepareAllRequest → 202 PrepareAllResponse: of the jobs the confirm named, the ones still
+//                             in To prepare that pass the filters, within the caps (v31 FIX-AUTH, BEH-8: never a job
+//                             the person was not asked about); or one error for the whole request (as POST /api/prepare)
+
+/**
+ * Why Prepare All leaves passing jobs for later: one request's batch (PREPARE_BATCH_MAX), the room left in the
+ * auto-apply queue (QUEUE_SIZE_MAX), or the plan's resume storage (the `tailor` mode makes one resume per job).
+ */
+export const PREPARE_ALL_HELD_REASONS = ['batch', 'queue', 'resumes'] as const;
+export type PrepareAllHeldReason = (typeof PREPARE_ALL_HELD_REASONS)[number];
+/** The words of each reason (constants), with {count} and {max} / {limit} filled in by the server. */
+export const PREPARE_ALL_HELD_MESSAGES = {
+  batch: 'MSG_PREPARE_ALL_HELD_BATCH',
+  queue: 'MSG_PREPARE_ALL_HELD_QUEUE',
+  resumes: 'MSG_PREPARE_ALL_HELD_RESUMES',
+} as const satisfies Record<PrepareAllHeldReason, MessageKey>;
+
+const Count = z.number().int().nonnegative();
+
+/** The passing jobs Prepare All leaves for later, why, and what to do (rendered). */
+export const PrepareAllHeldSchema = z.object({
+  count: z.number().int().positive(),
+  reason: z.enum(PREPARE_ALL_HELD_REASONS),
+  message: z.string(),
+});
+export type PrepareAllHeld = z.infer<typeof PrepareAllHeldSchema>;
+
+/** The counts both answers carry. */
+const PrepareAllCounts = {
+  /** The person's saved jobs in To prepare (no Prepare yet, filtered, or preparation failed) whose job is open. */
+  toPrepare: Count,
+  /** Of them, the ones the saved filters let through now (a Custom filter judges the rest while they are prepared). */
+  passing: Count,
+  /** Passing jobs left for later; absent when Prepare All takes them all. */
+  held: PrepareAllHeldSchema.optional(),
+};
+
+/** GET /api/prepare/all: what Prepare All would take now, and today's AI budget for the confirm's note. */
+export const PrepareAllPlanSchema = z.object({
+  ...PrepareAllCounts,
+  /** Of the passing jobs, how many one Prepare All takes now (the newest saved first). */
+  taking: Count,
+  /** v31 FIX-AUTH (BEH-8): the saved jobs (Tracker entries) it takes, `taking` of them, in the pane's order: the confirm
+   *  sends them back, and Prepare All starts no other. */
+  applicationIds: z.array(z.string().min(1).max(64)),
+  /** The person's AI use today: `budgetMicros` null is no daily limit; `creditMicros` is the extra credit left. */
+  ai: z.object({ usedMicros: Count, budgetMicros: Count.nullable(), creditMicros: Count }),
+});
+export type PrepareAllPlan = z.infer<typeof PrepareAllPlanSchema>;
+
+/**
+ * v31 FIX-AUTH (BEH-8): POST /api/prepare/all, the jobs the confirm named (its plan's `applicationIds`). The server takes
+ * the ones still in To prepare that pass the filters now, within the caps: never more, and never another.
+ */
+export const PrepareAllRequestSchema = PrepareStartRequestSchema.pick({ applicationIds: true });
+export type PrepareAllRequest = z.infer<typeof PrepareAllRequestSchema>;
+
+/** POST /api/prepare/all: each taken job's outcome (as POST /api/prepare's), and the counts (of the confirmed jobs). */
+export const PrepareAllResponseSchema = PrepareStartResponseSchema.extend(PrepareAllCounts);
+export type PrepareAllResponse = z.infer<typeof PrepareAllResponseSchema>;
+// end v31 AUTO
 
 // Settings ------------------------------------------------------------------------------------------------------------
 
@@ -440,6 +505,12 @@ export const SavedJobItemSchema = z.object({
    * Absent or false: not held.
    */
   held: z.boolean().optional(),
+  /**
+   * v31 INT-2: the job's verification, as JobSummary's (`verification`): a job only this account sees because TailorIT
+   * could not read its link (`private_unverified`), or one an admin approves next (`waiting_admin`). Absent: everyone
+   * sees it.
+   */
+  verification: JobVerificationSchema.optional(),
   // v30 FIX-B
   /**
    * v30 FIX-B (REV-REQ REQ-1): the credit line the job's source asks for wherever its job is shown (12 §3.6-3.7:

@@ -23,9 +23,9 @@ import { activeKinds, alarmCount, alarmText, changeText, dayLabel, failingHosts,
 /** A stat tile: its label, its value, and a line under it. */
 function Stat({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
   return (
-    <div className="rounded-surface border border-border bg-surface px-4 py-3 shadow-soft" data-stat={label}>
-      <p className="text-[13px] text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl leading-8 font-semibold text-foreground">{value}</p>
+    <div className="rounded-card border border-border bg-surface px-4 py-3 shadow-card" data-stat={label}>
+      <p className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{label}</p>
+      <p className="num mt-1.5 text-2xl leading-8 text-foreground">{value}</p>
       {note && <p className="mt-0.5 text-[13px] text-muted-foreground">{note}</p>}
     </div>
   );
@@ -34,7 +34,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: Rea
 function TableCard({ label, children }: { label: string; children: ReactNode }) {
   return (
     // v30 FIX-WEB (REV-UX UX-7): a focusable, named region (a keyboard scrolls "By kind" at a phone's width).
-    <ScrollRegion label={label} className="rounded-surface border border-border bg-surface shadow-soft">
+    <ScrollRegion label={label} className="rounded-card border border-border bg-surface shadow-card">
       <table aria-label={label} className="w-full min-w-[560px] border-collapse text-left text-sm">
         {children}
       </table>
@@ -42,9 +42,11 @@ function TableCard({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-const TH = 'h-10 px-4 text-sm font-semibold whitespace-nowrap text-foreground';
-const TD = 'border-t border-border px-4 py-2.5';
-const NUM = 'text-right tabular-nums';
+// v31 ADMINWEB: the guide's table (20-visual-identity.md §8): spaced-capital heads on surface-low, soft row dividers,
+// numbers right-aligned in the measurement face.
+const TH = 'h-11 px-4 text-[11px] leading-4 font-semibold tracking-[0.06em] whitespace-nowrap text-subtle-foreground uppercase';
+const TD = 'border-t border-divider-soft px-4 py-2.5';
+const NUM = 'num text-right';
 
 /** One day's report (drawn without a server in the web tests). */
 export function ReportView({ report, onShowHost }: { report: SourcingDailyReport; onShowHost?: (host: string) => void }) {
@@ -76,7 +78,7 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
       </div>
 
       <section aria-labelledby="report-kinds">
-        <h3 id="report-kinds" className="mb-2 text-sm font-semibold text-foreground">
+        <h3 id="report-kinds" className="mb-2 text-[15px] leading-5 font-semibold text-foreground">
           By kind
         </h3>
         {kinds.length === 0 ? (
@@ -84,32 +86,32 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
         ) : (
           <TableCard label="Jobs by kind">
             <thead>
-              <tr className="bg-surface-low">
+              <tr className="border-b border-border bg-surface-low">
                 <th scope="col" className={TH}>
                   Kind
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Runs
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   304s
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   New
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Changed
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Closed
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Reopened
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Open jobs
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Change
                 </th>
               </tr>
@@ -117,7 +119,7 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
             <tbody>
               {kinds.map((row) => (
                 <tr key={row.kind} data-report-kind={row.kind}>
-                  <th scope="row" className={clsx(TD, 'font-medium')}>
+                  <th scope="row" className={clsx(TD, 'text-left font-medium')}>
                     {JOB_SOURCE_KIND_LABEL[row.kind]}
                   </th>
                   <td className={clsx(TD, NUM)}>{formatCount(row.runs)}</td>
@@ -127,7 +129,7 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
                   <td className={clsx(TD, NUM)}>{formatCount(row.closed)}</td>
                   <td className={clsx(TD, NUM)}>{formatCount(row.reopened)}</td>
                   <td className={clsx(TD, NUM)}>{formatCount(row.openJobs)}</td>
-                  <td className={clsx(TD, NUM, row.openJobsChange < 0 && 'text-[#c62a29]')}>{changeText(row.openJobsChange)}</td>
+                  <td className={clsx(TD, NUM, row.openJobsChange < 0 && 'text-danger')}>{changeText(row.openJobsChange)}</td>
                 </tr>
               ))}
             </tbody>
@@ -136,7 +138,7 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
       </section>
 
       <section aria-labelledby="report-hosts">
-        <h3 id="report-hosts" className="mb-2 text-sm font-semibold text-foreground">
+        <h3 id="report-hosts" className="mb-2 text-[15px] leading-5 font-semibold text-foreground">
           Hosts with failures
         </h3>
         {hosts.length === 0 ? (
@@ -144,17 +146,17 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
         ) : (
           <TableCard label="Hosts with failures">
             <thead>
-              <tr className="bg-surface-low">
+              <tr className="border-b border-border bg-surface-low">
                 <th scope="col" className={TH}>
                   Host
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Requests
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Failures
                 </th>
-                <th scope="col" className={clsx(TH, NUM)}>
+                <th scope="col" className={clsx(TH, 'text-right')}>
                   Share failed
                 </th>
               </tr>
@@ -162,7 +164,7 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
             <tbody>
               {hosts.map((row) => (
                 <tr key={row.host} data-report-host={row.host}>
-                  <th scope="row" className={clsx(TD, 'font-medium')}>
+                  <th scope="row" className={clsx(TD, 'text-left font-medium')}>
                     {onShowHost ? (
                       <Button variant="link" onClick={() => onShowHost(row.host)}>
                         {row.host}

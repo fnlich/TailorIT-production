@@ -45,6 +45,7 @@ import {
   type PrepareRow,
 } from './store';
 import { sensitiveAnswerScreen } from '../autofill/profile/sensitive-screen';
+import { notifyPrepareBatch } from '../notifications/emitters'; // v31 NOTIFY
 
 // What Prepare's two paths share (docs/design/v2.0/05-prepare-flow.md): the saved job a Prepare is for, its known
 // questions, the letter decision (A6), what of an earlier kit a new Prepare may keep (A29: the letter and the answers
@@ -500,6 +501,13 @@ export interface FinishResult {
  * Answers are never required: those not made are made during the application.
  */
 export async function finishKit(deps: AppDeps, row: PrepareRow, draft: DraftRow, now: string): Promise<FinishResult | null> {
+  const finished = await finishKitSteps(deps, row, draft, now);
+  // v31 NOTIFY: the batch's summary when this was its last active Prepare, in the caller's transaction.
+  if (finished) await notifyPrepareBatch(deps, row);
+  return finished;
+}
+
+async function finishKitSteps(deps: AppDeps, row: PrepareRow, draft: DraftRow, now: string): Promise<FinishResult | null> {
   if ([draft.resume_status, draft.letter_status, draft.answers_status].some(isOpen)) return null;
   // v2.0 FIX-B (BEH-3): an entry that left Saved (Applied, archived, its job gone) while its kit was made is never
   // queued: `cancelled`, reason `not_saved`; the parts made stay in the kit.

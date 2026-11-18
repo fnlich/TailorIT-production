@@ -277,6 +277,45 @@ async function finishShared(
   return { companyId, matchedBy, created, doNotFetch: row?.do_not_fetch ?? state.doNotFetch, touchedJobIds: [...touched] };
 }
 
+/**
+ * v31 FIX-LINK (SEC-3, REQ-1): the company of a posting whose page may not speak for any company it names (a page an
+ * add read, its hiringOrganization not on the page's own domain: ingest/store.ts companyOf): by its name alone, and
+ * never a company that has a board or a domain of its own (a stranger's page would be filed under it, beside its real
+ * jobs). The one shared company of the name with neither (made by a name before), else a new company of the name, with a
+ * `homonym` review when companies of the name exist. Nothing is written about a company that exists (no source row, no
+ * alias, no profile, no enrichment), and a new one is not queued for enrichment either: its page claimed nothing TailorIT
+ * may read about it. In the caller's transaction.
+ */
+export async function resolveCompanyByName(
+  t: DbQueries,
+  input: Pick<ResolveCompanyInput, 'company' | 'sourceId' | 'at'>,
+): Promise<ResolveCompanyResult> {
+  const nameKey = input.company.nameKey;
+  const nameOnly = (candidates: readonly NameCandidate[]) =>
+    candidates.find((candidate) => candidate.boards.length === 0 && candidate.domains.length === 0) ?? null;
+  let candidates = await nameCandidates(t, nameKey);
+  let target = nameOnly(candidates);
+  if (!target) {
+    // A new company: one writer of a name at a time (as resolveCompanyIn), then the look again.
+    await t.run('SELECT pg_advisory_xact_lock(?, hashtext(?))', [NAME_LOCK, nameKey]);
+    candidates = await nameCandidates(t, nameKey);
+    target = nameOnly(candidates);
+  }
+  if (target) return { companyId: target.id, matchedBy: 'name', created: false, doNotFetch: target.doNotFetch, touchedJobIds: [] };
+  const companyId = await newCompany(t, input.company.name, nameKey, input.at);
+  if (candidates.length > 0) {
+    await openMatchReview(t, {
+      kind: 'homonym',
+      companyId,
+      otherCompanyId: candidates[0]!.id,
+      candidate: { name: input.company.name, nameKey, board: null, domains: [], sourceId: input.sourceId },
+      score: CONFIDENCE.name,
+      at: input.at,
+    });
+  }
+  return { companyId, matchedBy: 'new', created: true, doNotFetch: false, touchedJobIds: [] };
+}
+
 /** A page job's company: the shared row that fits, read as it is, else the account's own row. */
 async function resolveForPage(t: DbQueries, input: ResolveCompanyInput, owner: string, domains: readonly string[]): Promise<ResolveCompanyResult> {
   const shared = (companyId: number, doNotFetch: boolean, matchedBy: ResolveCompanyMatch, touched: readonly number[] = []): ResolveCompanyResult => ({

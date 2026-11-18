@@ -430,10 +430,11 @@ function Workspace({
         maxNameLength={MAX_RESUME_TITLE_LENGTH}
         info={savedId ? 'This name is only for your documents list. The resume prints the name and title on the page.' : undefined}
         status={phone ? undefined : saveStatus}
+        crowded // v31 FIX-WEB: seven actions; the usage chip's words wait for 1536 px, the name keeps its room
         actions={
           phone ? (
             // The bar's own status line is hidden at a phone's width; this one stays.
-            <div role="status" className="max-w-[40vw] text-right text-[12px] leading-4 text-muted-foreground">
+            <div role="status" className="max-w-[40vw] text-right text-xs leading-4 text-muted-foreground">
               {saveStatus}
             </div>
           ) : (

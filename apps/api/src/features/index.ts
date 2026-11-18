@@ -41,6 +41,9 @@ import { companiesFeature } from './companies/index';
 import { jobReviewsFeature } from './job-reviews/index';
 import { companySummariesFeature } from './companies/summaries/index'; // v30 E3
 import { discoveryFeature } from './ingest/discovery/index'; // v30 S2
+import { notificationsFeature } from './notifications/index'; // v31 NOTIFY
+import { oauthFeature } from './oauth/index'; // v31 OAUTH
+import { jobLinksFeature } from './jobs/add/index'; // v31 LINK
 
 /**
  * Every feature of the API, in setup order: services are created in this order (AI before the features that queue
@@ -68,6 +71,7 @@ export const FEATURES: Feature[] = [
   jobFactsFeature,
   ingestFeature,
   jobsFeature,
+  jobLinksFeature, // v31 LINK: every job comes from its link (POST /api/jobs/add, the link queue, Retry read)
   // v30 SCH: the companies (E0-API: profiles, resolveCompany, Admin › Companies, /companies/:id) and the extension's
   // reviews (X1-API: closed reports, held new jobs, Admin › Review), after the jobs they describe.
   companiesFeature,
@@ -91,7 +95,9 @@ export const FEATURES: Feature[] = [
   autoApplyFeature,
   // v1.5 M: the MCP server for Prepare with the person's own AI (after tailoring, whose code steps it runs).
   mcpFeature,
+  oauthFeature, // v31 OAUTH: the OAuth 2.1 server Claude and ChatGPT connect to the MCP server through
   // v30 ST0: features only a development install has (dev-only/index.ts), last.
+  notificationsFeature, // v31 NOTIFY: notifications and the header's summary (after every feature that writes them)
   dbMaintenanceFeature, // v30 D5L (before the dev-only seam, which stays last)
   ...DEV_FEATURES,
 ];

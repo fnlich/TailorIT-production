@@ -130,6 +130,11 @@ export const MCP_TOOL_DESCRIPTIONS = {
     "TailorIT's prompt, input and output shape for an AI feature you do yourself: resume_copy (an upload's editable " +
     'copy), entry_bullets, cover_letter, tailor (a tailored resume for one job, not queued). Then own_ai_save.',
   own_ai_save: "Saves own_ai_context's output, checked as TailorIT's own AI's would be. Answer: the stored id and name.",
+  // v31 LINK: features/mcp/tools-v31.ts
+  add_job:
+    "Adds a job by its posting's link (only the link: TailorIT reads the posting) and saves it. Answer {state, jobId, " +
+    'reason, message}. Else: report_unsupported.',
+  // end v31 LINK
 } as const;
 
 /** prepare_prompt's description: the steps, and how many jobs write_answers takes at once (features/mcp/next.ts). */
@@ -170,6 +175,8 @@ export const MCP_ARG_DESCRIPTIONS = {
   entryId: 'entry_bullets; left out, the entries are listed.',
   applicationId: 'cover_letter; tailor.',
   ownJobId: 'tailor.',
+  // v31 LINK: add_job's link (features/mcp/tools-v31.ts)
+  url: "The posting's own link.",
 } as const;
 
 /** The MCP prompts' descriptions (prompts/list), and the description of a prompt's answer (prompts/get). */

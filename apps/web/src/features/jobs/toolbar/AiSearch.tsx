@@ -5,9 +5,8 @@ import { useMutation } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { LimitNotice, paidFeatureLimit, type LimitInfo } from '@/components/limits';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { SparkleIcon, XIcon } from '@/components/ui/icons';
+import { LockSimpleIcon, SparkleIcon, XIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { SearchPill } from '@/components/ui/SearchPill';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -122,8 +121,9 @@ export function useAiSearch({ query, onReplace }: { query: JobsQuery; onReplace:
 
 export type AiSearchState = ReturnType<typeof useAiSearch>;
 
-/** Classic | AI, before the search box; a Free account sees "Paid" on AI. */
+/** Keywords | Ask AI (v31 FIX-JOBS: the constants' words), before the search box; a Free account sees "Paid" on Ask AI. */
 export function SearchModeControl({ state }: { state: AiSearchState }) {
+  const { t } = usePublicConstants();
   return (
     <SegmentedControl<SearchMode>
       size="sm"
@@ -131,17 +131,23 @@ export function SearchModeControl({ state }: { state: AiSearchState }) {
       value={state.mode}
       onValueChange={state.setMode}
       items={[
-        { value: 'classic', label: AI_SEARCH_COPY.classic },
+        { value: 'classic', label: t('LABEL_JOBS_MODE_KEYWORDS') },
         {
           value: 'ai',
           icon: <SparkleIcon size={14} weight={state.mode === 'ai' ? 'fill' : 'regular'} />,
           label: (
             <>
-              {AI_SEARCH_COPY.ai}
+              {t('LABEL_JOBS_MODE_AI')}
+              {/* v31 JOBSWEB: a Free account's mark, a small lock on the tape (its word read out), to keep the row short. */}
               {state.locked && (
-                <Badge tone="tint" className="ml-0.5 px-1.5 py-0 text-[11px]" data-paid-badge="">
-                  {AI_SEARCH_COPY.paid}
-                </Badge>
+                <span
+                  className="ml-0.5 inline-flex size-[18px] items-center justify-center rounded-tag bg-tape text-foreground"
+                  title={AI_SEARCH_COPY.paid}
+                  data-paid-badge=""
+                >
+                  <LockSimpleIcon size={11} weight="bold" aria-hidden="true" />
+                  <span className="sr-only">{AI_SEARCH_COPY.paid}</span>
+                </span>
               )}
             </>
           ),
@@ -214,7 +220,7 @@ export function AiSearchSummaryRow({
 }) {
   return (
     <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1.5" data-ai-search-summary="">
-      <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-primary-container py-1 pr-1 pl-3 text-sm leading-5 text-primary-ink">
+      <span className="inline-flex min-w-0 items-center gap-1.5 rounded-control border border-primary-200 bg-primary-soft py-1 pr-1 pl-2.5 text-sm leading-5 text-primary-ink">
         <SparkleIcon size={14} weight="fill" aria-hidden="true" />
         <span className="font-semibold">{AI_SEARCH_COPY.summary}</span>
         <span className="min-w-0 truncate">{parts.length > 0 ? parts.join(' · ') : AI_SEARCH_COPY.noFilters}</span>
@@ -222,7 +228,7 @@ export function AiSearchSummaryRow({
           type="button"
           aria-label={AI_SEARCH_COPY.dismiss}
           onClick={onDismiss}
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-black/[0.06]"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-tag hover:bg-hover"
         >
           <XIcon size={12} weight="bold" />
         </button>

@@ -5,9 +5,10 @@ import { useId, useMemo, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
-import { TrashIcon, XIcon } from '@/components/ui/icons';
+import { MagnifyingGlassIcon, TrashIcon, XIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { usePublicConstants } from '@/lib/constants';
 import { BulkDeleteDialog } from './BulkDeleteDialog';
 import { DocumentList, type DocumentListVariant } from './DocumentList';
 import { focusDocument, neighbourOf } from './focusAfterRemoval';
@@ -42,7 +43,10 @@ export interface DocumentCollectionProps<T> {
   serverFiltered?: boolean;
   totalCount?: number;
 
-  /** "table" (Simplify card with toolbar, default) or "cards" (free_tailor rows). */
+  /**
+   * The list view's rows (v31 FIX-DOCS: both draw the documents table in a bordered box inside the Documents panel;
+   * "table" gives the actions column its header and a wider track, "cards" a ⋮ column). Default "table".
+   */
   variant?: DocumentListVariant;
   /** Views offered; a toggle shows when there are two. Default ['list']. */
   views?: readonly ViewMode[];
@@ -97,8 +101,9 @@ export interface DocumentCollectionProps<T> {
 }
 
 /**
- * One documents tab: toolbar (selection count + bulk Delete, extras, search, Grid | List), the "N of M match."
- * status line, then the list (table or cards) or the thumbnail grid, or the empty / no-match state. Data-agnostic:
+ * One documents section: the toolbar (search and extras; Select all, "{n} selected", bulk actions and Delete; Grid |
+ * List), the "N of M match." status line, then the list or the thumbnail grid, or the empty state (the stitch over
+ * pattern paper) or the no-match state (v31 FIX-DOCS: in the constants' words). Data-agnostic:
  * the caller loads, sorts and mutates; this only presents.
  */
 export function DocumentCollection<T>({
@@ -158,6 +163,7 @@ export function DocumentCollection<T>({
   const selection = useSelection(selectableIds);
   const [confirming, setConfirming] = useState(false);
   const statusId = useId();
+  const { t } = usePublicConstants();
 
   const searching = query.trim() !== '';
   const status = searching ? describeMatches(shown.length, total, noun) : '';
@@ -179,7 +185,7 @@ export function DocumentCollection<T>({
       count={selection.count}
       selectable={selectableIds.length}
       allSelected={selection.allSelected}
-      showEmptyCount={table}
+      showEmptyCount={false}
       onSelectAll={() => selection.setAll(true)}
       onClear={selection.clear}
       actions={selection.count > 0 ? bulkActions?.(selectedItems) : undefined}
@@ -193,64 +199,51 @@ export function DocumentCollection<T>({
       onValueChange={setQuery}
       label={searchLabel ?? `Search ${noun.many}`}
       placeholder={searchPlaceholder}
-      withIcon={!table}
-      className={table ? 'w-full sm:w-[min(36.875rem,42vw)]' : 'w-full sm:w-80'}
+      className="w-full max-sm:order-first sm:w-72"
     />
   );
   const viewToggle =
     effectiveViews.length > 1 ? <ViewToggle value={view} onChange={setView} views={effectiveViews} /> : null;
 
-  // Simplify's table card: "N selected" left; Upload, filters, Search and the view toggle right.
-  const tableToolbar = (
-    <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:min-h-[71px] sm:flex-row sm:items-center sm:gap-4 sm:py-0">
-      {selectionBar}
-      <div className="flex min-w-0 flex-wrap items-center gap-4 sm:ml-auto sm:flex-nowrap">
-        {toolbarExtras}
-        {searchBox}
-        {viewToggle}
-      </div>
-    </div>
-  );
-  // free_tailor's controls row: search and extras left; the selection (once something is ticked) and Grid | List right.
-  const cardsToolbar = (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-      <div className="flex min-w-0 flex-wrap items-center gap-3 sm:flex-nowrap">
+  // v31 FIX-DOCS: one toolbar for every section, inside the Documents panel: the search (and any extras) at the left;
+  // the selection (Select all, then "{n} selected", the bulk actions and Delete once something is ticked) and the
+  // view switch at the right. On a phone the search takes the first row and the rest share the second.
+  // v20 P10: Select all shows as soon as the view has something to select; the rest once something is.
+  const showSelection = selectable && (selection.count > 0 || selectableIds.length > 0);
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap" data-documents-toolbar="">
+      <div className="flex min-w-0 items-center gap-2 max-sm:contents">
         {searchBox}
         {toolbarExtras}
       </div>
-      <div className="flex items-center gap-4 sm:ml-auto">
-        {/* v20 P10: Select all shows as soon as the view has something to select; the rest once something is. */}
-        {(selection.count > 0 || selectableIds.length > 0) && selectionBar}
+      <div className="ml-auto flex items-center gap-3">
+        {showSelection && selectionBar}
         {viewToggle}
       </div>
     </div>
   );
 
   const statusLine = (
-    <p
-      id={statusId}
-      role="status"
-      className={clsx(
-        searching ? (table ? 'border-b border-border px-4 py-2 text-[13px] text-muted-foreground' : 'mt-3 text-[13px] text-muted-foreground') : 'sr-only',
-      )}
-    >
+    <p id={statusId} role="status" className={clsx(searching ? 'mt-3 text-[13px] text-muted-foreground' : 'sr-only')}>
       {status}
     </p>
   );
 
   let body: ReactNode;
   if (error) {
-    body = <div className={table ? 'p-4' : 'mt-4'}>{typeof error === 'string' ? <Notice tone="error">{error}</Notice> : error}</div>;
+    body = <div className="mt-4">{typeof error === 'string' ? <Notice tone="error">{error}</Notice> : error}</div>;
   } else if (loading) {
-    body = <LoadingRows table={table} grid={view === 'grid'} />;
+    body = <LoadingRows grid={view === 'grid'} />;
   } else if (items.length === 0 && !searching) {
+    // The stitch over pattern paper: a place where documents will be.
     body = (
       <EmptyState
         title={empty.title}
         description={empty.description}
         action={empty.action}
         icon={empty.icon}
-        className={table ? undefined : 'mt-4 rounded-surface border border-dashed border-control-strong'}
+        variant="dashed"
+        className="mt-5"
       />
     );
   } else if (folders && !searching) {
@@ -258,24 +251,22 @@ export function DocumentCollection<T>({
   } else if (shown.length === 0) {
     body = (
       <EmptyState
-        title={noMatchTitle(noun)}
-        description="Please update your search criteria and try again."
+        title={noMatchTitle(noun, t)}
+        description={t('MSG_DOCS_NO_MATCH_TEXT')}
+        icon={<MagnifyingGlassIcon size={22} />}
         action={
           <Button variant="outline" size="sm" onClick={() => setQuery('')}>
             Clear search
           </Button>
         }
-        className={table ? undefined : 'mt-4'}
+        className="mt-5 rounded-card border border-border"
       />
     );
   } else if (view === 'grid' && renderCard) {
     body = (
       <ul
         aria-describedby={searching ? statusId : undefined}
-        className={clsx(
-          'grid grid-cols-2 gap-x-3.5 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(min(100%,13.75rem),1fr))] sm:gap-x-6 sm:gap-y-8',
-          table ? 'p-4 sm:p-6' : 'mt-6',
-        )}
+        className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(min(100%,11.5rem),1fr))] sm:gap-5"
       >
         {newTile && <li className="min-w-0">{newTile}</li>}
         {shown.map((item) => {
@@ -309,26 +300,16 @@ export function DocumentCollection<T>({
         isSelectable={isSelectable}
         selectAllLabel={`Select all ${noun.many}`}
         aria-label={aria['aria-label'] ?? titleOf(noun)}
-        className={table ? undefined : 'mt-4'}
+        className="mt-4"
       />
     );
   }
 
   return (
     <section aria-label={aria['aria-label'] ?? titleOf(noun)} className={className}>
-      {table ? (
-        <div className="overflow-hidden rounded-surface border border-border bg-surface shadow-soft">
-          {tableToolbar}
-          {statusLine}
-          {body}
-        </div>
-      ) : (
-        <>
-          {cardsToolbar}
-          {statusLine}
-          {body}
-        </>
-      )}
+      {toolbar}
+      {statusLine}
+      {body}
       {selectable && onBulkDelete && (
         <BulkDeleteDialog
           open={confirming}
@@ -423,10 +404,10 @@ function titleOf(noun: Noun): string {
   return noun.many.charAt(0).toUpperCase() + noun.many.slice(1);
 }
 
-function LoadingRows({ table, grid }: { table: boolean; grid: boolean }) {
+function LoadingRows({ grid }: { grid: boolean }) {
   if (grid) {
     return (
-      <div className={clsx('grid grid-cols-2 gap-6 sm:grid-cols-[repeat(auto-fill,minmax(13.75rem,1fr))]', table ? 'p-6' : 'mt-6')}>
+      <div className="mt-5 grid grid-cols-2 gap-5 sm:grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))]">
         {Array.from({ length: 4 }, (_, index) => (
           <Skeleton key={index} rounded="surface" className="aspect-[794/1123] w-full" />
         ))}
@@ -434,15 +415,9 @@ function LoadingRows({ table, grid }: { table: boolean; grid: boolean }) {
     );
   }
   return (
-    <div className={clsx(table ? '' : 'mt-4 flex flex-col gap-2')} aria-busy="true">
+    <div className="mt-4 overflow-hidden rounded-card border border-border" aria-busy="true">
       {Array.from({ length: 3 }, (_, index) => (
-        <div
-          key={index}
-          className={clsx(
-            'flex items-center gap-4 px-4',
-            table ? 'h-[76px] border-b border-border last:border-b-0' : 'h-14 rounded-surface border border-border bg-surface',
-          )}
-        >
+        <div key={index} className="flex h-14 items-center gap-4 border-b border-divider-soft px-4 last:border-b-0">
           <Skeleton className="h-4 w-1/3" />
           <Skeleton className="ml-auto h-4 w-24" />
           <Skeleton className="h-4 w-24" />

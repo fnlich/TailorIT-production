@@ -3,11 +3,16 @@
 import { clsx } from 'clsx';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PAGE_GUTTER } from '@/components/shell/layout';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { PageSpinner } from '@/components/ui/Spinner';
+import { usePublicConstants } from '@/lib/constants';
+import { AddJobButton } from './add/AddJobDialog'; // v31 JOBSWEB
 import type { JobListItem } from './api';
-import { JobDetailPanel } from './detail/JobDetailPanel';
+import { JobDrawer } from './detail/JobDrawer';
+import type { DrawerNav } from './detail/JobDetailPanel';
 import { clearedQuery } from './filters';
-import { useFacet, useJobDetail, useJobsList, useSaveToggle } from './hooks';
+import { matchCount } from './format';
+import { useFacet, useJobDetail, useJobsList, useRowMatches, useSaveToggle } from './hooks';
 import { JobList, type JobSelection } from './list/JobList';
 import { saveBlockReason, useSaveSelected } from './list/useSaveSelected';
 import { JobsToolbar } from './toolbar/JobsToolbar';
@@ -16,16 +21,19 @@ import { useJobsUrl } from './useJobsUrl';
 
 const NO_JOBS: ReadonlySet<number> = new Set();
 
-/** Below Tailwind's `lg` the page is one column: the selected job's detail sits under the list. */
-function isOneColumn(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023.98px)').matches;
+/** The feed's row link of a job (the drawer gives focus back to it), or null when the feed does not show the job. */
+function rowLinkOf(jobId: number | null): HTMLElement | null {
+  if (jobId === null) return null;
+  return document.querySelector<HTMLElement>(`[data-job-card="${jobId}"] h3 a`);
 }
 
 /**
- * Simplify's Jobs page (`/jobs?jobId=…&filters`): the toolbar on the canvas, then one white bordered frame split into
- * the list (a third) and the selected job (two thirds), each scrolling on its own. The first job opens by itself;
- * the address keeps the job and every filter. In one column (narrow screens) choosing a job scrolls its detail into
- * view, and the detail's back arrow returns to the list.
+ * v31 FIX-JOBS: the Jobs page (`/jobs?jobId=…&filters`), TailorIT's own composition (REV-UX UX-1): the page header
+ * ("Jobs", what the page is, Add job), the search panel (search, filters, the active filters as removable chips), then
+ * one full-width feed of job rows, each measured against the person's resume with a tape meter. A row opens its job in
+ * a drawer from the right (the address keeps the job, so links, reload and Back work: opening adds a history entry,
+ * Back or Close removes it). The drawer steps through the feed with Previous / Next; closing it gives focus back to
+ * the row. Nothing opens by itself: the feed is the page.
  */
 export function JobsPage() {
   return (
@@ -36,20 +44,20 @@ export function JobsPage() {
 }
 
 function JobsPageContent() {
-  const { query, jobId, setQuery, updateQuery, selectJob } = useJobsUrl();
+  const { t, get } = usePublicConstants();
+  const { query, jobId, setQuery, updateQuery, selectJob, openJob, closeJob, currentJobId } = useJobsUrl();
   const list = useJobsList(query);
   const { toggle } = useSaveToggle();
-  const listScrollRef = useRef<HTMLDivElement>(null);
-  /** Counts the jobs chosen in one column: each change asks the detail panel to scroll itself into view. */
-  const [revealDetail, setRevealDetail] = useState(0);
   const companies = useFacet('companies', '', query.companies.length > 0);
+  const pages = useMemo(() => list.data?.pages ?? [], [list.data]);
+  const matches = useRowMatches(pages);
 
-  const items = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
-  const settled = list.isSuccess && !list.isPlaceholderData;
+  const items = useMemo(() => pages.flatMap((page) => page.items), [pages]);
+  const total = pages[0]?.total ?? 0;
   const filtersKey = queryKeyOf(query);
 
-  // v2.0 (A4): "Select" chooses jobs in the list to save to Saved Jobs (no job is queued from here: Prepare & Queue on
-  // the Auto-apply page does that). New filters start a new choice (jobs that left the list are never saved).
+  // v2.0 (A4): "Select" chooses jobs in the feed to save to Saved Jobs (no job is queued from here: Prepare & Queue on
+  // the Auto-apply page does that). New filters start a new choice (jobs that left the feed are never saved).
   const [selectMode, setSelectMode] = useState(false);
   const [selection, setSelection] = useState<{ key: string; ids: ReadonlySet<number> }>(() => ({
     key: filtersKey,
@@ -76,36 +84,53 @@ function JobsPageContent() {
     else setSelection({ key: filtersKey, ids: new Set(left) });
   });
   const choosable = (item: JobListItem) => saveBlockReason(item) === null;
+  // UX-3: starting and ending the choice keeps keyboard focus: on the bar's first control, then back on Select.
+  const focusAfterMode = useRef<'bar' | 'select' | null>(null);
+  useEffect(() => {
+    const target = focusAfterMode.current;
+    if (!target) return;
+    focusAfterMode.current = null;
+    const element =
+      target === 'bar'
+        ? document.querySelector<HTMLElement>('[data-selection-bar] button:not([disabled])')
+        : document.querySelector<HTMLElement>('[data-select-start]');
+    element?.focus();
+  }, [selectMode]);
   const selectionProps: JobSelection = {
     active: selectMode,
     selected,
     pending: saving,
-    onStart: () => setSelectMode(true),
+    onStart: () => {
+      focusAfterMode.current = 'bar';
+      setSelectMode(true);
+    },
     onToggle: toggleSelected,
     // Only jobs not saved or applied to yet can be chosen.
     onSelectAll: (on) =>
       setSelection({ key: filtersKey, ids: on ? new Set(items.filter(choosable).map((item) => item.id)) : NO_JOBS }),
-    // Only what the list shows now is saved, in its order.
+    // Only what the feed shows now is saved, in its order.
     onSave: () => saveSelected(items.filter((item) => choosable(item) && selected.has(item.id)).map((item) => item.id)),
-    onDone: endSelection,
+    onDone: () => {
+      focusAfterMode.current = 'select';
+      endSelection();
+    },
   };
 
-  // The first job opens by itself (and the address records it, so reload lands on the same job).
-  useEffect(() => {
-    if (jobId === null && settled && items[0]) selectJob(items[0].id);
-  }, [jobId, settled, items, selectJob]);
-
   // A job the person added from a page that gave way to the posting's shared job answers as that job: the address
-  // follows it, so Save, Hide and the rest act on the job shown (the detail panel shares this query).
+  // follows it, so Save, Hide and the rest act on the job shown (the drawer shares this query).
   const detail = useJobDetail(jobId);
   const answeredId = detail.data?.id;
   useEffect(() => {
     if (jobId !== null && answeredId !== undefined && answeredId !== jobId) selectJob(answeredId);
   }, [jobId, answeredId, selectJob]);
 
-  // New filters start the list from the top.
+  // New filters start the feed from the top (when the page has scrolled past it).
+  const firstFilters = useRef(filtersKey);
   useEffect(() => {
-    listScrollRef.current?.scrollTo({ top: 0 });
+    if (firstFilters.current === filtersKey) return;
+    firstFilters.current = filtersKey;
+    const feed = document.querySelector('[data-jobs-feed]');
+    if (feed && feed.getBoundingClientRect().top < 0) window.scrollTo({ top: 0 });
   }, [filtersKey]);
 
   const companyNames = useMemo(
@@ -118,90 +143,106 @@ function JobsPageContent() {
     [toggle],
   );
 
-  // A job chosen from the list; in one column its detail (under the list) scrolls into view.
-  const openJob = useCallback(
+  // The job the drawer shows last: closing gives focus back to its row.
+  const lastShown = useRef<number | null>(null);
+  useEffect(() => {
+    if (jobId !== null) lastShown.current = jobId;
+  }, [jobId]);
+
+  const [applyIntent, setApplyIntent] = useState<number | null>(null);
+
+  const open = useCallback((id: number) => openJob(id), [openJob]);
+  const quickApply = useCallback(
     (id: number) => {
-      selectJob(id);
-      if (isOneColumn()) setRevealDetail((count) => count + 1);
+      setApplyIntent(id);
+      openJob(id);
     },
-    [selectJob],
+    [openJob],
   );
 
-  // Back to the list from the detail (one column), with the chosen job in view.
-  const showList = useCallback(() => {
-    const panel = listScrollRef.current;
-    if (!panel || !isOneColumn()) return;
-    panel.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
-    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+  // Previous / Next walk the feed as it is loaded; Next at the end of a page loads the next one first. Each press steps
+  // from the job last asked for, so quick presses count one by one before the address catches up.
+  const index = jobId === null ? -1 : items.findIndex((item) => item.id === jobId);
+  const { hasNextPage, fetchNextPage } = list;
+  const step = (delta: -1 | 1) => {
+    const at = items.findIndex((item) => item.id === currentJobId());
+    if (at < 0) return;
+    const target = items[at + delta];
+    if (target) {
+      selectJob(target.id);
+      return;
+    }
+    if (delta === 1 && hasNextPage) {
+      void fetchNextPage().then((result) => {
+        const next = result.data?.pages.flatMap((page) => page.items)[at + 1];
+        if (next) selectJob(next.id);
+      });
+    }
+  };
+  const nav: DrawerNav = {
+    position: index >= 0 ? { index: index + 1, total: matchCount(total, get('JOB_SEARCH_COUNT_CAP')) } : null,
+    onPrevious: index > 0 ? () => step(-1) : null,
+    onNext: index >= 0 && (index < items.length - 1 || hasNextPage) ? () => step(1) : null,
+  };
 
-  // A job that no longer exists: back to the list, where the first job opens.
-  const backToJobs = useCallback(() => {
-    selectJob(null);
-    showList();
-  }, [selectJob, showList]);
-
-  // After hiding, the next job in the list opens (or the one before when it was the last).
+  // After hiding, the drawer closes and focus lands on the next job's row (or the one before when it was the last),
+  // where the person carries on; the toast's Undo is in reach then (a modal drawer keeps the page, toasts included,
+  // out of reach while it is open).
   const onJobsHidden = useCallback(
     ({ jobId: hiddenJob, companyId }: { jobId?: number; companyId?: number }) => {
       const gone = (item: JobListItem) =>
         (hiddenJob !== undefined && item.id === hiddenJob) || (companyId !== undefined && item.company.id === companyId);
-      const index = items.findIndex((item) => item.id === jobId);
-      const after = items.slice(index + 1).find((item) => !gone(item));
+      const at = items.findIndex((item) => item.id === jobId);
+      const after = items.slice(at + 1).find((item) => !gone(item));
       const before = items
-        .slice(0, Math.max(index, 0))
+        .slice(0, Math.max(at, 0))
         .reverse()
         .find((item) => !gone(item));
-      selectJob((after ?? before)?.id ?? null);
+      lastShown.current = (after ?? before)?.id ?? null;
+      closeJob();
     },
-    [items, jobId, selectJob],
+    [items, jobId, closeJob],
   );
 
-  const waitingForFirst = jobId === null && (list.isPending || list.isPlaceholderData);
-
   return (
-    <div className={clsx('flex flex-col pt-4 lg:h-[calc(100dvh-63px)]', PAGE_GUTTER)}>
-      <h1 className="sr-only">Jobs</h1>
+    <div className={clsx('mx-auto flex w-full max-w-[1280px] flex-col pt-7 pb-16', PAGE_GUTTER)}>
+      <PageHeader
+        title="Jobs"
+        description={t('MSG_JOBS_INTRO')}
+        actions={<AddJobButton onOpenJob={open} />}
+        className="mb-6"
+      />
       <JobsToolbar
         query={query}
         onChange={updateQuery}
         onReplace={setQuery}
         onClearAll={() => setQuery(clearedQuery(query))}
+        companyNames={companyNames}
       />
-      {/* Clipped, not a scroll container: in one column the detail's sticky header then sticks under the app header. */}
-      <div
-        data-jobs-frame
-        className="mt-4 grid min-h-0 flex-1 grid-cols-1 overflow-clip rounded-t-surface border border-b-0 border-border bg-surface lg:grid-cols-3"
-      >
-        <div
-          ref={listScrollRef}
-          role="region"
-          aria-label="Job list"
-          className="max-h-[60vh] min-h-0 scroll-mt-[79px] overflow-y-auto lg:max-h-none"
-        >
-          <JobList
-            query={query}
-            list={list}
-            selectedId={jobId}
-            scrollRef={listScrollRef}
-            onSelect={openJob}
-            onToggleSave={toggleSave}
-            onQueryChange={updateQuery}
-            onClearAll={() => setQuery(clearedQuery(query))}
-            companyNames={companyNames}
-            selection={selectionProps}
-          />
-        </div>
-        <JobDetailPanel
-          jobId={jobId}
-          waiting={waitingForFirst}
-          onJobsHidden={onJobsHidden}
-          revealSignal={revealDetail}
-          onShowList={showList}
-          onBackToJobs={backToJobs}
-          className="border-t border-border lg:col-span-2 lg:border-t-0 lg:border-l"
-        />
-      </div>
+      <JobList
+        query={query}
+        list={list}
+        selectedId={jobId}
+        matches={matches}
+        onSelect={open}
+        onApply={quickApply}
+        onToggleSave={toggleSave}
+        onQueryChange={updateQuery}
+        onClearAll={() => setQuery(clearedQuery(query))}
+        companyNames={companyNames}
+        selection={selectionProps}
+      />
+      <JobDrawer
+        jobId={jobId}
+        onClose={closeJob}
+        nav={nav}
+        // Back to the job's row (the next one after a hide); for a job the feed does not show (opened from a link or Add
+        // job), to Add job.
+        finalFocus={() => rowLinkOf(lastShown.current) ?? document.querySelector<HTMLElement>('[data-add-job-button]') ?? true}
+        onJobsHidden={onJobsHidden}
+        applyIntent={applyIntent}
+        onApplyIntentHandled={() => setApplyIntent(null)}
+      />
     </div>
   );
 }

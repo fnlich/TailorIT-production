@@ -26,6 +26,8 @@ export const refdataStep = defineEnrichmentStep({
   async enabled(deps) {
     return liveLookupsOn(deps) || (await refdataState(deps.db)).ready;
   },
+  // v31 RUNS: a live Wikidata lookup reads an outside host; matching the build alone reads none.
+  readsOutside: (deps) => liveLookupsOn(deps),
   async run(deps, work) {
     const state = await refdataState(deps.db);
     const lookup: OrgLookup | null = liveLookupsOn(deps) ? createWikidataLookup(deps) : null;

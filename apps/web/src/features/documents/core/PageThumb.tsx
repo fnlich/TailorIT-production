@@ -44,7 +44,7 @@ export function PageThumb({
   return (
     <div
       ref={box}
-      className={clsx('relative w-full overflow-hidden bg-white', className)}
+      className={clsx('relative w-full overflow-hidden bg-surface', className)}
       style={{ aspectRatio: `${page.widthPx} / ${page.heightPx}` }}
     >
       {hasPage && scale > 0 ? (
@@ -59,7 +59,7 @@ export function PageThumb({
           scrolling="no"
           loading={lazy ? 'lazy' : 'eager'}
           {...(srcDoc !== undefined ? { sandbox: '' } : {})}
-          className="pointer-events-none absolute top-0 left-0 origin-top-left border-0 bg-white"
+          className="pointer-events-none absolute top-0 left-0 origin-top-left border-0 bg-surface"
           style={{ width: page.widthPx, height: page.heightPx, transform: `scale(${scale})` }}
         />
       ) : (
@@ -74,7 +74,7 @@ export function ThumbLoading() {
   return (
     <span
       aria-hidden="true"
-      className="absolute inset-0 animate-shimmer bg-[linear-gradient(100deg,#ffffff_20%,#f3f3f3_40%,#ffffff_60%)] bg-[length:300%_100%] motion-reduce:animate-none"
+      className="absolute inset-0 animate-shimmer bg-[linear-gradient(100deg,var(--color-surface)_20%,var(--color-surface-muted)_40%,var(--color-surface)_60%)] bg-[length:300%_100%] motion-reduce:animate-none"
     />
   );
 }

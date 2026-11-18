@@ -23,7 +23,7 @@ import { useResumeLayout } from './useResumeLayout';
 /** Editor chrome around the pages: it changes how they look, never how they lay out. */
 const FONT_STYLESHEET_ID = 'tailorit-resume-fonts';
 
-const CANVAS_CSS ='[data-resume-canvas] .rt-sheet{box-shadow:0 1px 3px rgba(17,24,39,.12),0 0 0 1px rgba(17,24,39,.06)}';
+const CANVAS_CSS ='[data-resume-canvas] .rt-sheet{box-shadow:var(--shadow-card),0 0 0 1px var(--color-border)}';
 
 export interface ResumeCanvasProps {
   document: ResumeDocument;
@@ -90,7 +90,7 @@ export const ResumeCanvas = memo(function ResumeCanvas({ document, mode, slots, 
               key={index}
               role="separator"
               aria-label={`Page ${index + 2} of ${pages}`}
-              className="absolute right-0 left-0 flex items-center justify-end text-xs text-gray-500 select-none"
+              className="num absolute right-0 left-0 flex items-center justify-end text-xs text-muted-foreground select-none"
               style={{ top: sheetTop(layout.geometry, index + 1, EDITOR_PAGE_GAP_PX) - EDITOR_PAGE_GAP_PX, height: EDITOR_PAGE_GAP_PX }}
             >
               Page {index + 2} of {pages}

@@ -34,8 +34,8 @@ const OPTIONS: Record<ViewMode, { label: string; icon: typeof SquaresFourIcon }>
 };
 
 /**
- * Grid | List, two icon toggle buttons on Simplify's segmented track (4% black, white active pill).
- * `role="group"` with `aria-pressed` buttons.
+ * Grid | List, two icon toggle buttons on the segmented track (grey, radius 6, a 1 px edge; the pressed one a raised
+ * white tile with denim-ink icon, as the kit's SegmentedControl). `role="group"` with `aria-pressed` buttons.
  */
 export function ViewToggle({
   value,
@@ -49,7 +49,14 @@ export function ViewToggle({
   className?: string;
 }) {
   return (
-    <div role="group" aria-label="View" className={clsx('inline-flex h-9 shrink-0 items-center rounded-full bg-segment', className)}>
+    <div
+      role="group"
+      aria-label="View"
+      className={clsx(
+        'inline-flex h-9 shrink-0 items-center gap-0.5 rounded-control bg-surface-muted p-0.5 shadow-[inset_0_0_0_1px_var(--color-border)]',
+        className,
+      )}
+    >
       {views.map((mode) => {
         const { label, icon: Icon } = OPTIONS[mode];
         const pressed = value === mode;
@@ -61,10 +68,8 @@ export function ViewToggle({
               aria-pressed={pressed}
               onClick={() => onChange(mode)}
               className={clsx(
-                'inline-flex h-9 w-10 items-center justify-center rounded-full border transition-colors duration-150 focus-visible:outline-offset-0',
-                pressed
-                  ? 'border-black/[0.06] bg-surface text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
+                'inline-flex h-8 w-9 items-center justify-center rounded-tag transition-[background-color,color,box-shadow] duration-150 focus-visible:outline-offset-0',
+                pressed ? 'bg-surface text-primary-ink shadow-card' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Icon size={18} weight={pressed ? 'fill' : 'regular'} />

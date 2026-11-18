@@ -115,7 +115,7 @@ export function cardMetaLine(job: Pick<JobSummary, 'salary' | 'postedAt' | 'upda
   return [cardSalary(job), cardAge(job, sort, now)].filter(Boolean).join(' · ');
 }
 
-/** The facts grid's level: "Senior", "Mid, Senior" (Simplify's short labels, in level order). */
+/** The facts grid's level: "Senior", "Mid, Senior" (the short labels, in level order). */
 export function levelsLabel(levels: readonly ExperienceLevel[]): string {
   const set = new Set(levels);
   return EXPERIENCE_LEVELS.filter((level) => set.has(level))

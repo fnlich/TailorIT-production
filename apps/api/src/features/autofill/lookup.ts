@@ -1,4 +1,13 @@
-import { formatSalaryRange, industryLabel, linkKey, NOT_SPECIFIED_INDUSTRY } from '@tailorit/shared';
+import {
+  formatSalaryRange,
+  industryLabel,
+  linkKey,
+  linkParameterKept,
+  NOT_SPECIFIED_INDUSTRY,
+  secretOrAmbiguousName,
+  withoutLinkNoise,
+  type LinkParameterKept,
+} from '@tailorit/shared';
 import {
   addablePosting,
   AUTOFILL_POSTING_TEXT_MAX,
@@ -37,6 +46,7 @@ import { readJobText } from '../jobs/text';
 import { jobVisibleTo } from '../jobs/visibility';
 import { defaultResumeId } from '../resumes/repository';
 import { aliasValueHash } from './alias-key';
+import { listedParameters, POSTING_PARAMETERS, postingParameters } from './posting-parameters'; // v31 FIX-LINK
 import { readAutofillProfile } from './profile/repository';
 import { findAttachableResume, latestAttachableResume } from './resumes';
 
@@ -157,209 +167,23 @@ export function sourceLinkMatch(ats: ParsedAtsUrl, rows: readonly SourceLinkRow[
   return row ? { id: row.job_id, matchedBy: 'source_link', posting: true } : null;
 }
 
-/** A query parameter that never names another posting: its name (lower case), on any host or some, of any value or some. */
-interface LinkNoise {
-  name: string;
-  /** The hosts it is noise on; null: any. */
-  host: RegExp | null;
-  /** The values it is noise with (compared decoded); absent: any. */
-  value?: RegExp;
-}
+// v31 LINK: the query parameters that never name another posting (v3.0's LINK_NOISE and LINK_KEEP_ONLY: Jobright's
+// jr_id, Ashby's embed, `source` and `src`, iCIMS's iis and iisn, the mail and ad tools' click ids, Indeed's and
+// Glassdoor's visit parameters, ...) are the one shared list (packages/shared/src/jobs/canonical.ts isLinkNoise), which
+// linkKey itself drops since v3.1: withoutLinkNoise still drops them from a link or an alias stored before.
+export { withoutLinkNoise } from '@tailorit/shared';
 
-/**
- * Query parameters a stored link may carry that never name another posting, dropped when the lookup compares links:
- * Jobright's `jr_id` (a job list's own id, kept in the links of jobs imported from its exports) on any site, and
- * Ashby's `embed` on Ashby's board. Version 5 adds the marks an ATS's link carries of where the applicant came from,
- * which LinkedIn's Apply links (and job boards') add to the employer's link: `source` naming LinkedIn (Workday's
- * ?source=LinkedIn, and LinkedIn_Jobs, jobboard_linkedin, …) and `src` naming LinkedIn or a job board's code (Taleo's
- * src=JB-10120), on any site but only with those values (a site's own `source` or `src` may name what it shows);
- * iCIMS's inbound source and its name (`iis`, `iisn`: "Job Board", "LinkedIn") on its portals, of any value; and the
- * click and session ids mail and ad tools add to any link (Marketo's mkt_tok, Klaviyo's _kx, LinkedIn's li_fat_id,
- * ConvertKit's ck_subscriber_id, Omeda's oly_enc_id and oly_anon_id, Vero's vero_id and vero_conv, a cache buster's
- * cb or _, Impact's irclickid, TikTok's ttclid, Twitter's twclid, Pinterest's epik, Adobe's s_kwcid and ef_id,
- * HubSpot's __hstc, __hssc and __hsfp, Branch's _branch_match_id). Compared at lookup time, so the links and aliases
- * already stored stay as they are and still match.
- */
-const LINK_NOISE: readonly LinkNoise[] = [
-  { name: 'jr_id', host: null },
-  { name: 'embed', host: /^jobs\.ashbyhq\.com$/ },
-  { name: 'source', host: null, value: /^(?:linkedin|linkedin[_-]?jobs?|jobboard[_-]linkedin|li)$/i },
-  { name: 'src', host: null, value: /^(?:linkedin|linkedin[_-]?jobs?|li|lnkd|jb-\d{1,10})$/i },
-  { name: 'iis', host: /\.icims\.com$/ },
-  { name: 'iisn', host: /\.icims\.com$/ },
-  ...[
-    'mkt_tok',
-    '_kx',
-    'li_fat_id',
-    'ck_subscriber_id',
-    'oly_enc_id',
-    'oly_anon_id',
-    'vero_id',
-    'vero_conv',
-    'cb',
-    '_',
-    'irclickid',
-    'ttclid',
-    'twclid',
-    'epik',
-    's_kwcid',
-    'ef_id',
-    '__hstc',
-    '__hssc',
-    '__hsfp',
-    '_branch_match_id',
-  ].map((name) => ({ name, host: null })),
-];
-
-/**
- * Job boards whose posting pages name the posting in one or two parameters and carry a visit's own in every other
- * (Indeed's tk, from, vjs, advn, …; Glassdoor's pos, ao, cs, …): there every parameter but those is noise, so two
- * visits of one posting are one address. Indeed keeps jk and vjk; Glassdoor jl and jobListingId.
- */
-const LINK_KEEP_ONLY: ReadonlyArray<{ host: RegExp; keep: ReadonlySet<string> }> = [
-  { host: /(?:^|\.)indeed\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/, keep: new Set(['jk', 'vjk']) },
-  { host: /(?:^|\.)glassdoor\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/, keep: new Set(['jl', 'joblistingid']) },
-];
-
-/** Whether a parameter is LINK_NOISE (or one a LINK_KEEP_ONLY board does not keep) on this host. */
-function isLinkNoise(name: string, value: string, host: string): boolean {
-  const board = LINK_KEEP_ONLY.find((rule) => rule.host.test(host));
-  if (board) return !board.keep.has(name);
-  return LINK_NOISE.some(
-    (noise) => noise.name === name && (noise.host === null || noise.host.test(host)) && (!noise.value || noise.value.test(value)),
-  );
-}
-
-/**
- * Query parameters that carry a person's secret or lead elsewhere, never kept in an address TailorIT stores from a
- * page (from-page: a job's link, its aliases) in any form; compared in lower case. Every other parameter is kept (a
- * careers platform may name its posting in any: UltiPro's opportunityId, Taleo Business Edition's org, cws and rid,
- * ADP's cid, BrassRing's partnerid and siteid), as linkKey keeps it once its tracking parameters (utm_*, gclid, ref, …)
- * and LINK_NOISE are gone. These names, exactly: one-time passwords and codes, a session or signature id, a password,
- * an email address or user name, a magic link, OAuth's nonce, a JWT, auth, an HMAC, iCIMS's hashed id, a refresh, a
- * cookie, a bearer, an Authorization, CSRF and XSRF tokens, a signed URL's key pair (CloudFront) and access id (Google
- * Cloud Storage), SuccessFactors' session crumb and request parameters; the person's own details (a phone number, a
- * name, a birth date, an SSN, a candidate's or an applicant's id); and the addresses a page sends the person on to
- * (redirect_uri, returnUrl, next, continue, RelayState, callback, goto, dest, …), which may carry a secret of their own.
- */
-const SECRET_PARAMETERS: ReadonlySet<string> = new Set([
-  'otp',
-  'totp',
-  'mfa',
-  'ott',
-  'sid',
-  'ssid',
-  'sig',
-  'pass',
-  'pwd',
-  'email',
-  'mail',
-  'username',
-  'login_hint',
-  'magic',
-  'nonce',
-  'jwt',
-  'auth',
-  'hmac',
-  'hashed',
-  'refresh',
-  'cookie',
-  'bearer',
-  'csrf',
-  'xsrf',
-  'key-pair-id',
-  '_s.crb',
-  'requestparams',
-  'redirect_uri',
-  'redirect',
-  'redirect_url',
-  'returnurl',
-  'return_url',
-  'return_to',
-  'returnto',
-  'next',
-  'continue',
-  'relaystate',
-  'callback',
-  'goto',
-  'dest',
-  'destination',
-  'authorization',
-  'googleaccessid',
-  'phone',
-  'tel',
-  'mobile',
-  'firstname',
-  'first_name',
-  'lastname',
-  'last_name',
-  'fullname',
-  'full_name',
-  'dob',
-  'birthdate',
-  'birthday',
-  'ssn',
-  'candidateid',
-  'candidate_id',
-  'applicantid',
-  'applicant_id',
-]);
-
-/**
- * …and these patterns: a token of any kind (access_token, auth_token, authToken, __RequestVerificationToken, …), a
- * secret (client_secret), a password, a session (jsessionid, PHPSESSID, session_id), a signature (X-Amz-Signature), a
- * credential (X-Amz-Credential), SAML's request and response, a magic link, a nonce, a one-time password, CSRF and XSRF
- * tokens, a bearer, a cookie, Amazon's and Google's signed-URL parameters, an API, access, private, app, client,
- * subscription or activation key, an auth code or key, a pass, PIN, access, security, MFA, SMS, one-time, activation,
- * verification or login code, an email address, and the links of a verification, a confirmation, an invitation, a
- * reset or a sign-in.
- */
-const SECRET_PARAMETER =
-  /token|secret|passw|session|sessid|signature|credential|saml|magic|nonce|otp|csrf|xsrf|bearer|cookie|^x-amz-|^x-goog-|^aws|api[_-]?key|access[_-]?key|private[_-]?key|(?:app|client|subscription|activation)[_-]?key$|(?:^|[_.-])auth(?:$|[_.-]|code|key|z)|^oauth|(?:^|[_.-])(?:pass|pin|access|security|mfa|sms|otp|one[_-]?time|activation|verification|login)[_-]?code$|e-?mail|verif|confirm|invit|reset|login|logon|signin|sign-in/;
-
-/**
- * Names that may carry a secret or may name the posting (a sign-in code or a job's code, an API key or a posting's key,
- * OAuth's state or a US state, a user or a hiring manager, a hash, a PIN, a ticket or a requisition's, a signed URL's
- * policy and expiry or a site's): never stored as written. An address's alias keeps such a value only as its keyed
- * hash (`name=h:<12 hex>`, aliasValueHash), so two postings stay apart and the value cannot be read back; its Apply link
- * keeps none of them.
- */
-const AMBIGUOUS_PARAMETERS: ReadonlySet<string> = new Set([
-  'code',
-  'key',
-  'state',
-  'user',
-  'uid',
-  'userid',
-  'user_id',
-  'hash',
-  'pin',
-  'ticket',
-  'policy',
-  'expires',
-]);
-
-/** A value that is itself a signed token (a JWT: base64url header starting "eyJ", a payload, a signature). */
-const TOKEN_VALUE = /^(?:bearer\s+)?eyJ[\w-]{4,}\.[\w-]{4,}\./i;
-
-/** A one-letter parameter's value that looks like a token: over 32 characters of base64, base64url or hex. */
-const TOKEN_LIKE = /^[A-Za-z0-9+/_=-]{33,}$/;
-
-/** The longest value a parameter keeps as written: a longer one (a return address, an encoded blob) is hashed or dropped. */
-const PAGE_PARAMETER_MAX = 200;
-
-/** How a stored page address keeps a parameter: as written, dropped, or (an alias's) only as its keyed hash. */
-type Kept = 'keep' | 'drop' | 'hash';
+// v31 FIX-LINK (SEC-2): the parameters a stored page address never keeps as written (a person's secrets, the ambiguous
+// ones, the over-long ones) are the one list in packages/shared/src/jobs/canonical.ts (linkParameterKept), which the
+// add pipeline's shared links read too (shareableJobUrl).
+type Kept = LinkParameterKept;
 
 function keptOnPage(name: string, value: string): Kept {
-  if (SECRET_PARAMETERS.has(name) || SECRET_PARAMETER.test(name) || TOKEN_VALUE.test(value)) return 'drop';
-  if (name.length === 1 && TOKEN_LIKE.test(value)) return 'drop';
-  if (AMBIGUOUS_PARAMETERS.has(name) || value.length > PAGE_PARAMETER_MAX) return 'hash';
-  return 'keep';
+  return linkParameterKept(name, value);
 }
 
 /**
- * The keyed hash an alias keeps an ambiguous or long parameter's value as (AMBIGUOUS_PARAMETERS): HMAC-SHA256 of
+ * The keyed hash an alias keeps an ambiguous or long parameter's value as (AMBIGUOUS_LINK_PARAMETERS): HMAC-SHA256 of
  * "<name>=<value>" under this TailorIT's own alias key (aliasKey.ts: a file in its data folder, never in the database),
  * its first 12 hex digits after "h:". Null: no key in this process, and the parameter is dropped as an Apply link drops it.
  */
@@ -386,16 +210,6 @@ function rewriteParameters(key: string, decide: (name: string, value: string, ho
   return kept.length > 0 ? `${key.slice(0, at)}?${kept.join('&')}` : key.slice(0, at);
 }
 
-/** A linkKey without the query parameters `drop` names (the rest kept in their order), or the key as it is. */
-function withoutParameters(key: string, drop: (name: string, value: string, host: string) => boolean): string {
-  return rewriteParameters(key, (name, value, host) => (drop(name, value, host) ? null : undefined));
-}
-
-/** A linkKey without LINK_NOISE's parameters (the rest kept in their order), or the key as it is. */
-export function withoutLinkNoise(key: string): string {
-  return withoutParameters(key, isLinkNoise);
-}
-
 /**
  * The fragment of an address that names what the page shows, so it is kept: a single-page site's route (#/jobs/101,
  * #!/jobs/101, with a query or not) or parameters (BrassRing's #jobDetails=111_5); '' for any other fragment (#top).
@@ -412,48 +226,10 @@ function withoutMatrixParameters(path: string): string {
   return bare.length > 1 && bare.endsWith('/') ? bare.slice(0, -1) : bare;
 }
 
-/**
- * Autofill API 7: the parameters, by kind and in lower case, that name a posting yet look like a secret to
- * keptOnPage, kept as written when the posting's own first canonical address names them (postingParameters): JobDiva's
- * agency key `a` (64 letters and digits: a one-letter name with a token-like value). Nothing else, on no other kind
- * (the jr7 review's A-2: a whole page's parameters were kept for a Greenhouse company page). No name here may be one a
- * secret or an ambiguous parameter uses (secretOrAmbiguousName; a test holds the list to it).
- */
-export const POSTING_PARAMETERS: Readonly<Partial<Record<AtsKind, readonly string[]>>> = { jobdiva: ['a'] };
-
-/** Whether a parameter's name (in lower case) is one TailorIT never keeps as written: a secret's or an ambiguous. */
-export function secretOrAmbiguousName(name: string): boolean {
-  return SECRET_PARAMETERS.has(name) || SECRET_PARAMETER.test(name) || AMBIGUOUS_PARAMETERS.has(name);
-}
-
-/**
- * The query parameters, as "<name in lower case>=<value>", that the posting `address` names keeps as written whatever
- * they look like: those of POSTING_PARAMETERS' list for its kind that its first canonical address names (parseAtsUrl
- * builds it from the posting's board and id alone), and never a secret's or an ambiguous name. Empty for an address
- * that names no posting, and for every kind but those listed.
- */
-export function postingParameters(address: string): ReadonlySet<string> {
-  const read = parseAtsUrl(address);
-  return read ? listedParameters(read.kind, read.canonical[0]) : new Set();
-}
-
-/**
- * postingParameters' reading of one canonical address of a posting of `kind`: its query's parameters whose name is in
- * POSTING_PARAMETERS' list for `kind` and is no secret's or ambiguous name, as "<name in lower case>=<value>".
- */
-export function listedParameters(kind: AtsKind, canonical: string | undefined): ReadonlySet<string> {
-  const names = POSTING_PARAMETERS[kind];
-  const query = canonical?.split('#')[0]?.split('?')[1];
-  if (!names || !query) return new Set();
-  const kept = new Set<string>();
-  for (const pair of query.split('&')) {
-    const equals = pair.indexOf('=');
-    const name = decodeURIComponentSafe(equals < 0 ? pair : pair.slice(0, equals)).toLowerCase();
-    const value = equals < 0 ? '' : decodeURIComponentSafe(pair.slice(equals + 1).replace(/\+/g, ' '));
-    if (names.includes(name) && !secretOrAmbiguousName(name)) kept.add(`${name}=${value}`);
-  }
-  return kept;
-}
+// v31 FIX-LINK: POSTING_PARAMETERS, postingParameters and listedParameters live in a leaf module (posting-parameters.ts)
+// the add pipeline's address helper reads without this lookup; the one list's test of a name is packages/shared's.
+export { listedParameters, POSTING_PARAMETERS, postingParameters };
+export { secretOrAmbiguousName };
 
 /**
  * A key's (or a fragment query's, after "x?") parameters as a stored page address keeps them (keptOnPage): a secret's

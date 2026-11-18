@@ -36,7 +36,7 @@ export interface ComboboxProps {
 const sameItem = (a: ComboItem, b: ComboItem) => a.value === b.value;
 
 /**
- * A filterable single choice with an optional "Create" row (Simplify's Company field in "Add Application").
+ * A filterable single choice with an optional "Create" row (the Company field in "Add Application").
  */
 export function Combobox({
   options,
@@ -98,7 +98,7 @@ export function Combobox({
         />
         <BaseCombobox.Trigger
           aria-label="Show options"
-          className="absolute right-1.5 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-hover"
+          className="absolute right-1.5 inline-flex size-6 items-center justify-center rounded-tag text-muted-foreground hover:bg-hover"
         >
           <CaretDownIcon size={14} />
         </BaseCombobox.Trigger>
@@ -119,13 +119,13 @@ export function Combobox({
                 <BaseCombobox.Item key={item.value} value={item} className={clsx(MENU_ROW, 'relative pr-8')}>
                   {item.creatable ? (
                     <>
-                      <PlusIcon size={14} className="text-primary-ink" />
-                      <span className="min-w-0 flex-1 truncate font-medium text-primary-ink">{item.label}</span>
+                      <PlusIcon size={14} className="text-primary" />
+                      <span className="min-w-0 flex-1 truncate font-medium text-primary">{item.label}</span>
                     </>
                   ) : (
                     <>
                       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                      <BaseCombobox.ItemIndicator className="absolute right-2.5 flex text-primary-ink">
+                      <BaseCombobox.ItemIndicator className="absolute right-2.5 flex text-primary">
                         <CheckIcon size={14} weight="bold" />
                       </BaseCombobox.ItemIndicator>
                     </>

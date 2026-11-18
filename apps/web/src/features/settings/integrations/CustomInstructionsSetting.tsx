@@ -14,9 +14,10 @@ import { usePublicConstants } from '../../../lib/constants';
 import { CharacterCount } from '../parts';
 import { fetchMcpSettings, MCP_SETTINGS_KEY, saveMcpSettings } from './api';
 
-// v2.0: Settings › Integrations › "Your own AI (MCP)" › Custom instructions (docs/design/v2.0/08-ui.md, "Settings ›
-// Integrations"; 07-mcp.md): one plain text field the person's own AI gets with TailorIT's default instructions. The
-// platform's rules still hold: the server applies the person's filters and limits whatever these say. No other MCP UI.
+// v2.0: Integrations › AI assistants › "How your AI works with TailorIT" › Custom instructions
+// (docs/design/v2.0/08-ui.md, "Settings › Integrations"; 07-mcp.md): one plain text field the person's own AI gets with
+// TailorIT's default instructions. The platform's rules still hold: the server applies the person's filters and limits
+// whatever these say. No other MCP UI.
 
 export const CUSTOM_INSTRUCTIONS_COPY = {
   label: 'Custom instructions',

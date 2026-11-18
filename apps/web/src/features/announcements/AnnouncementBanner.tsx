@@ -19,11 +19,15 @@ import { BANNER_COPY, SEVERITY_LABEL, SEVERITY_TONE, announcesAsAlert, bannerIte
 // severe first, as full-width strips in plain text. Each is dismissed for this person alone: at once on the page, then
 // on the server. Never on the sign-in page (it is outside the (app) layout).
 
+// v3.1: each strip is a full-width notice: the tone's soft background, its ink for the words, and a 3 px bar of the
+// full tone on the leading edge (the kit's Notice, as a strip).
 const TONE_CLASSES = {
-  info: 'bg-sky text-sky-foreground',
-  warning: 'bg-amber text-amber-foreground',
-  error: 'bg-destructive-container text-[#b42625]',
+  info: 'border-l-info bg-info-soft text-info-ink',
+  warning: 'border-l-warning bg-warning-soft text-warning-ink',
+  error: 'border-l-danger bg-danger-soft text-danger-ink',
 } as const;
+
+const ICON_CLASSES = { info: 'text-info', warning: 'text-warning', error: 'text-danger' } as const;
 
 /** The critical announcements this tab has shown: each is an alert once, never again (a re-render, a new page). */
 const announcedInThisTab = new Set<string>();
@@ -127,10 +131,10 @@ export function AnnouncementList({
             key={item.id}
             data-announcement={item.severity}
             role={alertIds.has(item.id) ? 'alert' : undefined}
-            className={clsx('border-b border-black/[0.06]', TONE_CLASSES[tone])}
+            className={clsx('border-b border-l-[3px] border-b-border', TONE_CLASSES[tone])}
           >
             <div className={clsx('flex items-start gap-2.5 py-2.5', PAGE_GUTTER)}>
-              <span className="mt-0.5 flex shrink-0" aria-hidden="true">
+              <span className={clsx('mt-0.5 flex shrink-0', ICON_CLASSES[tone])} aria-hidden="true">
                 {tone === 'info' ? <InfoIcon size={18} weight="fill" /> : <WarningCircleIcon size={18} weight="fill" />}
               </span>
               <div className="min-w-0 flex-1 text-sm leading-5 break-words">
@@ -148,7 +152,7 @@ export function AnnouncementList({
                 disabled={preview}
                 onClick={(event) => dismissAndMoveFocus(item, event.currentTarget)}
                 data-announcement-dismiss=""
-                className="-my-1 -mr-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-control transition-colors duration-150 hover:bg-black/[0.07] max-sm:-my-2.5 max-sm:size-11"
+                className="-my-1 -mr-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-control transition-colors duration-150 hover:bg-hover active:bg-pressed max-sm:-my-2.5 max-sm:size-11"
               >
                 <XIcon size={16} weight="bold" />
               </button>

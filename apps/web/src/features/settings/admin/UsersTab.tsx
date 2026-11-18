@@ -113,6 +113,7 @@ export function UsersTab() {
         );
       },
     },
+    // "Default" or an amount: words, so not the measurement face.
     { key: 'budget', header: 'AI budget', className: 'w-28 tabular-nums', cell: (user) => budgetCell(user) },
     {
       key: 'today',
@@ -123,13 +124,13 @@ export function UsersTab() {
         return (
           <span className="flex flex-col text-[13px] leading-5 tabular-nums">
             <span>{today.ai}</span>
-            {today.writtenOff && <span className="text-amber-foreground">{today.writtenOff}</span>}
+            {today.writtenOff && <span className="text-warning">{today.writtenOff}</span>}
             <span className="text-muted-foreground">{today.autoApplies}</span>
           </span>
         );
       },
     },
-    { key: 'credit', header: 'Extra credit', className: 'w-28 tabular-nums', cell: (user) => formatUsd(user.extraCreditMicros) },
+    { key: 'credit', header: 'Extra credit', className: 'w-28', numeric: true, cell: (user) => formatUsd(user.extraCreditMicros) },
     {
       key: 'status',
       header: 'Status',

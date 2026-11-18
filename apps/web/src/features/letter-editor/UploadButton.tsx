@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactElement } from 'react';
 import { Button } from '@/components/ui/Button';
 import { UploadSimpleIcon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/Toast';
@@ -8,25 +8,24 @@ import { userMessage } from '@/lib/api';
 
 export const LETTER_UPLOAD_ACCEPT = '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-/** "a.pdf" / "b.docx" are what letters and templates accept (Simplify: "Unsupported file type"). */
+/** "a.pdf" / "b.docx" are what letters and templates accept (anything else: "Unsupported file type"). */
 export function isLetterUpload(file: File): boolean {
   return /\.(pdf|docx)$/i.test(file.name);
 }
 
 /**
- * Simplify's outline "Upload" button: picks a .pdf or .docx, sends it, then hands the created document over (the tab
- * opens it in the editor). Errors are toasts with the server's sentence.
+ * v31 FIX-DOCS: a letter or template upload without its button (the Documents page header's Upload runs `open`):
+ * picks a .pdf or .docx, sends it, then hands the created document over. `input` is the hidden file field to render
+ * once. Errors are toasts with the server's sentence.
  */
-export function UploadButton({
+export function useLetterUpload({
   upload,
   onUploaded,
-  label = 'Upload',
 }: {
   upload: (file: File) => Promise<{ id: string }>;
   onUploaded: (created: { id: string }) => void;
-  label?: string;
-}) {
-  const input = useRef<HTMLInputElement>(null);
+}): { open: () => void; busy: boolean; input: ReactElement } {
+  const field = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -45,23 +44,43 @@ export function UploadButton({
     }
   };
 
+  const input = (
+    <input
+      ref={field}
+      type="file"
+      accept={LETTER_UPLOAD_ACCEPT}
+      hidden
+      data-letter-upload=""
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (file) void send(file);
+      }}
+    />
+  );
+  return { open: () => field.current?.click(), busy, input };
+}
+
+/**
+ * The outline "Upload" button over useLetterUpload: picks a .pdf or .docx, sends it, then hands the created document
+ * over (the section opens it in the editor).
+ */
+export function UploadButton({
+  upload,
+  onUploaded,
+  label = 'Upload',
+}: {
+  upload: (file: File) => Promise<{ id: string }>;
+  onUploaded: (created: { id: string }) => void;
+  label?: string;
+}) {
+  const { open, busy, input } = useLetterUpload({ upload, onUploaded });
   return (
     <>
-      <Button variant="outline" icon={<UploadSimpleIcon size={16} />} loading={busy} onClick={() => input.current?.click()}>
+      <Button variant="outline" icon={<UploadSimpleIcon size={16} />} loading={busy} onClick={open}>
         {busy ? 'Uploading...' : label}
       </Button>
-      <input
-        ref={input}
-        type="file"
-        accept={LETTER_UPLOAD_ACCEPT}
-        hidden
-        data-letter-upload=""
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = '';
-          if (file) void send(file);
-        }}
-      />
+      {input}
     </>
   );
 }

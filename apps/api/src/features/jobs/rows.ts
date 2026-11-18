@@ -22,6 +22,7 @@ import {
 import { agentCanApply, parseLinkedInJobUrl, queueCanOpen } from '@tailorit/shared/autofill';
 import { COMPANY_DETAIL_SQL, COMPANY_LOGO_SQL, COMPANY_SPONSORS_SQL, companyDetailOf } from '../companies/detail'; // v30 E0-API
 import { jobCreditOf, jobCreditSql } from './credit'; // v30 S4
+import { verificationColumns, verificationOf } from './add/verification'; // v31 LINK
 
 // Rows of the jobs tables and their DTOs. Columns other packages write (ingestion) are read defensively: a value
 // outside an enum reads as null, unreadable JSON as empty, and dates are normalized to ISO timestamps.
@@ -37,7 +38,8 @@ export const SUMMARY_COLUMNS = `
   j.posted_at, j.first_seen_at, j.source_updated_at, j.active, j.apply_url, j.held_since,
   a.id AS application_id, a.current_status AS application_status, a.archived_at AS application_archived_at,
   ${appliedOnSql('a')} AS applied_on,
-  ${jobCreditSql('j')} AS credit_json`; // v30 S4: the source's credit line (jobs/credit.ts)
+  ${jobCreditSql('j')} AS credit_json,
+  ${verificationColumns('j')}`; // v30 S4: the source's credit line (jobs/credit.ts); v31 LINK: the verification
 
 /**
  * The viewer's application for the job (at most one: applications(user_id, job_id) is unique). Bind `@userId`.
@@ -85,6 +87,9 @@ export interface SummaryRow {
   applied_on: string | null;
   /** v30 S4: the job's source's credit line as JSON text (jobs/credit.ts jobCreditSql), or null. */
   credit_json?: string | null;
+  /** v31 LINK: the job is its viewer's own (TailorIT could not read its link), and why (job_verifications). */
+  owned_job?: boolean | null;
+  verification_json?: unknown;
 }
 
 export interface DetailRow extends SummaryRow {
@@ -245,6 +250,8 @@ export function toListItem(row: SummaryRow): JobListItem {
     ...(row.held_since ? { held: true } : {}),
     // v30 S4 (12 §3.6-3.7): the credit line its source's terms ask for on its card (absent: none).
     ...creditOf(row),
+    // v31 LINK (21-jobs-from-links.md §6): a job others do not see says why (absent: everyone sees it).
+    ...verificationOf(row),
   };
 }
 

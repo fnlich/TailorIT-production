@@ -8,9 +8,9 @@ import { XIcon } from './icons';
 
 /*
  *   <Dialog open={open} onOpenChange={setOpen}>
- *     <DialogContent title="Change resume name" description="…">
+ *     <DialogContent title="Rename resume" description="…">
  *       …
- *       <DialogFooter><Button variant="outline" onClick={…}>Keep it</Button><Button>Change</Button></DialogFooter>
+ *       <DialogFooter><Button variant="outline" onClick={…}>Cancel</Button><Button>Rename</Button></DialogFooter>
  *     </DialogContent>
  *   </Dialog>
  * Escape and an outside press close the top-most dialog only; focus is trapped and returns to the opener.
@@ -34,11 +34,11 @@ const SIZES: Record<DialogSize, string> = {
   md: 'max-w-md',
   lg: 'max-w-lg',
   xl: 'max-w-2xl',
-  full: 'h-full max-w-none rounded-none sm:rounded-surface',
+  full: 'h-full max-w-none rounded-none sm:rounded-popup',
 };
 
 export const BACKDROP =
-  'fixed inset-0 z-50 min-h-dvh bg-overlay transition-opacity duration-200 ease-out-soft ' +
+  'fixed inset-0 z-50 min-h-dvh bg-overlay backdrop-blur-[2px] transition-opacity duration-200 ease-out-soft ' +
   'data-starting-style:opacity-0 data-ending-style:opacity-0 supports-[-webkit-touch-callout:none]:absolute';
 
 export interface DialogContentProps {
@@ -54,8 +54,8 @@ export interface DialogContentProps {
 }
 
 /**
- * A centred white dialog (radius 16, dialog shadow) over a 40% black backdrop. `full` fills the window (its content
- * lays out its own header and padding).
+ * A centred white dialog (radius 10, 1 px border, the dialog shadow) over the denim overlay. `full` fills the window
+ * (its content lays out its own header and padding).
  */
 export function DialogContent({
   children,
@@ -81,7 +81,7 @@ export function DialogContent({
           finalFocus={finalFocus}
           className={clsx(
             'relative flex max-h-full w-full flex-col bg-surface text-foreground shadow-dialog outline-none',
-            size !== 'full' && 'rounded-surface p-6',
+            size !== 'full' && 'rounded-popup border border-border p-6',
             'transition-[opacity,scale] duration-200 ease-out-soft data-starting-style:scale-[0.97] data-starting-style:opacity-0',
             'data-ending-style:scale-[0.97] data-ending-style:opacity-0',
             SIZES[size],
@@ -108,7 +108,7 @@ export function DialogContent({
 
 export function DialogTitle({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <BaseDialog.Title className={clsx('text-lg leading-7 font-semibold tracking-tight text-foreground', className)}>
+    <BaseDialog.Title className={clsx('text-heading font-semibold text-foreground', className)}>
       {children}
     </BaseDialog.Title>
   );
@@ -128,6 +128,6 @@ export function DialogDescription({ children, className }: { children: ReactNode
  */
 export function DialogFooter({ children, className, flush }: { children: ReactNode; className?: string; flush?: boolean }) {
   return (
-    <div className={clsx('flex flex-wrap items-center justify-end gap-3', !flush && 'mt-6', className)}>{children}</div>
+    <div className={clsx('flex flex-wrap items-center justify-end gap-2.5', !flush && 'mt-6', className)}>{children}</div>
   );
 }

@@ -6,14 +6,16 @@ import { assertFeature } from '../../core/accounts/entitlements';
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
-import { keyedRateLimit } from '../../core/rate-limit';
 import { waitSentence } from '../autofill/auth';
 import type { PrepareAdapter } from './prepare';
 import { createMcpServer } from './server';
 import { presentedMcpToken, resolveMcpToken, type McpCaller } from './tokens';
 import { MINUTE_MS } from '@tailorit/shared';
+import { OAUTH_SCOPE_MCP } from '@tailorit/shared/oauth'; // v31 OAUTH
+import { oauthAddresses } from '../oauth/addresses'; // v31 OAUTH
+import { addressOf } from '../oauth/limits'; // v31 FIX-AUTH
 
-// TailorIT's MCP endpoint (v1.5 M): Streamable HTTP at /mcp on the API (by default http://127.0.0.1:4100/mcp), in the
+// TailorIT's MCP endpoint (v1.5 M): Streamable HTTP at /mcp on the API (v3.1: reached at APP_ORIGIN/mcp), in the
 // SDK's stateless mode with JSON answers: each POST gets its own server and transport, built for the account its token
 // names (server.ts), and GET and DELETE (a standalone stream, ending a session) answer 405, as the SDK's stateless
 // example does. It is mounted before the app's cookie, bearer, body and Origin middleware (app.ts's early routes): it
@@ -24,7 +26,15 @@ import { MINUTE_MS } from '@tailorit/shared';
 // 2. Origin: none (an MCP client is no browser), or a page at one of those names; any other is a page elsewhere: 403.
 //    A refused Host or Origin never reaches the token check.
 // 3. The token: `Authorization: Bearer tim_...`, live and its account enabled; otherwise 401 with WWW-Authenticate.
-//    Refusals of every caller together are limited (REFUSALS_PER_MINUTE), so nothing can hash guesses fast. v2.0 P5:
+//    v31 OAUTH: or `Bearer tio_...`, an OAuth access token a connected app (Claude, ChatGPT) got through TailorIT's
+//    authorization server (features/oauth), issued for this endpoint (its audience), not expired, its grant not
+//    revoked. The 401's challenge points at the endpoint's metadata (resource_metadata) with scope="mcp": that is how
+//    those apps find where to ask the person. The same plan check and per-token limits follow (an OAuth caller's key
+//    is its grant, so a refresh does not reset them).
+//    v31 FIX-AUTH (SEC-4): failed token checks are limited per caller address (REFUSALS_PER_MINUTE; oauth/limits.ts
+//    addressOf), so one address cannot try tokens fast. Only a credential shaped like a token that does not work
+//    counts (a request with no token is the normal first step of Claude and ChatGPT: 401 with the challenge), and the
+//    limit is read only after the token was checked, so a token that works is never refused by it. v2.0 P5:
 //    the scope `prepare` (a stored v1.5 `prebuild` reads as it, tokens.ts), then the account's plan must include MCP
 //    (assertFeature 'mcp', FREE_MCP / PAID_MCP): 403 with the plan's message otherwise.
 // 4. Per token: the constants MCP_CALLS_PER_MINUTE (120) a minute and MCP_CALLS_PER_HOUR (2,000) an hour, read per
@@ -35,7 +45,7 @@ import { MINUTE_MS } from '@tailorit/shared';
 
 // v2.0 FIX-C (REQ-11): a token's requests a minute and an hour are the constants MCP_CALLS_PER_MINUTE and
 // MCP_CALLS_PER_HOUR alone (02-constants.md: they replaced v1.5's MCP_PER_MINUTE and MCP_PER_HOUR, no longer here).
-/** Refused credentials a minute, every caller together. */
+/** Failed token checks a minute, per caller address (v31 FIX-AUTH, SEC-4: it was every caller together). */
 export const REFUSALS_PER_MINUTE = 60;
 /** The largest request body. */
 export const MCP_BODY_LIMIT = '1mb';
@@ -82,6 +92,14 @@ export function knownAddressOnly(allowedHosts: readonly string[]): RequestHandle
   };
 }
 
+// v31 OAUTH
+/** The 401's WWW-Authenticate: Bearer, the protected resource's metadata address and the scope `mcp`. */
+export function bearerChallenge(resourceMetadataUrl: string, credentialSent: boolean): string {
+  const error = credentialSent ? ', error="invalid_token"' : '';
+  return `Bearer realm="tailorit"${error}, resource_metadata="${resourceMetadataUrl}", scope="${OAUTH_SCOPE_MCP}"`;
+}
+// end v31 OAUTH
+
 declare module 'express-serve-static-core' {
   interface Request {
     /** The MCP token behind a request to /mcp (features/mcp). */
@@ -91,15 +109,36 @@ declare module 'express-serve-static-core' {
 
 const callerOf = (req: Request): McpCaller => req.mcpCaller!;
 
+/**
+ * v31 FIX-AUTH (SEC-4): the failed token checks of each caller address in the current minute (a fixed window per
+ * address), per endpoint, in memory (one process; core/rate-limit.ts's reasoning). `fail` counts one and answers how
+ * long the address must wait when it is past REFUSALS_PER_MINUTE, else null. Past 10,000 addresses the ended windows,
+ * then the oldest, are dropped.
+ */
+export function failedTokenCounter(limit: number, windowMs: number, now: () => number = Date.now) {
+  const windows = new Map<string, { start: number; count: number }>();
+  return {
+    fail(address: string): number | null {
+      const at = now();
+      if (windows.size > 10_000) {
+        for (const [key, window] of windows) if (at - window.start >= windowMs) windows.delete(key);
+        // Still full (many addresses this minute): the oldest windows go first.
+        while (windows.size > 10_000) windows.delete(windows.keys().next().value as string);
+      }
+      let window = windows.get(address);
+      if (!window || at - window.start >= windowMs) {
+        window = { start: at, count: 0 };
+        windows.set(address, window);
+      }
+      window.count += 1;
+      return window.count > limit ? Math.max(1, Math.ceil((window.start + windowMs - at) / 1000)) : null;
+    },
+  };
+}
+
 export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, version: string): Router {
   const router = Router();
-  const refusals = keyedRateLimit({
-    windowMs: MINUTE_MS,
-    limit: REFUSALS_PER_MINUTE,
-    key: () => 'mcp-refused',
-    message: (seconds) => `There have been too many requests with a wrong MCP token. ${waitSentence(seconds)}`,
-    counts: (_req, status) => status === 401,
-  });
+  const failedTokens = failedTokenCounter(REFUSALS_PER_MINUTE, MINUTE_MS); // v31 FIX-AUTH (SEC-4)
   /** keyedRateLimit's limiter, with the limit read from the constants at each request. */
   const perToken = (windowMs: number, key: 'MCP_CALLS_PER_MINUTE' | 'MCP_CALLS_PER_HOUR') =>
     rateLimit({
@@ -134,12 +173,22 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
     }
     if (!caller || !caller.scopes.includes('prepare')) {
       deps.log.debug(`[mcp] refused a request: ${token ? 'a token that does not work' : 'no token'}`);
-      res.setHeader('WWW-Authenticate', 'Bearer realm="tailorit", error="invalid_token"');
+      // v31 FIX-AUTH (SEC-4): a token that does not work counts against its caller's address; past the limit, 429.
+      const waitSeconds = token ? failedTokens.fail(addressOf(req)) : null;
+      if (waitSeconds !== null) {
+        res.setHeader('Retry-After', String(waitSeconds));
+        return refuse(res, 429, -32000, `There have been too many requests with a wrong MCP token. ${waitSentence(waitSeconds)}`);
+      }
+      // v31 OAUTH: the challenge names the MCP endpoint's metadata and the scope (RFC 9728 §5.1, the MCP authorization
+      // spec), so Claude and ChatGPT find TailorIT's authorization server; error="invalid_token" only when a credential
+      // was sent (RFC 6750 §3.1).
+      const metadataUrl = oauthAddresses(deps.config).resourceMetadataUrl;
+      res.setHeader('WWW-Authenticate', bearerChallenge(metadataUrl, req.get('authorization') !== undefined));
       return refuse(
         res,
         401,
         -32001,
-        'This needs a TailorIT MCP token that works: make one in TailorIT\'s Settings › Integrations › Your own AI (MCP).',
+        'This needs a TailorIT MCP token that works: connect again from your AI app, or make a token in TailorIT\'s Integrations.',
       );
     }
     // v2.0 P5: the plan's MCP access, read per request (an admin's change applies to the next one).
@@ -163,7 +212,6 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
   });
   router.use(
     knownAddressOnly(deps.config.mcp.allowedHosts),
-    refusals,
     authenticate,
     perToken(MINUTE_MS, 'MCP_CALLS_PER_MINUTE'),
     perToken(60 * MINUTE_MS, 'MCP_CALLS_PER_HOUR'),

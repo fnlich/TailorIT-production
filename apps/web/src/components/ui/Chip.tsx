@@ -8,11 +8,11 @@ export type ChipTone = 'outline' | 'tint' | 'neutral';
 
 const TONES: Record<ChipTone, string> = {
   // a keyword the resume is missing / an unselected option
-  outline: 'border-border bg-surface text-foreground',
+  outline: 'border-border-strong bg-surface text-foreground',
   // a matched keyword (check-circle icon) / a selected option
-  tint: 'border-transparent bg-primary-container text-primary-ink',
+  tint: 'border-transparent bg-primary-soft text-primary-ink',
   // an active filter
-  neutral: 'border-transparent bg-chip text-foreground',
+  neutral: 'border-transparent bg-surface-muted text-foreground',
 };
 
 export interface ChipProps {
@@ -31,7 +31,8 @@ export interface ChipProps {
 }
 
 /**
- * A rounded-full chip: keyword chips on the job analysis card, active filter chips with ✕, selectable option chips.
+ * A chip (radius 6, 32 px; `sm` 28 px): keyword chips on the job analysis card, active filter chips with ✕, selectable
+ * option chips (aria-pressed).
  */
 export function Chip({
   children,
@@ -47,10 +48,10 @@ export function Chip({
 }: ChipProps) {
   const resolvedTone = tone ?? (selected ? 'tint' : 'outline');
   const classes = clsx(
-    'inline-flex max-w-full items-center gap-1.5 rounded-full border font-medium whitespace-nowrap transition-colors duration-150',
+    'inline-flex max-w-full items-center gap-1.5 rounded-control border font-medium whitespace-nowrap transition-colors duration-150',
     size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-8 px-3 text-sm',
     TONES[resolvedTone],
-    onClick && !disabled && resolvedTone === 'outline' && 'hover:border-control-hover hover:bg-[#fafafa]',
+    onClick && !disabled && resolvedTone === 'outline' && 'hover:border-control-hover hover:bg-surface-low',
     onClick && !disabled && resolvedTone !== 'outline' && 'hover:brightness-[0.97]',
     disabled && 'opacity-50',
     onRemove && 'pr-1.5',
@@ -77,7 +78,7 @@ export function Chip({
           onClick={onRemove}
           disabled={disabled}
           aria-label={removeLabel ?? 'Remove'}
-          className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground"
+          className="inline-flex size-5 items-center justify-center rounded-tag text-muted-foreground hover:bg-hover hover:text-foreground"
         >
           <XIcon size={12} weight="bold" />
         </button>

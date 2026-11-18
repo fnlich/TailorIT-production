@@ -270,7 +270,7 @@ export function LanguagesSkillsSection() {
                 label={`Remove ${row.language.trim() || 'this language'}`}
                 tooltip="Remove"
                 icon={<TrashIcon size={16} />}
-                className="mt-[26px]"
+                className="mt-6.5"
                 disabled={form.busy}
                 onClick={() =>
                   changeList(form, 'languages', 'profile.languages', (list) => list.filter((_, other) => other !== index))
@@ -331,7 +331,7 @@ export function CertificationsSection() {
               label={`Remove ${row.name.trim() || 'this certification'}`}
               tooltip="Remove"
               icon={<TrashIcon size={16} />}
-              className="mt-[26px]"
+              className="mt-6.5"
               disabled={form.busy}
               onClick={() =>
                 changeList(form, 'certifications', 'profile.certifications', (list) =>

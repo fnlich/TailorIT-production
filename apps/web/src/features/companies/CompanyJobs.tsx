@@ -50,10 +50,10 @@ export function CompanyJobRow({ job, href, now }: { job: CompanyJobItem; href: s
   const meta = job.closedAt ? `Closed ${formatDate(job.closedAt)}` : cardMetaLine(job, 'posted', now);
   return (
     <li data-company-job={job.id}>
-      <Link href={href} className="flex items-start gap-3 px-4 py-3.5 outline-offset-[-2px] transition-colors hover:bg-[#fafafa] sm:px-5">
+      <Link href={href} className="flex min-h-11 items-start gap-3 px-4 py-3.5 outline-offset-[-2px] transition-colors hover:bg-surface-low sm:px-5">
         <div className="min-w-0 flex-1">
           <p className="line-clamp-2 text-[15px] leading-5 font-semibold text-foreground">{job.title}</p>
-          {place && <p className="mt-0.5 truncate text-sm leading-5 text-muted-foreground">{place}</p>}
+          {place && <p className="mt-0.5 truncate text-[13px] leading-5 text-muted-foreground">{place}</p>}
           {meta && <p className="mt-1 truncate text-xs leading-4 text-muted-foreground">{meta}</p>}
         </div>
         {(job.appliedOn || job.saved) && (
@@ -80,7 +80,7 @@ export function CompanyJobs({ company, className }: { company: Pick<CompanyPage,
   return (
     <section aria-labelledby="company-positions" className={className} data-company-positions={state}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="company-positions" className="text-xl leading-7 font-bold text-foreground">
+        <h2 id="company-positions" className="text-heading font-semibold text-foreground">
           Positions
         </h2>
         <SegmentedControl<CompanyJobState>
@@ -108,13 +108,13 @@ export function CompanyJobs({ company, className }: { company: Pick<CompanyPage,
             {userMessage(jobs.error)}
           </Notice>
         ) : items === undefined ? (
-          <div className="flex flex-col gap-4 rounded-surface border border-border bg-surface p-5 shadow-soft" aria-busy="true">
+          <div className="flex flex-col gap-4 rounded-card border border-border bg-surface shadow-card p-5" aria-busy="true">
             {Array.from({ length: 4 }, (_, index) => (
               <Skeleton key={index} className="h-10 w-full" />
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-surface border border-border bg-surface shadow-soft">
+          <div className="rounded-card border border-border bg-surface shadow-card">
             <EmptyState icon={<BriefcaseIcon size={22} />} title={words.empty} description={words.emptyHint(company.name)} size="sm" />
           </div>
         ) : (
@@ -122,7 +122,7 @@ export function CompanyJobs({ company, className }: { company: Pick<CompanyPage,
             <ul
               aria-label={words.list}
               className={clsx(
-                'divide-y divide-border overflow-hidden rounded-surface border border-border bg-surface shadow-soft',
+                'divide-y divide-divider-soft overflow-hidden rounded-card border border-border bg-surface shadow-card',
                 jobs.isFetching && !jobs.isFetchingNextPage && 'opacity-70',
               )}
             >

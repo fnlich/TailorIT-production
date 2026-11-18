@@ -17,6 +17,7 @@ import { CONTEXT_FIELDS, jobContext, markJob, prepareQueue, QUEUE_PAGE } from '.
 import { registerWorkTools } from './tools-q2';
 // end v1.5 Q2
 import { registerV20Tools } from './tools-v20'; // v2.0 P5
+import { registerV31Tools } from './tools-v31'; // v31 LINK
 
 // TailorIT's MCP server for one request of one account (v1.5 M): stateless, so endpoint.ts builds one per request for
 // the account its token names, and every tool and prompt here closes over that account. Inputs are checked by zod
@@ -260,6 +261,7 @@ export async function createMcpServer(
   // end v1.5 Q2
   // v2.0 P5: instructions, filter_jobs, custom_filter_verdicts, prepare_start, ai_search_jobs, own_ai_context/_save.
   registerV20Tools(server, ctx);
+  registerV31Tools(server, deps, userId); // v31 LINK: add_job (tools-v31.ts)
 
   // ---------------------------------------------------------------------------------------------------- prompts
 

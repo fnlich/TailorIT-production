@@ -26,16 +26,22 @@ import {
   TagIcon,
 } from '../icons';
 
+/**
+ * One fact of the spec sheet: the fact's name in spaced capitals with a small icon, its value under it (and a detail
+ * line). v31 FIX-JOBS: a measurement card's row, not an icon-tile grid.
+ */
 function Fact({ icon, children, detail, label }: { icon: ReactNode; children: ReactNode; detail?: ReactNode; label: string }) {
   return (
-    <div className="flex min-w-0 items-start gap-2" role="listitem" aria-label={label}>
-      <span className="flex size-5 shrink-0 items-center justify-center text-foreground" aria-hidden="true">
+    <div className="flex min-w-0 flex-col gap-1 py-3" role="listitem" aria-label={label}>
+      <p
+        className="flex items-center gap-1.5 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase [&_svg]:size-3.5"
+        aria-hidden="true"
+      >
         {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2 text-sm leading-5 font-semibold text-foreground">{children}</div>
-        {detail && <div className="mt-0.5 text-sm leading-5 text-foreground">{detail}</div>}
-      </div>
+        {label}
+      </p>
+      <div className="flex min-w-0 items-center gap-2 text-sm leading-5 font-medium text-foreground">{children}</div>
+      {detail && <div className="text-[13px] leading-5 text-muted-foreground">{detail}</div>}
     </div>
   );
 }
@@ -75,7 +81,7 @@ const ARRANGEMENT_ICON = {
 } as const;
 
 /**
- * The 3-column facts under the title, in Simplify's order: salary ("No salary listed"), experience level with its
+ * v31 FIX-JOBS: the job's spec sheet under its title (two columns, the drawer's width at any size), in this order: salary ("No salary listed"), experience level with its
  * match icon, the experience the posting asks for ("Experience: 7+ years"), degree, location (+N more), work
  * arrangement (none when unknown), category / subcategory, H1B, clearance.
  */
@@ -98,7 +104,17 @@ export function FactsGrid({
   const { first, others } = placesOf(job.primaryLocation, job.locations);
   const category = categoryFact(job.categoryId, job.subcategoryIds);
   return (
-    <div role="list" aria-label="Job facts" className={clsx('grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-3', className)}>
+    <div
+      role="list"
+      aria-label="Job facts"
+      className={clsx(
+        'grid grid-cols-2 gap-x-4 rounded-card border border-border bg-surface-low px-4 sm:gap-x-6',
+        // Rows of the sheet are ruled like a measurement card: a soft line under every row but the last.
+        '[&>*]:border-b [&>*]:border-divider-soft [&>*:last-child]:border-b-0 [&>*:nth-last-child(2):nth-child(odd)]:border-b-0',
+        className,
+      )}
+      data-spec-sheet=""
+    >
       <Fact icon={<MoneyIcon size={20} />} label="Salary">
         {salaryLabel(job.salary)}
       </Fact>

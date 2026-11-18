@@ -6,6 +6,7 @@ import { queueEnrichment } from '../resolve';
 import { claimEnrichment, dropClaimed, finishEnrichment, type ClaimedRow } from './queue';
 import { enabledSteps, stepsByName, type EnrichmentDeps, type EnrichmentStep } from './registry';
 import { ENRICHMENT_STEPS } from './steps';
+import { runsPaused } from '../../ingest/pause-state'; // v31 FIX-LINK (BEH-9)
 
 // v30 E1: the enrichment worker (docs/design/part2/13-company-enrichment.md §7; 12-job-sourcing.md §9.2): the
 // companies feature's `worker` hook, so the `ingest:worker` process runs it beside ingest's due queue (never the API).
@@ -20,6 +21,10 @@ import { ENRICHMENT_STEPS } from './steps';
 // step is off, wait in the row untouched (a claim only takes rows with a name that may run).
 //
 // A pass runs every TICK_MS, and again at once when it took a full batch.
+//
+// v31 FIX-LINK (REV-BEH BEH-9): Pause all stops a pass between two companies when a step of it reads an outside host
+// (the steps' readsOutside): the rows not reached are given back as they were (finishEnrichment with nothing done), due
+// again once the runs continue.
 
 /** How often the worker looks for due rows. */
 export const TICK_MS = 15_000;
@@ -79,9 +84,17 @@ export async function workEnrichment(
   pass.claimed = rows.length;
   const signal = options.signal ?? new AbortController().signal;
   const maxAttempts = constants.get('COMPANY_ENRICH_MAX_ATTEMPTS');
+  const readsOutside = steps.some((step) => step.readsOutside?.(deps) === true);
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     if (signal.aborted) break;
+    // BEH-9: Pause all, asked while the pass runs, stops it before its next company's outside reads.
+    if (index > 0 && readsOutside && (await runsPaused(deps))) {
+      for (const left of rows.slice(index)) {
+        await finishEnrichment(deps.db, { companyId: left.companyId, lease: left.lease, at, done: [], dropped: [], failed: null, waitUntil: null });
+      }
+      break;
+    }
     if (await settleCompany(deps, row, at)) {
       pass.dropped += 1;
       continue;

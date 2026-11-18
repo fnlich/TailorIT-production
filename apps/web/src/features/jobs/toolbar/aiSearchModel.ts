@@ -24,8 +24,7 @@ export type SearchMode = 'classic' | 'ai';
 
 export const AI_SEARCH_COPY = {
   modeLabel: 'Search mode',
-  classic: 'Classic',
-  ai: 'AI',
+  // v31 FIX-JOBS: the two modes' names are constants (LABEL_JOBS_MODE_KEYWORDS, LABEL_JOBS_MODE_AI).
   paid: 'Paid',
   placeholder: 'Describe the jobs you want, e.g. remote senior React roles over $150k',
   label: 'Describe the jobs you want',

@@ -1,7 +1,7 @@
 import { claudeCodeCommand, genericMcpConfig, mcpEndpointUrl } from '@tailorit/shared/mcp';
 
-// The words and the copyable setup of Settings › Integrations › "Your own AI (MCP)" (v1.5 M), apart from the page so
-// a test reads them.
+// The words and the copyable setup of Integrations › AI assistants (v1.5 M's "Your own AI (MCP)"), apart from the page
+// so a test reads them.
 
 /** What stands for the secret in the setup until a token is made (the secret is shown once, then never again). */
 export const TOKEN_PLACEHOLDER = '<your-token>';

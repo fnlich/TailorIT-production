@@ -24,7 +24,7 @@ export interface RadioGroupProps<V extends string> {
   className?: string;
 }
 
-/** One choice of several, each a labelled 18 px radio (#14a1c0 when chosen). */
+/** One choice of several, each a labelled 18 px radio (filled denim with a white dot when chosen). */
 export function RadioGroup<V extends string>({
   options,
   value,
@@ -63,11 +63,11 @@ export function RadioGroup<V extends string>({
               disabled={option.disabled}
               aria-labelledby={labelId}
               className={clsx(
-                'mt-px inline-flex size-[18px] shrink-0 items-center justify-center rounded-full border border-checkbox bg-surface shadow-control',
-                'transition-colors duration-100 hover:border-control-focus data-checked:border-primary',
+                'mt-px inline-flex size-[18px] shrink-0 items-center justify-center rounded-full border border-control-strong bg-surface shadow-control',
+                'transition-colors duration-100 hover:border-primary data-checked:border-primary data-checked:bg-primary',
               )}
             >
-              <Radio.Indicator className="size-2.5 rounded-full bg-primary" />
+              <Radio.Indicator className="size-2 rounded-full bg-on-primary" />
             </Radio.Root>
             <span className="flex flex-col gap-0.5">
               <span id={labelId} className="leading-5">

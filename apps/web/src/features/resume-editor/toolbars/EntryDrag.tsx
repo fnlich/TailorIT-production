@@ -120,7 +120,7 @@ export function EntryDrag({
           aria-label={`Move ${tools.name}: drag, or press the arrow keys`}
           aria-keyshortcuts="ArrowUp ArrowDown"
           data-entry-drag=""
-          className="pointer-events-auto absolute flex h-6 w-5 cursor-grab touch-none items-center justify-center rounded-md bg-white text-muted-foreground shadow-menu outline outline-1 outline-black/[0.08] hover:text-foreground active:cursor-grabbing"
+          className="pointer-events-auto absolute flex h-6 w-5 cursor-grab touch-none items-center justify-center rounded-tag border border-border bg-surface text-muted-foreground shadow-popover hover:text-foreground active:cursor-grabbing"
           style={{ left: anchor.left - 26, top: anchor.top }}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
@@ -164,7 +164,7 @@ export function EntryDrag({
       {shown ? (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute max-w-60 truncate rounded-md bg-white px-2 py-1 text-[12px] font-medium text-foreground shadow-menu"
+          className="pointer-events-none absolute max-w-60 truncate rounded-control border border-border bg-surface px-2 py-1 text-xs font-medium text-foreground shadow-popover"
           style={{ left: shown.at.x + 14, top: shown.at.y + 10 }}
         >
           {tools.name}

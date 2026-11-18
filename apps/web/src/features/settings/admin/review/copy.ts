@@ -5,8 +5,6 @@ import {
   REVIEW_DECIDER_LABEL,
   REVIEW_GROUP_LABEL,
   REVIEW_GROUPS,
-  REVIEW_LANE_LABEL,
-  REVIEW_LANES,
   REVIEW_SIGNAL_LABEL,
   REVIEW_STATE_FILTER_LABEL,
   REVIEW_STATE_FILTERS,
@@ -22,6 +20,7 @@ import {
 } from '@tailorit/shared/reviews';
 import { JOB_SOURCE_KIND_LABEL, type JobSourceKind } from '@tailorit/shared/sourcing';
 import type { StateIconName, StateTone } from '../../../../components/queue';
+import { ADMIN_REVIEW_LANES, ADMIN_REVIEW_LANE_LABEL, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
 
 // v30 X1-WEB: Admin › Review's words and rules, apart from its components so the tests read them (docs/design/part2/
 // 14-extension-reports.md §6.2): the lanes and their counts, a row's lines (origin, people, signal, check, state),
@@ -36,35 +35,39 @@ export const REVIEW_SEARCH_DEBOUNCE_MS = 300;
 // The lanes ------------------------------------------------------------------------------------------------------------
 
 /**
- * The lane the address opens: `?tab=reports` (Admin › Reports' old address) opens Flags; `?lane=` names one; else
- * Closed links.
+ * The lane the address opens: `?tab=reports` (Admin › Reports' old address) opens Flags; `?lane=` names one (v31
+ * ADMINWEB: `unverified` too); else Closed links.
  */
-export function laneFromAddress(tab: string | null, lane: string | null): ReviewLane {
+export function laneFromAddress(tab: string | null, lane: string | null): AdminReviewLane {
   if (tab === 'reports') return 'flags';
-  return (REVIEW_LANES as readonly string[]).includes(lane ?? '') ? (lane as ReviewLane) : 'closed';
+  return (ADMIN_REVIEW_LANES as readonly string[]).includes(lane ?? '') ? (lane as AdminReviewLane) : 'closed';
 }
 
-/** A lane's count of items needing a decision. */
-export function laneCount(counts: AdminReviewCounts | undefined, lane: ReviewLane): number | null {
+/**
+ * A lane's count of items needing a decision. v31 ADMINWEB: "Couldn't verify" counts its links (`unverified`, from
+ * GET /api/admin/jobs/unverified/count; null while it loads).
+ */
+export function laneCount(counts: AdminReviewCounts | undefined, lane: AdminReviewLane, unverified: number | null = null): number | null {
+  if (lane === 'unverified') return unverified;
   if (!counts) return null;
   return lane === 'closed' ? counts.closed : lane === 'new_job' ? counts.newJob : counts.flags;
 }
 
-/** Every lane's items needing a decision: the header's count. */
-export function totalNeedingDecision(counts: AdminReviewCounts | undefined): number | null {
-  return counts ? counts.closed + counts.newJob + counts.flags : null;
+/** Every lane's items needing a decision: the header's count (v31 ADMINWEB: "Couldn't verify"'s links added once known). */
+export function totalNeedingDecision(counts: AdminReviewCounts | undefined, unverified: number | null = null): number | null {
+  return counts ? counts.closed + counts.newJob + counts.flags + (unverified ?? 0) : null;
 }
 
 /** v30 FIX-WEB (REQ-8): the admin nav's "Review (3)": the label alone while the counts load, or when nothing waits. */
-export function reviewTabLabel(label: string, counts: AdminReviewCounts | undefined): string {
-  const total = totalNeedingDecision(counts);
+export function reviewTabLabel(label: string, counts: AdminReviewCounts | undefined, unverified: number | null = null): string {
+  const total = totalNeedingDecision(counts, unverified);
   return total ? `${label} (${total.toLocaleString('en-US')})` : label;
 }
 
 /** "Closed links (3)", or the label alone while the counts load. */
-export function laneLabel(lane: ReviewLane, counts: AdminReviewCounts | undefined): string {
-  const count = laneCount(counts, lane);
-  return count === null ? REVIEW_LANE_LABEL[lane] : `${REVIEW_LANE_LABEL[lane]} (${count})`;
+export function laneLabel(lane: AdminReviewLane, counts: AdminReviewCounts | undefined, unverified: number | null = null): string {
+  const count = laneCount(counts, lane, unverified);
+  return count === null ? ADMIN_REVIEW_LANE_LABEL[lane] : `${ADMIN_REVIEW_LANE_LABEL[lane]} (${count})`;
 }
 
 /** The header's count in words: "3 need a decision", "1 needs a decision", "Nothing to decide". */
@@ -73,13 +76,13 @@ export function needingText(total: number): string {
   return `${total} ${total === 1 ? 'needs' : 'need'} a decision`;
 }
 
-/** The state filters a lane offers: Flags has no TailorIT check, so no Checking. */
-export function stateFiltersOf(lane: ReviewLane): readonly ReviewStateFilter[] {
+/** The state filters a lane offers: Flags has no TailorIT check, so no Checking ("Couldn't verify" shows none). */
+export function stateFiltersOf(lane: AdminReviewLane): readonly ReviewStateFilter[] {
   return lane === 'flags' ? REVIEW_STATE_FILTERS.filter((state) => state !== 'checking') : REVIEW_STATE_FILTERS;
 }
 
 /** The state filter kept on a lane change: Checking falls back to Needs review on Flags. */
-export function stateForLane(lane: ReviewLane, state: ReviewStateFilter): ReviewStateFilter {
+export function stateForLane(lane: AdminReviewLane, state: ReviewStateFilter): ReviewStateFilter {
   return stateFiltersOf(lane).includes(state) ? state : 'needs_review';
 }
 
@@ -112,9 +115,34 @@ export function platformName(platform: string): string {
   return ATS_NAMES[platform as AtsKind] ?? JOB_SOURCE_KIND_LABEL[platform as JobSourceKind] ?? platform;
 }
 
-/** A new job's origin: "Read from Greenhouse", "From a page on careers.example.com"; null for a closed link. */
-export function originLine(row: Pick<AdminReviewRow, 'origin' | 'platform' | 'pageHost'>): string | null {
-  if (row.origin === 'ats') return row.platform ? `Read from ${platformName(row.platform)}` : 'Read from an ATS board';
+/** The apply platforms that are no ATS: a company's own page (`site`), or no link to tell (`unknown`). */
+const PAGE_PLATFORMS: ReadonlySet<string> = new Set(['site', 'unknown']);
+
+/** A link's host ("careers.example.com"), or null for no readable link. */
+function hostOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A new job's origin: "Read from Greenhouse", "Read from its page on careers.example.com", "From a page on
+ * careers.example.com"; null for a closed link. v31 FIX-WEB (D12): a job TailorIT read from a careers page waits here as
+ * an `ats` row whose platform is no ATS (the page's own job data): it says the page it was read from, never "Read from"
+ * a platform name that is not one.
+ */
+export function originLine(
+  row: Pick<AdminReviewRow, 'origin' | 'platform' | 'pageHost'> & { job?: Pick<AdminReviewRow['job'], 'applyUrl'> },
+): string | null {
+  if (row.origin === 'ats') {
+    if (!row.platform) return 'Read from an ATS board';
+    if (!PAGE_PLATFORMS.has(row.platform)) return `Read from ${platformName(row.platform)}`;
+    const host = hostOf(row.job?.applyUrl) ?? row.pageHost;
+    return host ? `Read from its page on ${host}` : 'Read from its page';
+  }
   if (row.origin === 'page') return row.pageHost ? `From a page on ${row.pageHost}` : 'From a page';
   return null;
 }
@@ -254,23 +282,28 @@ export function decidedText(decision: 'approve' | 'reject' | 'reopen'): string {
 
 // The auto-approve switches ---------------------------------------------------------------------------------------------
 
-/** The switches each lane shows, by constant (14 §6.2, §7): all off by default. */
+/**
+ * The switches each lane shows, by constant (14 §6.2, §7): all off by default. v31 FIX-WEB (REV-REQ REQ-6): New jobs
+ * shows D12's PAGE_JOBS_AUTO_PUBLISH (publish a job TailorIT read from a page's own job data without an admin) in place
+ * of EXT_AUTO_APPROVE_NEW_PAGE, which publishes nothing since v3.1 (D2: a browser's text is never published). A key the
+ * server does not list is left out of the strip.
+ */
 export const AUTO_APPROVE_KEYS = {
   closed: ['EXT_AUTO_APPROVE_CLOSED'],
-  new_job: ['EXT_AUTO_APPROVE_NEW_ATS', 'EXT_AUTO_APPROVE_NEW_PAGE'],
+  new_job: ['EXT_AUTO_APPROVE_NEW_ATS', 'PAGE_JOBS_AUTO_PUBLISH'],
   flags: [],
 } as const satisfies Record<ReviewLane, readonly string[]>;
 export type AutoApproveKey = (typeof AUTO_APPROVE_KEYS)[ReviewLane][number];
 
 /** A switch's one-line rule, with the number its guard constant holds. */
-export function autoApproveRule(key: AutoApproveKey, numbers: { minReporters: number; minPageAccounts: number }): string {
+export function autoApproveRule(key: AutoApproveKey, numbers: { minReporters: number }): string {
   switch (key) {
     case 'EXT_AUTO_APPROVE_CLOSED':
       return `Re-checked by TailorIT, or reported by ${peopleText(numbers.minReporters)}`;
     case 'EXT_AUTO_APPROVE_NEW_ATS':
       return 'Once its company and duplicate checks pass';
-    case 'EXT_AUTO_APPROVE_NEW_PAGE':
-      return `When ${peopleText(numbers.minPageAccounts)} captured the same text`;
+    case 'PAGE_JOBS_AUTO_PUBLISH':
+      return 'As soon as TailorIT reads it from a careers page, without waiting here';
   }
 }
 

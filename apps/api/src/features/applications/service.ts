@@ -582,7 +582,7 @@ export async function patchApplication(
     if ((min !== null || max !== null) && body.salaryPeriod === null) {
       throw validationFailed(SALARY_PERIOD_MESSAGE, { salaryPeriod: SALARY_PERIOD_MESSAGE });
     }
-    // Simplify's hidden defaults: an amount without a period is yearly, without a currency US dollars.
+    // The defaults of an incomplete pay: an amount without a period is yearly, without a currency US dollars.
     if (min !== null || max !== null) {
       period ??= 'year';
       currency ??= 'USD';
@@ -694,7 +694,7 @@ export async function deleteApplication(deps: Deps, userId: string, id: string):
 }
 
 /**
- * POST /api/applications/bulk ("Manage jobs"). Ids that are not the account's are skipped, not reported. With
+ * POST /api/applications/bulk (the Tracker's Select applications). Ids that are not the account's are skipped, not reported. With
  * `onlySaved` (Save all's Undo), archiving leaves alone, and does not count, applications that moved past Saved.
  */
 export async function bulkApplications(deps: ApplyDeps, userId: string, body: BulkApplicationsBody): Promise<number> {

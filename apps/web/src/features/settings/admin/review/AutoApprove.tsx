@@ -16,7 +16,7 @@ import { AUTO_APPROVE_KEYS, autoApproveRule, type AutoApproveKey } from './copy'
 // Constants and this strip show one value. The rule's number is its guard constant's value.
 
 /** A row of GET /api/admin/constants. */
-type ConstantItem = AdminConstantList['items'][number];
+export type ConstantItem = AdminConstantList['items'][number];
 
 /** A guard constant's value from the list, else its default (while the list loads). */
 const numberOf = (rows: readonly ConstantItem[] | undefined, key: ConstantKey): number => {
@@ -29,10 +29,7 @@ export function AutoApproveStrip({ lane }: { lane: ReviewLane }) {
   const constants = useQuery({ queryKey: adminKeys.constants, queryFn: ({ signal }) => fetchAdminConstants(signal), enabled: keys.length > 0 });
   if (keys.length === 0) return null;
   const rows = constants.data?.items;
-  const numbers = {
-    minReporters: numberOf(rows, 'EXT_AUTO_CLOSE_MIN_REPORTERS'),
-    minPageAccounts: numberOf(rows, 'EXT_AUTO_NEW_PAGE_MIN_ACCOUNTS'),
-  };
+  const numbers = { minReporters: numberOf(rows, 'EXT_AUTO_CLOSE_MIN_REPORTERS') };
   return (
     <div
       role="group"
@@ -43,8 +40,8 @@ export function AutoApproveStrip({ lane }: { lane: ReviewLane }) {
       {keys.map((key) => {
         const row = rows?.find((item) => item.key === key);
         return row ? (
-          <AutoSwitch key={key} row={row} rule={autoApproveRule(key, numbers)} />
-        ) : constants.isError ? (
+          <ConstantSwitch key={key} row={row} rule={autoApproveRule(key, numbers)} words={AUTO_APPROVE_WORDS} />
+        ) : rows ? null : constants.isError ? (
           <p key={key} className="text-[13px] text-muted-foreground">
             The automatic approval switches could not be loaded. {userMessage(constants.error)}
           </p>
@@ -56,7 +53,20 @@ export function AutoApproveStrip({ lane }: { lane: ReviewLane }) {
   );
 }
 
-function AutoSwitch({ row, rule }: { row: ConstantItem; rule: string }) {
+/** The toast's title after the switch changed. */
+export interface SwitchWords {
+  on: string;
+  off: string;
+}
+
+const AUTO_APPROVE_WORDS: SwitchWords = { on: 'Automatic approval is on', off: 'Automatic approval is off' };
+
+/**
+ * One boolean constant as a switch with its rule under it, written at once through the Admin › Constants API (so
+ * Constants and this switch show one value). v31 ADMINWEB: also "Couldn't verify"'s list switch and Constants'
+ * publishing card.
+ */
+export function ConstantSwitch({ row, rule, words }: { row: ConstantItem; rule: string; words: SwitchWords }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const ruleId = useId();
@@ -67,7 +77,7 @@ function AutoSwitch({ row, rule }: { row: ConstantItem; rule: string }) {
         list ? { ...list, items: list.items.map((item) => (item.key === updated.key ? updated : item)) } : list,
       );
       void queryClient.invalidateQueries({ queryKey: adminKeys.constants });
-      toast.success(updated.value === true ? 'Automatic approval is on' : 'Automatic approval is off', updated.label);
+      toast.success(updated.value === true ? words.on : words.off, updated.label);
     },
     onError: (error) => toast.error('The switch was not changed', userMessage(error)),
   });

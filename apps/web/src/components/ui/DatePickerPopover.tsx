@@ -15,7 +15,7 @@ export interface DatePickerPopoverProps {
   maxDate?: Date;
   minDate?: Date;
   /**
-   * With actions the pick is staged until "Save" and "Clear" empties the date (Simplify's status-date popover).
+   * With actions the pick is staged until "Save" and "Clear" empties the date (the status-date popover).
    * Without, a pick applies at once and closes the popover.
    */
   withActions?: boolean;

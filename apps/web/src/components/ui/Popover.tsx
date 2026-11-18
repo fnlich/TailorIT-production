@@ -37,7 +37,7 @@ export interface PopoverContentProps {
 
 const PADDING = { none: '', sm: 'p-3', md: 'p-4' } as const;
 
-/** A white panel (radius 14, popover shadow) anchored to its trigger. */
+/** A white panel (radius 10, 1 px border, popover shadow) anchored to its trigger. */
 export function PopoverContent({
   children,
   side = 'bottom',

@@ -202,7 +202,7 @@ export function LinksSection() {
                   label={`Remove ${link.label || 'this link'}`}
                   tooltip="Remove"
                   icon={<TrashIcon size={16} />}
-                  className="mt-[26px]"
+                  className="mt-6.5"
                   disabled={form.busy}
                   onClick={() => changeOthers('profile.links.other', (list) => list.filter((_, other) => other !== index))}
                 />

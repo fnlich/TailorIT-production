@@ -89,6 +89,13 @@ export const AdminSourceRowSchema = z.object({
   aiInput: z.boolean(),
   /** A worker holds its run now (lease_until in the future). */
   running: z.boolean(),
+  // v31 RUNS: an admin paused the source (job_sources.paused_at): no run of it starts until Continue. Not the same as
+  // `enabled` (off, or turned off after failures): Continue gives the source back its schedule.
+  /** When an admin paused it; null or absent while it is not paused. */
+  pausedAt: IsoDateTime.nullable().optional(),
+  /** Who paused it (the admin's email; null once that account is gone). */
+  pausedBy: z.string().nullable().optional(),
+  // end v31 RUNS
 });
 export type AdminSourceRow = z.infer<typeof AdminSourceRowSchema>;
 
@@ -140,6 +147,11 @@ export const JobSourceRunSchema = z.object({
    * source, else the kind's label). Absent: read JOB_SOURCE_KIND_LABEL.
    */
   sourceKindLabel: z.string().optional(),
+  /**
+   * v31 RUNS: when an admin asked this run to pause (job_source_runs.stop_requested_at): while it is still `running`,
+   * it is stopping at its next safe point (within about RUN_STOP_POLL_MS). Null or absent: never asked.
+   */
+  stopRequestedAt: IsoDateTime.nullable().optional(),
 });
 export type JobSourceRun = z.infer<typeof JobSourceRunSchema>;
 
@@ -152,7 +164,29 @@ export const AdminRunsQuerySchema = z.object({
   limit: AdminPageSizeSchema,
 });
 export type AdminRunsQuery = z.infer<typeof AdminRunsQuerySchema>;
-export const AdminRunsListSchema = z.object({ items: z.array(JobSourceRunSchema), nextCursor: AdminCursorSchema.optional() });
+
+// v31 RUNS: Pause / Continue (docs/design/v3.1/22-runs-pause.md). Every run is paused (app_settings `ingest:paused`), or
+// one run, or one source; Continue starts the paused work again from the top.
+/** Every run is paused: since when, and by whom (the admin's email; null once that account is gone). */
+export const RunsPausedSchema = z.object({ at: IsoDateTime, by: z.string().nullable() });
+export type RunsPaused = z.infer<typeof RunsPausedSchema>;
+/** POST /api/admin/runs/pause: every run paused; `stopping` runs were asked to stop at their next safe point. */
+export const RunsPauseResultSchema = z.object({ paused: RunsPausedSchema, stopping: z.number().int().nonnegative() });
+export type RunsPauseResult = z.infer<typeof RunsPauseResultSchema>;
+/** POST /api/admin/runs/continue: runs go on; `resumed` sources whose last run was paused are due now. */
+export const RunsContinueResultSchema = z.object({ paused: z.null(), resumed: z.number().int().nonnegative() });
+export type RunsContinueResult = z.infer<typeof RunsContinueResultSchema>;
+/** POST /api/admin/runs/:id/continue: the source's new run, started now. */
+export const RunContinueResultSchema = z.object({ runId: z.number().int().positive(), sourceId: z.number().int().positive() });
+export type RunContinueResult = z.infer<typeof RunContinueResultSchema>;
+// end v31 RUNS
+
+export const AdminRunsListSchema = z.object({
+  items: z.array(JobSourceRunSchema),
+  nextCursor: AdminCursorSchema.optional(),
+  /** v31 RUNS: every run is paused (since when, by whom), or null. Absent from a server before v3.1. */
+  paused: RunsPausedSchema.nullable().optional(),
+});
 
 // Hosts --------------------------------------------------------------------------------------------------------------
 

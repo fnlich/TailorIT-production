@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { NextConfig } from 'next';
 import { allowedDevOrigins, apiOrigin as apiOriginFrom } from './src/lib/addresses';
+import { apiPassthroughRewrites, CONSENT_PAGE_HEADERS } from './src/features/oauth/passthrough'; // v31 OAUTH
 
 // Addresses come from the root .env (scripts/next-launch.mjs loads it): API_INTERNAL_URL, else API_HOST and API_PORT,
 // for the /api rewrite; WEB_HOST and APP_ORIGIN for the dev server's allowed origins. `next build` writes the rewrite
@@ -22,7 +23,15 @@ const nextConfig: NextConfig = {
   },
   // The browser only ever talks to this origin; /api is proxied to Express so the session cookie is first-party.
   async rewrites() {
-    return [{ source: '/api/:path*', destination: `${apiOrigin}/api/:path*` }];
+    return [
+      { source: '/api/:path*', destination: `${apiOrigin}/api/:path*` },
+      // v31 OAUTH: the MCP endpoint and the OAuth server, at the address people open (Claude and ChatGPT connect there).
+      ...apiPassthroughRewrites(apiOrigin),
+    ];
+  },
+  // v31 OAUTH: the consent page is never framed.
+  async headers() {
+    return [CONSENT_PAGE_HEADERS];
   },
   experimental: {
     // The rewrite proxy defaults to a 30 s timeout. AI work is asynchronous (202 + polling), but exports and

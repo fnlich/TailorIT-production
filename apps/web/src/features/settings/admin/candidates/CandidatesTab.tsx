@@ -114,10 +114,10 @@ export function FunnelSummary({
                 onClick={() => onChoose?.(row.status)}
                 className={clsx(
                   'flex flex-col items-start rounded-control border px-3 py-2 text-left',
-                  active ? 'border-primary bg-primary-container' : 'border-border bg-surface hover:bg-chip',
+                  active ? 'border-primary bg-primary-soft' : 'border-border bg-surface hover:bg-surface-muted',
                 )}
               >
-                <span className="text-lg font-semibold tabular-nums">{formatCount(row.count)}</span>
+                <span className="num text-lg leading-6">{formatCount(row.count)}</span>
                 <span className="text-[13px] text-muted-foreground">{row.label}</span>
               </button>
             </li>
@@ -141,25 +141,25 @@ export function MeasuresTable({ byKind }: { byKind: readonly DiscoveryKindMeasur
     // v30 FIX-WEB (REV-UX UX-7): a focusable, named region, so a keyboard scrolls it.
     <ScrollRegion label="Boards by kind">
       <table className="w-full min-w-[40rem] text-left text-[13px]" aria-label="Boards by kind">
-        <thead className="text-muted-foreground">
+        <thead className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
           <tr>
-            <th className="py-1 pr-3 font-medium">Kind</th>
-            <th className="py-1 pr-3 font-medium">Boards</th>
-            <th className="py-1 pr-3 font-medium">With open jobs</th>
-            <th className="py-1 pr-3 font-medium">Open jobs per board</th>
-            <th className="py-1 pr-3 font-medium">New postings a month per board</th>
-            <th className="py-1 pr-3 font-medium">Open life (median)</th>
+            <th className="py-1.5 pr-3 font-semibold">Kind</th>
+            <th className="py-1.5 pr-3 text-right font-semibold">Boards</th>
+            <th className="py-1.5 pr-3 text-right font-semibold">With open jobs</th>
+            <th className="py-1.5 pr-3 text-right font-semibold">Open jobs per board</th>
+            <th className="py-1.5 pr-3 text-right font-semibold">New postings a month per board</th>
+            <th className="py-1.5 pr-3 text-right font-semibold">Open life (median)</th>
           </tr>
         </thead>
         <tbody>
           {byKind.map((row) => (
-            <tr key={row.kind} className="border-t border-border">
-              <td className="py-1 pr-3">{JOB_SOURCE_KIND_LABEL[row.kind]}</td>
-              <td className="py-1 pr-3 tabular-nums">{formatCount(row.sources)}</td>
-              <td className="py-1 pr-3 tabular-nums">{formatCount(row.boardsWithOpenJobs)}</td>
-              <td className="py-1 pr-3 tabular-nums">{number(row.openJobsPerBoard)}</td>
-              <td className="py-1 pr-3 tabular-nums">{number(row.newPostingsPerBoardPerMonth)}</td>
-              <td className="py-1 pr-3 tabular-nums">{openLifeText(row.openLifeDaysMedian) ?? '-'}</td>
+            <tr key={row.kind} className="border-t border-divider-soft">
+              <td className="py-1.5 pr-3">{JOB_SOURCE_KIND_LABEL[row.kind]}</td>
+              <td className="num py-1.5 pr-3 text-right">{formatCount(row.sources)}</td>
+              <td className="num py-1.5 pr-3 text-right">{formatCount(row.boardsWithOpenJobs)}</td>
+              <td className="num py-1.5 pr-3 text-right">{number(row.openJobsPerBoard)}</td>
+              <td className="num py-1.5 pr-3 text-right">{number(row.newPostingsPerBoardPerMonth)}</td>
+              <td className="num py-1.5 pr-3 text-right">{openLifeText(row.openLifeDaysMedian) ?? '-'}</td>
             </tr>
           ))}
         </tbody>
@@ -309,7 +309,7 @@ export function CandidatesTab() {
             <FunnelSummary funnel={funnel} chosen={filters.status} onChoose={(status) => narrow({ status: status === 'all' ? [] : [status] })} />
           )}
           {measures.data && (
-            <details className="mb-4 rounded-surface border border-border bg-surface px-4 py-3" data-candidate-measures>
+            <details className="mb-4 rounded-card border border-border bg-surface px-4 py-3" data-candidate-measures>
               <summary className="cursor-pointer text-sm font-medium">Open life and postings by kind</summary>
               <div className="mt-3">
                 <MeasuresTable byKind={measures.data.byKind} />

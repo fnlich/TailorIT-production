@@ -37,8 +37,8 @@ export interface SelectProps<V extends string> {
 const TRIGGER_SIZES: Record<InputSize, string> = { sm: 'h-8', md: 'h-9', lg: 'h-10' };
 
 /**
- * A single-choice dropdown (Simplify's "All ⌄" source filter, "Status ⌄"). The list opens under the trigger at
- * least as wide as it; the chosen option carries a check.
+ * A single-choice dropdown (the "All ⌄" source filter, "Status ⌄"). The list opens under the trigger at least as wide
+ * as it; the chosen option carries a denim check.
  */
 export function Select<V extends string>({
   options,
@@ -75,7 +75,7 @@ export function Select<V extends string>({
           CONTROL_SURFACE,
           TRIGGER_SIZES[size],
           'flex min-w-0 items-center justify-between gap-2 pr-2.5 pl-3 text-left',
-          'data-popup-open:border-control-focus',
+          'data-popup-open:border-primary data-popup-open:shadow-focus',
           className,
         )}
       >
@@ -107,7 +107,7 @@ export function Select<V extends string>({
                 >
                   {option.icon && <span className="flex text-muted-foreground">{option.icon}</span>}
                   <BaseSelect.ItemText className="min-w-0 flex-1 truncate">{option.label}</BaseSelect.ItemText>
-                  <BaseSelect.ItemIndicator className="absolute right-2.5 flex text-primary-ink">
+                  <BaseSelect.ItemIndicator className="absolute right-2.5 flex text-primary">
                     <CheckIcon size={14} weight="bold" />
                   </BaseSelect.ItemIndicator>
                 </BaseSelect.Item>

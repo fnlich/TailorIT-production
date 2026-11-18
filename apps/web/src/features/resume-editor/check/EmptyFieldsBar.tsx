@@ -36,7 +36,7 @@ export function EmptyFieldsBar({ document, highlighted, onHighlightedChange, onH
       role="region"
       aria-label="Empty fields"
       className={clsx(
-        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control bg-amber px-3.5 py-2.5 text-sm text-amber-foreground',
+        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-warning/30 bg-warning-soft px-3.5 py-2.5 text-sm text-warning-ink',
         className,
       )}
     >

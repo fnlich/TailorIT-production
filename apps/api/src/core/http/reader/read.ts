@@ -50,6 +50,13 @@ const ACCEPT = {
   xml: 'application/xml,text/xml;q=0.9,text/plain;q=0.5,application/gzip;q=0.5,*/*;q=0.1',
 } as const;
 
+/** v31 LINK: each purpose's switch (an admin's constant): off answers `switch_off`, nothing sent. */
+const PURPOSE_SWITCH = {
+  company_site: 'SITE_READER_COMPANY_SITES',
+  career_page: 'SITE_READER_CAREER_PAGES',
+  add_page: 'ADD_JOB_PAGE_READ',
+} as const satisfies Record<SiteReadRequest['purpose'], string>;
+
 /** What the default reader is built from; tests give a fake transport and no waiting. */
 export interface SiteReaderOptions {
   /** The transport (default: deps.services.siteReaderTransport, else the process's undici transport). */
@@ -106,11 +113,11 @@ export function createSiteReader(options: SiteReaderOptions = {}): SiteReader {
     async read(deps: AppDeps, request: SiteReadRequest): Promise<SiteReadResult> {
       deps.db.assertNoTx('the site reader');
       const c = constantsOf(deps);
-      // 1. The purpose's switch.
-      if (!c.get(request.purpose === 'company_site' ? 'SITE_READER_COMPANY_SITES' : 'SITE_READER_CAREER_PAGES')) return refusal('switch_off');
-      // 2. The identity guard.
+      // 1. The purpose's switch (v31 LINK: an added job's page, ADD_JOB_PAGE_READ).
+      if (!c.get(PURPOSE_SWITCH[request.purpose])) return refusal('switch_off');
+      // 2. The identity guard (v31 LINK: an added job's page is a kind of its own, `add_page`).
       try {
-        assertNewReadAllowed(deps, 'site_reader');
+        assertNewReadAllowed(deps, request.purpose === 'add_page' ? 'add_page' : 'site_reader');
       } catch (error) {
         if (error instanceof NewReadRefusedError) return refusal('identity_placeholder');
         throw error;

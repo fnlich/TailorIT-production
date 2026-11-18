@@ -193,6 +193,21 @@ export function runNowHint(source: { kind: JobSourceKind; config?: Record<string
   return sheet ? `Imports the copy read ${formatDate(sheet.readAt)} again. To read the sheet again, use Import the sheet again.` : null;
 }
 
+/** v31 RUNS: whether an admin paused it (no run of it starts until Continue). */
+export function isPaused(row: Pick<AdminSourceRow, 'pausedAt'>): boolean {
+  return Boolean(row.pausedAt);
+}
+
+/**
+ * v31 RUNS: why Run now waits: the source, or every run, is paused (null when it may run), in the server's words for its
+ * refusal (MSG_INGEST_SOURCE_PAUSED, MSG_INGEST_RUNS_PAUSED; `t` renders the message constants).
+ */
+export function pausedRunNowHint(row: Pick<AdminSourceRow, 'pausedAt'>, runsPaused: boolean, t: MessageRenderer): string | null {
+  if (row.pausedAt) return t('MSG_INGEST_SOURCE_PAUSED');
+  if (runsPaused) return t('MSG_INGEST_RUNS_PAUSED');
+  return null;
+}
+
 /** Whether its terms and robots.txt let the scheduler run it (the due index's condition). */
 export function isRunnable(row: Pick<AdminSourceRow, 'termsStatus' | 'robotsStatus'>): boolean {
   return (
@@ -237,14 +252,18 @@ export function untilText(value: string, now: number): string {
   return `in ${count} ${unit}${count === 1 ? '' : 's'}`;
 }
 
-/** When it runs next: running, paused, held back by its terms or robots, due, or in some time. */
+/**
+ * When it runs next: running, paused by an admin, disabled, held back by its terms or robots, due, or in some time.
+ * v31 RUNS: "Paused" is an admin's pause (pausedAt); a source turned off reads "Disabled".
+ */
 export function scheduleText(
-  row: Pick<AdminSourceRow, 'running' | 'enabled' | 'nextRunAt' | 'termsStatus' | 'robotsStatus' | 'kind'>,
+  row: Pick<AdminSourceRow, 'running' | 'enabled' | 'nextRunAt' | 'termsStatus' | 'robotsStatus' | 'kind' | 'pausedAt'>,
   now: number,
 ): string {
   if (row.running) return 'Running now';
   if (isUnrun(row)) return 'Never run';
-  if (!row.enabled) return 'Paused';
+  if (row.pausedAt) return 'Paused';
+  if (!row.enabled) return 'Disabled';
   if (!(JOB_SOURCE_RUNNABLE_TERMS as readonly JobSourceTermsStatus[]).includes(row.termsStatus)) {
     return `Not run: terms ${JOB_SOURCE_TERMS_LABEL[row.termsStatus].toLowerCase()}`;
   }

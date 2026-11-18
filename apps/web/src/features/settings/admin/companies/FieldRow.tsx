@@ -186,7 +186,7 @@ export function FieldRow({
       </div>
 
       {editing && (
-        <form onSubmit={submit} className="flex flex-col gap-3 rounded-control border border-border bg-surface-low/60 p-3" aria-label={`Edit ${spec.label}`}>
+        <form onSubmit={submit} className="flex flex-col gap-3 rounded-card border border-border bg-surface-low p-3" aria-label={`Edit ${spec.label}`}>
           <Field label={spec.label} hint={spec.hint ?? 'Saving locks the field: no source changes it until it is unlocked.'} error={error ?? undefined} id={inputId}>
             <DraftInput spec={spec} draft={draft} onChange={setDraft} id={inputId} />
           </Field>
@@ -232,7 +232,7 @@ export function FieldRow({
               ))}
             </ul>
           )}
-          {!editing && error && <p className="mt-1 text-xs text-[#c62a29]">{error}</p>}
+          {!editing && error && <p className="mt-1 text-xs text-danger">{error}</p>}
         </div>
       )}
     </li>

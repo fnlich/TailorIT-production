@@ -2,25 +2,21 @@
 
 import type { JobAnalysisView } from '@tailorit/shared';
 import { clsx } from 'clsx';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Chip } from '@/components/ui/Chip';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { CaretDownIcon, CaretUpIcon, FileTextIcon } from '@/components/ui/icons';
 import { SkeletonText } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
+import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
 import { jobFacetGroups, type JobFacetGroup } from './facets';
+import { SectionHeading } from './MatchSection';
 
-type AboutView = 'summary' | 'full';
-
-const VIEWS = [
-  { value: 'summary', label: 'Summary' },
-  { value: 'full', label: 'Full posting' },
-] as const;
-
-const SECTIONS = [
-  { key: 'requirements', title: 'Requirements' },
-  { key: 'responsibilities', title: 'Responsibilities' },
-  { key: 'desired', title: 'Desired Qualifications' },
-] as const;
+/** v31 FIX-JOBS: the summary's parts in TailorIT's order and words: the work first, then what the posting asks for. */
+const PARTS: ReadonlyArray<{ key: 'responsibilities' | 'requirements' | 'desired'; title: PublicMessageKey }> = [
+  { key: 'responsibilities', title: 'LABEL_JOB_ROLE_DUTIES' },
+  { key: 'requirements', title: 'LABEL_JOB_ROLE_ASKS' },
+  { key: 'desired', title: 'LABEL_JOB_ROLE_NICE' },
+];
 
 /**
  * Styles for the posting's own HTML (sanitized by the API): paragraphs, headings, lists and links in the page's
@@ -39,18 +35,22 @@ const POSTING_HTML = clsx(
   '[&_table]:my-3 [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2',
 );
 
+/** A part's heading inside the role (an h4 under the section's h3). */
+const PART_TITLE = 'text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase';
+
 /**
- * The posting's soft skills, certifications and industries: one labelled row of chips per group that has any (its
- * hard skills are the keyword card's chips).
+ * "Also mentioned": the posting's soft skills, certifications and industries, one labelled row of chips per group that
+ * has any (its hard skills are Your match's keywords).
  */
-function SkillsAndKeywords({ groups }: { groups: JobFacetGroup[] }) {
+function AlsoMentioned({ groups }: { groups: JobFacetGroup[] }) {
+  const { t } = usePublicConstants();
   return (
-    <section aria-label="Skills and keywords" data-job-facets>
-      <h3 className="text-lg leading-7 font-semibold text-foreground">Skills and keywords</h3>
+    <section aria-label={t('LABEL_JOB_ROLE_ALSO')} data-job-facets>
+      <h4 className={PART_TITLE}>{t('LABEL_JOB_ROLE_ALSO')}</h4>
       <dl className="mt-3 flex flex-col gap-3">
         {groups.map((group) => (
           <div key={group.key} className="flex flex-col gap-1.5 sm:flex-row sm:gap-4">
-            <dt className="shrink-0 text-sm leading-5 font-semibold text-foreground sm:w-32 sm:leading-7">{group.label}</dt>
+            <dt className="shrink-0 text-sm leading-5 font-medium text-muted-foreground sm:w-28 sm:leading-7">{group.label}</dt>
             <dd className="min-w-0 flex-1">
               <ul aria-label={group.label} data-job-facet={group.key} className="flex flex-wrap gap-2">
                 {group.items.map((item) => (
@@ -69,100 +69,109 @@ function SkillsAndKeywords({ groups }: { groups: JobFacetGroup[] }) {
   );
 }
 
-function Summary({ analysis, onShowFull }: { analysis: JobAnalysisView; onShowFull: () => void }) {
-  const sections = SECTIONS.filter((section) => analysis[section.key].length > 0);
+function Summary({ analysis }: { analysis: JobAnalysisView }) {
+  const { t } = usePublicConstants();
+  const parts = PARTS.filter((part) => analysis[part.key].length > 0);
   const facets = jobFacetGroups(analysis);
   return (
-    <div className="flex flex-col gap-6">
-      {sections.length === 0 ? (
-        <p className="text-[15px] leading-6 text-muted-foreground">
-          There is no summary for this posting yet.{' '}
-          <button type="button" onClick={onShowFull} className="font-semibold text-primary-ink hover:underline">
-            Read the full posting
-          </button>
-        </p>
-      ) : (
-        sections.map((section) => (
-          <section key={section.key} aria-label={section.title}>
-            <h3 className="text-lg leading-7 font-semibold text-foreground">{section.title}</h3>
-            <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-[15px] leading-5 text-foreground marker:text-foreground">
-              {analysis[section.key].map((item, index) => (
-                <li key={`${index}-${item}`} className="pl-0.5">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))
-      )}
-      {facets.length > 0 && <SkillsAndKeywords groups={facets} />}
+    <div className="flex flex-col gap-6" data-role-summary="">
+      {parts.map((part) => (
+        <section key={part.key} aria-label={t(part.title)} data-role-part={part.key}>
+          <h4 className={PART_TITLE}>{t(part.title)}</h4>
+          <ul className="mt-2.5 flex flex-col gap-2 text-[15px] leading-6 text-foreground">
+            {analysis[part.key].map((item, index) => (
+              <li key={`${index}-${item}`} className="relative pl-5">
+                {/* A short tape mark instead of a round bullet. */}
+                <span aria-hidden="true" className="absolute top-[11px] left-0 h-0.5 w-2.5 rounded-full bg-tape-strong" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {facets.length > 0 && <AlsoMentioned groups={facets} />}
     </div>
   );
 }
 
 /**
- * "About the job" with Simplify's Summary | Full posting toggle. Summary lists the analysis's Requirements,
- * Responsibilities and Desired Qualifications, then its Skills and keywords (soft skills, certifications, industries)
- * when it names any; Full posting shows the sanitized description. A quiet "Refining…" shows while the AI analysis is
- * being made; when it lands the bullets and chips change in place.
+ * v31 FIX-JOBS: "About the role". The analysis's summary (what you'd do, what they ask for, nice to have, also
+ * mentioned), then the posting itself behind "Read the full posting" (a disclosure). With no summary (none yet, or
+ * the analysis could not be loaded) the full posting shows at once. A quiet "Refining…" shows while the AI analysis is
+ * being made; when it lands the summary changes in place and an open posting stays open.
  */
 export function AboutJob({
   analysis,
   analysisPending,
   analysisFailed = false,
   descriptionHtml,
+  className,
 }: {
   analysis: JobAnalysisView | undefined;
   analysisPending: boolean;
   /** The analysis could not be loaded: the full posting is shown instead of a summary. */
   analysisFailed?: boolean;
   descriptionHtml: string;
+  className?: string;
 }) {
-  const hasSummary = analysis
-    ? analysis.requirements.length + analysis.responsibilities.length + analysis.desired.length > 0
-    : !analysisFailed;
-  const [chosen, setChosen] = useState<AboutView | null>(null);
-  // The view the first analysis opened on stays when a refined one lands (no summary yet, then the AI's): the
-  // reader is never moved from the full posting they are reading.
-  const [opened, setOpened] = useState<AboutView | null>(null);
-  const initial: AboutView = hasSummary ? 'summary' : 'full';
-  if (opened === null && (analysis || analysisFailed)) setOpened(initial);
-  const view: AboutView = chosen ?? opened ?? initial;
+  const { t } = usePublicConstants();
+  const postingId = useId();
+  const [open, setOpen] = useState(false);
+  const hasSummary = analysis ? analysis.requirements.length + analysis.responsibilities.length + analysis.desired.length > 0 : false;
+  const loading = !analysis && !analysisFailed && analysisPending;
+  // No summary to read: the posting itself is the role's text, with nothing to open.
+  const postingOnly = !loading && !hasSummary;
+
+  const posting = descriptionHtml ? (
+    <div className={POSTING_HTML} dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
+  ) : (
+    <p className="text-[15px] text-muted-foreground">This posting has no description.</p>
+  );
 
   return (
-    <section aria-labelledby="about-the-job">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <h2 id="about-the-job" className="text-[22px] leading-9 font-bold text-foreground">
-            About the job
-          </h2>
-          {analysis?.refining && (
+    <section aria-labelledby="about-the-role" className={className} data-about-role="">
+      <SectionHeading
+        id="about-the-role"
+        icon={<FileTextIcon size={18} weight="bold" />}
+        aside={
+          analysis?.refining ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
               <Spinner size={12} />
               Refining…
             </span>
-          )}
-        </div>
-        <SegmentedControl aria-label="Job description view" items={VIEWS} value={view} onValueChange={setChosen} />
-      </div>
+          ) : undefined
+        }
+      >
+        {t('LABEL_JOB_ABOUT_ROLE')}
+      </SectionHeading>
       <div className="mt-4">
-        {view === 'summary' ? (
-          analysisFailed && !analysis ? (
-            <p className="text-[15px] leading-6 text-muted-foreground">
-              The summary could not be loaded.{' '}
-              <button type="button" onClick={() => setChosen('full')} className="font-semibold text-primary-ink hover:underline">
-                Read the full posting
-              </button>
+        {loading ? (
+          <SkeletonText lines={6} />
+        ) : postingOnly ? (
+          <>
+            <p className="mb-4 text-[13px] leading-5 text-muted-foreground" data-no-summary="">
+              {analysisFailed && !analysis ? t('MSG_JOB_SUMMARY_FAILED') : t('MSG_JOB_NO_SUMMARY')}
             </p>
-          ) : analysisPending || !analysis ? (
-            <SkeletonText lines={6} />
-          ) : (
-            <Summary analysis={analysis} onShowFull={() => setChosen('full')} />
-          )
-        ) : descriptionHtml ? (
-          <div className={POSTING_HTML} dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
+            <div data-full-posting="">{posting}</div>
+          </>
         ) : (
-          <p className="text-[15px] text-muted-foreground">This posting has no description.</p>
+          <>
+            <Summary analysis={analysis!} />
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={postingId}
+              onClick={() => setOpen((value) => !value)}
+              className="mt-6 inline-flex h-9 items-center gap-1.5 rounded-control border border-border-strong bg-surface px-3 text-sm font-medium text-foreground shadow-control hover:border-control-hover hover:bg-surface-low"
+              data-posting-toggle=""
+            >
+              {open ? t('LABEL_JOB_POSTING_HIDE') : t('LABEL_JOB_POSTING_SHOW')}
+              {open ? <CaretUpIcon size={14} /> : <CaretDownIcon size={14} />}
+            </button>
+            <div id={postingId} hidden={!open} className="mt-4 border-l-2 border-tape pl-4" data-full-posting="">
+              {open && posting}
+            </div>
+          </>
         )}
       </div>
     </section>

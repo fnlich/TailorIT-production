@@ -64,7 +64,7 @@ function ChoiceCard({
       {...data}
       data-checked={checked ? '' : undefined}
       className={clsx(
-        'group relative flex min-w-0 cursor-pointer flex-col gap-2 rounded-[12px] border bg-surface p-2 transition-[border-color,box-shadow] duration-150',
+        'group relative flex min-w-0 cursor-pointer flex-col gap-2 rounded-card border bg-surface p-2 transition-[border-color,box-shadow] duration-150',
         checked ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-control-hover',
         'has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus',
         disabled && 'pointer-events-none opacity-60',
@@ -79,17 +79,17 @@ function ChoiceCard({
         onChange={onChoose}
         className="sr-only"
       />
-      <div aria-hidden="true" inert className="relative overflow-hidden rounded-[8px] border border-border bg-white">
+      <div aria-hidden="true" inert className="relative overflow-hidden rounded-control border border-border bg-surface">
         {picture}
         {checked && (
-          <span className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-full bg-primary-ink text-white shadow-control">
+          <span className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-tag bg-primary text-on-primary shadow-control">
             <CheckIcon size={14} weight="bold" />
           </span>
         )}
       </div>
       <span className="px-0.5 pb-0.5">
         <span className="block truncate text-[13px] leading-5 font-semibold text-foreground">{title}</span>
-        {description && <span className="block text-xs leading-4 text-[#5c5c5c]">{description}</span>}
+        {description && <span className="block text-xs leading-4 text-muted-foreground">{description}</span>}
       </span>
     </label>
   );
@@ -103,7 +103,7 @@ function OwnTemplatePicture() {
   return (
     <div style={PAGE_RATIO} className="flex flex-col items-center justify-center gap-2 bg-surface-low px-4 text-center">
       <FileTextIcon size={28} className="text-primary-ink" />
-      <span className="text-[11px] leading-4 text-[#5c5c5c]">The template of the resume it starts from</span>
+      <span className="text-xs leading-4 text-muted-foreground">The template of the resume it starts from</span>
     </div>
   );
 }
@@ -249,7 +249,7 @@ export function LetterTemplateSection() {
           />
           {templates.isPending
             ? [0, 1, 2].map((index) => (
-                <div key={index} className="flex flex-col gap-2 rounded-[12px] border border-border p-2" aria-hidden="true">
+                <div key={index} className="flex flex-col gap-2 rounded-card border border-border p-2" aria-hidden="true">
                   <div style={PAGE_RATIO}>
                     <Skeleton className="h-full w-full" rounded="control" />
                   </div>

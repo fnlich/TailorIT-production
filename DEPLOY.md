@@ -47,10 +47,13 @@ In production both are forced off. `npm run dev` runs in development mode: use i
 | `WEB_HOST`, `WEB_PORT` | `localhost`, `3100` | Where the web server listens. |
 | `API_HOST`, `API_PORT` | `127.0.0.1`, `4100` | Where the API listens. The browser never calls it (the web server passes `/api` on), so keep it on `127.0.0.1`. |
 | `API_INTERNAL_URL` | `http://API_HOST:API_PORT` | Where the web server reaches the API, when it runs on another machine. |
-| `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS` | from `API_HOST` and `API_PORT` | The MCP endpoint people's own AI clients connect to, and the extra names it answers to. |
+| `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS` | `APP_ORIGIN/mcp` | The MCP endpoint AI apps connect to (Claude, ChatGPT, people's own clients), and the extra names it answers to. |
 
 **Put HTTPS in front of TailorIT** (a reverse proxy such as Caddy, nginx or IIS) for anything beyond your own machine,
-and set `APP_ORIGIN` to the `https://` address people open. A network address or `0.0.0.0` in `WEB_HOST` or `API_HOST`
+and set `APP_ORIGIN` to the `https://` address people open. Route `/mcp`, `/.well-known/oauth-protected-resource`,
+`/.well-known/oauth-authorization-server`, `/oauth/authorize`, `/oauth/token`, `/oauth/register` and `/oauth/revoke`
+straight to the API and everything else to the web server: Claude and ChatGPT connect there (they need the public https
+address). A network address or `0.0.0.0` in `WEB_HOST` or `API_HOST`
 exposes that server to the network. `npm run build` writes the web's way to the API into the build: run it again after
 changing an address.
 
@@ -168,7 +171,7 @@ These features are built and **off**. Each stays off until its setting is given;
 
 | Setting (where) | Off while | It waits for |
 |---|---|---|
-| `BOT_USER_AGENT` (`.env`) | blank, or still holding `<...>` or an example address | A public page about TailorIT's bot (what it reads, how often, how to opt out) and a role mailbox (never a person's address): `TailorIT/1.0 (+https://<public site>/bot; <role mailbox>)`. Every **new** kind of outside read waits for it: discovery's validation of new board kinds and Common Crawl, the USAJOBS, Himalayas and Jobicy sources, the site reader (company websites, career pages), Wikidata, SEC and GLEIF lookups, logo.dev. Today's job sources keep `INGEST_USER_AGENT`. A malformed value stops the start, naming the key. |
+| `BOT_USER_AGENT` (`.env`) | blank, or still holding `<...>` or an example address | A public page about TailorIT's bot (what it reads, how often, how to opt out) and a role mailbox (never a person's address): `TailorIT/1.0 (+https://<public site>/bot; <role mailbox>)`. Every **new** kind of outside read waits for it: reading a job's own careers page (Add job, link imports, the first start's re-read of older jobs), discovery's validation of new board kinds and Common Crawl, the USAJOBS, Himalayas and Jobicy sources, the site reader (company websites, career pages), Wikidata, SEC and GLEIF lookups, logo.dev. Today's job sources keep `INGEST_USER_AGENT`. A malformed value stops the start, naming the key. |
 | `USAJOBS_API_KEY` (`.env`) | empty | A USAJOBS developer key (its requests also carry `BOT_USER_AGENT`'s mailbox). |
 | `HIMALAYAS_API_KEY` (`.env`) | empty | A Himalayas key. |
 | `LOGO_DEV_KEY` (`.env`) | empty | logo.dev's secret key (a paid plan): missing company logos. |
@@ -176,7 +179,8 @@ These features are built and **off**. Each stays off until its setting is given;
 | Read career pages, `SITE_READER_CAREER_PAGES` (Admin › Constants) | false | A legal review of reading employers' career pages and of discovering career sites. |
 | Live Wikidata lookups, `REFDATA_LIVE_LOOKUPS` (Admin › Constants) | false | Accepting that Wikidata's two APIs are read although robots.txt does not cover them for crawlers (also needs `BOT_USER_AGENT`). |
 | `DISCOVERY_PROBES_PER_HOST_PER_DAY` (Admin › Constants) | 0 | A decision to probe job boards for company names. |
-| `EXT_AUTO_APPROVE_CLOSED`, `EXT_AUTO_APPROVE_NEW_ATS`, `EXT_AUTO_APPROVE_NEW_PAGE` (Admin › Constants) | false | Trust in the extension's reports: until then an administrator approves each one in Admin › Review. Page jobs are never approved automatically while Read career pages is off. |
+| `EXT_AUTO_APPROVE_CLOSED`, `EXT_AUTO_APPROVE_NEW_ATS` (Admin › Constants) | false | Trust in the extension's reports and TailorIT's re-reads: until then an administrator approves each one in Admin › Review. (`EXT_AUTO_APPROVE_NEW_PAGE` has no effect since v3.1.) |
+| Publish jobs read from a careers page at once, `PAGE_JOBS_AUTO_PUBLISH` (Admin › Constants) | false | Trust in what TailorIT reads from employers' own pages: until then each new job read from a page's own job data (no ATS API) waits in Admin › Review › New jobs for an administrator's approval. Jobs read through an ATS's API are published at once. |
 
 `DISCOVERY_VALIDATE_V2_KINDS_TODAY` is **on**: boards that discovery finds of the four kinds today's sources read
 (Greenhouse, Lever, Ashby, Workable) are checked with `INGEST_USER_AGENT`; set it to false to make them wait for

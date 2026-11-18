@@ -5,15 +5,15 @@ import { MagnifyingGlassIcon, XIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 
 /**
- * A collection's search field (Simplify's plain "Search" box in the table toolbar). The ✕ clears it and hands focus
- * back to the field, which would otherwise fall to the page when the button disappears.
+ * A collection's search field (the kit's field with a magnifier, as the search looks everywhere). The ✕ clears it and
+ * hands focus back to the field, which would otherwise fall to the page when the button disappears.
  */
 export function SearchBox({
   value,
   onValueChange,
   label,
   placeholder = 'Search',
-  withIcon = false,
+  withIcon = true,
   id,
   className,
 }: {
@@ -52,7 +52,7 @@ export function SearchBox({
               onValueChange('');
               input.current?.focus();
             }}
-            className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground"
+            className="inline-flex size-6 items-center justify-center rounded-tag text-muted-foreground hover:bg-hover hover:text-foreground"
           >
             <XIcon size={14} />
           </button>

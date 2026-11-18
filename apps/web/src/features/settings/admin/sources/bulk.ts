@@ -12,17 +12,20 @@ import { countLabel } from '../../../../lib/format';
 
 type Outcome = (typeof ADMIN_SOURCE_BULK_OUTCOMES)[number];
 
-/** The bulk bar's buttons. */
+/**
+ * The bulk bar's buttons. v31 RUNS: turning a source off reads "Disable" (it said "Pause"), since Pause is now an admin's
+ * pause of runs (Admin › Runs), apart from Enabled.
+ */
 export const BULK_ACTION_LABEL: Record<AdminSourceBulkAction, string> = {
   enable: 'Enable',
-  disable: 'Pause',
+  disable: 'Disable',
   run_now: 'Run now',
 };
 
 /** What a done source became, for the toast: "12 sources enabled". */
 const DONE_WORDS: Record<AdminSourceBulkAction, string> = {
   enable: 'enabled',
-  disable: 'paused',
+  disable: 'disabled',
   run_now: 'due to run now',
 };
 

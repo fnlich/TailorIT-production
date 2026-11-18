@@ -271,15 +271,16 @@ export function rowToPosting(
   rowNumber: number,
   options: RowOptions = {},
 ): { posting: RawPosting } | { error: string } {
+  // v31 LINK2: an import is a list of links: only the link is needed (the title and company, when mapped, only name
+  // the row in a message; TailorIT reads each posting from its link and ignores the rest).
   const title = cell(row, mapping, 'title');
   const company = cell(row, mapping, 'company');
   const url = cell(row, mapping, 'url');
-  if (!title) return { error: `Row ${rowNumber} has no job title.` };
-  if (!company) return { error: `Row ${rowNumber} ("${title}") has no company.` };
-  if (!url) return { error: `Row ${rowNumber} ("${title}") has no job link.` };
+  const named = title ? ` ("${title}")` : '';
+  if (!url) return { error: `Row ${rowNumber}${named} has no job link.` };
   if (!isWebAddress(url)) {
     return {
-      error: `Row ${rowNumber} ("${title}") has a job link that is not a web address ("${quoted(url)}"). Put the address itself in the column.`,
+      error: `Row ${rowNumber}${named} has a job link that is not a web address ("${quoted(url)}"). Put the address itself in the column.`,
     };
   }
   const description = cell(row, mapping, 'description');

@@ -1,9 +1,13 @@
 import {
   ApplicationDraftResponseSchema,
+  PrepareAllPlanSchema,
+  PrepareAllResponseSchema,
   PrepareJobSchema,
   PrepareSettingsSchema,
   PrepareStartResponseSchema,
   type ApplicationDraftResponse,
+  type PrepareAllPlan,
+  type PrepareAllResponse,
   type PrepareJob,
   type PrepareSettings,
   type PrepareSettingsBody,
@@ -29,6 +33,19 @@ export function startPrepare(applicationIds: readonly string[], rebuild = false)
     { applicationIds, ...(rebuild ? { rebuild: true } : {}) },
     { schema: PrepareStartResponseSchema },
   );
+}
+
+/** v31 AUTO (D10): GET /api/prepare/all, what Prepare All would take now and today's AI use (nothing starts). */
+export function fetchPrepareAllPlan(signal?: AbortSignal) {
+  return api.get<PrepareAllPlan>('/api/prepare/all', { signal, schema: PrepareAllPlanSchema });
+}
+
+/**
+ * v31 AUTO (D10): POST /api/prepare/all, every saved job in To prepare that passes the filters (the server chooses).
+ * v31 FIX-AUTH (BEH-8): of the jobs the confirm named (its plan's applicationIds) only.
+ */
+export function startPrepareAll(applicationIds: readonly string[]) {
+  return api.post<PrepareAllResponse>('/api/prepare/all', { applicationIds }, { schema: PrepareAllResponseSchema });
 }
 
 /** POST /api/prepare/:id/cancel: a waiting Prepare ends at once; an active one when the runner sees it. */

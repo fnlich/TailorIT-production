@@ -18,12 +18,12 @@ import { ReportersDisclosure } from './Reporters';
 // check, the newest report's age, and Approve and Reject (labelled, with their icons). In select mode a checkbox leads
 // each row that can still be decided.
 
-/** A row's accent bar: needs a decision (teal), TailorIT says live (amber), otherwise quiet. */
-function AccentBar({ tone }: { tone: 'decide' | 'warning' | 'quiet' }) {
+/** A row's accent bar: needs a decision (denim), TailorIT says live (warning), otherwise quiet. */
+export function AccentBar({ tone }: { tone: 'decide' | 'warning' | 'quiet' }) {
   return (
     <span
       aria-hidden="true"
-      className={clsx('absolute inset-y-0 left-0 w-[3px]', tone === 'decide' ? 'bg-primary' : tone === 'warning' ? 'bg-amber-foreground/60' : 'bg-border')}
+      className={clsx('absolute inset-y-0 left-0 w-[3px]', tone === 'decide' ? 'bg-primary' : tone === 'warning' ? 'bg-warning/60' : 'bg-border')}
     />
   );
 }
@@ -72,14 +72,14 @@ function RowCheckbox({ selectMode, decidable, checked, onChecked, name }: {
 function OutcomeLine({ text }: { text: string | null }) {
   if (!text) return null;
   return (
-    <p className="mt-1 text-[13px] leading-5 font-medium text-amber-foreground" data-row-outcome="">
+    <p className="mt-1 text-[13px] leading-5 font-medium text-warning" data-row-outcome="">
       {text}
     </p>
   );
 }
 
 /** The row's buttons, beside the text when the pane is wide enough, under it otherwise. */
-function RowActions({ children }: { children: ReactNode }) {
+export function RowActions({ children }: { children: ReactNode }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1.5" data-review-actions="">
       {children}
@@ -87,7 +87,8 @@ function RowActions({ children }: { children: ReactNode }) {
   );
 }
 
-const TOUCH = 'max-sm:h-11';
+/** A row button's 44 px touch target on a phone. */
+export const TOUCH = 'max-sm:h-11';
 
 export interface ReviewRowViewProps {
   row: AdminReviewRow;

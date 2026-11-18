@@ -55,6 +55,9 @@ export const reviewKeys = {
   lane: (lane: JobReviewKind | 'flags', state: ReviewStateFilter, q: string) => ['admin', 'review', 'list', lane, state, q] as const,
   detail: (id: number) => ['admin', 'review', 'detail', id] as const,
   reporters: (id: number) => ['admin', 'review', 'reporters', id] as const,
+  // v31 ADMINWEB: "Couldn't verify" (LINK's routes, review/unverified.ts), under `all` so a refresh reads it again too.
+  unverified: ['admin', 'review', 'unverified', 'list'] as const,
+  unverifiedCount: ['admin', 'review', 'unverified', 'count'] as const,
 };
 
 const query = ({ state, q, cursor }: ReviewListQuery) => ({ state, q: q.trim() || undefined, cursor });

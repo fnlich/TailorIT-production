@@ -111,7 +111,7 @@ export function AccountDetails({
         )}
       </SettingRow>
       <SettingRow label={ACCOUNT_COPY.credit}>
-        <span className="font-semibold tabular-nums" data-credit="">
+        <span className="num text-foreground" data-credit="">
           {view.credit}
         </span>
         <Button size="sm" variant="outline" className="sm:ml-auto" onClick={onBuyCredit}>

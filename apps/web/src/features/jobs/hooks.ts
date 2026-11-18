@@ -4,15 +4,18 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query';
 import {
+  JOB_ROW_MATCHES_MAX_IDS,
   toIsoDate,
   type JobDetail,
   type JobFacet,
+  type JobRowMatch,
   type JobsQuery,
   type SavedJobRef,
 } from '@tailorit/shared';
@@ -33,6 +36,7 @@ import {
   fetchJob,
   fetchJobsCount,
   fetchJobsPage,
+  fetchRowMatches,
   fetchSavedSearches,
   hideCompany,
   hideJob,
@@ -93,7 +97,7 @@ export function useJobDetail(id: number | null) {
 }
 
 /**
- * The analysis and the keyword match read off it, in one answer, so "About the job" and the keyword card change
+ * The analysis and the keyword match read off it, in one answer, so "About the role" and Your match change
  * together. Polled every 4 s while the AI analysis is being made ("Refining…"); what is shown stays on screen until
  * the next answer replaces it whole (no loading state in between).
  */
@@ -104,6 +108,32 @@ export function useJobInsights(id: number | null) {
     enabled: id !== null,
     staleTime: 60_000,
     refetchInterval: (query) => (query.state.data?.analysis.refining ? 4000 : false),
+  });
+}
+
+/**
+ * v31 FIX-JOBS: each listed job's keyword match for the feed's tape meters, one request per list page (21 jobs), in a
+ * map by job id. A job not in the map yet is still loading (or its page failed: the row then shows no meter).
+ */
+export function useRowMatches(pages: ReadonlyArray<{ items: ReadonlyArray<{ id: number }> }>) {
+  const chunks = pages.flatMap((page) => {
+    const ids = page.items.map((item) => item.id);
+    const out: number[][] = [];
+    for (let start = 0; start < ids.length; start += JOB_ROW_MATCHES_MAX_IDS) out.push(ids.slice(start, start + JOB_ROW_MATCHES_MAX_IDS));
+    return out;
+  });
+  return useQueries({
+    queries: chunks.map((ids) => ({
+      queryKey: jobsKeys.rowMatches(ids),
+      queryFn: ({ signal }: { signal: AbortSignal }) => fetchRowMatches(ids, signal),
+      staleTime: 60_000,
+      enabled: ids.length > 0,
+    })),
+    combine: (results) => {
+      const byJob = new Map<number, JobRowMatch>();
+      for (const result of results) for (const item of result.data?.items ?? []) byJob.set(item.jobId, item);
+      return { byJob, settled: results.every((result) => !result.isPending) };
+    },
   });
 }
 
@@ -239,6 +269,7 @@ function refreshAfterBulkTracking(client: QueryClient): Promise<unknown> {
     client.invalidateQueries({ queryKey: jobsKeys.counts }),
     client.invalidateQueries({ queryKey: jobsKeys.details }),
     client.invalidateQueries({ queryKey: jobsKeys.allInsights }),
+    client.invalidateQueries({ queryKey: jobsKeys.allRowMatches }), // v31 FIX-JOBS
     client.invalidateQueries({ queryKey: TRACKER_KEY }),
   ]);
 }
@@ -421,7 +452,7 @@ export function useUndoSaveAll() {
   });
 }
 
-/** "Did you apply?" → Yes, and "Already Applied?": tracks the job as Applied today. */
+/** "Applied to this job?" → Yes, and "Mark as applied": tracks the job as Applied today. */
 export function useMarkApplied() {
   const client = useQueryClient();
   return useMutation({

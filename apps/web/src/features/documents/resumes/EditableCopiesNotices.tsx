@@ -40,13 +40,16 @@ const FAILED: Record<CopyAction, string> = {
   dismiss: 'Could not dismiss the copies',
 };
 
-/** The colours of the kit's Notice: sky while copies are made, amber while they wait for a pause, then how it ended. */
+/**
+ * The colours of the kit's Notice (a soft tone, its ink, a 3 px bar of the full tone): info while copies are made,
+ * warning while they wait for a pause, then how it ended.
+ */
 const BOX_TONES: Record<'making' | 'paused' | FinishedNotice['tone'], string> = {
-  making: 'bg-sky text-sky-foreground',
-  paused: 'bg-amber text-amber-foreground',
-  success: 'bg-success-container text-[#02703c]',
-  warning: 'bg-amber text-amber-foreground',
-  error: 'bg-destructive-container text-[#b42625]',
+  making: 'border-info bg-info-soft text-info-ink',
+  paused: 'border-warning bg-warning-soft text-warning-ink',
+  success: 'border-success bg-success-soft text-success-ink',
+  warning: 'border-warning bg-warning-soft text-warning-ink',
+  error: 'border-danger bg-danger-soft text-danger-ink',
 };
 
 /**
@@ -110,7 +113,7 @@ function CopyBox({
   controls: ReactNode;
 }) {
   return (
-    <div data-copy-batch={batchId} className={clsx('flex items-start gap-2.5 rounded-control px-3.5 py-3 text-sm leading-5', BOX_TONES[tone])}>
+    <div data-copy-batch={batchId} className={clsx('flex items-start gap-2.5 rounded-control border-l-[3px] px-3.5 py-3 text-sm leading-5', BOX_TONES[tone])}>
       {icon}
       <div className="min-w-0 flex-1 break-words">
         {/* A new node when it turns into an alert, as an alert is announced when it appears. */}
@@ -266,7 +269,7 @@ function CopyList({ items }: { items: readonly ResumeCopy[] }) {
             <span
               className={clsx(
                 'text-[13px] leading-5 [overflow-wrap:anywhere]',
-                item.state === 'failed' ? 'text-[#b42625]' : item.state === 'ready' ? 'text-[#02703c]' : 'text-muted-foreground',
+                item.state === 'failed' ? 'text-danger' : item.state === 'ready' ? 'text-success' : 'text-muted-foreground',
               )}
             >
               {copyStateText(item)}

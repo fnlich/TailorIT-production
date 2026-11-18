@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
 import { FileTextIcon, PencilSimpleIcon, SparkleIcon, XIcon } from '@/components/ui/icons';
 import { isApiError, userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 import { TailorDialog } from '../../tailor/TailorDialog';
 import {
   invalidateApplications,
@@ -48,7 +49,7 @@ function DocumentCard({ document, actions }: { document: LinkedDocument; actions
       data-document-id={document.id}
       className="flex items-center gap-3 rounded-control border border-border bg-surface px-4 py-3"
     >
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-container text-primary-ink">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-soft text-primary">
         <FileTextIcon size={18} />
       </span>
       {/* On a narrow sheet the badges go under the name rather than squeeze it away. */}
@@ -124,6 +125,7 @@ function Picker({
  * each with the Jobs card's numbers; without a ranking (an older server, or it failed) it lists them as before.
  */
 export function DocumentsTab({ application }: { application: ApplicationDetail }) {
+  const { t } = usePublicConstants();
   const client = useQueryClient();
   const toast = useToast();
   const matches = useResumeMatches(application.id, true);
@@ -214,7 +216,7 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
             )}
             {/* v1.4 E (decision 16): a resume (and its letter) written for this job, linked here when done. */}
             <Button size="sm" icon={<SparkleIcon size={14} weight="fill" />} disabled={busy} onClick={() => setTailoring(true)} data-tailor-open="">
-              Tailor my resume
+              {t('LABEL_JOB_TAILOR_BUTTON')}
             </Button>
           </div>
         </div>

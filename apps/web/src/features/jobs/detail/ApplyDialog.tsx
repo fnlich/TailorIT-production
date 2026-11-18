@@ -6,8 +6,8 @@ import { Notice } from '@/components/ui/Notice';
 import { userMessage } from '@/lib/api';
 
 /**
- * Asked after Apply opens the posting in a new tab: "Did you apply?". Yes tracks the job as Applied today in the
- * Job Tracker; No leaves everything as it was.
+ * Asked after Apply opens the posting in a new tab: "Applied to this job?" (v31 INT-3: TailorIT's words). Yes tracks
+ * the job as Applied today in the Job Tracker; Not yet leaves everything as it was.
  */
 export function ApplyDialog({
   open,
@@ -29,8 +29,8 @@ export function ApplyDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title="Did you apply?"
-        description={`Let us know if you applied to ${title} at ${company}, and we'll track it in your Job Tracker.`}
+        title="Applied to this job?"
+        description={`If you sent your application for ${title} at ${company}, Yes files it in your Job Tracker under Applied, dated today.`}
         size="sm"
       >
         {error ? (
@@ -40,7 +40,7 @@ export function ApplyDialog({
         ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            No
+            Not yet
           </Button>
           <Button onClick={onConfirm} loading={pending}>
             Yes, I applied

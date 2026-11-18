@@ -21,7 +21,7 @@ import {
 import type { SelectOption } from '@/components/ui/Select';
 import type { Icon, IconProps } from '@/components/ui/icons';
 
-/** The Phosphor glyph of each status (Simplify: bookmark, paper plane, document search, chats, open envelope, …). */
+/** The Phosphor glyph of each status (bookmark, paper plane, document search, chats, open envelope, …). */
 const ICONS: Record<StatusIconName, Icon> = {
   bookmark: BookmarkSimpleIcon,
   'paper-plane': PaperPlaneTiltIcon,
@@ -45,7 +45,7 @@ export function DisplayStatusIcon({ status, ...props }: { status: DisplayStatus 
   return <StatusIcon status={status} {...props} />;
 }
 
-/** Every status as a select option with its icon, in Simplify's order. */
+/** Every status as a select option with its icon, in the statuses' order. */
 export function statusOptions(): SelectOption<string>[] {
   return APPLICATION_STATUSES.map((status) => ({
     value: String(status),

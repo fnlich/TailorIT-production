@@ -13,8 +13,8 @@ import { REVISE_ROUNDS_HINT, reviseRoundOptions } from './mcp';
 const OPTIONS = reviseRoundOptions(MCP_REVISE_ROUNDS.min, MCP_REVISE_ROUNDS.max, MCP_REVISE_ROUNDS.default);
 
 /**
- * v1.5 Q1: Settings › Integrations › "Your own AI (MCP)" › Revision rounds: how many revision rounds the person's own AI
- * is asked for after each tailored resume (0 to 5, 2 by default), saved as it is chosen.
+ * v1.5 Q1: Integrations › AI assistants › "How your AI works with TailorIT" › Revision rounds: how many revision rounds
+ * the person's own AI is asked for after each tailored resume (0 to 5, 2 by default), saved as it is chosen.
  */
 export function ReviseRoundsSetting() {
   const queryClient = useQueryClient();

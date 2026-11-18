@@ -33,7 +33,7 @@ export function useTrackerUrl(): [TrackerUrlState, (next: TrackerUrlState) => vo
 
 const identity = (raw: string | null) => raw ?? '';
 
-/** Board column visibility (forced / default / hidden), remembered in localStorage like Simplify's `columnStatus`. */
+/** Board column visibility (forced / default / hidden), remembered in localStorage (`columnStatus`). */
 export function useColumnPrefs(): [ColumnPrefs, (next: ColumnPrefs) => void] {
   const [raw] = useStoredValue<string>(COLUMN_PREFS_STORAGE_KEY, identity);
   const prefs = useMemo(() => readColumnPrefs(raw), [raw]);

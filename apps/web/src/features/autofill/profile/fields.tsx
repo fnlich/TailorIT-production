@@ -38,7 +38,7 @@ export function hintOf(form: ProfileForm, path: string, hint: ReactNode): ReactN
 /** A message under a group of controls (a Field draws its own). */
 export function GroupMessage({ id, children }: { id?: string; children: ReactNode }) {
   return (
-    <p id={id} data-field-error="" className="text-[13px] leading-5 text-[#c62a29]">
+    <p id={id} data-field-error="" className="text-[13px] leading-5 text-danger">
       {children}
     </p>
   );
@@ -71,7 +71,7 @@ export function FieldGroup({
       <span id={`${id}-label`} className="text-sm leading-5 font-medium text-foreground">
         {label}
         {required && (
-          <span aria-hidden="true" className="ml-0.5 text-[#c62a29]">
+          <span aria-hidden="true" className="ml-0.5 text-danger">
             *
           </span>
         )}
@@ -254,7 +254,7 @@ export function CheckboxField({ path, label, disabled }: { path: string; label: 
         disabled={form.busy || disabled}
         onCheckedChange={(checked) => form.set(path, checked)}
       />
-      {hint && <p className="pl-[28px] text-[13px] leading-5">{hint}</p>}
+      {hint && <p className="pl-7 text-[13px] leading-5">{hint}</p>}
     </div>
   );
 }

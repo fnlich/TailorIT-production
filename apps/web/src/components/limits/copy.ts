@@ -24,6 +24,8 @@ export const LIMIT_COPY = {
   paidOnly: 'Paid accounts only',
   /** Under the UsageMeter at the limit: "Resets at 12:00 AM Pacific Time". */
   resetsAt: (when: string) => `Resets at ${when}`,
+  /** v31 AUTO: under the UsageMeter while runs are in progress: "1 applying now". */
+  running: (count: number) => `${count} applying now`,
 } as const;
 
 /** The LimitDialog's title for each kind of limit (its body is the message). */

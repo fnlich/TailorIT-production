@@ -20,6 +20,7 @@ import type { AppDeps } from '../../core/context';
 import type { FilterCheck } from '../../core/seams';
 import { decodeCursor, encodeCursor, keyText, keyValues } from '../applications/query';
 import { logoUrlOf } from '../applications/store';
+import { verificationColumns, verificationOf } from '../jobs/add/verification'; // v31 INT-2
 import { jobMarksOf } from '../jobs/credit'; // v30 FIX-B
 
 // v2.0: the Auto-apply page's Saved Jobs pane (docs/design/v2.0/05-prepare-flow.md, "The state machine" and "Read
@@ -79,6 +80,10 @@ interface SavedRow {
   apply_url: string;
   /** v30 INT-3: jobs.held_since is set (held for review). */
   held: boolean;
+  /** v31 INT-2: the job's verification columns, as the job summaries read them (jobs/add/verification.ts). */
+  held_since: string | null;
+  owned_job: boolean | null;
+  verification_json: unknown;
   p_id: string | null;
   p_state: PrepareJobState | null;
   p_reason: string | null;
@@ -122,6 +127,23 @@ export function supportOf(url: string, run: string | null = null): SavedJobSuppo
   return queueCanOpen(url) ? 'tab' : 'manual';
 }
 
+/**
+ * The person's saved entries with a job, joined to the three records the marker reads: the newest Prepare (p), the
+ * job's queue row (q) and the filter verdict (f). `@userId` names the person.
+ */
+function savedFrom(d: Deps['db']['dialect']): string {
+  return `FROM applications a
+      JOIN jobs j ON j.id = a.job_id
+      LEFT JOIN companies c ON c.id = a.company_id
+      LEFT JOIN prepare_jobs p ON p.id = (SELECT p2.id FROM prepare_jobs p2 WHERE p2.application_id = a.id
+        ORDER BY p2.created_at DESC, ${d.seq('p2')} DESC LIMIT 1)
+      LEFT JOIN autofill_agent_queue q ON q.user_id = a.user_id AND q.job_id = a.job_id
+      LEFT JOIN prepare_filter_results f ON f.application_id = a.id
+      WHERE a.user_id = @userId AND a.current_status = ${STATUS.saved} AND a.archived_at IS NULL`;
+}
+
+const markerList = (markers: readonly SavedJobMarker[]) => markers.map((marker) => `'${marker}'`).join(', ');
+
 function rowsOf(deps: Deps, userId: string, query: SavedJobListQuery): Promise<SavedRow[]> {
   const d = deps.db.dialect;
   const scope = `saved:${query.filter}`;
@@ -129,6 +151,7 @@ function rowsOf(deps: Deps, userId: string, query: SavedJobListQuery): Promise<S
   const markers = TAB_MARKERS[query.filter];
   const sql = `SELECT * FROM (
       SELECT a.id, a.job_id, a.title, a.company_name, a.location, (SELECT cp.logo_path FROM company_profiles cp WHERE cp.company_id = c.id) AS logo_path, j.apply_url, j.held_since IS NOT NULL AS held,
+        j.held_since, ${verificationColumns('j')},
         coalesce((SELECT e.occurred_on FROM application_status_events e WHERE e.application_id = a.id AND e.status = 1),
           a.tracked_on) AS saved_on,
         a.tracked_on AS sort_day, a.created_at AS sort_at,
@@ -140,20 +163,37 @@ function rowsOf(deps: Deps, userId: string, query: SavedJobListQuery): Promise<S
             OR f.facts_version <> coalesce((SELECT jf.facts_version FROM job_facts jf WHERE jf.job_id = a.job_id), f.facts_version)
           THEN ${d.true} ELSE ${d.false} END AS f_stale,
         ${MARKER_SQL} AS marker
-      FROM applications a
-      JOIN jobs j ON j.id = a.job_id
-      LEFT JOIN companies c ON c.id = a.company_id
-      LEFT JOIN prepare_jobs p ON p.id = (SELECT p2.id FROM prepare_jobs p2 WHERE p2.application_id = a.id
-        ORDER BY p2.created_at DESC, ${d.seq('p2')} DESC LIMIT 1)
-      LEFT JOIN autofill_agent_queue q ON q.user_id = a.user_id AND q.job_id = a.job_id
-      LEFT JOIN prepare_filter_results f ON f.application_id = a.id
-      WHERE a.user_id = @userId AND a.current_status = ${STATUS.saved} AND a.archived_at IS NULL
+      ${savedFrom(d)}
     ) saved WHERE 1 = 1
-      ${markers ? `AND marker IN (${markers.map((marker) => `'${marker}'`).join(', ')})` : ''}
+      ${markers ? `AND marker IN (${markerList(markers)})` : ''}
       ${after ? 'AND (sort_day, sort_at, id) < (@day, @at, @id)' : ''}
     ORDER BY sort_day DESC, sort_at DESC, id DESC LIMIT @limit`;
   const [day, at] = after ? keyValues(after.k, 'tracked') : [null, null];
   return deps.db.all<SavedRow>(sql, { userId, day, at, id: after?.id ?? null, limit: query.limit + 1 });
+}
+
+/** A saved entry Prepare All may take: the Tracker entry and its job. */
+export interface ToPrepareEntry {
+  applicationId: string;
+  jobId: number;
+}
+
+/**
+ * v31 AUTO (D10): Prepare All's candidates, the person's saved jobs in To prepare (the `ready` tab's markers: no
+ * Prepare yet, filtered, or preparation failed) whose job is still open, in the pane's order (newest saved first), at
+ * most `max`. The filters are not applied here: the caller asks the filter service for fresh verdicts.
+ */
+export async function toPrepareEntries(deps: Deps, userId: string, max: number): Promise<ToPrepareEntry[]> {
+  const d = deps.db.dialect;
+  const rows = await deps.db.all<{ id: string; job_id: number }>(
+    `SELECT id, job_id FROM (
+        SELECT a.id, a.job_id, j.active, a.tracked_on AS sort_day, a.created_at AS sort_at, ${MARKER_SQL} AS marker
+        ${savedFrom(d)}
+      ) saved WHERE active = ${d.true} AND marker IN (${markerList(TAB_MARKERS.ready!)})
+      ORDER BY sort_day DESC, sort_at DESC, id DESC LIMIT @limit`,
+    { userId, limit: max },
+  );
+  return rows.map((row) => ({ applicationId: row.id, jobId: row.job_id }));
 }
 
 /** GET /api/auto-apply/saved: one page of the Saved pane (SavedJobList), stale verdicts computed again for it. */
@@ -213,6 +253,8 @@ export async function savedJobs(deps: Deps, userId: string, query: SavedJobListQ
       ...(row.q_id ? { queueId: row.q_id } : {}),
       // v30 INT-3: held for review, waiting for approval (14 §4.3).
       ...(row.held === true ? { held: true } : {}),
+      // v31 INT-2: a job others do not see says why, as on Jobs and the Tracker (absent: everyone sees it).
+      ...verificationOf(row),
       ...marks.get(row.job_id), // v30 FIX-B: credit, closed
     });
   }
