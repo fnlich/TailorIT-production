@@ -4,6 +4,7 @@ import { constantSpec, type AdminConstantList, type ConstantKey } from '@tailori
 import type { ReviewLane } from '@tailorit/shared/reviews';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId } from 'react';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Switch } from '@/components/ui/Switch';
 import { useToast } from '@/components/ui/Toast';
@@ -43,7 +44,7 @@ export function AutoApproveStrip({ lane }: { lane: ReviewLane }) {
           <ConstantSwitch key={key} row={row} rule={autoApproveRule(key, numbers)} words={AUTO_APPROVE_WORDS} />
         ) : rows ? null : constants.isError ? (
           <p key={key} className="text-[13px] text-muted-foreground">
-            The automatic approval switches could not be loaded. {userMessage(constants.error)}
+            The automatic approval switches didn&apos;t load. {userMessage(constants.error)}
           </p>
         ) : (
           <Skeleton key={key} className="h-9 w-72" />
@@ -82,8 +83,10 @@ export function ConstantSwitch({ row, rule, words }: { row: ConstantItem; rule: 
     onError: (error) => toast.error('The switch was not changed', userMessage(error)),
   });
   const checked = change.isPending ? Boolean(change.variables) : row.value === true;
+  // v32 INT-1 (E5): the rule is the "?" beside the switch's label (it was a line under it); the switch stays described
+  // by a hidden copy of it.
   return (
-    <div className="flex min-w-0 flex-col gap-0.5" data-auto-switch={row.key}>
+    <div className="flex min-w-0 items-center gap-1.5" data-auto-switch={row.key}>
       <Switch
         checked={checked}
         disabled={change.isPending}
@@ -92,10 +95,10 @@ export function ConstantSwitch({ row, rule, words }: { row: ConstantItem; rule: 
         aria-describedby={ruleId}
         className="min-h-11 sm:min-h-6"
       />
-      {/* Under the label: past the switch's 36 px and its 10 px gap. */}
-      <p id={ruleId} className="pl-[46px] text-[13px] leading-5 text-muted-foreground">
+      <HelpTip label={row.label}>{rule}</HelpTip>
+      <span id={ruleId} hidden>
         {rule}
-      </p>
+      </span>
     </div>
   );
 }

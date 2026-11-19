@@ -19,10 +19,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { AdminResourceTab, ScrollRegion, ShowMoreButton, type AdminColumn } from '@/components/admin';
 import { SelectBar } from '@/components/queue';
 import { Badge } from '@/components/ui/Badge';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { IconButton } from '@/components/ui/IconButton';
-import { ArrowsClockwiseIcon, MagnifyingGlassIcon, PlusIcon } from '@/components/ui/icons';
+import { ArrowsClockwiseIcon, CheckCircleIcon, MagnifyingGlassIcon, PlusIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { useToast } from '@/components/ui/Toast';
@@ -97,12 +98,28 @@ export function FunnelSummary({
   const vias = viaRows(funnel);
   return (
     <section aria-label="The candidate funnel" className="mb-4 flex flex-col gap-3" data-candidate-funnel>
-      <Notice tone={validation.on ? 'info' : 'warning'} title={validation.on ? 'Validation is on' : 'Validation is off'}>
-        <p>{validation.text}</p>
-        {notes.map((note) => (
-          <p key={note}>{note}</p>
+      {/* v32 COPY (E4/E5): validation's state is a chip. v32 FIX-UX (UXREQ-8): its numbers (today's reads, the crawl,
+          the probes) are values, so they show under it; the "?" says what validation is, in one sentence. */}
+      <span className="flex items-center gap-1.5" data-candidate-validation={validation.on ? 'on' : 'off'}>
+        <Badge
+          tone={validation.on ? 'success' : 'warning'}
+          icon={
+            validation.on ? (
+              <CheckCircleIcon size={13} weight="fill" aria-hidden="true" />
+            ) : (
+              <WarningCircleIcon size={13} weight="fill" aria-hidden="true" />
+            )
+          }
+        >
+          {validation.on ? 'Validation is on' : 'Validation is off'}
+        </Badge>
+        <HelpTip label={validation.on ? 'Validation is on' : 'Validation is off'}>{VALIDATION_TIP}</HelpTip>
+      </span>
+      <ul className="flex flex-col gap-0.5 text-[13px] leading-5 text-muted-foreground" data-candidate-validation-lines="">
+        {[validation.text, ...notes].map((line) => (
+          <li key={line}>{line}</li>
         ))}
-      </Notice>
+      </ul>
       <ul className="flex flex-wrap gap-2" aria-label="Candidates by state">
         {funnelRows(funnel).map((row) => {
           const active = row.status === 'all' ? chosen.length === 0 : chosen.length === 1 && chosen[0] === row.status;
@@ -135,7 +152,7 @@ export function FunnelSummary({
 
 /** The measures by kind: boards, open jobs per board, new postings a month and open life (12 §5.2). */
 export function MeasuresTable({ byKind }: { byKind: readonly DiscoveryKindMeasure[] }) {
-  if (byKind.length === 0) return <p className="text-[13px] text-muted-foreground">No board is measured yet: the daily housekeeping measures every source.</p>;
+  if (byKind.length === 0) return <p className="text-[13px] text-muted-foreground">No board is measured yet.</p>;
   const number = (value: number | null) => (value === null ? '-' : value.toLocaleString('en-US'));
   return (
     // v30 FIX-WEB (REV-UX UX-7): a focusable, named region, so a keyboard scrolls it.
@@ -168,9 +185,14 @@ export function MeasuresTable({ byKind }: { byKind: readonly DiscoveryKindMeasur
   );
 }
 
+/** What validation is (the chip's "?"). */
+const VALIDATION_TIP = 'Validation reads each board discovery found, once, before it can become a source.';
+
 export function CandidatesTab() {
   const now = useNow();
   const toast = useToast();
+  // The result of a bulk action, above the table (a toast would sit on the bulk bar's buttons): the admin's action.
+  const [outcome, setOutcome] = useState<ReturnType<typeof candidateBulkSummary> | null>(null);
   const link = useAdminLink();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -178,7 +200,6 @@ export function CandidatesTab() {
   // The chosen rows, kept with the filters they were chosen under (new filters start a new choice).
   const [selection, setSelection] = useState<{ filters: CandidateFilters; ids: Set<number> }>(() => ({ filters: NO_CANDIDATE_FILTERS, ids: new Set() }));
   const [adding, setAdding] = useState(false);
-  const [outcome, setOutcome] = useState<ReturnType<typeof candidateBulkSummary> | null>(null);
   const selected = selection.filters === filters ? selection.ids : new Set<number>();
 
   useEffect(() => {
@@ -294,7 +315,7 @@ export function CandidatesTab() {
   return (
     <AdminResourceTab
       title="Candidates"
-      description="Boards discovery found: from Add job, links in applications and page jobs, other postings, Common Crawl and your own list. Each is read once to validate it, then becomes a source if it answers."
+      description="Boards discovery found; each is read once, then becomes a source if it answers."
       actions={
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" icon={<PlusIcon size={16} />} onClick={() => setAdding(true)}>
@@ -355,7 +376,7 @@ export function CandidatesTab() {
       }
       items={candidates.data ? items : undefined}
       error={candidates.error}
-      errorTitle="The candidates could not be loaded"
+      errorTitle="Candidates didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void candidates.refetch()}>
           Try again
@@ -363,11 +384,11 @@ export function CandidatesTab() {
       }
       empty={
         narrowed
-          ? { title: 'No candidate matches', description: 'Try other filters or another search.', card: false }
+          ? { title: 'No candidate matches', description: 'Try other filters.', card: false }
           : {
               size: 'sm',
               title: 'No candidates yet',
-              description: 'A board is listed here once a signal finds it: Add job, the links in applications, Common Crawl, or Add boards.',
+              description: 'A board appears once discovery or Add boards finds it.',
               action: <Button onClick={() => setAdding(true)}>Add boards</Button>,
             }
       }

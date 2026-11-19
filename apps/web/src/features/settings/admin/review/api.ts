@@ -23,6 +23,7 @@ import {
   type JobReviewKind,
   type ReviewStateFilter,
 } from '@tailorit/shared/reviews';
+import { ReviewRetryReadSchema, type ReviewRetryRead } from '@tailorit/shared/jobs'; // v32 ADMINAPP (E6)
 import type { z } from 'zod';
 import { api } from '@/lib/api';
 
@@ -35,6 +36,7 @@ export const REVIEW_ROUTES = {
   counts: '/api/admin/reviews/counts', // v30 FIX-WEB (REQ-8)
   review: (id: number) => `/api/admin/reviews/${id}`,
   reporters: (id: number) => `/api/admin/reviews/${id}/reporters`,
+  retry: (id: number) => `/api/admin/reviews/${id}/retry`, // v32 ADMINAPP (E6)
   reviewsBulk: '/api/admin/reviews/bulk',
   flags: '/api/admin/flags',
   flag: (id: number) => `/api/admin/flags/${id}`,
@@ -58,6 +60,8 @@ export const reviewKeys = {
   // v31 ADMINWEB: "Couldn't verify" (LINK's routes, review/unverified.ts), under `all` so a refresh reads it again too.
   unverified: ['admin', 'review', 'unverified', 'list'] as const,
   unverifiedCount: ['admin', 'review', 'unverified', 'count'] as const,
+  // v32 FIX-API (SB-1): a row's job in full (every version), under `all` too.
+  unverifiedDetail: (jobId: number) => ['admin', 'review', 'unverified', 'detail', jobId] as const,
 };
 
 const query = ({ state, q, cursor }: ReviewListQuery) => ({ state, q: q.trim() || undefined, cursor });
@@ -85,6 +89,11 @@ export function fetchReporters(id: number, signal?: AbortSignal): Promise<AdminR
 /** PATCH /api/admin/reviews/:id: approve, reject or reopen one review, with an optional note. */
 export function decideReview(id: number, body: AdminReviewDecisionBody): Promise<AdminReviewRow> {
   return api.patch<AdminReviewRow>(REVIEW_ROUTES.review(id), body, { schema: AdminReviewRowSchema });
+}
+
+/** v32 ADMINAPP (E6) POST /api/admin/reviews/:id/retry: TailorIT reads a waiting new job's link again now. */
+export function retryReviewRead(id: number): Promise<ReviewRetryRead> {
+  return api.post<ReviewRetryRead>(REVIEW_ROUTES.retry(id), {}, { schema: ReviewRetryReadSchema });
 }
 
 /** POST /api/admin/reviews/bulk: approve or reject up to ADMIN_BULK_MAX reviews; each row says what happened. */

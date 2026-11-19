@@ -211,7 +211,7 @@ function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (j
             onChange={(event) => setDetails((current) => ({ ...current, location: event.target.value }))}
           />
         </Field>
-        <Field label="Description" optional hint="Paste the posting's text to tailor your resume to it.">
+        <Field label="Description" optional hint="Paste the posting's text to tailor to it.">
           <Textarea
             value={details.description ?? ''}
             rows={4}

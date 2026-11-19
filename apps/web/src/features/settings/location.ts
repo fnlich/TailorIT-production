@@ -47,16 +47,16 @@ export function readLocation(record: unknown): LocationPreferences {
 
 export const LOCATION_COPY = {
   group: 'Where you live',
-  helper: "The location filter compares a job's rules about where candidates must live with these. TailorIT never sends them to employers.",
+  helper: 'The location filter checks jobs against this; it is never sent to employers.',
   country: 'Country',
   countryPlaceholder: 'Choose a country',
   region: 'State or province',
   regionPlaceholder: 'Choose one',
-  regionCodeHint: 'Its short code, such as NSW',
+  regionCodeHint: 'Its short code, such as NSW.',
   city: 'City',
   timeZone: 'Time zone',
   timeZonePlaceholder: 'Choose a time zone',
-  deviceZone: (zone: string) => `Use this device's time zone (${zone})`,
+  deviceZone: (zone: string) => `Use this device's (${zone})`,
 } as const;
 
 export const LOCATION_ERRORS = {

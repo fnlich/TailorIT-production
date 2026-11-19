@@ -12,6 +12,7 @@ import type { AppDeps } from '../../core/context';
 import { notFound } from '../../core/http/errors';
 import { listReviews, reviewCounts, reviewDetail, reviewReporters } from './admin';
 import { decideFlag, decideFlags, listFlags } from './flags';
+import { retryReviewRead } from './page-read'; // v32 ADMINAPP (E6)
 import { decideReview, decideReviews } from './service';
 
 // v30 X1-API: Admin › Review's API (docs/design/part2/14-extension-reports.md §6; administrators only, on adminRouter;
@@ -23,6 +24,7 @@ import { decideReview, decideReviews } from './service';
 //   GET   /api/admin/reviews/:id/reporters                                  the reporting accounts (on expand)
 //   PATCH /api/admin/reviews/:id {decision: approve|reject|reopen, note?}   one decision; the sheet after it
 //   POST  /api/admin/reviews/bulk {ids, decision: approve|reject, note?}    up to 100; a result per row
+//   POST  /api/admin/reviews/:id/retry                                      v32 ADMINAPP (E6): a waiting new job read again
 //   GET   /api/admin/flags?state=&q=&cursor=&limit=                         the Flags lane (job_reports)
 //   PATCH /api/admin/flags/:id {status, closeJob?}                          a flag's decision
 //   POST  /api/admin/flags/bulk {ids, status: resolved|dismissed}           up to 100
@@ -52,6 +54,17 @@ export function createReviewRouter(deps: AppDeps): Router {
       router.get(
         '/counts',
         helpers.handle(() => reviewCounts(deps.db)),
+      );
+      // v32 ADMINAPP (E6): Retry read of a new job waiting for approval (page-read.ts retryReviewRead).
+      router.post(
+        '/:id/retry',
+        helpers.handle(async (req, admin) => {
+          const id = PositiveId.safeParse(req.params.id);
+          const read = id.success ? await retryReviewRead(deps, id.data) : undefined;
+          if (!id.success || !read) throw notFound('That review');
+          await helpers.audit({ action: 'retry', ids: [id.data], actor: admin, change: { state: read.state } });
+          return read;
+        }),
       );
       router.get(
         '/:id/reporters',

@@ -7,7 +7,8 @@ import { useState, type ReactNode } from 'react';
 import { ScrollRegion } from '@/components/admin';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { ChartLineIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { ChartLineIcon, CheckCircleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -64,7 +65,11 @@ export function ReportView({ report, onShowHost }: { report: SourcingDailyReport
           </ul>
         </Notice>
       ) : (
-        <Notice tone="success">No alarms: no host failed too many requests, and every kind kept its open jobs and found new ones.</Notice>
+        <p className="flex items-center gap-1.5 text-sm leading-5 font-medium text-success" data-report-calm="">
+          <CheckCircleIcon size={16} weight="fill" aria-hidden="true" />
+          No alarms
+          <HelpTip label="No alarms">No host failed too many requests, and every kind kept and found jobs.</HelpTip>
+        </p>
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4" role="group" aria-label="The day in numbers">
@@ -216,7 +221,7 @@ export function DailyReport({ onShowHost }: { onShowHost: (host: string) => void
       {report.error ? (
         <Notice
           tone="error"
-          title="The daily report could not be loaded"
+          title="The daily report didn't load."
           action={
             <Button variant="outline" size="sm" onClick={() => void report.refetch()}>
               Try again

@@ -25,7 +25,7 @@ export function AddLinksButton() {
       </Button>
       <DialogContent
         title="Add links"
-        description="Paste job links. TailorIT reads each posting from its own link before anyone can find it."
+        help="TailorIT reads each posting from its own link before anyone can find it."
         size="lg"
       >
         <div className="mt-5">

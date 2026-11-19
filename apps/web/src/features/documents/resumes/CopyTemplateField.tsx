@@ -26,11 +26,7 @@ export function CopyTemplateField({
   return (
     <Field
       label={several ? 'Template for the copies' : 'Template for the copy'}
-      hint={
-        several
-          ? 'Every copy starts on this template. You can switch any of them later in the editor.'
-          : 'The copy starts on this template. You can switch it later in the editor.'
-      }
+      hint={several ? 'You can switch any of them later in the editor.' : 'You can switch it later in the editor.'}
     >
       <Select options={OPTIONS} value={value} onValueChange={onChange} disabled={disabled} />
     </Field>

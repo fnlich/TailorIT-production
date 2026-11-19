@@ -6,9 +6,8 @@ import { clsx } from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UsageMeter, UsageMeterSkeleton } from '@/components/limits';
 import { PAGE_GUTTER } from '@/components/shell/layout';
-import { Button } from '@/components/ui/Button';
+import { LoadError } from '@/components/ui/LoadError';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { Notice } from '@/components/ui/Notice';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/Popover';
 import { TabPanel } from '@/components/ui/SegmentedControl';
@@ -17,7 +16,6 @@ import { useToast } from '@/components/ui/Toast';
 import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { InfoIcon } from '@/components/ui/icons';
 import { invalidateAccount } from '@/lib/account';
-import { userMessage } from '@/lib/api';
 import { useStoredValue } from '@/lib/storage';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { SavedPane } from '../prepare/SavedPane';
@@ -51,9 +49,23 @@ import { RuleSection } from './RuleSection';
 // otherwise; nothing is read while the tab is hidden.
 // v31 AUTO: the page's header is the kit's PageHeader (docs/design/v3.1/20-visual-identity.md §8) with the usage tape
 // meter as its action; the Saved pane's toolbar carries Filters (a dialog), Select and Prepare All.
+// v32 LAYOUT (E10, the owner: "content width is a little small"): the page uses the content column's width up to
+// 1600 px (as Documents does; it was 1280), and from a wide enough page the two panes share it equally, so the Saved
+// pane's toolbar (All | To prepare | Filtered | Draft, Filters, Select, Prepare All) holds one line. E5: the page's
+// line is its description (COPY's PageHeader shows it as the "?"), and "How auto-apply works" is a quiet button beside
+// the usage meter (it opens the same popover). E4: an Auto-save rule that could not be read is a short line, not a
+// banner.
 
 /** Two panes side by side from Tailwind's `lg`. */
 const TWO_PANES_QUERY = '(min-width: 64rem)';
+/**
+ * v32 LAYOUT: the panes' columns. From 68 rem of page (`@container/auto-apply`: a 1140 px window) the two panes are
+ * equal, which gives the Saved pane (about 33 rem) the room for its toolbar on one line. v32 FIX-UX (UXREQ-7, the
+ * coordinator: "one toolbar line at every width from 1024"): a narrower page gives the Saved pane 7 parts of 12 (v2.0
+ * gave the Queue 7), so its tabs, Filters, Select and Prepare All still share one line at 1024 px; the Queue's toolbar
+ * (All | Active | Done, Clear finished) fits its 5.
+ */
+export const PANES_GRID = 'grid grid-cols-[minmax(0,7fr)_minmax(0,5fr)] @min-[68rem]/auto-apply:grid-cols-2';
 /** The Prepares dismissed on this device ("Dismiss" on a failed preparation), most recent last. */
 const DISMISSED_KEY = 'tailorit.autoApply.dismissed';
 const DISMISSED_MAX = 200;
@@ -151,46 +163,50 @@ export function AutoApplyPage() {
     setRawDismissed(JSON.stringify(next));
   };
 
+  const how = (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex h-9 items-center gap-1.5 rounded-control px-2 text-sm font-medium text-primary underline-offset-2 hover:underline max-sm:min-h-11"
+            data-how-it-works=""
+          />
+        }
+      >
+        <InfoIcon size={16} aria-hidden="true" />
+        {HOW_TITLE}
+      </PopoverTrigger>
+      <PopoverContent className="w-[min(26rem,calc(100vw-2rem))]" align="end">
+        <PopoverTitle>{HOW_TITLE}</PopoverTitle>
+        <div className="mt-2 flex flex-col gap-2 text-[13px] leading-5 text-foreground">
+          {howItWorks().map((paragraph) => (
+            <p key={paragraph.slice(0, 24)}>{paragraph}</p>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+
   const header = (
     <PageHeader
       title={PAGE_TITLE}
-      description={
-        <span className="flex flex-wrap items-center gap-x-2">
-          <span>{PAGE_LEAD}</span>
-          <Popover>
-            <PopoverTrigger
-              render={
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-control px-1 text-sm font-medium text-primary underline-offset-2 hover:underline max-sm:min-h-11"
-                />
-              }
-            >
-              <InfoIcon size={16} aria-hidden="true" />
-              {HOW_TITLE}
-            </PopoverTrigger>
-            <PopoverContent className="w-[min(26rem,calc(100vw-2rem))]" align="start">
-              <PopoverTitle>{HOW_TITLE}</PopoverTitle>
-              <div className="mt-2 flex flex-col gap-2 text-[13px] leading-5 text-foreground">
-                {howItWorks().map((paragraph) => (
-                  <p key={paragraph.slice(0, 24)}>{paragraph}</p>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </span>
-      }
+      description={PAGE_LEAD}
       actions={
-        // v2.0 fix (UX-14): no empty band for an account with no meter (Paid), nor when the queue could not be read.
-        queue.isPending || usage ? (
-          <div className="flex min-h-10 items-center max-lg:basis-full" data-usage="">
-            {usage ? (
-              <UsageMeter used={usage.used} limit={usage.limit} reserved={usage.reserved} resetText={usage.resetText} />
-            ) : (
-              <UsageMeterSkeleton />
-            )}
-          </div>
-        ) : undefined
+        // Stacked under the title on a narrow page (each its own line), side by side from 1024 px.
+        <div className="flex flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-4">
+          {how}
+          {/* v2.0 fix (UX-14): no empty band for an account with no meter (Paid), nor when the queue could not be read. */}
+          {queue.isPending || usage ? (
+            <div className="flex min-h-10 items-center" data-usage="">
+              {usage ? (
+                <UsageMeter used={usage.used} limit={usage.limit} reserved={usage.reserved} resetText={usage.resetText} />
+              ) : (
+                <UsageMeterSkeleton />
+              )}
+            </div>
+          ) : null}
+        </div>
       }
     />
   );
@@ -207,17 +223,10 @@ export function AutoApplyPage() {
         onViewInQueue={viewInQueue}
       />
       {rule.isError ? (
-        <Notice
-          tone="error"
-          title="Auto-save new jobs could not be loaded"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void rule.refetch()}>
-              Try again
-            </Button>
-          }
-        >
-          {userMessage(rule.error)}
-        </Notice>
+        // v32 FIX-UX (UXREQ-8, UXREQ-13): the kit's load error, its reason in view (not in a "?").
+        <div data-rule-load-failed="">
+          <LoadError thing="Auto-save new jobs" error={rule.error} onRetry={() => void rule.refetch()} />
+        </div>
       ) : rule.isPending ? (
         <Skeleton className="h-16 w-full" rounded="control" />
       ) : (
@@ -257,10 +266,10 @@ export function AutoApplyPage() {
   );
 
   return (
-    <div className={clsx('mx-auto w-full max-w-[1280px] pt-7 pb-20', PAGE_GUTTER)}>
+    <div className={clsx('@container/auto-apply mx-auto w-full max-w-[1600px] pt-7 pb-20', PAGE_GUTTER)}>
       {header}
       {wide ? (
-        <div className="mt-6 grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-6" data-auto-apply-layout="panes">
+        <div className={clsx(PANES_GRID, 'mt-6 items-start gap-6')} data-auto-apply-layout="panes">
           {savedPane}
           {queuePane}
         </div>

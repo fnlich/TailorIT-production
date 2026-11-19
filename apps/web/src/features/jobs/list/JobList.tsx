@@ -4,13 +4,13 @@ import { CheckSquareIcon } from '@phosphor-icons/react/CheckSquare';
 import { JOB_SORTS, JOB_SORT_LABEL, hasJobFilters, type JobRowMatch, type JobSort, type JobsQuery } from '@tailorit/shared';
 import { clsx } from 'clsx';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef } from 'react';
-import { Button, buttonClasses } from '@/components/ui/Button';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { ArrowsDownUpIcon, CaretDownIcon, MagnifyingGlassIcon } from '@/components/ui/icons';
+import { LoadError } from '@/components/ui/LoadError';
+import { ArrowsDownUpIcon, CaretDownIcon, MagnifyingGlassIcon, PlusIcon } from '@/components/ui/icons';
 import { Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger } from '@/components/ui/Menu';
-import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -20,11 +20,12 @@ import { useNow } from '@/lib/useNow';
 import type { JobListItem } from '../api';
 import { activeFilters } from '../filters';
 import { foundJobsLabel, relevanceHint } from '../format';
+import { HelpTip } from '@/components/ui/HelpTip';
 import type { useJobsList } from '../hooks';
 import { jobHrefBuilder } from '../url';
-import { FEED_COLUMNS, JobCard } from './JobCard';
+import { JobCard, type OpenHow } from './JobCard';
 import { SaveAllButton } from './SaveAllButton';
-import { BAR_BUTTON } from './styles';
+import { BAR_BUTTON, BAR_WORD } from './styles';
 import { saveBlockReason } from './useSaveSelected';
 
 /** v2.0 (A4): choosing jobs to save to Saved Jobs (Prepare & Queue then queues them, on the Auto-apply page). */
@@ -42,24 +43,20 @@ export interface JobSelection {
   onDone: () => void;
 }
 
-export interface JobListProps {
-  query: JobsQuery;
-  list: ReturnType<typeof useJobsList>;
-  /** The job open in the drawer. */
-  selectedId: number | null;
-  /** v31 FIX-JOBS: each listed job's keyword match by its id (absent: still loading). */
-  matches: { byJob: ReadonlyMap<number, JobRowMatch>; settled: boolean };
-  onSelect: (jobId: number) => void;
-  onApply: (jobId: number) => void;
-  onToggleSave: (job: JobListItem) => void;
-  onQueryChange: (patch: Partial<JobsQuery>) => void;
-  onClearAll: () => void;
-  companyNames: ReadonlyMap<string, string>;
-  selection: JobSelection;
-}
+type JobsList = ReturnType<typeof useJobsList>;
 
 /** Few enough results that the list suggests removing a filter. */
 const FEW_RESULTS = 10;
+
+/** The jobs the list has loaded, in its order. */
+export function listedJobs(list: JobsList): JobListItem[] {
+  return list.data?.pages.flatMap((page) => page.items) ?? [];
+}
+
+/** No resume to measure against: every measured row answers the same, so one says it for all. */
+export function needsResume(items: readonly JobListItem[], matches: { byJob: ReadonlyMap<number, JobRowMatch> }): boolean {
+  return items.length > 0 && [...matches.byJob.values()].some((match) => match.state === 'no_resume');
+}
 
 /**
  * The sort menu. v30 WEB-JOBS (11 §7.3, owner question 3): while the search has words, "Most relevant" says it ranks the
@@ -93,13 +90,16 @@ function SortMenu({ sort, onChange, relevanceWindow }: { sort: JobSort; onChange
   );
 }
 
-/** "Select" in the results bar: it starts choosing jobs to save. Its word shows at every width (UX-4). */
+/**
+ * "Select" in the results bar: it starts choosing jobs to save. v32 FIX-UX (UXREQ-1): the bar is the list card's
+ * header, so in a narrow list its word is kept for screen readers only (the icon and the tooltip show), as Save all's.
+ */
 function SelectButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
-    <Tooltip content="Choose jobs to save to Saved Jobs">
+    <Tooltip content="Choose jobs to save">
       <button type="button" disabled={disabled} onClick={onClick} className={BAR_BUTTON} data-select-start="">
-        <CheckSquareIcon size={15} />
-        Select
+        <CheckSquareIcon size={15} aria-hidden="true" />
+        <span className={BAR_WORD}>Select</span>
       </button>
     </Tooltip>
   );
@@ -134,27 +134,113 @@ function SelectionBar({ selection, shown }: { selection: JobSelection; shown: re
   );
 }
 
+/**
+ * v32 JOBS2 (E4): no resume to measure the list against: a small link in the results bar ("Add a resume", its "?" says
+ * why), not a banner over the list.
+ */
+function AddResumeChip() {
+  const { t } = usePublicConstants();
+  return (
+    <span className="inline-flex items-center gap-1" data-jobs-resume-hint="">
+      <Link
+        href="/resumes/new"
+        className="inline-flex h-7 items-center gap-1 rounded-control border border-dashed border-border-strong px-2 text-[13px] font-medium text-primary hover:border-primary hover:bg-primary-50"
+      >
+        <PlusIcon size={12} weight="bold" aria-hidden="true" />
+        Add a resume
+      </Link>
+      <HelpTip label="Add a resume">{t('MSG_JOBS_ADD_RESUME_HINT')}</HelpTip>
+    </span>
+  );
+}
+
+export interface ResultsBarProps {
+  query: JobsQuery;
+  list: JobsList;
+  selection: JobSelection;
+  /** No resume to measure the jobs against (the bar offers to add one). */
+  needsResume: boolean;
+  onQueryChange: (patch: Partial<JobsQuery>) => void;
+}
+
+/**
+ * The results bar: the list card's header (v32 FIX-UX, UXREQ-1: inside the card, as v3.0's list had it), staying
+ * under the top bar while the page scrolls: "Found N jobs", the resume hint when there is none to measure, then Select,
+ * Save all and the sort; the selection's bar while jobs are chosen. The count never cuts (UX-4): the bar wraps instead.
+ */
+export function ResultsBar({ query, list, selection, needsResume: noResume, onQueryChange }: ResultsBarProps) {
+  const constants = usePublicConstants();
+  const items = useMemo(() => listedJobs(list), [list]);
+  const total = list.data?.pages[0]?.total ?? 0;
+  return (
+    <div
+      className="sticky top-topbar z-20 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-t-card border-b border-border bg-surface/95 py-1 pr-2 pl-4 backdrop-blur-sm"
+      data-results-bar=""
+    >
+      {selection.active ? (
+        <SelectionBar selection={selection} shown={items} />
+      ) : (
+        <>
+          <div className="flex min-w-0 items-center gap-3">
+            <p className="shrink-0 text-[13px] leading-5 font-semibold text-foreground" role="status" aria-live="polite" data-results-count="">
+              {list.isPending ? 'Finding jobs...' : list.data ? foundJobsLabel(total, constants.get('JOB_SEARCH_COUNT_CAP')) : ''}
+            </p>
+            {noResume && <AddResumeChip />}
+          </div>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-x-0.5">
+            <SelectButton disabled={!list.data || items.length === 0} onClick={selection.onStart} />
+            <SaveAllButton query={query} list={list} />
+            <SortMenu
+              sort={query.sort}
+              onChange={(sort) => onQueryChange({ sort })}
+              relevanceWindow={query.q?.trim() ? constants.get('SEARCH_RELEVANCE_WINDOW') : null}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function RowSkeleton() {
   return (
-    <li className="flex gap-4 px-5 py-4" aria-hidden="true">
-      <Skeleton className="size-11" rounded="control" />
-      <div className="flex flex-1 flex-col gap-2 pt-0.5">
-        <Skeleton className="h-4 w-2/5" />
-        <Skeleton className="h-3.5 w-1/3" />
-        <Skeleton className="h-3.5 w-1/2" />
-        <Skeleton className="mt-1 h-5 w-24" rounded="control" />
+    <li className="flex gap-3 py-3.5 pr-4 pl-4" aria-hidden="true">
+      <Skeleton className="size-9" rounded="control" />
+      <div className="flex flex-1 flex-col gap-2.5 pt-0.5">
+        <div className="flex items-center justify-between gap-3">
+          <Skeleton className="h-4 w-3/5" />
+          <Skeleton className="h-1.5 w-16" />
+        </div>
+        <Skeleton className="h-3.5 w-4/5" />
       </div>
-      <Skeleton className="mt-1 h-2 w-40 max-sm:hidden" />
     </li>
   );
 }
 
+export interface JobListProps {
+  query: JobsQuery;
+  list: JobsList;
+  /** The job shown in the detail. */
+  selectedId: number | null;
+  /** v31 FIX-JOBS: each listed job's keyword match by its id (absent: still loading). */
+  matches: { byJob: ReadonlyMap<number, JobRowMatch>; settled: boolean };
+  onSelect: (jobId: number, how: OpenHow) => void;
+  /** The rows' quick Apply, while the list fills the page (see JobCard). */
+  onApply?: (jobId: number) => void;
+  onToggleSave: (job: JobListItem) => void;
+  onClearAll: () => void;
+  companyNames: ReadonlyMap<string, string>;
+  selection: JobSelection;
+  /** v32 FIX-UX: the card's header (the results bar). */
+  header?: ReactNode;
+  className?: string;
+}
+
 /**
- * v31 FIX-JOBS: the results, one full-width feed under the toolbar (no list-and-detail split): a bar that stays under
- * the top bar while the page scrolls ("Found N jobs", Select, Save all and the sort; the selection's bar while jobs are
- * chosen), a hint to add a resume when there is none to measure, then the rows, 21 at a time; the next page loads as
- * the end of the feed comes near (an IntersectionObserver on the window with a 150% bottom margin). "Load more"
- * appears only after an error. The count never cuts (UX-4): the bar wraps on a phone instead.
+ * v32 JOBS2 (E3): the list of jobs (the region "Job list"), a card of compact rows (beside the job's detail from
+ * 1024 px, the page below), 21 at a time; the next page loads as the end of the list comes near (an
+ * IntersectionObserver on the window with a 150% bottom margin: the list scrolls with the page, the detail beside it
+ * stays put). "Load more" appears only after an error.
  */
 export function JobList({
   query,
@@ -164,18 +250,16 @@ export function JobList({
   onSelect,
   onApply,
   onToggleSave,
-  onQueryChange,
   onClearAll,
   companyNames,
   selection,
+  header,
+  className,
 }: JobListProps) {
   const now = useNow();
-  // v30 WEB-JOBS: "Found 10,000+ jobs" past JOB_SEARCH_COUNT_CAP; "Most relevant" within SEARCH_RELEVANCE_WINDOW.
-  const constants = usePublicConstants();
-  const { t } = constants;
-  const countCap = constants.get('JOB_SEARCH_COUNT_CAP');
+  const { t } = usePublicConstants();
   const sentinel = useRef<HTMLDivElement>(null);
-  const items = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
+  const items = useMemo(() => listedJobs(list), [list]);
   const total = list.data?.pages[0]?.total ?? 0;
   const { hasNextPage, isFetchingNextPage, fetchNextPage, isFetchNextPageError } = list;
 
@@ -195,155 +279,81 @@ export function JobList({
   const hrefOf = useMemo(() => jobHrefBuilder(query), [query]);
   const filtered = hasJobFilters(query);
   const fewResults = filtered && !hasNextPage && total > 0 && total < FEW_RESULTS && activeFilters(query, companyNames).length > 0;
-  // No resume to measure against: the first measured row says so (every row answers the same).
-  const noResume = items.length > 0 && [...matches.byJob.values()].some((match) => match.state === 'no_resume');
 
   return (
-    <section aria-label="Job list" className="mt-5" data-jobs-feed="">
-      <div
-        className="sticky top-topbar z-20 -mx-1 flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-canvas/95 px-1 py-1.5 backdrop-blur-sm"
-        data-results-bar=""
-      >
-        {selection.active ? (
-          <SelectionBar selection={selection} shown={items} />
-        ) : (
-          <>
-            <p
-              className="text-[13px] leading-5 font-semibold text-foreground"
-              role="status"
-              aria-live="polite"
-              data-results-count=""
-            >
-              {list.isPending ? 'Finding jobs...' : list.data ? foundJobsLabel(total, countCap) : ''}
-            </p>
-            <div className="-mr-2 flex flex-wrap items-center justify-end gap-x-0.5">
-              <SelectButton disabled={!list.data || items.length === 0} onClick={selection.onStart} />
-              <SaveAllButton query={query} list={list} />
-              <SortMenu
-                sort={query.sort}
-                onChange={(sort) => onQueryChange({ sort })}
-                relevanceWindow={query.q?.trim() ? constants.get('SEARCH_RELEVANCE_WINDOW') : null}
-              />
-            </div>
-          </>
-        )}
-      </div>
-
-      {noResume && (
-        <Notice
-          tone="info"
-          className="mt-2"
+    <section
+      aria-label="Job list"
+      className={clsx('@container/job-list min-w-0 rounded-card border border-border bg-surface shadow-card', className)}
+      data-job-list=""
+    >
+      {header}
+      {list.isPending ? (
+        <ul aria-label="Loading jobs" className="divide-y divide-divider-soft">
+          {Array.from({ length: 6 }, (_, index) => (
+            <RowSkeleton key={index} />
+          ))}
+        </ul>
+      ) : !list.data ? (
+        // v32 FIX-UX (UXREQ-8, UXREQ-13): the list's load error as every page draws one: its reason in view, announced.
+        <LoadError thing="Jobs" error={list.error} onRetry={() => void list.refetch()} className="m-3" />
+      ) : items.length === 0 ? (
+        <EmptyState
+          variant="dashed"
+          icon={<MagnifyingGlassIcon size={22} />}
+          title={filtered ? t('MSG_JOBS_NONE_TITLE') : t('MSG_JOBS_NONE_YET_TITLE')}
+          description={filtered ? t('MSG_JOBS_NONE_FILTERED') : t('MSG_JOBS_NONE_YET')}
           action={
-            <Link href="/resumes/new" className={buttonClasses({ variant: 'outline', size: 'sm' })}>
-              Create a resume
-            </Link>
+            filtered ? (
+              <Button variant="outline" onClick={onClearAll}>
+                Clear all filters
+              </Button>
+            ) : undefined
           }
-        >
-          <span data-jobs-resume-hint="">{t('MSG_JOBS_ADD_RESUME_HINT')}</span>
-        </Notice>
-      )}
-
-      <div className="@container/feed mt-2 rounded-card border border-border bg-surface shadow-card">
-        {/* The wide feed's column heads (the rows' cells say what they are to assistive technology). */}
-        {items.length > 0 && (
-          <div
-            aria-hidden="true"
-            className={clsx(
-              'hidden h-10 items-center gap-x-4 rounded-t-card border-b border-border bg-surface-low px-5 @min-[56rem]/feed:grid',
-              FEED_COLUMNS,
-              'text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase',
-            )}
-            data-feed-heads=""
-          >
-            <span className={selection.active ? 'pl-[94px]' : 'pl-[60px]'}>{t('LABEL_JOBS_HEAD_JOB')}</span>
-            <span>{t('LABEL_JOBS_HEAD_WHERE')}</span>
-            <span>{t('LABEL_JOB_YOUR_MATCH')}</span>
-            <span />
-          </div>
-        )}
-        {list.isPending ? (
-          <ul aria-label="Loading jobs" className="divide-y divide-divider-soft">
-            {Array.from({ length: 6 }, (_, index) => (
-              <RowSkeleton key={index} />
+          className="m-3"
+        />
+      ) : (
+        <>
+          <ul aria-label="Jobs" className="divide-y divide-divider-soft overflow-hidden rounded-b-card">
+            {items.map((job) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                href={hrefOf(job.id)}
+                selected={job.id === selectedId}
+                sort={query.sort}
+                now={now}
+                match={matches.byJob.get(job.id) ?? (matches.settled ? null : undefined)}
+                onSelect={onSelect}
+                onApply={onApply}
+                onToggleSave={onToggleSave}
+                selectable={selection.active}
+                checked={selection.active && selection.selected.has(job.id)}
+                onToggleChecked={selection.onToggle}
+              />
             ))}
           </ul>
-        ) : !list.data ? (
-          <div className="p-5">
-            <Notice
-              tone="error"
-              title="The jobs could not be loaded"
-              action={
-                <Button variant="outline" size="sm" onClick={() => void list.refetch()}>
-                  Try again
-                </Button>
-              }
-            >
-              {userMessage(list.error)}
-            </Notice>
-          </div>
-        ) : items.length === 0 ? (
-          <EmptyState
-            variant="dashed"
-            icon={<MagnifyingGlassIcon size={22} />}
-            title={filtered ? t('MSG_JOBS_NONE_TITLE') : t('MSG_JOBS_NONE_YET_TITLE')}
-            description={filtered ? t('MSG_JOBS_NONE_FILTERED') : t('MSG_JOBS_NONE_YET')}
-            action={
-              filtered ? (
-                <Button variant="outline" onClick={onClearAll}>
-                  Clear all filters
-                </Button>
-              ) : undefined
-            }
-            className="m-3"
-          />
-        ) : (
-          <>
-            <ul
-              aria-label="Jobs"
-              className="divide-y divide-divider-soft [&>li:last-child]:rounded-b-card [&>li:first-child]:rounded-t-card @min-[56rem]/feed:[&>li:first-child]:rounded-t-none"
-            >
-              {items.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
-                  href={hrefOf(job.id)}
-                  selected={job.id === selectedId}
-                  sort={query.sort}
-                  now={now}
-                  match={matches.byJob.get(job.id) ?? (matches.settled ? null : undefined)}
-                  onSelect={onSelect}
-                  onApply={onApply}
-                  onToggleSave={onToggleSave}
-                  selectable={selection.active}
-                  checked={selection.active && selection.selected.has(job.id)}
-                  onToggleChecked={selection.onToggle}
-                />
-              ))}
-            </ul>
-            <div ref={sentinel} aria-hidden="true" className="h-px" />
-            {isFetchingNextPage && (
-              <div className="flex justify-center border-t border-divider-soft py-4">
-                <Spinner size={18} label="Loading more jobs..." />
-              </div>
-            )}
-            {isFetchNextPageError && (
-              <div className="flex flex-col items-center gap-2 border-t border-divider-soft px-4 py-4 text-center">
-                <p className="text-sm text-muted-foreground">{userMessage(list.error, 'More jobs could not be loaded.')}</p>
-                <Button variant="outline" size="sm" onClick={() => void fetchNextPage()}>
-                  Load more
-                </Button>
-              </div>
-            )}
-            {fewResults && (
-              // v31 FIX-JOBS: the filters in use are the search panel's chips (each removable there), not listed twice.
-              <p className="border-t border-divider-soft px-5 py-4 text-sm text-muted-foreground" data-few-results="">
-                Only {total} {total === 1 ? 'job matches' : 'jobs match'} your filters. Remove one of the filters above to see more
-                results.
-              </p>
-            )}
-          </>
-        )}
-      </div>
+          <div ref={sentinel} aria-hidden="true" className="h-px" />
+          {isFetchingNextPage && (
+            <div className="flex justify-center border-t border-divider-soft py-4">
+              <Spinner size={18} label="Loading more jobs..." />
+            </div>
+          )}
+          {isFetchNextPageError && (
+            <div className="flex flex-col items-center gap-2 border-t border-divider-soft px-4 py-4 text-center">
+              <p className="text-sm text-muted-foreground">{userMessage(list.error, "More jobs didn't load.")}</p>
+              <Button variant="outline" size="sm" onClick={() => void fetchNextPage()}>
+                Load more
+              </Button>
+            </div>
+          )}
+          {fewResults && (
+            // v31 FIX-JOBS: the filters in use are the search panel's chips (each removable there), not listed twice.
+            <p className="border-t border-divider-soft px-4 py-3.5 text-[13px] leading-5 text-muted-foreground" data-few-results="">
+              Only {total} {total === 1 ? 'job matches' : 'jobs match'}. Remove a filter above to see more.
+            </p>
+          )}
+        </>
+      )}
     </section>
   );
 }

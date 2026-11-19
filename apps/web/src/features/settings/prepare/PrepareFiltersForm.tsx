@@ -6,9 +6,11 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 // Relative, not '@/': the web tests draw these views.
+import { Badge } from '../../../components/ui/Badge';
 import { Field } from '../../../components/ui/Field';
+import { HelpTip } from '../../../components/ui/HelpTip';
+import { WarningCircleIcon } from '../../../components/ui/icons';
 import { Input, Textarea } from '../../../components/ui/Input';
-import { Notice } from '../../../components/ui/Notice';
 import { SegmentedControl } from '../../../components/ui/SegmentedControl';
 import { Spinner } from '../../../components/ui/Spinner';
 import { useToast } from '../../../components/ui/Toast';
@@ -219,9 +221,9 @@ export function PrepareFiltersFields({
       <FilterRow>
         <div className="flex flex-col gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-sm leading-5 font-medium text-foreground">
-              {FILTERS_COPY.industry}
-              <span className="ml-2 text-[13px] font-normal text-muted-foreground">{FILTERS_COPY.anyHint}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="text-sm leading-5 font-medium text-foreground">{FILTERS_COPY.industry}</span>
+              <HelpTip label={FILTERS_COPY.industry}>{FILTERS_COPY.anyHint}</HelpTip>
             </span>
             <SegmentedControl
               size="sm"
@@ -249,13 +251,19 @@ export function PrepareFiltersFields({
           checked={form.locationMismatch}
           onCheckedChange={(on) => set('locationMismatch', on)}
         >
+          {/* v32 COPY (E4): a state, so a small chip with its "?" and the link, never a banner. */}
           {locationMissing && (
-            <Notice tone="warning">
-              {FILTERS_COPY.locationMissing}{' '}
-              <a href={whereYouLiveHref} className="font-semibold underline underline-offset-2">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1" data-location-missing="">
+              <span className="inline-flex items-center gap-1">
+                <Badge tone="warning" icon={<WarningCircleIcon size={13} weight="fill" aria-hidden="true" />}>
+                  {FILTERS_COPY.locationMissingChip}
+                </Badge>
+                <HelpTip label={FILTERS_COPY.locationMissingChip}>{FILTERS_COPY.locationMissing}</HelpTip>
+              </span>
+              <a href={whereYouLiveHref} className="text-[13px] leading-5 font-medium text-primary underline-offset-2 hover:underline">
                 {FILTERS_COPY.locationMissingLink}
               </a>
-            </Notice>
+            </span>
           )}
         </SwitchRow>
       </FilterRow>
@@ -270,17 +278,18 @@ export function PrepareFiltersFields({
       <FilterRow>
         <SwitchRow
           title={FILTERS_COPY.certifications}
-          hint={
-            <>
-              {FILTERS_COPY.certificationsHint}{' '}
-              <Link href={CERTIFICATIONS_HREF} className="font-medium text-primary underline-offset-2 hover:underline">
-                {FILTERS_COPY.certificationsLink}
-              </Link>
-            </>
-          }
+          hint={FILTERS_COPY.certificationsHint}
           checked={form.certificationMismatch}
           onCheckedChange={(on) => set('certificationMismatch', on)}
-        />
+        >
+          {/* v32 COPY: a link is an action, so it stays visible (the hint is a "?" now). */}
+          <Link
+            href={CERTIFICATIONS_HREF}
+            className="self-start text-[13px] leading-5 font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {FILTERS_COPY.certificationsLink}
+          </Link>
+        </SwitchRow>
       </FilterRow>
       <FilterRow>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -342,17 +351,17 @@ export function PrepareFiltersFields({
           onCheckedChange={(on) => set('customEnabled', on)}
         >
           {form.customEnabled && (
-            <Field
-              label={FILTERS_COPY.customPrompt}
-              error={errors.customPrompt}
-              hint={<CharacterCount length={form.customPrompt.trim().length} max={promptMax} />}
-            >
+            <Field label={FILTERS_COPY.customPrompt} error={errors.customPrompt}>
               <Textarea
                 rows={4}
                 value={form.customPrompt}
                 placeholder={FILTERS_COPY.customPlaceholder}
                 onChange={(event) => set('customPrompt', event.target.value)}
               />
+              {/* A count is a value: it stays visible. */}
+              <span className="text-[13px] leading-5 text-muted-foreground">
+                <CharacterCount length={form.customPrompt.trim().length} max={promptMax} />
+              </span>
             </Field>
           )}
         </SwitchRow>

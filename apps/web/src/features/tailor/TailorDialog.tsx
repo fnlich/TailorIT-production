@@ -10,6 +10,7 @@ import { Button, buttonClasses } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import {
   ArrowSquareOutIcon,
   CheckCircleIcon,
@@ -26,9 +27,12 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { TapeMeter } from '@/components/ui/TapeMeter';
 import { useToast } from '@/components/ui/Toast';
+import { aiUsedUpLimit, limitOfTaskError, useAiDialogGate, useAiUsedUp, useLimitDialog } from '@/components/limits';
 import { ApiError, userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 import { useAiTask } from '@/lib/useAiTask';
 import { autofillKeys, fetchAutofillProfile } from '../autofill/api';
+import { StatusLine } from '../documents/core/StatusLine';
 import { LetterPreviewDialog } from '../documents/preview/LetterPreviewDialog';
 import { ResumePreviewDialog } from '../documents/preview/ResumePreviewDialog';
 import { downloadFile, fetchTemplates, letterExportPath, templateKeys } from '../letter-editor/data';
@@ -79,6 +83,9 @@ export function TailorDialog({
   onOpenChange: (open: boolean) => void;
   target: TailorTarget;
 }) {
+  // v32 FIX-UX (UXREQ-3, E4): today's AI use spent: the limit alert on the press, not a form that cannot work.
+  const gate = useAiDialogGate(open, onOpenChange);
+  if (gate.gated) return gate.alert;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && <TailorWindow target={target} onClose={() => onOpenChange(false)} />}
@@ -118,17 +125,34 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
     refetchIntervalInBackground: true,
   });
 
+  // v32 FIX-UX (UXREQ-3, E4): a limit (today's AI use spent, the resume limit) is the limit alert, never a red line
+  // with "Try again" in the dialog: a refused start, or a task that ended on one (the dialog goes back to its choices).
+  const limits = useLimitDialog();
+  const usedUp = useAiUsedUp();
+  const { t } = usePublicConstants();
   const start = useMutation({
     mutationFn: () => startTailor(tailorBody(target, choices!, force)),
     onSuccess: ({ taskId: started }) => {
       startedTasks.set(key, started);
       setTaskId(started);
     },
-    onError: (error) => setProblem(problemOfError(error instanceof ApiError ? error : null)),
+    onError: (error) => {
+      if (limits.show(error)) return;
+      setProblem(problemOfError(error instanceof ApiError ? error : null));
+    },
   });
 
   const result = task.data?.status === 'succeeded' ? task.data.result : null;
-  const taskProblem = task.data ? problemOfTask(task.data) : null;
+  const taskLimit = task.data?.status === 'failed' ? limitOfTaskError(task.data.error) : null;
+  const taskProblem = task.data && !taskLimit ? problemOfTask(task.data) : null;
+  const shownLimitFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!taskLimit || !taskId || shownLimitFor.current === taskId) return;
+    shownLimitFor.current = taskId;
+    limits.show(taskLimit);
+    startedTasks.delete(key);
+    setTaskId(null);
+  }, [taskLimit, taskId, key, limits]);
   // A task remembered from earlier in the visit that the server no longer has (another account since, a reset): the
   // dialog starts over.
   const gone = task.error instanceof ApiError && task.error.status === 404;
@@ -200,17 +224,28 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
         copyReady={copyReady}
         starting={start.isPending}
         onChange={setChoices}
-        onStart={() => start.mutate()}
+        onStart={() => {
+          // v32 FIX-UX (UXREQ-3): spent since the dialog opened: the limit alert, no request.
+          if (usedUp) limits.show(aiUsedUpLimit(t));
+          else start.mutate();
+        }}
         onClose={onClose}
       />
     );
   }
 
   return (
-    <DialogContent title={title} description={`${target.title} at ${target.company}`} size="xl">
+    <DialogContent
+      title={title}
+      description={`${target.title} at ${target.company}`}
+      // v32 COPY (E5): what tailoring does, in the title's "?" while choosing.
+      help={!shownProblem && !result && !taskId ? `A new resume for ${target.company}, matched to the job's keywords; yours never changes.` : undefined}
+      size="xl"
+    >
       <div className="mt-5" data-tailor-dialog={shownProblem ? 'problem' : result ? 'done' : taskId ? 'running' : 'setup'}>
         {body}
       </div>
+      {limits.dialog}
     </DialogContent>
   );
 }
@@ -218,7 +253,6 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
 // ------------------------------------------------------------------------------------------------------- setup --
 
 export function SetupView({
-  target,
   choices,
   resumes,
   resumesError,
@@ -229,6 +263,7 @@ export function SetupView({
   onStart,
   onClose,
 }: {
+  /** The job (v32 COPY: its words are now the dialog's "?", so the view itself does not read it). */
   target: TailorTarget;
   choices: TailorChoices | null;
   resumes: ReadonlyArray<{ id: string; label: string; kind: 'built' | 'uploaded'; isDefault: boolean }> | null;
@@ -268,9 +303,7 @@ export function SetupView({
   if (resumes.length === 0) {
     return (
       <>
-        <Notice tone="info" title="Add a resume first">
-          Tailoring writes a new resume for this job from one of yours.
-        </Notice>
+        <StatusLine tone="info" title="Add a resume first" details="Tailoring writes a new resume for this job from one of yours." />
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Close
@@ -290,11 +323,7 @@ export function SetupView({
         onStart();
       }}
     >
-      <p className="text-sm leading-5 text-foreground">
-        TailorIT writes a new resume for {target.company} from the one you choose, matched to the job&apos;s keywords, and
-        saves it with your documents. Your resume itself is never changed.
-      </p>
-      {copyReady && <Notice tone="success">Your editable copy is ready: tailoring starts from it.</Notice>}
+      {copyReady && <StatusLine tone="success" title="Your editable copy is ready: tailoring starts from it." />}
       <Field label="Resume to start from">
         <Select
           options={resumeOptions}
@@ -303,7 +332,7 @@ export function SetupView({
           disabled={starting}
         />
       </Field>
-      <Field label="Resume template" hint="Defaults from Settings › Autofill › Documents & templates.">
+      <Field label="Resume template" hint="Its default is set in Settings › Autofill.">
         <Select
           options={templateOptions}
           value={known(choices.resumeTemplateId, templateOptions, OWN_TEMPLATE)}
@@ -379,10 +408,7 @@ export function ProgressView({ step, message, onClose }: { step: Parameters<type
         <p role="status" className="min-h-5 text-[13px] leading-5 text-foreground" data-tailor-message="">
           {message ?? 'Starting...'}
         </p>
-        <p className="text-[13px] leading-5 text-muted-foreground">
-          This takes a minute or two. You can close this window: tailoring goes on, and the new resume appears with your
-          documents.
-        </p>
+        <p className="text-[13px] leading-5 text-muted-foreground">You can close this; the new resume lands in your documents.</p>
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>
@@ -497,17 +523,21 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
             </div>
           </section>
         ) : (
-          <Notice tone="info">
-            The posting had too little text to read keywords from, so there is no ATS score: the new resume is yours,
-            titled for this job.
-          </Notice>
+          <StatusLine
+            tone="info"
+            title="No ATS score"
+            details="The posting had too little text to read keywords from; the new resume is titled for this job."
+          />
         )}
 
         {result.ats && (
           <section aria-labelledby="tailor-missing-heading" className="flex flex-col gap-2">
-            <h3 id="tailor-missing-heading" className="text-sm leading-5 font-semibold text-foreground">
-              {missing.length === 0 ? 'No keywords missing' : `Keywords still missing (${missing.length})`}
-            </h3>
+            <span className="flex items-center gap-1.5">
+              <h3 id="tailor-missing-heading" className="text-sm leading-5 font-semibold text-foreground">
+                {missing.length === 0 ? 'No keywords missing' : `Keywords still missing (${missing.length})`}
+              </h3>
+              {missing.length > 0 ? <HelpTip label="Keywords still missing">Add the ones that are true of you in the editor.</HelpTip> : null}
+            </span>
             {missing.length === 0 ? (
               <p className="flex items-center gap-1.5 text-[13px] leading-5 text-foreground">
                 <CheckCircleIcon size={16} weight="fill" className="text-success" /> The resume uses every keyword the job asks for.
@@ -524,7 +554,6 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
                     <li className="inline-flex h-7 items-center px-1 text-[13px] text-muted-foreground">and {missing.length - MAX_MISSING_SHOWN} more</li>
                   )}
                 </ul>
-                <p className="text-[13px] leading-5 text-muted-foreground">Add the ones that are true of you in the editor.</p>
               </>
             )}
           </section>
@@ -532,9 +561,14 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
 
         <section aria-labelledby="tailor-documents-heading" className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 id="tailor-documents-heading" className="text-sm leading-5 font-semibold text-foreground">
-              Your documents for this job
-            </h3>
+            <span className="flex items-center gap-1.5">
+              <h3 id="tailor-documents-heading" className="text-sm leading-5 font-semibold text-foreground">
+                Your documents for this job
+              </h3>
+              {result.applicationId ? (
+                <HelpTip label="Your documents for this job">The TailorIT extension attaches them when you apply to this job.</HelpTip>
+              ) : null}
+            </span>
             {result.applicationId && (
               <span className="flex items-center gap-2">
                 <Badge tone="tint" icon={<CheckIcon size={12} weight="bold" />} data-used-for-application="">
@@ -566,11 +600,6 @@ export function ResultView({ result, onAgain, onClose }: { result: TailorResult;
               />
             )}
           </ul>
-          {result.applicationId && (
-            <p className="text-[13px] leading-5 text-muted-foreground">
-              The TailorIT extension attaches them when you apply to this job.
-            </p>
-          )}
         </section>
       </div>
       <DialogFooter>
@@ -644,13 +673,7 @@ export function ProblemView({
           {text.body}
         </Notice>
         {copying && (
-          <div role="status" className="flex items-center gap-3 rounded-control border-l-[3px] border-info bg-info-soft px-3.5 py-3 text-sm text-info-ink">
-            <Spinner size={16} />
-            <span>
-              <span className="font-semibold">Making an editable copy.</span> {copy.message ?? 'Reading your resume...'} This can
-              take a minute.
-            </span>
-          </div>
+          <StatusLine tone="busy" title="Making an editable copy" details={`${copy.message ?? 'Reading your resume...'} This can take a minute.`} />
         )}
         {(copyError || copyFailed) && (
           <Notice tone="error">{copyError ?? copy.errorMessage ?? 'The editable copy could not be made. Please try again.'}</Notice>

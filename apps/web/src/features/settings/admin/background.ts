@@ -68,7 +68,7 @@ export function matchesRow(matches: AiBackgroundWork['matches']): BackgroundRow 
     key: 'matches',
     title: `Resume matches to update: ${count(matches.due)}`,
     detail: '',
-    note: 'Saved jobs whose best-matched resume TailorIT chooses again, on this server, without Claude.',
+    note: 'Saved jobs whose best-matched resume is chosen again, without Claude.',
   };
 }
 

@@ -41,7 +41,7 @@ export const REASON_TEXT: Record<AutofillAgentReason, string> = {
   validation_error: 'The form still showed an error after one more try.',
   unsupported_site: 'The extension cannot fill applications on this site yet.',
   posting_closed: 'The posting has closed.',
-  page_error: 'The application page did not load, or stopped working.',
+  page_error: "The application page didn't load, or stopped working.",
   timed_out:
     `The extension took it but never reported back within ${AUTOFILL_AGENT_RUN_TIMEOUT_MS / 60_000} minutes. It may have been sent: check the site, then Mark as applied or Try again.`,
   already_applied: 'You have applied already: the site says so, or your Job Tracker has it past Saved.',
@@ -70,21 +70,17 @@ export function queueSitesText(
 // The page --------------------------------------------------------------------------------------------------------
 
 export const PAGE_TITLE = 'Auto-apply';
-export const PAGE_LEAD = 'Save jobs, then Prepare & Queue them. TailorIT applies to the ready ones for you.';
+export const PAGE_LEAD = 'Save jobs, then Prepare & Queue them, and TailorIT applies to the ready ones for you.';
 export const HOW_TITLE = 'How auto-apply works';
 
 /** The "How auto-apply works" popover's paragraphs. */
 export function howItWorks(): string[] {
   return [
-    "Save jobs from Jobs, or with the extension's Add job. Prepare & Queue makes each job's kit (the resume, a cover " +
-      'letter when one is needed, and answers to the questions TailorIT knows), then queues it.',
-    `Run auto-apply in the TailorIT extension takes the ready jobs on ${agentSitesText()}, one at a time, while your ` +
-      `browser is open. The Queue tab in the extension's panel opens those and the jobs on ${queueSitesText()} in tabs, ` +
-      'while you are at your browser.',
-    "Jobs auto-apply can't run on are marked with a hand: open the job page, copy what was prepared, apply, then " +
-      'Mark as applied. Jobs you apply to by hand never count toward a daily limit.',
-    "Auto-apply submits answers TailorIT's AI guessed without asking you first. A CAPTCHA, an email code or a sign-in " +
-      "it can't do stops it, and the job waits in the queue as Needs you, with the reason.",
+    "Prepare & Queue makes each job's kit (resume, letter, answers), then queues it.",
+    `The extension's Run auto-apply takes ready jobs on ${agentSitesText()}, one at a time. Its Queue tab also opens ` +
+      `jobs on ${queueSitesText()}.`,
+    'A hand marks a job to apply to yourself: copy the kit, apply, then Mark as applied.',
+    'AI-guessed answers are sent as they are. A CAPTCHA, code or sign-in stops a job as Needs you.',
   ];
 }
 
@@ -569,5 +565,4 @@ export function postingHref(url: string | null | undefined): string | null {
 }
 
 /** The Mark as applied confirm's words. */
-export const MARK_APPLIED_CONFIRM =
-  "Mark this job as applied? It moves to Applied in your Job Tracker and leaves Saved Jobs. This doesn't count toward your daily auto-apply limit.";
+export const MARK_APPLIED_CONFIRM = "It moves to Applied and leaves Saved Jobs. It doesn't count toward your daily limit.";

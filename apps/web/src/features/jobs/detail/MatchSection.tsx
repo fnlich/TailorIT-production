@@ -3,7 +3,7 @@
 import type { MatchedKeyword } from '@tailorit/shared';
 import { clsx } from 'clsx';
 import Link from 'next/link';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { CaretDownIcon, CaretUpIcon, CheckCircleIcon, PlusIcon, SparkleIcon } from '@/components/ui/icons';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -12,13 +12,14 @@ import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import type { JobMatch } from '../api';
 import { showMoreLabel } from '../format';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { TargetIcon } from '../icons';
 import { STRONG_MATCH_PERCENT } from '../list/JobCard';
 import { TailorDialog } from '../../tailor/TailorDialog';
 import type { TailorTarget } from '../../tailor/tailor';
 import { scoredWithLine } from './facets';
 
-// v31 FIX-JOBS: the drawer's "Your match" and "Tailor for this job" (REV-UX UX-1: TailorIT's own sections and words in
+// v31 FIX-JOBS: the detail's "Your match" and "Tailor for this job" (REV-UX UX-1: TailorIT's own sections and words in
 // place of the old keyword card). Your match measures the resume against the posting's keywords with the tape meter,
 // says it in a sentence, and lists what the resume has and what it lacks, each list collapsed to two rows. Tailor for
 // this job says what tailoring does and opens the tailoring dialog (v1.4 E, decision 16).
@@ -115,8 +116,23 @@ function KeywordGroup({ title, keywords, matched }: { title: string; keywords: r
   );
 }
 
-/** A drawer section's heading: a 32 px denim-soft tile with its icon, then the title (an h3 under the job's h2). */
-export function SectionHeading({ id, icon, children, aside }: { id: string; icon: ReactNode; children: ReactNode; aside?: ReactNode }) {
+/**
+ * A detail section's heading: a 32 px denim-soft tile with its icon, then the title (an h3 under the job's h2). v32
+ * JOBS2 (E5): what the section is for sits behind the "?" after the title (`tip`), never a paragraph under it.
+ */
+export function SectionHeading({
+  id,
+  icon,
+  children,
+  aside,
+  tip,
+}: {
+  id: string;
+  icon: ReactNode;
+  children: ReactNode;
+  aside?: ReactNode;
+  tip?: ReactNode;
+}) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div className="flex min-w-0 items-center gap-2.5">
@@ -126,6 +142,7 @@ export function SectionHeading({ id, icon, children, aside }: { id: string; icon
         <h3 id={id} className="text-heading font-semibold text-foreground">
           {children}
         </h3>
+        {tip && <HelpTip label={typeof children === 'string' ? children : undefined}>{tip}</HelpTip>}
       </div>
       {aside}
     </div>
@@ -133,8 +150,11 @@ export function SectionHeading({ id, icon, children, aside }: { id: string; icon
 }
 
 /**
- * "Your match": the keyword match of the resume the detail scores (the one linked to the job's application while the
- * job is tracked, else the default resume; "Scored with {label}" says which). Without a resume it asks for one.
+ * "Your match", v32 FIX-UX (UXREQ-1, coordinator: "a one-line match summary, details on demand"): one line under the
+ * job's facts, before About the role: the title and its "?", the tape meter, "5 of 12 keywords are in your resume."
+ * and "Keywords", which opens the lists of what the resume has and what it lacks (and the resume it scored: the one
+ * linked to the job's application while the job is tracked, else the default resume, "Scored with {label}"). Without
+ * a resume it asks for one, on the same line.
  */
 export function MatchSection({
   match,
@@ -150,69 +170,84 @@ export function MatchSection({
   className?: string;
 }) {
   const { t } = usePublicConstants();
-  let body: ReactNode;
+  const detailsId = useId();
+  const [open, setOpen] = useState(false);
+  let line: ReactNode;
+  let details: ReactNode = null;
   if (pending) {
-    body = (
-      <div className="flex flex-col gap-3" aria-hidden="true">
-        <Skeleton className="h-3.5 w-full" />
-        <Skeleton className="h-4 w-3/4" />
-        <div className="flex flex-wrap gap-2">
-          {[88, 72, 64, 80, 70].map((width) => (
-            <span key={width} style={{ width }}>
-              <Skeleton className="h-7 w-full" rounded="control" />
-            </span>
-          ))}
-        </div>
-      </div>
+    line = (
+      <span className="flex min-w-0 flex-1 items-center gap-3" aria-hidden="true">
+        <Skeleton className="h-1.5 w-28" />
+        <Skeleton className="h-3.5 w-48" />
+      </span>
     );
   } else if (error || !match) {
-    body = (
-      <p className="text-sm text-muted-foreground">
-        {userMessage(error, 'The keyword match could not be loaded.')}{' '}
+    line = (
+      <p className="text-sm text-muted-foreground" role="alert">
+        {/* v32 FIX-UX (UXREQ-13): the load error's one pattern, its reason in view. */}
+        {`Your match didn't load. ${userMessage(error, '')}`.trim()}{' '}
         <button type="button" onClick={onRetry} className="rounded-tag font-medium text-primary hover:underline">
           Try again
         </button>
       </p>
     );
   } else if (match.state === 'no_resume') {
-    body = (
-      <div className="stitch flex flex-col gap-1 rounded-card bg-surface-low p-4" data-no-resume="">
-        <p className="text-sm leading-5 font-semibold text-foreground">{t('MSG_JOB_ADD_RESUME_TITLE')}</p>
-        <p className="text-sm leading-5 text-muted-foreground">{t('MSG_JOB_ADD_RESUME')}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
+    line = (
+      <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2" data-no-resume="">
+        <span className="inline-flex items-center gap-1.5 text-sm leading-5 text-foreground">
+          {t('MSG_JOB_ADD_RESUME_TITLE')}
+          {/* v32 JOBS2 (E5): what a resume gives, behind the "?". */}
+          <HelpTip label={t('MSG_JOB_ADD_RESUME_TITLE')}>{t('MSG_JOB_ADD_RESUME')}</HelpTip>
+        </span>
+        <span className="flex flex-wrap gap-2">
           <Link href="/resumes/new" className={buttonClasses({ variant: 'primary', size: 'sm' })}>
             Create a resume
           </Link>
           <Link href="/documents?tab=resumes" className={buttonClasses({ variant: 'outline', size: 'sm' })}>
             Upload a resume
           </Link>
-        </div>
-      </div>
+        </span>
+      </span>
     );
   } else if (match.total === 0) {
-    body = <p className="text-sm leading-5 text-muted-foreground">{t('MSG_JOB_NO_SKILLS')}</p>;
+    line = <p className="text-sm leading-5 text-muted-foreground">{t('MSG_JOB_NO_SKILLS')}</p>;
   } else {
     const scoredWith = scoredWithLine(match);
-    body = (
-      <div className="flex flex-col gap-4">
-        <div className="rounded-card border border-border bg-surface-low p-4">
-          <TapeMeter
-            label="Keyword match"
-            value={match.percentage}
-            size="lg"
-            tone={match.percentage >= STRONG_MATCH_PERCENT ? 'success' : 'tape'}
-            showLabel
-          />
-          <p className="mt-3 text-sm leading-5 text-foreground" data-testid="keyword-score">
-            {t('MSG_JOB_KEYWORDS_FOUND', { matched: match.matchedCount, total: match.total })}
+    line = (
+      <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+        <TapeMeter
+          label="Keyword match"
+          value={match.percentage}
+          size="sm"
+          layout="inline"
+          tone={match.percentage >= STRONG_MATCH_PERCENT ? 'success' : 'tape'}
+          className="w-32 shrink-0"
+        />
+        <p className="text-sm leading-5 text-foreground" data-testid="keyword-score">
+          {t('MSG_JOB_KEYWORDS_FOUND', { matched: match.matchedCount, total: match.total })}
+        </p>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={detailsId}
+          onClick={() => setOpen((was) => !was)}
+          className="inline-flex h-7 items-center gap-1 rounded-control px-1.5 text-sm font-medium text-primary hover:bg-primary-50"
+          data-keywords-toggle=""
+        >
+          {KEYWORDS_LABEL}
+          {open ? <CaretUpIcon size={14} aria-hidden="true" /> : <CaretDownIcon size={14} aria-hidden="true" />}
+        </button>
+      </span>
+    );
+    details = (
+      // Kept in the page while closed (its words stay readable to tests and the find bar); shown on demand.
+      <div id={detailsId} hidden={!open} className="mt-3 flex flex-col gap-4" data-keyword-details="">
+        {scoredWith && (
+          <p className="text-xs leading-4 break-words text-muted-foreground" data-testid="scored-with">
+            {scoredWith.lead} <span className="font-medium text-foreground">{scoredWith.label}</span>
+            {scoredWith.note && ` ${scoredWith.note}`}
           </p>
-          {scoredWith && (
-            <p className="mt-1 text-xs leading-4 break-words text-muted-foreground" data-testid="scored-with">
-              {scoredWith.lead} <span className="font-medium text-foreground">{scoredWith.label}</span>
-              {scoredWith.note && ` ${scoredWith.note}`}
-            </p>
-          )}
-        </div>
+        )}
         <KeywordGroup title={t('LABEL_JOB_KEYWORDS_HAVE')} keywords={match.matched} matched />
         <KeywordGroup title={t('LABEL_JOB_KEYWORDS_MISSING')} keywords={match.missing} matched={false} />
       </div>
@@ -221,17 +256,27 @@ export function MatchSection({
 
   return (
     <section aria-labelledby="job-your-match" className={className} data-match-section="">
-      <SectionHeading id="job-your-match" icon={<TargetIcon size={18} weight="bold" />}>
-        {t('LABEL_JOB_YOUR_MATCH')}
-      </SectionHeading>
-      <div className="mt-4">{body}</div>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="inline-flex shrink-0 items-center gap-1.5">
+          <TargetIcon size={16} weight="bold" className="text-primary" aria-hidden="true" />
+          <h3 id="job-your-match" className="text-sm leading-5 font-semibold text-foreground">
+            {t('LABEL_JOB_YOUR_MATCH')}
+          </h3>
+          <HelpTip label={t('LABEL_JOB_YOUR_MATCH')}>{t('MSG_JOB_MATCH_TIP')}</HelpTip>
+        </span>
+        {line}
+      </div>
+      {details}
     </section>
   );
 }
 
+/** The words of the match line's button that opens its keyword lists. */
+const KEYWORDS_LABEL = 'Keywords';
+
 /**
- * "Tailor for this job": what tailoring does, and the button that opens the tailoring dialog for this job. Hidden
- * while the match loads and without a resume to tailor.
+ * "Tailor for this job": what tailoring does (its "?"), and the button that opens the tailoring dialog for this job.
+ * Hidden while the match loads and without a resume to tailor.
  */
 export function TailorSection({ tailor, className }: { tailor: TailorTarget; className?: string }) {
   const { t } = usePublicConstants();
@@ -244,19 +289,23 @@ export function TailorSection({ tailor, className }: { tailor: TailorTarget; cla
     >
       {/* The tailor's tape along the card's top edge. */}
       <span aria-hidden="true" className="tape-ticks absolute inset-x-0 top-0 h-1.5 bg-tape" />
-      <SectionHeading id="job-tailor" icon={<SparkleIcon size={18} weight="fill" />}>
+      <SectionHeading
+        id="job-tailor"
+        icon={<SparkleIcon size={18} weight="fill" />}
+        tip={t('MSG_JOB_TAILOR_LEAD')}
+        aside={
+          <Button
+            variant="outline"
+            icon={<SparkleIcon size={16} weight="fill" className="text-primary" />}
+            onClick={() => setTailoring(true)}
+            data-tailor-open=""
+          >
+            {t('LABEL_JOB_TAILOR_BUTTON')}
+          </Button>
+        }
+      >
         {t('LABEL_JOB_TAILOR_TITLE')}
       </SectionHeading>
-      <p className="mt-3 text-sm leading-5 text-foreground">{t('MSG_JOB_TAILOR_LEAD')}</p>
-      <Button
-        variant="outline"
-        icon={<SparkleIcon size={16} weight="fill" className="text-primary" />}
-        onClick={() => setTailoring(true)}
-        className="mt-4"
-        data-tailor-open=""
-      >
-        {t('LABEL_JOB_TAILOR_BUTTON')}
-      </Button>
       <TailorDialog open={tailoring} onOpenChange={setTailoring} target={tailor} />
     </section>
   );

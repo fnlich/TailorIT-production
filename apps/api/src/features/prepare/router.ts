@@ -46,7 +46,8 @@ export function createPrepareRouter(deps: AppDeps): Router {
 
   // v31 AUTO (D10): Prepare All. The start counts toward Prepare & Queue's own per-minute limit.
   router.get('/all', planLimit, async (req, res) => {
-    const answer: PrepareAllPlan = await prepareAllPlan(deps, userOf(req).id);
+    const user = userOf(req);
+    const answer: PrepareAllPlan = await prepareAllPlan(deps, user.id, { admin: user.role === 'admin' }); // v32 ADMINAPP (E7)
     res.json(answer);
   });
 

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { ArrowsClockwiseIcon } from '@/components/ui/icons';
 import { Input, Textarea } from '@/components/ui/Input';
 import { RadioGroup } from '@/components/ui/RadioGroup';
@@ -30,11 +31,14 @@ export const OPT_OUT_REASON_MAX = 500;
 /** A split's new name's cap: AdminCompanySplitBodySchema's (a schema cap). */
 export const SPLIT_NAME_MAX = 300;
 
+/** A part of the company editor: its name (and its description as a "?" beside it, v32 COPY), then its content. */
 export function EditorSection({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
   return (
     <section aria-label={title} className="border-t border-border pt-6">
-      <h3 className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{title}</h3>
-      {description && <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{description}</p>}
+      <div className="flex items-center gap-1.5">
+        <h3 className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{title}</h3>
+        {description ? <HelpTip label={title}>{description}</HelpTip> : null}
+      </div>
       <div className="mt-3">{children}</div>
     </section>
   );
@@ -58,7 +62,7 @@ export function LogoSection({
   const input = useRef<HTMLInputElement>(null);
   const logo = company.profile.logoUrl;
   return (
-    <EditorSection title="Logo" description="An uploaded logo is stored and served by TailorIT, and locked: no source replaces it.">
+    <EditorSection title="Logo" description="An uploaded logo is locked: no source replaces it.">
       <div className="flex flex-wrap items-center gap-4">
         <CompanyLogo name={company.name} url={logo} size={48} />
         <input
@@ -93,7 +97,7 @@ export function RefreshSection({ busy, onRefresh }: { busy: boolean; onRefresh: 
   return (
     <EditorSection
       title="Refresh now"
-      description="Reads the company's sources again at once. Leave every box empty to read each source that is due. Sources that are switched off stay off."
+      description="Reads its sources again now; none ticked reads every source that is due."
     >
       <div className="flex flex-wrap gap-x-5 gap-y-2" role="group" aria-label="Sources to read again">
         {COMPANY_ENRICHMENT_STEPS.map((step) => (
@@ -203,7 +207,7 @@ export function MergeSection({ company, busy, onMerge }: { company: AdminCompany
   return (
     <EditorSection
       title="Merge another company into this one"
-      description="Its jobs, applications, sources and keys move here; the other company keeps a pointer, so its old links still open this one."
+      description="Its jobs, sources and keys move here; its old links still open this one."
     >
       <form
         className="flex flex-col gap-3"
@@ -284,7 +288,7 @@ export function SplitSection({
   return (
     <EditorSection
       title="Boards"
-      description="The job sources that list this company's jobs. To split a board that belongs to another employer off to a new company, tick it and name the new company."
+      description="Tick a board that belongs to another employer and name it to split it off."
     >
       <ul className="flex flex-col divide-y divide-divider-soft rounded-card border border-border" aria-label="Boards">
         {company.boards.map((board) => (
@@ -357,7 +361,7 @@ export function OptOutSection({
   return (
     <EditorSection
       title="Opt-out"
-      description="An opted-out company is never looked up anywhere: its domains go on the opt-out list, its job sources are switched off and their jobs purged, and discovery refuses its boards."
+      description="Never looked up again: its domains are blocked and its sources off and purged."
     >
       <Switch
         checked={company.doNotFetch}
@@ -371,8 +375,8 @@ export function OptOutSection({
         title={confirming ? `Opt ${company.name} out?` : `Take ${company.name} off the opt-out?`}
         description={
           confirming
-            ? "Its domains go on the opt-out list; its job sources are switched off and their jobs purged (applied jobs keep their text). Switching back later does not bring the purged jobs back."
-            : 'Its domains leave the opt-out list and its company data may be read again. Its sources stay off until an admin switches them on.'
+            ? "Its sources are switched off and their jobs purged; switching back won't restore them."
+            : 'Its data may be read again; its sources stay off until switched on.'
         }
         confirmLabel={confirming ? 'Opt out' : 'Take off'}
         busyLabel="Saving…"

@@ -15,7 +15,7 @@ import { ApiError, userMessage } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { IntegrationSection } from './IntegrationSection';
-import { ALSO_ASK, reportLine, UNSUPPORTED_EMPTY, UNSUPPORTED_INTRO, UNSUPPORTED_TITLE } from './unsupported';
+import { reportLine, UNSUPPORTED_EMPTY, UNSUPPORTED_INTRO, UNSUPPORTED_TITLE } from './unsupported';
 import { clearUnsupported, deleteUnsupported, fetchUnsupported, MCP_UNSUPPORTED_KEY } from './unsupported-api';
 
 /**
@@ -62,11 +62,10 @@ export function UnsupportedRequests() {
         ) : undefined
       }
     >
-      <AlsoAsk />
       {reports.isError ? (
         <Notice
           tone="error"
-          title="Your AI's reports could not be loaded"
+          title="Your AI's reports didn't load"
           action={
             <Button variant="outline" size="sm" onClick={() => void reports.refetch()}>
               Try again
@@ -86,7 +85,7 @@ export function UnsupportedRequests() {
         open={clearing}
         onOpenChange={setClearing}
         title="Delete every report?"
-        description="Your AI's reports of what it could not do are deleted. Your AI keeps working as before."
+        description="Your AI keeps working as before."
         confirmLabel="Delete all"
         busyLabel="Deleting..."
         onConfirm={async () => {
@@ -96,20 +95,6 @@ export function UnsupportedRequests() {
         }}
       />
     </IntegrationSection>
-  );
-}
-
-/** What else the person's AI can do through TailorIT. */
-export function AlsoAsk() {
-  return (
-    <div className="rounded-control bg-surface-low px-4 py-3 text-[13px] leading-5 text-muted-foreground">
-      <p className="font-semibold text-foreground">Your AI can also</p>
-      <ul className="mt-1 list-disc space-y-0.5 pl-5">
-        {ALSO_ASK.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

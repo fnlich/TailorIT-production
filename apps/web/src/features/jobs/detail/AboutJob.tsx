@@ -3,11 +3,13 @@
 import type { JobAnalysisView } from '@tailorit/shared';
 import { clsx } from 'clsx';
 import { useId, useState } from 'react';
+import { Badge } from '@/components/ui/Badge';
 import { Chip } from '@/components/ui/Chip';
 import { CaretDownIcon, CaretUpIcon, FileTextIcon } from '@/components/ui/icons';
 import { SkeletonText } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { jobFacetGroups, type JobFacetGroup } from './facets';
 import { SectionHeading } from './MatchSection';
 
@@ -34,6 +36,9 @@ const POSTING_HTML = clsx(
   '[&_strong]:font-semibold [&_b]:font-semibold',
   '[&_table]:my-3 [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2',
 );
+
+/** v32 JOBS2: the chip of a role shown as its posting alone (no summary to read). */
+const FULL_POSTING = 'Full posting';
 
 /** A part's heading inside the role (an h4 under the section's h3). */
 const PART_TITLE = 'text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase';
@@ -97,8 +102,9 @@ function Summary({ analysis }: { analysis: JobAnalysisView }) {
 /**
  * v31 FIX-JOBS: "About the role". The analysis's summary (what you'd do, what they ask for, nice to have, also
  * mentioned), then the posting itself behind "Read the full posting" (a disclosure). With no summary (none yet, or
- * the analysis could not be loaded) the full posting shows at once. A quiet "Refining…" shows while the AI analysis is
- * being made; when it lands the summary changes in place and an open posting stays open.
+ * the analysis could not be loaded) the full posting shows at once, a "Full posting" chip by the title saying why (v32
+ * JOBS2). A quiet "Refining…" shows while the AI analysis is being made; when it lands the summary changes in place
+ * and an open posting stays open.
  */
 export function AboutJob({
   analysis,
@@ -139,6 +145,12 @@ export function AboutJob({
               <Spinner size={12} />
               Refining…
             </span>
+          ) : postingOnly ? (
+            // v32 JOBS2 (E4, E5): no summary to read is a small chip with its reason behind the "?", not a line of text.
+            <span className="inline-flex items-center gap-1" data-no-summary="">
+              <Badge tone="neutral">{FULL_POSTING}</Badge>
+              <HelpTip label={FULL_POSTING}>{analysisFailed && !analysis ? t('MSG_JOB_SUMMARY_FAILED') : t('MSG_JOB_NO_SUMMARY')}</HelpTip>
+            </span>
           ) : undefined
         }
       >
@@ -148,12 +160,7 @@ export function AboutJob({
         {loading ? (
           <SkeletonText lines={6} />
         ) : postingOnly ? (
-          <>
-            <p className="mb-4 text-[13px] leading-5 text-muted-foreground" data-no-summary="">
-              {analysisFailed && !analysis ? t('MSG_JOB_SUMMARY_FAILED') : t('MSG_JOB_NO_SUMMARY')}
-            </p>
-            <div data-full-posting="">{posting}</div>
-          </>
+          <div data-full-posting="">{posting}</div>
         ) : (
           <>
             <Summary analysis={analysis!} />

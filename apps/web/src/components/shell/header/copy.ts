@@ -12,15 +12,18 @@ export const USAGE_COPY = {
   extra: (amount: string) => `Extra usage ${amount}`,
   popoverLabel: 'AI use and extra usage',
   title: 'AI use today',
-  of: (used: string, budget: string) => `${used} of ${budget}`,
+  /** v32 SHELL (E7): today's use is a share of the daily limit, never an amount. */
+  percentUsed: (percent: string) => `${percent} used`,
   unlimited: 'No daily limit',
-  unlimitedUsed: (used: string) => `${used} today`,
+  /** The chip's words with no daily limit. */
+  unlimitedShort: 'No limit',
   /** "Resets at 12:00 AM Pacific Time (in 5 hours)": the usage meter's reset words (LIMIT_COPY) and the wait. */
   resetsIn: (when: string, wait: string) => `${LIMIT_COPY.resetsAt(when)} (${wait})`,
-  reached: "Today's AI budget is used. New AI work uses your extra credit until it resets.",
-  waiting: "Today's AI budget is used and you have no extra credit, so new AI work waits until it resets. Buy extra credit to keep going.",
+  reached: 'Daily limit reached. Extra credit is in use.',
+  waiting: 'Daily limit reached. AI work waits for the reset.',
   extraTitle: 'Extra usage',
-  extraHint: "What's left for AI work once today's budget is used.",
+  /** v32 SHELL (E5): the "?" beside Extra usage. */
+  extraHint: 'Credit for AI work once the daily limit is reached.',
   autoApplies: 'Auto-applies today',
   autoAppliesLabel: 'Auto-applies used today',
   autoAppliesUnlimited: 'Unlimited',
@@ -28,11 +31,12 @@ export const USAGE_COPY = {
   freePlan: 'Free plan',
   paidPlan: 'Paid plan',
   paidUntil: (date: string) => `Until ${date}`,
-  freeLine: "Subscribe for a Paid account's daily budget and limits.",
+  /** v32 SHELL (E5): the "?" beside a Free plan's badge. */
+  freeLine: 'A Paid plan has a higher daily limit.',
   subscribe: 'Subscribe',
   buyCredit: 'Buy credit',
   account: 'Account settings',
-  loadFailed: "Your AI use couldn't be loaded. It tries again in a minute.",
+  loadFailed: "Your AI use didn't load; it tries again in a minute.",
 } as const;
 
 export const BELL_COPY = {
@@ -45,8 +49,9 @@ export const BELL_COPY = {
   seeAll: 'See all notifications',
   settings: 'Notification settings',
   empty: 'No notifications yet',
-  emptyHint: 'TailorIT tells you here when applications are prepared, a job you added is checked, or your AI use runs low.',
-  loadFailed: "Your notifications couldn't be loaded.",
+  /** v32 SHELL (E5): the "?" beside the bell popover's title (and the /notifications page's empty state). */
+  emptyHint: 'Updates on your applications, the jobs you added and your AI use.',
+  loadFailed: "Your notifications didn't load.",
   loading: 'Loading notifications',
   tryAgain: 'Try again',
   unread: 'Unread',

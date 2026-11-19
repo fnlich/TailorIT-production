@@ -8,7 +8,9 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { LockSimpleIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
+import { LockSimpleIcon, PencilSimpleIcon, PlusIcon, TrashIcon, WarningCircleIcon } from '@/components/ui/icons';
+import { Badge } from '@/components/ui/Badge';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { IconButton } from '@/components/ui/IconButton';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -24,9 +26,13 @@ import { Section } from '../Section';
 import { SignInDialog } from './SignInDialog';
 import { EVERY_SITE_COVERS, hostLabel, lastReadLine } from './signIn';
 
-const DESCRIPTION =
-  'For job sites that make you sign in or create an account before you can apply (Workday and others): the email ' +
-  'and password you use there, one for every site and, where a site needs its own, one for that site.';
+const DESCRIPTION = 'For job sites that need an account to apply: one sign-in for all, or one per site.';
+
+/** v32 COPY (E4/E5): how the passwords are kept, as a chip with its "?" (never a banner). */
+const KEPT_LABEL = 'Kept encrypted';
+const KEPT_TIP =
+  'Never shown again. Only Sign-in Auto reads it, and may create accounts with it, so use a job-site-only password. ' +
+  'Codes and CAPTCHAs need you.';
 
 /** "Adding" (null) or the sign-in being edited; undefined while the dialog is closed. */
 type Editing = AutofillSignInItem | null | undefined;
@@ -96,31 +102,32 @@ export function SignInTab() {
         }
       >
         <div className="flex flex-col gap-5">
-          <Notice tone="info" title="Kept encrypted in TailorIT on this computer">
-            Your passwords are stored encrypted and never shown again, here or anywhere else. The TailorIT extension reads
-            one only when its Sign-in mode is Auto, to sign you in on that site, and never stores it. Where you have no
-            account yet, Sign-in Auto may create one with this email and password, so use a password you use only for
-            job sites. Email codes and CAPTCHAs always need you.
-          </Notice>
-          <p className="-mt-1 text-[13px] leading-5 text-muted-foreground">
-            The sign-in for all job sites is used only on {EVERY_SITE_COVERS}, where job applications need an account.
-            Any other site needs a sign-in of its own, and a site with one uses that one.
-          </p>
-
-          {noReader && (
-            <Notice tone="warning" title="No connected browser may use it yet">
-              Connect the extension again from the{' '}
-              <Link href="/settings/autofill?tab=extension" className="font-semibold underline underline-offset-2">
-                Extension tab
-              </Link>{' '}
-              with “Let this browser sign in to job sites with my saved password” ticked.
-            </Notice>
-          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="inline-flex items-center gap-1" data-sign-in-kept="">
+              <Badge tone="success" icon={<LockSimpleIcon size={13} weight="fill" aria-hidden="true" />}>
+                {KEPT_LABEL}
+              </Badge>
+              <HelpTip label={KEPT_LABEL}>{KEPT_TIP}</HelpTip>
+            </span>
+            {noReader && (
+              <span className="inline-flex items-center gap-1" data-sign-in-no-reader="">
+                <Badge tone="warning" icon={<WarningCircleIcon size={13} weight="fill" aria-hidden="true" />}>
+                  No connected browser may use it yet
+                </Badge>
+                <HelpTip label="No connected browser may use it yet">
+                  Reconnect with &ldquo;Let this browser sign in to job sites&rdquo; ticked.
+                </HelpTip>
+                <Link href="/settings/autofill?tab=extension" className="text-[13px] font-semibold text-primary underline underline-offset-2">
+                  Extension tab
+                </Link>
+              </span>
+            )}
+          </div>
 
           {signIns.isError ? (
             <Notice
               tone="error"
-              title="Your job-site sign-ins could not be loaded"
+              title="Your job-site sign-ins didn't load."
               action={
                 <Button variant="outline" size="sm" onClick={() => void signIns.refetch()}>
                   Try again
@@ -138,7 +145,7 @@ export function SignInTab() {
             <EmptyState
               icon={<KeyIcon size={24} />}
               title="No job-site sign-in yet"
-              description="Add the email and password you use on job sites, so the extension can sign in for you when its Sign-in mode is Auto."
+              description="Lets the extension sign in for you."
               action={
                 <Button icon={<PlusIcon size={16} />} onClick={() => setEditing(null)} data-sign-in-add="">
                   Add sign-in
@@ -189,8 +196,8 @@ export function SignInTab() {
         title={`Delete the sign-in for ${deleting ? hostLabel(deleting.host) : 'this site'}?`}
         description={
           deleting?.host === AUTOFILL_ANY_HOST
-            ? 'The extension stops signing in with it on sites that have no sign-in of their own. Sites already signed in to in your browser stay signed in.'
-            : 'The extension stops signing in with it there. A site already signed in to in your browser stays signed in.'
+            ? 'The extension stops using it. Sites you are signed in to stay signed in.'
+            : 'The extension stops using it there. You stay signed in where you are.'
         }
         confirmLabel="Delete"
         busyLabel="Deleting..."
@@ -209,7 +216,8 @@ export function SignInTab() {
             [id],
           );
           update(id, null);
-          focusLater(...(next ? [`[data-sign-in="${CSS.escape(next)}"] button`] : []), '[data-sign-in-add]');
+          // v32 COPY: its first button that is not its "?" (Edit).
+          focusLater(...(next ? [`[data-sign-in="${CSS.escape(next)}"] button:not([data-help-tip-trigger])`] : []), '[data-sign-in-add]');
           toast.success('Sign-in deleted', hostLabel(host));
         }}
       />
@@ -232,7 +240,10 @@ function SignInRow({
   return (
     <li data-sign-in={item.id} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-5 font-semibold break-words text-foreground">{label}</p>
+        <p className="flex items-center gap-1.5 text-sm leading-5 font-semibold break-words text-foreground">
+          {label}
+          {item.host === AUTOFILL_ANY_HOST && <HelpTip label={label}>Used only on {EVERY_SITE_COVERS}.</HelpTip>}
+        </p>
         <p className="mt-0.5 text-sm leading-5 break-words text-foreground">{item.email}</p>
         <p className="mt-0.5 flex items-center gap-1 text-[13px] leading-5 text-muted-foreground">
           <LockSimpleIcon size={14} />

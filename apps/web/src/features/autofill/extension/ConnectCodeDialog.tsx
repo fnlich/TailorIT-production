@@ -3,7 +3,6 @@
 import { useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { Notice } from '@/components/ui/Notice';
 import type { PairFailure } from '../extensionBridge';
 
 // The fallback of connecting: the code on screen, for the person to type into the extension's options page. It lives
@@ -79,12 +78,13 @@ export function ConnectCodeDialog({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
         title="Type this code into the extension"
-        description="Open the TailorIT extension's options page and enter this code to connect this browser."
+        description="Enter it on the extension's options page."
+        help="It works once, and this closes by itself when the extension connects."
       >
         {failure && (
-          <Notice tone="info" className="mt-4">
+          <p className="mt-3 text-[13px] leading-5 text-muted-foreground" data-connect-failure="">
             {failure}
-          </Notice>
+          </p>
         )}
         <div className="mt-5 flex flex-col items-center gap-1.5 rounded-control bg-surface-low px-4 py-5">
           <output
@@ -101,9 +101,6 @@ export function ConnectCodeDialog({
             {expired ? 'This code has expired.' : `Expires in ${countdown(secondsLeft)}`}
           </p>
         </div>
-        <p className="mt-4 text-[13px] leading-5 text-muted-foreground">
-          It works once. This dialog closes by itself when the extension connects.
-        </p>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Close

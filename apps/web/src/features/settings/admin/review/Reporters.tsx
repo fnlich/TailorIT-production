@@ -52,7 +52,7 @@ function ReportersList({ reviewId }: { reviewId: number }) {
       <Notice
         tone="error"
         className="mt-2"
-        title="Who reported it could not be loaded"
+        title="The reporters didn't load."
         action={
           <Button variant="outline" size="sm" onClick={() => void reporters.refetch()}>
             Try again

@@ -11,8 +11,7 @@ export const PUBLISHING_KEYS = ['ADD_JOB_PAGE_READ', 'PAGE_JOBS_AUTO_PUBLISH', '
 export type PublishingKey = (typeof PUBLISHING_KEYS)[number];
 
 /** The card's first sentence. */
-export const PUBLISHING_INTRO =
-  "A job becomes one everyone can find only after TailorIT's server reads the posting from the job's own link (an ATS's API, or the page's own job data). Nothing a person, an admin, a file or the extension types is ever published.";
+export const PUBLISHING_INTRO = 'How a job someone added becomes one everyone can find.';
 
 /** What a switch does now, by its value: "Now: …". */
 export function publishingNow(key: PublishingKey, on: boolean): string {
@@ -31,7 +30,7 @@ export function publishingNow(key: PublishingKey, on: boolean): string {
         : 'Now: only links an ATS API reads are verified. Other added jobs stay with the person who added them.';
     case 'EXT_NEW_PAGE_JOBS_REVIEW':
       return on
-        ? "Now: links TailorIT couldn't read are listed in Review › Couldn't verify, to read again or reject."
+        ? "Now: links TailorIT couldn't read are listed in Review › Couldn't verify, to approve, read again or reject." // v32 FIX-API (UXREQ-9)
         : "Now: Review › Couldn't verify lists nothing.";
   }
 }

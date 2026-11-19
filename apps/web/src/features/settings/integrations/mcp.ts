@@ -18,13 +18,11 @@ export function setupSnippets(token: string | null, endpoint = mcpEndpointUrl())
  * a job is queued once its parts are saved; custom instructions add to TailorIT's and never change its rules.
  */
 export const HOW_IT_WORKS = [
-  'Your AI does the writing on your own plan; TailorIT checks the facts, scores and stores what it makes.',
-  'In your AI client, run the prepare_all prompt (or ask it to "prepare my saved jobs with TailorIT"). It runs your saved filters on your Saved jobs, then prepares the jobs that pass: the resume your Prepare & Queue setting asks for (your default resume, your best-matched one or a tailored one), the cover letter when one is wanted, and answers to the questions TailorIT knows.',
-  'TailorIT keeps your employers, titles, dates and figures as they are, scores each tailored resume against the job, and queues each job for auto-apply once its parts are saved.',
-  'Your self-identification, work authorization and pay answers never leave TailorIT: your profile fills those questions on the form.',
-  // v1.5 Q1
-  "Your AI uses TailorIT's step prompts unless you ask it to use your own; either way TailorIT checks what it saves, strictly.",
-  "Your custom instructions below are added to TailorIT's. Your filters and your account's limits always apply.",
+  'Your AI writes on your own plan; TailorIT checks, scores and stores it.',
+  'The prepare_all prompt runs your saved filters, then prepares the jobs that pass with your resume setting.',
+  'Each job is queued for auto-apply once its parts are saved.',
+  'Self-ID, work authorization and pay answers never leave TailorIT.',
+  "Custom instructions add to TailorIT's; your filters and limits always apply.",
 ] as const;
 
 /** A token's line under its name. */
@@ -43,6 +41,5 @@ export function reviseRoundOptions(min: number, max: number, fallback: number) {
 }
 
 /** What the control's hint says. */
-export const REVISE_ROUNDS_HINT =
-  "How many times your AI revises each tailored resume after TailorIT's check, while it still finds keywords or facts to fix. More rounds can raise the score and use more of your AI plan. TailorIT's own Prepare always does 2.";
+export const REVISE_ROUNDS_HINT = 'How often your AI revises each tailored resume; more can raise the score and use more of your plan.';
 // end v1.5 Q1

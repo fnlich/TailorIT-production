@@ -6,6 +6,7 @@ import type { RichView, TextView } from '@tailorit/resume-templates';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { IconButton } from '@/components/ui/IconButton';
 import { PlusIcon, TrashIcon } from '@/components/ui/icons';
 import { CONTROL_SURFACE, Input } from '@/components/ui/Input';
@@ -69,13 +70,17 @@ interface FormProps {
   commands: ToolbarCommands;
 }
 
-function Group({ label, children }: { label: string; children: ReactNode }) {
+/** A titled group; `help` is a "?" beside its title (v32 COPY, E5). */
+function Group({ label, help, children }: { label: string; help?: ReactNode; children: ReactNode }) {
   const id = useId();
   return (
     <div role="group" aria-labelledby={id} className="flex flex-col gap-3 rounded-card border border-border bg-surface p-4">
-      <p id={id} className={LABEL}>
-        {label}
-      </p>
+      <span className="flex items-center gap-1.5">
+        <p id={id} className={LABEL}>
+          {label}
+        </p>
+        {help ? <HelpTip label={label}>{help}</HelpTip> : null}
+      </span>
       {children}
     </div>
   );
@@ -136,9 +141,12 @@ function BulletsField({ label, bullets, session }: { label: string; bullets: Ric
   const lastMarkup = last ? valueAt(session.document, last.path) : undefined;
   return (
     <div role="group" aria-labelledby={id} className="flex flex-col gap-1.5">
-      <p id={id} className={LABEL}>
-        {label}
-      </p>
+      <span className="flex items-center gap-1.5">
+        <p id={id} className={LABEL}>
+          {label}
+        </p>
+        <HelpTip label={label}>Enter starts a new bullet.</HelpTip>
+      </span>
       <ul className="flex flex-col gap-2">
         {bullets.map((bullet, index) => (
           <li key={index} className="flex items-start gap-2">
@@ -147,7 +155,6 @@ function BulletsField({ label, bullets, session }: { label: string; bullets: Ric
           </li>
         ))}
       </ul>
-      <p className="text-[13px] leading-5 text-muted-foreground">Enter starts a new bullet.</p>
       {last && typeof lastMarkup === 'string' && lastMarkup.trim() !== '' ? (
         <div>
           <Button
@@ -255,8 +262,7 @@ function EntryForm({ path, session, commands }: FormProps & { path: string }) {
       ) : null}
       {tools && roleSkills ? (
         // A role's "Skills used", as in its Settings on the page.
-        <Group label="Skills used">
-          <p className="text-[13px] leading-5 text-muted-foreground">Not printed. Each skill also joins your Technical skills.</p>
+        <Group label="Skills used" help="Not printed; each skill also joins your Technical skills.">
           <ChipAddForm
             label="Add a skill used in this role"
             placeholder="e.g. Kubernetes"
@@ -333,9 +339,8 @@ function HeaderForm({ session, commands }: FormProps) {
         ))}
         <Checkbox label="Name in capitals" checked={tools.uppercaseName} onCheckedChange={commands.setUppercaseName} />
       </Group>
-      <Group label="Years of experience">
+      <Group label="Years of experience" help="Not printed; Write with AI pitches your bullets to it.">
         <YearsField years={tools.years} onChange={commands.setYears} />
-        <p className="text-[13px] leading-5 text-muted-foreground">Not printed. Write with AI pitches your bullets to it.</p>
       </Group>
       <PhotoDialog open={photoOpen} onClose={() => setPhotoOpen(false)} onAccepted={session.photo.accept} />
     </div>

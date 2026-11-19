@@ -42,8 +42,9 @@ export function PrepareConfirmDialog({ open, onOpenChange, count, onContinue, fi
       confirmLabel="Continue"
       busyLabel="Starting..."
       onConfirm={() => onContinue(dontShow)}
-      // v2.0 fix (UX-16): first focus on Continue, so a Space press answers instead of ticking "Don't show this again".
-      focusConfirm
+      // v2.0 fix (UX-16): first focus on a button, so a Space press answers instead of ticking "Don't show this again";
+      // v32 FIX-UX (UXREQ-12): on Cancel, the safe answer of a confirm that spends AI.
+      focusCancel
       finalFocus={finalFocus}
     >
       <span data-prepare-confirm-dont-show="">

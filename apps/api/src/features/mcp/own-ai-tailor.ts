@@ -1,6 +1,6 @@
-import { normalizeResumeDocument, HOUR_MS } from '@tailorit/shared';
+import { normalizeResumeDocument, HOUR_MS, UNLIMITED } from '@tailorit/shared';
 import { AUTOFILL_TAILOR_LIMITS } from '@tailorit/shared/autofill';
-import { constantsOf } from '../../core/constants/service';
+import { hourlyLimitOf } from '../../core/accounts/entitlements';
 import type { AppDeps } from '../../core/context';
 import { AppError, validationFailed } from '../../core/http/errors';
 import { stringsOf } from '../autofill/ai/tasks';
@@ -36,10 +36,10 @@ import { keepAnalysis, workFor } from './work';
 // talk and prompt markup; the profile's employers, titles, dates and figures kept; the protected facts checked) and
 // stores it as a new tailored resume, linked to the job's Tracker entry as the server's tailoring links it
 // (tailor/output.ts storeTailored, no letter: the letter is own_ai "cover_letter").
-// Limits: the resume limit (room for one, before the context and again at the save), and TAILOR_PER_HOUR new
-// resumes an hour, the server Tailor's cap and message (MSG_TAILOR_PER_HOUR), counted over this feature's saves. That
-// count is kept in memory, as the MCP endpoint's request limits are: a restart starts the hour afresh. Nothing here
-// runs or charges TailorIT's AI.
+// Limits: the resume limit (room for one, before the context and again at the save), and the plan's new resumes an hour
+// (FREE_/PAID_TAILOR_PER_HOUR, v32 FIX-PLAN: Paid's unlimited by default), the server Tailor's cap and message
+// (MSG_TAILOR_PER_HOUR), counted over this feature's saves. That count is kept in memory, as the MCP endpoint's request
+// limits are: a restart starts the hour afresh. Nothing here runs or charges TailorIT's AI.
 
 export const NO_JOB_TO_TAILOR =
   'This Tracker entry has no job TailorIT holds, so your AI cannot tailor to it here. Tailor it on its page with ' +
@@ -101,14 +101,19 @@ function savesWithinHour(deps: Pick<AppDeps, 'db' | 'now'>, userId: string): num
   return kept;
 }
 
-/** 429 at TAILOR_PER_HOUR saves within the hour, with the minutes until one leaves it (the server Tailor's refusal). */
-function assertUnderHourlyCap(deps: AppDeps, userId: string): void {
-  const max = constantsOf(deps).get('TAILOR_PER_HOUR');
+/**
+ * 429 at the plan's tailorings an hour (v32 FIX-PLAN, E12: FREE_/PAID_TAILOR_PER_HOUR by the plan at this call, so a
+ * Paid term that ended is held to Free's) of saves within the hour, with the minutes until one leaves it (the server
+ * Tailor's refusal). UNLIMITED (Paid's default): never refused. Every save is noted, whatever the plan.
+ */
+async function assertUnderHourlyCap(deps: AppDeps, userId: string): Promise<void> {
+  const max = await hourlyLimitOf(deps, userId, 'tailorsPerHour');
+  if (max === UNLIMITED) return;
   const saves = savesWithinHour(deps, userId);
   if (saves.length < max) return;
   const freesAt = saves[saves.length - max]! + HOUR_MS;
   const seconds = Math.max(1, Math.ceil((freesAt - deps.now().getTime()) / 1000));
-  throw tailorRateLimited(deps, seconds);
+  throw tailorRateLimited(deps, seconds, max);
 }
 
 function noteSave(deps: Pick<AppDeps, 'db' | 'now'>, userId: string): void {
@@ -131,7 +136,7 @@ export async function tailorContext(deps: AppDeps, userId: string, ids: TailorId
   const job = await tailorJob(deps, userId, ids);
   // Refused before the person's AI does any work, and again at the save.
   await assertRoomForResumes(deps, userId, 1);
-  assertUnderHourlyCap(deps, userId);
+  await assertUnderHourlyCap(deps, userId);
   const source = await tailorSource(deps, userId, ids.resumeId);
   const work = await workFor(deps, userId, job.jobId);
   const held = await heldAnalysis(deps, userId, job, work);
@@ -180,7 +185,7 @@ export async function tailorSave(deps: AppDeps, userId: string, ids: TailorIds, 
   if (!held) throw new AppError('validation_failed', NO_TAILOR_ANALYSIS);
   // No resume is made past the plan's limit or the hourly cap, whatever the person's AI wrote.
   await assertRoomForResumes(deps, userId, 1);
-  assertUnderHourlyCap(deps, userId);
+  await assertUnderHourlyCap(deps, userId);
   const source = await tailorSource(deps, userId, ids.resumeId);
   const { profile } = source;
   const { analysis } = held;

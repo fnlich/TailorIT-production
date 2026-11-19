@@ -70,19 +70,52 @@ export function limitTone(kind: LimitKind): 'warning' | 'error' {
 }
 
 /**
- * The buttons a limit message shows to this account: Subscribe when the message asks for it and the account may
- * subscribe (never Paid; 08-ui.md), Get extra credit when the message asks for it. `ai_unavailable` asks for neither.
+ * Whether a Subscribe or Buy credit action leads somewhere: a checkout address, or an admin contact email to write to.
+ * v32 FIX-UX (UXREQ-14): `contact` with no email is a dead end ("The admin has not set a contact email yet."), so no
+ * button offers it.
+ */
+export function purchaseReachable(action: { mode: 'contact'; contactEmail: string | null } | { mode: 'checkout' }): boolean {
+  return action.mode === 'checkout' || Boolean(action.contactEmail?.trim());
+}
+
+/**
+ * The buttons a limit message shows to this account: Subscribe when the message asks for it, the account may
+ * subscribe (never Paid; 08-ui.md) and subscribing leads somewhere; Get extra credit when the message asks for it and
+ * buying leads somewhere. `ai_unavailable` asks for neither. While the account is unknown, the public contact email
+ * (`contactEmail`, ADMIN_CONTACT_EMAIL) says whether there is anyone to write to (left out: assume there is).
  */
 export function limitButtons(
   limit: Pick<LimitInfo, 'subscribe' | 'buyCredit'>,
   account: AccountSummary | null | undefined,
+  contactEmail?: string | null,
 ): { subscribe: boolean; buyCredit: boolean } {
-  return { subscribe: limit.subscribe && subscribeAllowed(account), buyCredit: limit.buyCredit };
+  const fallback = contactEmail === undefined ? true : purchaseReachable({ mode: 'contact', contactEmail });
+  const canSubscribe = account ? purchaseReachable(account.subscribe) : fallback;
+  const canBuy = account ? purchaseReachable(account.buyCredit) : fallback;
+  return { subscribe: limit.subscribe && subscribeAllowed(account) && canSubscribe, buyCredit: limit.buyCredit && canBuy };
 }
 
 /** The locked-feature message of a Paid-only feature, with Subscribe (MSG_PAID_AI_SEARCH, MSG_BATCH_DOWNLOAD_PAID). */
 export function paidFeatureLimit(t: MessageRenderer, feature: PaidFeature): LimitInfo {
   return { kind: 'paid_feature', message: t(PAID_FEATURE_MESSAGES[feature]), subscribe: true, buyCredit: false };
+}
+
+/**
+ * v32 FIX-UX (UXREQ-3): today's AI use spent, said before any request (the header knows it): MSG_AI_USAGE_EXHAUSTED,
+ * with Get extra credit and, for an account that may subscribe, Subscribe; the same alert the server's refusal opens.
+ */
+export function aiUsedUpLimit(t: MessageRenderer): LimitInfo {
+  return { kind: 'ai_usage_exhausted', message: t('MSG_AI_USAGE_EXHAUSTED'), subscribe: true, buyCredit: true };
+}
+
+/**
+ * v32 FIX-UX (UXREQ-3): a background AI task that ended on a limit (its error's code is a limit's: today's AI use
+ * spent, the resume limit, a Paid feature), as the limit alert says it; null for any other ending. The server's words.
+ */
+export function limitOfTaskError(error: { code?: string | null; message?: string | null } | null | undefined): LimitInfo | null {
+  const code = error?.code;
+  if (code !== 'ai_usage_exhausted' && code !== 'resume_limit_reached' && code !== 'paid_feature') return null;
+  return { kind: code, message: error?.message || '', subscribe: true, buyCredit: code === 'ai_usage_exhausted' };
 }
 
 /**

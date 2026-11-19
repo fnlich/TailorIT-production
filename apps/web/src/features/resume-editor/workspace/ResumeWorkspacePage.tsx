@@ -62,7 +62,9 @@ import { ImportStartDialog } from './ImportStartDialog';
 import { NewResumeChooser } from './NewResumeChooser';
 import { useEditorSession, type EditorStart } from './useEditorSession';
 import { LimitNotice } from '@/components/limits'; // v20 P8
+import { Badge } from '@/components/ui/Badge';
 import { useResumeLimitGate } from '../../documents/resumes/resumeLimit'; // v20 P8
+import { StatusLine } from '../../documents/core/StatusLine';
 
 /**
  * The resume editor (Enhancv's on-page editor) for a stored, built resume at /resumes/[id]. It opens the resume as the
@@ -97,7 +99,7 @@ export function ResumeWorkspacePage({ resumeId, opened }: { resumeId: string; op
         <main className={clsx('mx-auto w-full max-w-xl pt-16', PAGE_GUTTER)}>
           <Notice
             tone={missing ? 'warning' : 'error'}
-            title={missing ? 'That resume was not found' : 'Could not load this resume'}
+            title={missing ? 'That resume was not found' : "This resume didn't load."}
             action={
               <Link href={RESUMES_TAB_HREF} className={buttonClasses({ variant: 'outline', size: 'sm' })}>
                 Back to Documents
@@ -219,7 +221,7 @@ function NewResume() {
           <main className={clsx('mx-auto w-full max-w-xl pt-16', PAGE_GUTTER)}>
             <Notice
               tone={missing ? 'warning' : 'error'}
-              title={missing ? 'The resume to start from was not found' : 'Could not load the resume to start from'}
+              title={missing ? 'The resume to start from was not found' : "The resume to start from didn't load."}
               action={
                 <Link href={RESUMES_TAB_HREF} className={buttonClasses({ variant: 'outline', size: 'sm' })}>
                   Back to Documents
@@ -428,7 +430,7 @@ function Workspace({
           next.length > MAX_RESUME_TITLE_LENGTH ? t('MSG_TEXT_TOO_LONG', { max: MAX_RESUME_TITLE_LENGTH }) : null
         }
         maxNameLength={MAX_RESUME_TITLE_LENGTH}
-        info={savedId ? 'This name is only for your documents list. The resume prints the name and title on the page.' : undefined}
+        info={savedId ? 'Only for your documents list; the page prints its own name.' : undefined}
         status={phone ? undefined : saveStatus}
         crowded // v31 FIX-WEB: seven actions; the usage chip's words wait for 1536 px, the name keeps its room
         actions={
@@ -443,7 +445,9 @@ function Workspace({
         }
       />
       {readOnly ? ( // v20 P8
-        <div className={clsx('mx-auto w-full max-w-[816px] pt-6', PAGE_GUTTER)} data-resume-read-only="">
+        <div className={clsx('mx-auto flex w-full max-w-[816px] flex-wrap items-center gap-2 pt-6', PAGE_GUTTER)} data-resume-read-only="">
+          {/* v32 COPY (E4): the state is a tag and the limit's chip (its "?" says why), never a banner. */}
+          <Badge tone="neutral">Read-only</Badge>
           <LimitNotice
             limit={
               resumeGate.info ?? {
@@ -454,10 +458,10 @@ function Workspace({
               }
             }
           >
-            This resume is read-only: changes are not saved until you have fewer resumes. You can still download it.
+            Changes are not saved until you have fewer resumes; you can still download it.
           </LimitNotice>
           {phone && (
-            <Button size="sm" variant="outline" className="mt-3" icon={<DownloadSimpleIcon size={16} />} onClick={() => setDownloading(true)}>
+            <Button size="sm" variant="outline" icon={<DownloadSimpleIcon size={16} />} onClick={() => setDownloading(true)}>
               Download
             </Button>
           )}
@@ -465,24 +469,26 @@ function Workspace({
       ) : null}
       {session.restore ? (
         <div className={clsx('mx-auto w-full max-w-[816px] pt-6', PAGE_GUTTER)}>
-          <Notice
+          {/* v32 COPY (E4): a compact line with its two buttons; the details are its "?". */}
+          <StatusLine
             tone={session.restore.offer.stale ? 'warning' : 'info'}
             title="This browser kept changes that were never saved"
-            action={
-              <div className="flex gap-2">
+            details={
+              session.restore.offer.stale
+                ? 'It was saved from somewhere else since; restoring puts these changes over that save.'
+                : 'Restore them to pick up where you left off.'
+            }
+            actions={
+              <>
                 <Button size="sm" onClick={session.restore.accept}>
                   Restore them
                 </Button>
                 <Button size="sm" variant="outline" onClick={session.restore.discard}>
                   Discard
                 </Button>
-              </div>
+              </>
             }
-          >
-            {session.restore.offer.stale
-              ? 'The resume was saved from somewhere else since then. Restoring puts these changes over that save.'
-              : 'Restore them to pick up where you left off.'}
-          </Notice>
+          />
         </div>
       ) : null}
       <main className={clsx('flex w-full items-start justify-center gap-6', phone ? PHONE_MAIN_CLASS : ['py-8', PAGE_GUTTER])}>

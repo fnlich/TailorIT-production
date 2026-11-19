@@ -102,7 +102,7 @@ export function AnnouncementsTab() {
   return (
     <AdminResourceTab
       title="Announcements"
-      description="Messages every signed-in person sees in a banner under the header, the most severe first. Each person can dismiss one for themselves. Plain text only."
+      description="A plain-text banner every signed-in person sees until they dismiss it."
       actions={
         <Button icon={<PlusIcon size={16} weight="bold" />} onClick={() => setEditing('new')}>
           New announcement
@@ -110,10 +110,10 @@ export function AnnouncementsTab() {
       }
       items={list.data?.items}
       error={list.error}
-      errorTitle="The announcements could not be loaded"
+      errorTitle="Announcements didn't load."
       empty={{
         title: 'No announcements',
-        description: 'Make one to tell everyone about maintenance, a change or news.',
+        description: 'Tell everyone about maintenance, a change or news.',
         variant: 'dashed',
         card: false,
       }}
@@ -216,11 +216,14 @@ function AnnouncementDialog({
             save.mutate(result.body);
           }}
         >
-          <Field label="Title" required error={errors.title} hint={`${draft.title.length} / ${LIMITS.title}`}>
+          {/* v32 COPY: a count is a value, so it stays visible (a Field hint is a "?" now). */}
+          <Field label="Title" required error={errors.title}>
             <Input value={draft.title} maxLength={LIMITS.title} onChange={(event) => set('title', event.target.value)} />
+            <span className="num text-xs leading-4 text-muted-foreground">{`${draft.title.length} / ${LIMITS.title}`}</span>
           </Field>
-          <Field label="Message" optional error={errors.body} hint={`Plain text; line breaks are kept. ${draft.body.length} / ${LIMITS.body}`}>
+          <Field label="Message" optional error={errors.body} hint="Plain text; line breaks are kept.">
             <Textarea rows={5} value={draft.body} maxLength={LIMITS.body} onChange={(event) => set('body', event.target.value)} />
+            <span className="num text-xs leading-4 text-muted-foreground">{`${draft.body.length} / ${LIMITS.body}`}</span>
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Severity">

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { ArrowRightIcon, MagnifyingGlassIcon } from '@/components/ui/icons';
 import { SearchPill } from '@/components/ui/SearchPill';
 import { Select } from '@/components/ui/Select';
@@ -74,9 +75,9 @@ export function ConnectionsTab({ onOpenAiAssistants }: { onOpenAiAssistants: () 
       )}
 
       <Card tone="muted" className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
           <p className="text-[15px] leading-5 font-semibold text-foreground">{CONNECTIONS_COPY.aiTitle}</p>
-          <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{CONNECTIONS_COPY.aiBody}</p>
+          <HelpTip label={CONNECTIONS_COPY.aiTitle}>{CONNECTIONS_COPY.aiBody}</HelpTip>
         </div>
         <Button variant="link" trailingIcon={<ArrowRightIcon size={14} aria-hidden />} onClick={onOpenAiAssistants}>
           {CONNECTIONS_COPY.aiLink}
@@ -101,13 +102,15 @@ export function ConnectionCard({ item, onConnect }: { item: Connection; onConnec
         <ClientMark kind={item.id} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 id={nameId} className="text-[15px] leading-5 font-semibold text-foreground">
-              {item.name}
-            </h3>
+            <span className="flex items-center gap-1.5">
+              <h3 id={nameId} className="text-[15px] leading-5 font-semibold text-foreground">
+                {item.name}
+              </h3>
+              <HelpTip label={item.name}>{item.summary}</HelpTip>
+            </span>
             <Badge tone="neutral">{CONNECTIONS_COPY.comingSoon}</Badge>
           </div>
           <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{categoryLabel(item.category)}</p>
-          <p className="mt-1.5 text-[13px] leading-5 text-muted-foreground">{item.summary}</p>
         </div>
       </div>
       <div className="mt-auto flex justify-end">

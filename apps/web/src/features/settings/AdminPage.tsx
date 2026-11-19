@@ -1,15 +1,20 @@
 'use client';
 
 import { clsx } from 'clsx';
+import Link from 'next/link';
 import { createElement } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { PAGE_GUTTER } from '@/components/shell/layout';
+import { Badge } from '@/components/ui/Badge';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { WarningCircleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { TabPanel } from '@/components/ui/SegmentedControl';
 import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { useAuth } from '@/lib/auth';
+import { usePublicConstants } from '@/lib/constants';
 import { AddLinksButton } from './admin/links/AddLinksDialog';
 import { ADMIN_TABS, readAdminTab } from './admin/registry';
 
@@ -25,8 +30,15 @@ export function AdminPage() {
     <div className={clsx('mx-auto w-full max-w-[1400px] pt-7 pb-20', PAGE_GUTTER)}>
       <PageHeader
         title="Admin"
-        description="Job sources, links, reviews, AI, accounts, constants and announcements for this installation."
-        actions={isAdmin ? <AddLinksButton /> : undefined}
+        description="Sources, links, reviews, AI, accounts and settings."
+        actions={
+          isAdmin ? (
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <ContactEmailReminder />
+              <AddLinksButton />
+            </div>
+          ) : undefined
+        }
       />
       {status === 'loading' ? (
         <PageSpinner />
@@ -34,12 +46,41 @@ export function AdminPage() {
         <AdminConsole />
       ) : (
         <Notice tone="warning" className="mt-6">
-          That is an administrator-only part of this installation.
+          Admins only.
         </Notice>
       )}
     </div>
   );
 }
+
+/** The Constants entry a reminder points at. */
+const CONTACT_CONSTANT_HREF = '/settings/admin?tab=constants';
+
+/**
+ * v32 FIX-UX (UXREQ-14): with no admin contact email set, Subscribe and Get extra credit lead nowhere, so the limit
+ * alerts leave them out; the admin is reminded here, a small chip with its "?" and a link to Constants.
+ */
+function ContactEmailReminder() {
+  const { values } = usePublicConstants();
+  if (values.ADMIN_CONTACT_EMAIL?.trim()) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5" data-contact-reminder="">
+      <Badge tone="warning" icon={<WarningCircleIcon size={13} weight="fill" aria-hidden="true" />}>
+        {CONTACT_REMINDER.title}
+      </Badge>
+      <HelpTip label={CONTACT_REMINDER.title}>{CONTACT_REMINDER.tip}</HelpTip>
+      <Link href={CONTACT_CONSTANT_HREF} className="text-[13px] font-medium text-primary underline-offset-2 hover:underline">
+        {CONTACT_REMINDER.link}
+      </Link>
+    </span>
+  );
+}
+
+const CONTACT_REMINDER = {
+  title: 'No contact email',
+  tip: 'People cannot subscribe or buy credit until Admin contact email is set in Constants.',
+  link: 'Set it',
+} as const;
 
 function AdminConsole() {
   const router = useRouter();

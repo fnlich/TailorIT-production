@@ -7,8 +7,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { EditorBar } from '@/components/shell/EditorBar';
+import { limitOfTaskError, toLimit, useLimitDialog } from '@/components/limits';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { SparkleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Spinner } from '@/components/ui/Spinner';
@@ -43,6 +45,17 @@ export function ResumeEditRoute({ resumeId }: { resumeId: string }) {
   const task = useAiTask(taskId, { kind: 'resume_import' });
   const copyId = taskId && task.isSucceeded ? readImportResult(task.task?.result) : null;
   const phase = editRoutePhase({ target: target.data, error: target.error, task, copyId });
+  // v32 INT-2 (E4): a refused start or a copy that ended on a limit (today's AI use spent, the resume limit, AI off) is
+  // the limit alert, once per try; the page under it says only that no copy was made, with Try again and the file.
+  const limits = useLimitDialog();
+  const limit = phase.kind !== 'failed' ? null : (toLimit(target.error) ?? (taskId && task.isFailed ? limitOfTaskError(task.task?.error) : null));
+  const limitShownFor = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${attempt}:${taskId ?? ''}`;
+    if (!limit || limitShownFor.current === key) return;
+    limitShownFor.current = key;
+    limits.show(limit);
+  }, [limit, attempt, taskId, limits]);
 
   const opened = useRef<string | null>(null);
   useEffect(() => {
@@ -61,7 +74,9 @@ export function ResumeEditRoute({ resumeId }: { resumeId: string }) {
         label={target.data?.label ?? null}
         fileHref={target.data?.kind === 'uploaded' ? resumeFileHref(resumeId, true) : null}
         onRetry={() => setAttempt((current) => current + 1)}
+        limited={limit !== null}
       />
+      {limits.dialog}
     </>
   );
 }
@@ -72,12 +87,15 @@ export function EditRouteView({
   label,
   fileHref,
   onRetry,
+  limited = false,
 }: {
   phase: EditRoutePhase;
   label: string | null;
   /** An upload's own file (to open instead); null for a built resume. */
   fileHref: string | null;
   onRetry: () => void;
+  /** v32 INT-2 (E4): it stopped on a limit, which the limit alert says: the page says only that no copy was made. */
+  limited?: boolean;
 }) {
   const back = (
     <Link href={RESUMES_TAB_HREF} className={buttonClasses({ variant: 'outline', size: 'sm' })}>
@@ -94,8 +112,8 @@ export function EditRouteView({
   } else if (phase.kind === 'failed') {
     body = (
       <Notice
-        tone="error"
-        title="The editable copy could not be made"
+        tone={limited ? 'warning' : 'error'}
+        title={limited ? 'No editable copy was made' : 'The editable copy could not be made'}
         action={
           <div className="flex flex-wrap gap-2">
             {phase.retry && (
@@ -113,7 +131,7 @@ export function EditRouteView({
           </div>
         }
       >
-        {phase.message}
+        {limited ? null : phase.message}
       </Notice>
     );
   } else {
@@ -135,22 +153,18 @@ export function EditRouteView({
         <span aria-hidden="true" className="mx-auto flex size-14 items-center justify-center rounded-card bg-primary-soft text-primary">
           {making ? <SparkleIcon size={26} weight="fill" /> : <Spinner size={24} />}
         </span>
-        <h1 id="edit-route-title" className="mt-5 font-display text-xl leading-7 font-semibold text-foreground">
-          {title}
-        </h1>
-        {making && (
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-            {label ? (
-              <>
-                TailorIT&apos;s AI is reading <span className="font-medium text-foreground [overflow-wrap:anywhere]">{label}</span> into a
-                resume you can edit. The uploaded file stays as it is.
-              </>
-            ) : (
-              "TailorIT's AI is reading your file into a resume you can edit. The uploaded file stays as it is."
-            )}{' '}
-            This can take a little while; the editor opens by itself when the copy is ready.
-          </p>
-        )}
+        <div className="mt-5 flex items-center justify-center gap-1.5">
+          <h1 id="edit-route-title" className="font-display text-xl leading-7 font-semibold text-foreground">
+            {title}
+          </h1>
+          {/* v32 COPY (E5): what is happening, in the title's "?". */}
+          {making && (
+            <HelpTip label={title}>
+              {`AI is reading ${label ?? 'your file'} into a resume you can edit; the editor opens when it is ready.`}
+            </HelpTip>
+          )}
+        </div>
+        {making && label ? <p className="mt-1 text-sm leading-5 font-medium text-foreground [overflow-wrap:anywhere]">{label}</p> : null}
         <div
           role="progressbar"
           aria-label={making ? 'Making the editable copy' : 'Opening the resume'}
@@ -164,7 +178,7 @@ export function EditRouteView({
         </p>
         {making && (
           <p className="mt-6 text-[13px] leading-5 text-muted-foreground">
-            You can leave this page: the copy keeps being made, and it appears in{' '}
+            You can leave; it lands in{' '}
             <Link href={EDITED_FOLDER_HREF} className="font-medium text-primary-ink underline underline-offset-2">
               Edited resumes
             </Link>

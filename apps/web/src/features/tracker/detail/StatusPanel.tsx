@@ -16,6 +16,7 @@ import {
 } from '@tailorit/shared';
 import { Badge } from '@/components/ui/Badge';
 import { DatePickerPopover } from '@/components/ui/DatePickerPopover';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { PencilSimpleIcon } from '@/components/ui/icons';
@@ -79,6 +80,7 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
             {draftLabel}
           </Badge>
         )}
+        {isDraft && <HelpTip label={draftLabel}>In your auto-apply queue; it moves to Applied once applied to.</HelpTip>}
       </h3>
       <Select
         aria-label="Current stage"
@@ -95,11 +97,6 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
           }
         }}
       />
-      {isDraft && (
-        <p className="mt-2 text-[13px] leading-5 text-muted-foreground">
-          Shown as {draftLabel}: it is in your auto-apply queue. It moves to Applied once it is applied to.
-        </p>
-      )}
       <ol aria-label="Status timeline" className="mt-5 flex flex-col">
         {model.steps.flatMap((step, index) => {
           const next = model.steps[index + 1];

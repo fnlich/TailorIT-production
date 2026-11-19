@@ -4,7 +4,8 @@ import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
-import { ArrowSquareOutIcon, CopyIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { ArrowSquareOutIcon, CheckCircleIcon, CopyIcon, InfoIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -33,6 +34,7 @@ import type { McpAddress } from './useMcpAddress';
 /** After the main action: Claude's tab opened; ChatGPT's opened with the address copied, or not copied. */
 export type ConnectPhase = 'start' | 'opened' | 'opened-not-copied';
 
+/** v32 COPY (E5): each step is its title (what to do); how is the "?" beside it. */
 function Steps({ client, steps }: { client: string; steps: readonly ConnectStep[] }) {
   return (
     <ol aria-label={CONNECT_COPY.stepsLabel(client)} className="flex flex-col gap-3">
@@ -44,9 +46,9 @@ function Steps({ client, steps }: { client: string; steps: readonly ConnectStep[
           >
             {index + 1}
           </span>
-          <span className="min-w-0 text-sm leading-5">
-            <span className="block font-semibold text-foreground">{step.title}</span>
-            <span className="block text-muted-foreground">{step.body}</span>
+          <span className="flex min-w-0 items-center gap-1.5 text-sm leading-5">
+            <span className="font-semibold text-foreground">{step.title}</span>
+            <HelpTip label={step.title}>{step.body}</HelpTip>
           </span>
         </li>
       ))}
@@ -87,37 +89,45 @@ export function ConnectSteps({
       <AddressField endpoint={endpoint} onCopy={onCopy} />
       <Steps client={client.name} steps={copy.steps} />
       {claude ? (
-        <div className="rounded-control bg-surface-low px-3.5 py-3 text-[13px] leading-5 text-muted-foreground">
-          <p className="font-semibold text-foreground">{CONNECT_COPY.claude.teamTitle}</p>
-          <p className="mt-0.5">{CONNECT_COPY.claude.teamBody}</p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-5">
+          <span className="flex items-center gap-1.5">
+            <span className="font-semibold text-foreground">{CONNECT_COPY.claude.teamTitle}</span>
+            <HelpTip label={CONNECT_COPY.claude.teamTitle}>{CONNECT_COPY.claude.teamBody}</HelpTip>
+          </span>
           <a
             href={claudeLinks(endpoint).owner}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-1 inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+            className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
           >
             {CONNECT_COPY.claude.teamLink}
             <ArrowSquareOutIcon size={14} aria-hidden />
           </a>
         </div>
-      ) : (
-        <p className="text-[13px] leading-5 text-muted-foreground">{CONNECT_COPY.chatgpt.planNote}</p>
-      )}
+      ) : null}
+      {/* v32 COPY (E4): what happened after the action is a status line, not a banner. */}
       {phase !== 'start' && (
-        <Notice tone={phase === 'opened' ? 'success' : 'info'}>
-          {claude ? CONNECT_COPY.claude.opened : phase === 'opened' ? CONNECT_COPY.chatgpt.opened : CONNECT_COPY.chatgpt.notCopied}
-          {!claude && (
-            <a
-              href={CHATGPT_PLUGINS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 flex items-center gap-1 font-medium underline underline-offset-4"
-            >
-              {CONNECT_COPY.chatgpt.openAgain}
-              <ArrowSquareOutIcon size={14} aria-hidden />
-            </a>
+        <div role="status" className="flex items-start gap-2 text-sm leading-5 text-foreground" data-connect-phase={phase}>
+          {phase === 'opened' ? (
+            <CheckCircleIcon size={18} weight="fill" className="mt-px shrink-0 text-success" aria-hidden />
+          ) : (
+            <InfoIcon size={18} weight="fill" className="mt-px shrink-0 text-info" aria-hidden />
           )}
-        </Notice>
+          <span className="min-w-0">
+            {claude ? CONNECT_COPY.claude.opened : phase === 'opened' ? CONNECT_COPY.chatgpt.opened : CONNECT_COPY.chatgpt.notCopied}
+            {!claude && (
+              <a
+                href={CHATGPT_PLUGINS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {CONNECT_COPY.chatgpt.openAgain}
+                <ArrowSquareOutIcon size={14} aria-hidden />
+              </a>
+            )}
+          </span>
+        </div>
       )}
     </div>
   );
@@ -138,6 +148,11 @@ export function ConnectUnreachable({ client, readiness }: { client: AiClient; re
       <p className="text-sm leading-5 text-muted-foreground">{CONNECT_COPY.meanwhile}</p>
     </div>
   );
+}
+
+/** The dialog's "?" beside its title: what Connect does (ChatGPT's adds what its plan must allow). */
+function connectHelp(client: AiClient): string {
+  return client.kind === 'claude' ? CONNECT_COPY.claude.description : `${CONNECT_COPY.chatgpt.description} ${CONNECT_COPY.chatgpt.planNote}`;
 }
 
 /** Connect's dialog for Claude or ChatGPT. */
@@ -262,7 +277,7 @@ export function ConnectDialog({
           </span>
         }
         // On a local address the warning says what happens instead.
-        description={ready && !readiness.reachable ? undefined : copy.description}
+        help={ready && !readiness.reachable ? undefined : connectHelp(client)}
       >
         {body}
         <DialogFooter>{footer}</DialogFooter>

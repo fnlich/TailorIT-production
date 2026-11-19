@@ -16,9 +16,11 @@ export interface BuyCreditDialogProps {
   onOpenChange: (open: boolean) => void;
   /** The action to show; by default the account's (GET /api/account), else the constants' contact message. */
   action?: PurchaseAction;
+  /** Where focus goes when it closes (v32 FIX-UX: an alert's Get extra credit opened it, so the alert's opener). */
+  finalFocus?: () => HTMLElement | boolean | null;
 }
 
-export function BuyCreditDialog({ open, onOpenChange, action }: BuyCreditDialogProps) {
+export function BuyCreditDialog({ open, onOpenChange, action, finalFocus }: BuyCreditDialogProps) {
   const { data: account } = useAccount();
   const { t, values } = usePublicConstants();
   return (
@@ -28,6 +30,7 @@ export function BuyCreditDialog({ open, onOpenChange, action }: BuyCreditDialogP
       title={LIMIT_COPY.buyCreditTitle}
       action={action ?? buyCreditActionOf(account, t, values)}
       emailMissing={t('MSG_CONTACT_EMAIL_MISSING')}
+      finalFocus={finalFocus}
     />
   );
 }

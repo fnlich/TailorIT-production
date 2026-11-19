@@ -129,7 +129,7 @@ export function HostsTab() {
   return (
     <AdminResourceTab
       title="Hosts"
-      description="Every host the readers ask: one request at a time, at least its pace apart, shared by every process. A host that asks to wait, keeps failing or shows a bot check is held, and its sources wait."
+      description="One request at a time per host, its pace apart; a failing or blocking host is held."
       actions={<IconButton label="Refresh the hosts" icon={<ArrowsClockwiseIcon size={16} />} variant="outline" onClick={() => void hosts.refetch()} />}
       lead={
         <div className="mb-4 flex flex-wrap items-center gap-3" role="search" aria-label="Find hosts">
@@ -148,7 +148,7 @@ export function HostsTab() {
       }
       items={hosts.data ? items : undefined}
       error={hosts.error}
-      errorTitle="The hosts could not be loaded"
+      errorTitle="Hosts didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void hosts.refetch()}>
           Try again
@@ -156,8 +156,8 @@ export function HostsTab() {
       }
       empty={
         narrowed
-          ? { title: 'No host matches', description: 'Try another search, or show every host.', card: false }
-          : { size: 'sm', title: 'No hosts yet', description: 'A host is listed once a reader first asks it for something.' }
+          ? { title: 'No host matches', description: 'Try another search.', card: false }
+          : { size: 'sm', title: 'No hosts yet', description: 'A host appears once a reader asks it.' }
       }
       toolbar={
         <p className="mb-3 text-sm text-muted-foreground" aria-live="polite">

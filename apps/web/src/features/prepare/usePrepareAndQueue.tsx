@@ -3,7 +3,7 @@
 import type { PrepareAllPlan, PrepareSettings } from '@tailorit/shared/prepare';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState, type ReactElement } from 'react';
-import { useLimitDialog } from '@/components/limits';
+import { aiUsedUp, aiUsedUpLimit, useLimitDialog } from '@/components/limits';
 import { useToast } from '@/components/ui/Toast';
 import { invalidateAccount } from '@/lib/account';
 import { ApiError, userMessage } from '@/lib/api';
@@ -234,6 +234,13 @@ export function usePrepareAndQueue(): PrepareAndQueue {
       void (async () => {
         try {
           const plan = await fetchPrepareAllPlan();
+          // v32 FIX-UX (UXREQ-12, coordinator): today's AI use spent and no extra credit left: the limit alert (Get extra
+          // credit / Subscribe), not a confirm whose Prepare would wait or fail.
+          if (plan.taking > 0 && aiUsedUp(plan.ai)) {
+            limits.show(aiUsedUpLimit(t));
+            endAll();
+            return;
+          }
           if (plan.taking > 0) {
             // The confirm asks (and takes focus); it ends the request when it closes.
             handingOn.current = false;
@@ -263,7 +270,7 @@ export function usePrepareAndQueue(): PrepareAndQueue {
         refocusAfterHandOn();
       })();
     },
-    [endAll, limits, openFilters, refocusAfterHandOn, toast],
+    [endAll, limits, openFilters, refocusAfterHandOn, t, toast],
   );
 
   /**

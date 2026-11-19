@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CheckCircleIcon, ClockIcon, FileTextIcon, WarningCircleIcon, XIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
@@ -16,6 +17,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { fetchResumes, resumeKeys, uploadResume } from '../../resume-editor/api';
 import { usePublicConstants } from '@/lib/constants';
 import { RESUME_FILE_ACCEPT } from '../../resume-editor/files';
+import { StatusLine } from '../core/StatusLine';
 import { copyChoiceFixed, newCopyBatchId } from './copies';
 import { CopyTemplateField } from './CopyTemplateField';
 import { uploadTitle } from './list';
@@ -246,7 +248,7 @@ function UploadForm({
             <XIcon size={14} />
           </button>
         </div>
-        <p className="text-[13px] text-muted-foreground">Several resumes? Drag them here too, or {chooseLink('add more files')}.</p>
+        <p className="text-[13px] text-muted-foreground">Drag more here, or {chooseLink('add more files')}.</p>
       </>
     );
   } else if (several) {
@@ -324,17 +326,15 @@ function UploadForm({
   return (
     <DialogContent
       title={t('LABEL_DOCS_UPLOAD_RESUMES')}
-      description="Keep the resumes you already have with your documents."
+      help={several ? 'Each resume is named after its file; you can rename it later.' : 'Keep your own resumes with your documents.'}
       size="lg"
       showClose={!running}
     >
       <form onSubmit={submit} className="mt-4 flex min-h-0 flex-col">
         {/* On a short screen the fields scroll between the title and the buttons, which stay in view with the notices. */}
         <div className="-mx-6 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pt-1">
-          {several ? (
-            <p className="text-sm leading-5 text-muted-foreground">Each resume is named after its file. You can rename it later.</p>
-          ) : (
-            <Field label="File name" hint="Shown in your documents list. Leave it empty to use the file's own name." optional>
+          {several ? null : (
+            <Field label="File name" hint="Leave it empty to use the file's own name." optional>
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -394,17 +394,20 @@ function UploadForm({
           )}
 
           <div className="flex flex-col gap-1">
-            <Checkbox
-              checked={parse}
-              onCheckedChange={(checked) => setParse(checked)}
-              disabled={running || choiceFixed}
-              label="Make an editable copy with AI"
-            />
-            <p className="pl-7 text-[13px] leading-5 text-muted-foreground">
-              {several
-                ? 'An AI reads each file into a resume you can edit here. The copies are made one at a time after the upload, so they can take a while. The files themselves are kept as uploaded.'
-                : 'An AI reads the file into a resume you can edit here, on any template. The file itself is kept as uploaded.'}
-            </p>
+            <span className="flex items-center gap-1.5">
+              <Checkbox
+                checked={parse}
+                onCheckedChange={(checked) => setParse(checked)}
+                disabled={running || choiceFixed}
+                label="Make an editable copy with AI"
+              />
+              {/* v32 COPY (E5): what the copy is, in the "?". */}
+              <HelpTip label="Make an editable copy with AI">
+                {several
+                  ? 'AI reads each file into a resume you can edit, one at a time; the files stay as uploaded.'
+                  : 'AI reads the file into a resume you can edit; the file stays as uploaded.'}
+              </HelpTip>
+            </span>
             {choiceFixed && (
               <p className="pl-7 text-[13px] leading-5 text-muted-foreground">This choice applies to every file of this upload.</p>
             )}
@@ -423,8 +426,9 @@ function UploadForm({
 
         {(leftOut || stopNote || failure) && (
           <div className="mt-5 flex flex-col gap-5">
-            {leftOut && <Notice tone="warning">{leftOut}</Notice>}
-            {stopNote && <Notice tone="warning">{stopNote}</Notice>}
+            {/* v32 COPY (E4): what was left out or stopped is a short line; a failure stays an error by the form. */}
+            {leftOut && <StatusLine tone="warning" title={leftOut} />}
+            {stopNote && <StatusLine tone="warning" title={stopNote} />}
             {failure && <Notice tone="error">{failure}</Notice>}
           </div>
         )}

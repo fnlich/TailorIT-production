@@ -3,12 +3,14 @@ import { useId, type ReactNode } from 'react';
 // Relative, not '@/': the web tests draw these views.
 import { Card } from '../../components/ui/Card';
 import { Chip } from '../../components/ui/Chip';
+import { HelpTip } from '../../components/ui/HelpTip';
 import { CheckIcon } from '../../components/ui/icons';
 import { Switch } from '../../components/ui/Switch';
 
 /**
- * A Settings card: its title (the section-heading style), one line under it, then its content, on a white `Card`.
- * `id` is its anchor (/settings#prepare); the anchor lands right under the 56 px top bar (`scroll-mt-topbar`).
+ * A Settings card: its title (the section-heading style) with its description in a "?" beside it (v32 COPY, E5), then
+ * its content, on a white `Card`. `id` is its anchor (/settings#prepare); the anchor lands right under the 56 px top bar
+ * (`scroll-mt-topbar`).
  */
 export function Section({
   title,
@@ -19,7 +21,8 @@ export function Section({
   className,
 }: {
   title: string;
-  description: ReactNode;
+  /** One short sentence, in the "?" tooltip beside the title. */
+  description?: ReactNode;
   children: ReactNode;
   id?: string;
   /** Beside the title (a button). */
@@ -35,9 +38,9 @@ export function Section({
       aria-label={title}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
           <h2 className="text-heading font-semibold text-foreground">{title}</h2>
-          <div className="mt-1 text-[13px] leading-5 text-muted-foreground">{description}</div>
+          {description ? <HelpTip label={title}>{description}</HelpTip> : null}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
@@ -56,7 +59,7 @@ export function SettingRow({ label, children, className }: { label: ReactNode; c
   );
 }
 
-/** A setting that is on or off: its name and one line on the left, the switch on the right. */
+/** A setting that is on or off: its name (and its hint in a "?" beside it) on the left, the switch on the right. */
 export function SwitchRow({
   title,
   hint,
@@ -79,13 +82,14 @@ export function SwitchRow({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
           <p className="text-sm leading-5 font-medium text-foreground">{title}</p>
-          {hint && (
-            <p id={hintId} className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
+          {hint ? <HelpTip label={title}>{hint}</HelpTip> : null}
+          {hint ? (
+            <span id={hintId} hidden>
               {hint}
-            </p>
-          )}
+            </span>
+          ) : null}
         </div>
         <Switch
           aria-label={title}
@@ -118,11 +122,11 @@ export function ChoiceGroup<V extends string>({
   const labelId = useId();
   return (
     <div role="group" aria-labelledby={labelId} className="flex flex-col gap-2.5">
-      <span className="flex flex-wrap items-baseline gap-x-2">
+      <span className="flex flex-wrap items-center gap-x-1.5">
         <span id={labelId} className="text-sm leading-5 font-medium text-foreground">
           {label}
         </span>
-        {hint && <span className="text-[13px] leading-5 text-muted-foreground">{hint}</span>}
+        {hint ? <HelpTip label={label}>{hint}</HelpTip> : null}
       </span>
       <div className="flex flex-wrap gap-2">
         {options.map((option) => {

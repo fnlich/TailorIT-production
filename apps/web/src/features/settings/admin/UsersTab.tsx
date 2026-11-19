@@ -142,7 +142,7 @@ export function UsersTab() {
   return (
     <AdminResourceTab
       title="Users"
-      description="Accounts on this installation, their plan and today's use. Open an account to change its type and term, its daily AI budget, its extra credit, its role or whether it may sign in. Addresses in ADMIN_EMAILS become administrators when they sign in."
+      description="Accounts, their plan and today's use; open one to change it."
       lead={
         <div className="mb-4 flex flex-wrap items-center gap-3" role="search" aria-label="Find accounts">
           <Input
@@ -160,7 +160,7 @@ export function UsersTab() {
       }
       items={users.data ? items : undefined}
       error={users.error}
-      errorTitle="The accounts could not be loaded"
+      errorTitle="Accounts didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void users.refetch()}>
           Try again

@@ -38,7 +38,7 @@ export const FILTERS_DIALOG = {
   /** Saves the filters, then Prepare All for the saved jobs that pass. */
   filterAndPrepare: 'Filter and Prepare',
   saving: 'Saving...',
-  loadFailed: 'Your filters could not be loaded',
+  loadFailed: "Your filters didn't load.",
   tryAgain: 'Try again',
   loading: 'Loading your filters',
   countLabel: 'Saved jobs that pass',
@@ -81,17 +81,14 @@ export const PREPARE_ALL_NONE = {
   heldTitle: 'Nothing can be prepared right now',
 } as const;
 
-/** The confirm's AI budget note. */
+/** The confirm's AI note (v32 COPY, E7: today's use as a share only; the extra usage keeps its amount). */
 export const PREPARE_ALL_BUDGET = {
   meterLabel: 'AI use today',
-  /** "$0.04 of $0.10" */
-  used: (used: string, budget: string) => `${used} of ${budget}`,
   /** "Extra usage $1.25" */
   extra: (credit: string) => `Extra usage ${credit}`,
-  noLimit: 'Your plan has no daily AI limit.',
-  /** How a budget that runs out mid-way ends. */
-  runsOut:
-    'TailorIT prepares them one at a time. If your AI budget and extra usage run out first, the rest stop as "Preparation failed" in To prepare, ready to try again after the reset.',
+  noLimit: 'No daily AI limit.',
+  /** How a budget that runs out mid-way ends (the "?" beside the meter). */
+  runsOut: 'If AI use runs out first, the rest wait in To prepare to retry after the reset.',
 } as const;
 
 /** The confirm's title: "Prepare & Queue", or "Prepare & Queue 5 jobs". */

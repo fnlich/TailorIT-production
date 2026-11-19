@@ -1,16 +1,20 @@
 import { Router } from 'express';
-import { isRegionCode, PreferencesSchema, SetDefaultResumeBodySchema, type Preferences } from '@tailorit/shared';
+import { isRegionCode, MINUTE_MS, PreferencesSchema, SetDefaultResumeBodySchema, TrackerLanesSchema, type Preferences } from '@tailorit/shared';
 import { requireUser, userOf } from '../../core/auth/guards';
 import { getAccount, MAX_NAME_LENGTH } from '../../core/auth/users';
 import { nowIso, type AppDeps } from '../../core/context';
 import { notFound, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
 import { touchFilterRevision } from '../prepare-filters/index';
+import { keyedRateLimit } from '../../core/rate-limit';
 import { getPreferences, normalizePreferences, savePreferences } from './preferences';
+import { getTrackerLanes, saveTrackerLanes } from './ui-prefs'; // v32 FIX-UX (UXREQ-15)
 
 // The signed-in account: name, preferences, default resume. Owned by work package F3 (see docs/ARCHITECTURE.md).
 
 const MAX_LIST_ENTRIES = 100;
+/** v32 FIX-UX: saves of the tracker's lanes shown a person may make in a minute (a box ticked is one). */
+export const TRACKER_LANES_SAVES_PER_MINUTE = 60;
 const MAX_LIST_ENTRY_LENGTH = 200;
 const MAX_TEXT_LENGTH = 500;
 
@@ -110,6 +114,22 @@ export function createMeRouter(deps: AppDeps): Router {
       { label: 'savePreferences' },
     );
     res.json(saved);
+  });
+
+  // v32 FIX-UX (UXREQ-15): the Job Tracker board's Lanes shown, the person's own (null until they choose). A save is a
+  // small write per change of a box, limited per person (TRACKER_LANES_SAVES_PER_MINUTE).
+  router.get('/tracker-lanes', async (req, res) => {
+    res.json({ lanes: await getTrackerLanes(deps, userOf(req).id) });
+  });
+  const lanesLimit = keyedRateLimit({
+    windowMs: MINUTE_MS,
+    limit: TRACKER_LANES_SAVES_PER_MINUTE,
+    key: (req) => `tracker-lanes:${userOf(req).id}`,
+    message: (retryAfterSeconds) => `That is a lot of changes at once. Try again in ${retryAfterSeconds} s.`,
+  });
+  router.put('/tracker-lanes', lanesLimit, async (req, res) => {
+    const lanes = parseInput(TrackerLanesSchema, req.body);
+    res.json({ lanes: await saveTrackerLanes(deps, userOf(req).id, lanes) });
   });
 
   // Only one of the caller's own resumes can be the default; anyone else's is "not found", never "forbidden".

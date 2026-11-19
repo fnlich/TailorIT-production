@@ -88,16 +88,13 @@ export const CUSTOM_PROMPT_EXAMPLE =
   "Emphasize my skills and experience in [REPLACE] and how that relates to [COMPANY]'s mission of [REPLACE]";
 
 export const LETTER_EDITOR_PLACEHOLDER = 'Dear Hiring Manager...';
-export const TEMPLATE_EDITOR_PLACEHOLDER =
-  'Write your template here using placeholders, or leave it empty and use AI notes to draft the whole letter.';
+export const TEMPLATE_EDITOR_PLACEHOLDER = 'Write with placeholders, or leave it empty and use AI notes...';
 // v31 FIX-DOCS: the unfilled-placeholder banner's words are the constants MSG_LETTER_BLANKS_TITLE / _TEXT.
 export const REPLACE_PLACEHOLDER_TITLE = 'Replace placeholder';
 export function replacePlaceholderHint(name: string): string {
-  return `All tags named {{${name}}} will become the text you enter below.`;
+  return `Every {{${name}}} tag becomes this text.`;
 }
-export const LETTER_NAME_TOOLTIP =
-  'This name is only for your documents list. It is not shown inside the letter unless you add it in the editor.';
-export const TEMPLATE_NAME_TOOLTIP =
-  'This name appears in your documents list when you choose a template for a cover letter.';
-export const AI_PROMPT_HINT =
-  'This prompt will be used as additional context when generating a cover letter from this template.';
+// v32 COPY (E5): one short sentence each (they are "?" tips).
+export const LETTER_NAME_TOOLTIP = 'Only for your documents list, not printed in the letter.';
+export const TEMPLATE_NAME_TOOLTIP = 'Shown when you choose a template for a letter.';
+export const AI_PROMPT_HINT = 'Extra context for letters written from this template.';

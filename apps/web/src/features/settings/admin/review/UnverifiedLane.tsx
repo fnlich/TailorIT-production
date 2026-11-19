@@ -1,13 +1,15 @@
 'use client';
 
-import type { UnverifiedLink } from '@tailorit/shared/jobs';
+import type { UnverifiedLink, UnverifiedVersion } from '@tailorit/shared/jobs';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ShowMoreButton } from '@/components/admin';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { ArrowSquareOutIcon, ArrowsClockwiseIcon, ShieldCheckIcon, XIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { ArrowSquareOutIcon, ArrowsClockwiseIcon, CheckIcon, ShieldCheckIcon, XIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -20,21 +22,36 @@ import { reviewKeys } from './api';
 import { REVIEW_POLL_MS } from './copy';
 import { AccentBar, RowActions, TOUCH } from './ReviewRows';
 import {
-  REASON_ADMIN_TEXT,
+  PAGE_READS_OFF,
+  approveOutcomeText,
+  approveText,
+  approveUnverified,
+  canApprove,
+  capturedLine,
   fetchUnverified,
   linkName,
   rejectText,
   rejectUnverified,
   retryOutcomeText,
   retryUnverified,
+  rowReasonText,
   unverifiedEmptyText,
   unverifiedMetaLine,
+  versionsText,
 } from './unverified';
+import { ApproveVersions, VersionsDisclosure } from './UnverifiedVersions';
 
 // v31 ADMINWEB: Admin › Review › Couldn't verify (docs/design/v3.1/21-jobs-from-links.md §6, D2): one row per link
 // TailorIT could not read that someone keeps as their own job (its host, the link, why, who and when), with Retry read
 // and Reject only. Nothing here edits or publishes a job's words: a Retry read publishes only what TailorIT itself
 // reads from the link. The list switch on top is EXT_NEW_PAGE_JOBS_REVIEW (the list is empty while it is off).
+// v32 ADMINAPP (E6, the owner's "admin should be able to approve manually"): each row also shows its job as captured
+// and leads with Approve (after a short confirm): the job is published as it was added, marked "Approved by an admin",
+// and its adders are told. The admin still types nothing.
+// v32 FIX-API (REV-SECBEH SB-1, SB-4, SB-6; REV-UXREQ UXREQ-9): "Show the job" draws what an approval publishes, every
+// version in full; the confirm draws the version to publish (a pick when the adders' differ) and approves exactly it.
+// A row TailorIT found opted out or closed has no Approve; a job whose approval ran out says "Approved before". "Page
+// reads are off" is said once, above the list.
 
 const LIST_SWITCH = 'EXT_NEW_PAGE_JOBS_REVIEW';
 const LIST_WORDS: SwitchWords = { on: "Couldn't verify lists links again", off: "Couldn't verify is off" };
@@ -46,6 +63,10 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
   const now = useNow();
   const [busy, setBusy] = useState<ReadonlySet<number>>(new Set());
   const [rejecting, setRejecting] = useState<UnverifiedLink | null>(null);
+  const [approving, setApproving] = useState<UnverifiedLink | null>(null); // v32 ADMINAPP (E6)
+  // v32 FIX-API (SB-1): the version the confirm shows, the one an approval publishes.
+  const [version, setVersion] = useState<UnverifiedVersion | null>(null);
+  const onPick = useCallback((picked: UnverifiedVersion | null) => setVersion(picked), []);
   const constants = useQuery({ queryKey: adminKeys.constants, queryFn: ({ signal }) => fetchAdminConstants(signal) });
   const listSwitch = constants.data?.items.find((item) => item.key === LIST_SWITCH);
   const listOn = listSwitch ? listSwitch.value === true : null;
@@ -55,7 +76,7 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
     queryFn: ({ pageParam, signal }) => fetchUnverified(pageParam, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
-    refetchInterval: busy.size > 0 || rejecting ? false : REVIEW_POLL_MS,
+    refetchInterval: busy.size > 0 || rejecting || approving ? false : REVIEW_POLL_MS,
   });
   const rows = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
 
@@ -65,7 +86,7 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
   const listRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
     const want = focusAt.current;
-    if (want === null || busy.size > 0 || rejecting) return;
+    if (want === null || busy.size > 0 || rejecting || approving) return;
     const active = document.activeElement;
     if (active?.closest('[role="dialog"], [role="alertdialog"]')) return;
     if (active && active !== document.body) {
@@ -78,7 +99,7 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
     const row = items.length > 0 ? items[Math.min(want.index, items.length - 1)] : null;
     const target = row?.querySelector<HTMLElement>('[data-row-action]') ?? document.querySelector<HTMLElement>(`${PANE} [role="tab"][aria-selected="true"]`);
     target?.focus();
-  }, [rows, busy, rejecting]);
+  }, [rows, busy, rejecting, approving]);
 
   const markBusy = (jobId: number, on: boolean) =>
     setBusy((current) => {
@@ -119,13 +140,34 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
     refresh();
   };
 
+  // v32 ADMINAPP (E6): an error keeps the confirm open with its sentence (a refused site or company, the hour's limit).
+  // v32 FIX-API (SB-1): the version drawn in the confirm, by its content hash (409 when it changed since: read it again).
+  const approve = async (row: UnverifiedLink) => {
+    if (!version) throw new Error('Wait until the job is shown, then approve it.');
+    holdFocus(row);
+    markBusy(row.jobId, true);
+    try {
+      const result = await approveUnverified(version.jobId, version.version);
+      const words = approveOutcomeText(result);
+      onLive(`${words.title}: ${linkName(row.url)}`);
+      toast.success(words.title, words.body);
+    } catch (error) {
+      focusAt.current = null;
+      throw error;
+    } finally {
+      markBusy(row.jobId, false);
+      refresh();
+    }
+  };
+  const pageReadsOff = rows.some((row) => row.reason === 'not_set_up');
+
   let body;
   if (list.isError && !list.data) {
     body = (
       <div className="p-4 sm:p-5">
         <Notice
           tone="error"
-          title="The links TailorIT couldn't verify could not be loaded"
+          title="The unverified links didn't load."
           action={
             <Button variant="outline" size="sm" onClick={() => void list.refetch()}>
               Try again
@@ -162,6 +204,13 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
             What is shown may be out of date.
           </Notice>
         )}
+        {/* v32 FIX-API (UXREQ-9): a server setting, said once for the lane (its rows leave the sentence out). */}
+        {pageReadsOff && (
+          <p className="flex items-center gap-1 px-4 pt-3 sm:px-5" data-unverified-page-reads-off="">
+            <Badge tone="warning">{PAGE_READS_OFF.label}</Badge>
+            <HelpTip label={PAGE_READS_OFF.label}>{PAGE_READS_OFF.tip}</HelpTip>
+          </p>
+        )}
         <ul ref={listRef} className="divide-y divide-divider-soft" aria-label="Links TailorIT couldn't verify">
           {rows.map((row) => (
             <UnverifiedRow
@@ -169,6 +218,7 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
               row={row}
               now={now}
               busy={busy.has(row.jobId)}
+              onApprove={canApprove(row) ? () => setApproving(row) : undefined}
               onRetry={() => void retry(row)}
               onReject={() => setRejecting(row)}
             />
@@ -200,7 +250,7 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
         {listSwitch ? (
           <ConstantSwitch row={listSwitch} rule={listSwitch.help} words={LIST_WORDS} />
         ) : constants.isError ? (
-          <p className="text-[13px] text-muted-foreground">The list switch could not be loaded. {userMessage(constants.error)}</p>
+          <p className="text-[13px] text-muted-foreground">The list switch didn&apos;t load. {userMessage(constants.error)}</p>
         ) : (
           <Skeleton className="h-9 w-72" />
         )}
@@ -221,13 +271,65 @@ export function UnverifiedLane({ onLive }: { onLive: (text: string) => void }) {
       >
         {rejecting && <p className="text-[13px] leading-5 break-all text-muted-foreground">{rejecting.url}</p>}
       </ConfirmDialog>
+      <ConfirmDialog
+        open={approving !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setApproving(null);
+          setVersion(null);
+        }}
+        tone="primary"
+        title={approving ? approveText(approving).title : ''}
+        description={
+          approving ? (
+            <>
+              {approveText(approving).description} <HelpTip label="Who is told">{approveText(approving).tip}</HelpTip>
+            </>
+          ) : undefined
+        }
+        confirmLabel={approving ? approveText(approving).confirm : 'Approve'}
+        busyLabel="Publishing..."
+        // v32 INT-2 (UXREQ-12): publishing to everyone opens on Cancel, so a quick Enter never publishes.
+        focusCancel
+        // v32 INT-2: off until a version the admin may approve is shown (never their own job).
+        confirmDisabled={version === null}
+        // Focus goes to the row in its place once the list is read again (the effect above).
+        finalFocus={() => false}
+        onConfirm={async () => {
+          if (approving) await approve(approving);
+        }}
+      >
+        {/* v32 FIX-API (SB-1): what is published, in full (and which version, when the adders' differ). */}
+        {approving && <ApproveVersions row={approving} onPick={onPick} />}
+      </ConfirmDialog>
     </>
   );
 }
 
-/** One link: its host, the link (opens the posting in a new tab), why, who and when; Retry read and Reject. */
-export function UnverifiedRow({ row, now, busy, onRetry, onReject }: { row: UnverifiedLink; now: number; busy: boolean; onRetry: () => void; onReject: () => void }) {
+/**
+ * One link: its host, its job as captured (v32), the link (opens the posting in a new tab), why, who and when; Approve
+ * (v32 ADMINAPP, E6: the row's one primary), Retry read and Reject. v32 FIX-API: how many versions, "Approved before",
+ * "Show the job" (every version in full); no Approve (`onApprove` absent) for a link that is never published.
+ */
+export function UnverifiedRow({
+  row,
+  now,
+  busy,
+  onApprove,
+  onRetry,
+  onReject,
+}: {
+  row: UnverifiedLink;
+  now: number;
+  busy: boolean;
+  onApprove?: (() => void) | undefined;
+  onRetry: () => void;
+  onReject: () => void;
+}) {
   const name = linkName(row.url);
+  const captured = capturedLine(row);
+  const versions = versionsText(row);
+  const reason = rowReasonText(row);
   const [rowRef, rowFocus] = useRowFocus<HTMLLIElement>(`${row.jobId}:${row.attempts}`);
   return (
     <li
@@ -241,6 +343,25 @@ export function UnverifiedRow({ row, now, busy, onRetry, onReject }: { row: Unve
       <div className="flex min-w-0 flex-1 flex-col gap-2 @2xl/pane:flex-row @2xl/pane:items-start @2xl/pane:gap-3">
         <div className="min-w-0 flex-1" data-review-text="">
           <p className="text-sm leading-5 font-semibold break-words text-foreground">{row.host}</p>
+          {captured && (
+            <p className="text-[13px] leading-5 break-words text-foreground" data-unverified-captured="">
+              {captured}
+            </p>
+          )}
+          {(versions || row.approvedBefore) && (
+            <p className="flex flex-wrap gap-1.5 py-0.5">
+              {versions && (
+                <Badge tone="tint" data-unverified-versions={row.versions}>
+                  {versions}
+                </Badge>
+              )}
+              {row.approvedBefore && (
+                <Badge tone="sky" data-unverified-approved-before="">
+                  Approved before
+                </Badge>
+              )}
+            </p>
+          )}
           <a
             href={row.url}
             target="_blank"
@@ -252,14 +373,32 @@ export function UnverifiedRow({ row, now, busy, onRetry, onReject }: { row: Unve
             <ArrowSquareOutIcon size={13} className="mt-1 shrink-0" aria-hidden="true" />
             <span className="sr-only"> (opens in a new tab)</span>
           </a>
-          <p className="text-[13px] leading-5 text-foreground" data-unverified-reason="">
-            {REASON_ADMIN_TEXT[row.reason]}
-          </p>
+          {reason && (
+            <p className="text-[13px] leading-5 text-foreground" data-unverified-reason="">
+              {reason}
+            </p>
+          )}
           <p className="text-[13px] leading-5 text-muted-foreground">{unverifiedMetaLine(row, now)}</p>
+          <VersionsDisclosure row={row} name={name} />
         </div>
-        {/* v31 FIX-WEB (REV-UX UX-10): no primary in a row (one primary per area, design 20 §9): Retry read is an
-            outline button, Reject a quiet one, so a list of links does not read as a column of calls to action. */}
+        {/* v31 FIX-WEB (REV-UX UX-10): Retry read is an outline button, Reject a quiet one. v32 ADMINAPP (E6): Approve
+            leads the row, as New jobs' Approve does: the row's one primary. */}
         <RowActions>
+          {onApprove && (
+            <Button
+              size="sm"
+              className={TOUCH}
+              icon={<CheckIcon size={14} weight="bold" aria-hidden="true" />}
+              disabled={busy}
+              focusableWhenDisabled
+              aria-label={`Approve: ${name}`}
+              aria-haspopup="dialog"
+              onClick={onApprove}
+              {...ROW_ACTION}
+            >
+              Approve
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -269,7 +408,8 @@ export function UnverifiedRow({ row, now, busy, onRetry, onReject }: { row: Unve
             focusableWhenDisabled
             aria-label={`Retry read: ${name}`}
             onClick={onRetry}
-            {...ROW_ACTION}
+            // v32 FIX-API: without Approve, Retry read leads the row (the focus lands on it when a row leaves).
+            {...(onApprove ? {} : ROW_ACTION)}
           >
             Retry read
           </Button>

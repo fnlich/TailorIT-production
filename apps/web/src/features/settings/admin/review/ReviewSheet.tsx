@@ -34,6 +34,7 @@ import {
   noteProblem,
   offerText,
   originLine,
+  PENDING_LINE,
   reviewStateLine,
   rowName,
   STRENGTH_LABEL,
@@ -46,8 +47,8 @@ import { ReportersDisclosure } from './Reporters';
 // links and their state, and for a new job its posting (the API's sanitised HTML), the likely duplicates, the company
 // match and what approving offers to discovery; then the decision, with an optional note.
 
-/** The posting's own HTML, in the Jobs page's type scale (sanitised by the API). */
-const POSTING_HTML = clsx(
+/** The posting's own HTML, in the Jobs page's type scale (sanitised by the API). v32 FIX-API: Couldn't verify's too. */
+export const POSTING_HTML = clsx(
   'text-sm leading-6 text-foreground break-words',
   '[&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:mt-4 [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:font-semibold [&_h3]:mt-4 [&_h3]:font-semibold',
   '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1',
@@ -130,7 +131,8 @@ function Section({ title, children, mark }: { title: string; children: ReactNode
 function SheetBody({ row, note, onNote, problem }: { row: AdminReviewRow; note: string; onNote: (note: string) => void; problem: string | null }) {
   const now = useNow();
   const detail = useQuery({ queryKey: reviewKeys.detail(row.id), queryFn: ({ signal }) => fetchReview(row.id, signal) });
-  const line = reviewStateLine(row);
+  // v32 FIX-API (UXREQ-9): the sheet has no group heading, so it says "Needs review" itself.
+  const line = reviewStateLine(row) ?? PENDING_LINE;
   const name = rowName(row.job);
   return (
     <div className="flex flex-col gap-6" data-review-sheet={row.id}>
@@ -141,7 +143,7 @@ function SheetBody({ row, note, onNote, problem }: { row: AdminReviewRow; note: 
       {detail.isError ? (
         <Notice
           tone="error"
-          title="The evidence could not be loaded"
+          title="The evidence didn't load."
           action={
             <Button variant="outline" size="sm" onClick={() => void detail.refetch()}>
               Try again
@@ -160,7 +162,7 @@ function SheetBody({ row, note, onNote, problem }: { row: AdminReviewRow; note: 
       ) : (
         <Evidence detail={detail.data} now={now} name={name} />
       )}
-      <Field label="Note" optional error={problem ?? undefined} hint="Kept with the decision. Plain text.">
+      <Field label="Note" optional error={problem ?? undefined} hint="Kept with the decision, as plain text.">
         <Textarea value={note} rows={2} onChange={(event) => onNote(event.target.value)} data-review-note="" />
       </Field>
     </div>

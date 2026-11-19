@@ -61,7 +61,8 @@ export function ImportStartDialog({
       <DialogContent
         size="lg"
         title="Import your existing resume"
-        description="Start faster by prefilling your resume content."
+        // v32 COPY (E5): what Import does, in the title's "?".
+        help={`A PDF under ${maxMb} MB: AI reads it into a new resume on ${templateName}.`}
         showClose={!working}
       >
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -76,12 +77,7 @@ export function ImportStartDialog({
           <div className="mt-4 flex items-center gap-2.5 rounded-control bg-surface-low px-3.5 py-3">
             <Spinner size={16} label={busyLine} />
           </div>
-        ) : (
-          <p className="mt-4 text-[13px] leading-5 text-muted-foreground">
-            A resume PDF under {maxMb} MB. An AI reads it into a new resume on {templateName}, saved as soon as it is
-            read, and the editor opens on it for you to look over.
-          </p>
-        )}
+        ) : null}
         {importer.error && (
           <Notice tone="error" className="mt-4">
             {importer.error}

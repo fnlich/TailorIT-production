@@ -25,7 +25,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <div className="mx-auto flex w-full max-w-md flex-col px-4 py-16">
         <Notice
           tone="error"
-          title="TailorIT could not load your account"
+          title="Your account didn't load."
           action={
             <Button variant="outline" size="sm" onClick={() => void refresh()}>
               Try again

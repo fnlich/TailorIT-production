@@ -12,6 +12,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'; // v32 ADMINAPP (E6)
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CheckIcon, ShieldCheckIcon, XIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
@@ -25,10 +26,25 @@ import { userMessage } from '@/lib/api';
 import { focusLater, focusSoon } from '@/lib/focusLater';
 import { useNow } from '@/lib/useNow';
 import { Pane, SelectBar } from '../../../../components/queue';
-import { bulkFlags, bulkReviews, decideFlag, decideReview, fetchFlags, fetchReviewCounts, fetchReviews, reviewKeys, type ReviewListQuery } from './api';
+import {
+  bulkFlags,
+  bulkReviews,
+  decideFlag,
+  decideReview,
+  fetchFlags,
+  fetchReviewCounts,
+  fetchReviews,
+  retryReviewRead,
+  reviewKeys,
+  type ReviewListQuery,
+} from './api';
 import { AutoApproveStrip } from './AutoApprove';
 import { BulkDialog, type BulkAction } from './BulkDialog';
 import {
+  CAPTURED_APPROVE_COPY,
+  approvesCaptured,
+  retriesRead,
+  reviewRetryText,
   bulkSummary,
   chunkIds,
   decidedText,
@@ -63,6 +79,9 @@ import { ADMIN_REVIEW_LANE_LABEL, ADMIN_REVIEW_LANES, fetchUnverifiedCount, isQu
 // v31 ADMINWEB: a fourth lane, "Couldn't verify" (UnverifiedLane: LINK's links TailorIT could not read, Retry read and
 // Reject only); its count comes from GET /api/admin/jobs/unverified/count, and the other lanes' counts from the counts
 // route while it is open.
+// v32 ADMINAPP (E6, the owner's "admin should be able to approve manually"): Couldn't verify's rows lead with Approve;
+// a v3.0 page review's Approve asks first, then approves it as captured when TailorIT still cannot read its page
+// (`captured`: the job is published as the reporters' browsers captured it, marked "Approved by an admin").
 
 /** `value`, once it has stayed the same for `delay` ms. */
 function useSettled(value: string, delay: number): string {
@@ -114,6 +133,7 @@ export function ReviewPane({
   const [outcomes, setOutcomes] = useState<ReadonlyMap<number, BulkRowResult>>(new Map());
   const [sheetRow, setSheetRow] = useState<AdminReviewRow | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [capturing, setCapturing] = useState<{ row: AdminReviewRow; note: string } | null>(null); // v32 ADMINAPP (E6)
   const [live, setLive] = useState('');
   const inFlight = busy.size > 0 || bulkBusy;
 
@@ -220,18 +240,40 @@ export function ReviewPane({
       return next;
     });
 
-  const decide = async (row: AdminReviewRow, decision: ReviewDecision, note = '') => {
+  const decide = async (row: AdminReviewRow, decision: ReviewDecision, note = '', captured = false) => {
     if (busy.has(row.id)) return;
+    // v32 ADMINAPP (E6): a v3.0 page review's approval may publish what browsers captured: asked first.
+    if (decision === 'approve' && !captured && approvesCaptured(row)) {
+      setCapturing({ row, note });
+      return;
+    }
     markBusy(row.id, true);
     forget(row.id);
     focusAfter(row.id);
     try {
-      await decideReview(row.id, note ? { decision, note } : { decision });
+      await decideReview(row.id, { decision, ...(note ? { note } : {}), ...(captured ? { captured: true } : {}) });
       setLive(`${decidedText(decision)}: ${rowName(row.job)}`);
       setSheetOpen(false);
     } catch (error) {
       focusAt.current = null;
       toast.error('The review was not changed', userMessage(error));
+    } finally {
+      markBusy(row.id, false);
+      refresh();
+    }
+  };
+
+  // v32 ADMINAPP (E6): Retry read of a waiting new job: TailorIT reads its link again; the row stays for the decision.
+  const retry = async (row: AdminReviewRow) => {
+    if (busy.has(row.id)) return;
+    markBusy(row.id, true);
+    try {
+      const words = reviewRetryText(await retryReviewRead(row.id));
+      setLive(`${words.title}: ${rowName(row.job)}`);
+      if (words.tone === 'success') toast.success(words.title, words.body);
+      else toast.info(words.title, words.body);
+    } catch (error) {
+      toast.error("TailorIT couldn't read the job again", userMessage(error));
     } finally {
       markBusy(row.id, false);
       refresh();
@@ -404,7 +446,7 @@ export function ReviewPane({
       <div className="p-4 sm:p-5">
         <Notice
           tone="error"
-          title="The review queue could not be loaded"
+          title="The review queue didn't load."
           action={
             <Button variant="outline" size="sm" onClick={() => void active.refetch()}>
               Try again
@@ -517,6 +559,7 @@ export function ReviewPane({
                       busy={busy.has(row.id) || (bulkBusy && selected.has(row.id))}
                       outcome={rowOutcomeText(outcomes.get(row.id))}
                       onDecide={(decision) => void decide(row, decision)}
+                      {...(retriesRead(row) ? { onRetry: () => void retry(row) } : {})}
                       onOpen={() => {
                         setSheetRow(row);
                         setSheetOpen(true);
@@ -575,6 +618,21 @@ export function ReviewPane({
           onDecide={(row, decision, note) => void decide(row, decision, note)}
         />
       )}
+      <ConfirmDialog
+        open={capturing !== null}
+        onOpenChange={(open) => !open && setCapturing(null)}
+        tone="primary"
+        title={CAPTURED_APPROVE_COPY.title}
+        description={CAPTURED_APPROVE_COPY.description}
+        confirmLabel={CAPTURED_APPROVE_COPY.confirm}
+        // v32 INT-2 (UXREQ-12): publishing to everyone opens on Cancel.
+        focusCancel
+        onConfirm={() => {
+          const asked = capturing;
+          setCapturing(null);
+          if (asked) void decide(asked.row, 'approve', asked.note, true);
+        }}
+      />
       <BulkDialog
         action={bulkAction}
         count={chosen.length}

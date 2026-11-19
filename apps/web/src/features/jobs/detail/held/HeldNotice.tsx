@@ -1,9 +1,10 @@
 'use client';
 
+import { clsx } from 'clsx';
 import { Badge } from '@/components/ui/Badge';
 import { ClockIcon } from '@/components/ui/icons';
-import { Notice } from '@/components/ui/Notice';
 import { usePublicConstants } from '@/lib/constants';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { heldTitleOf } from './copy';
 
 // v30 X1-WEB: the held line (docs/design/part2/14-extension-reports.md §4.3): a job someone added with the extension,
@@ -11,14 +12,23 @@ import { heldTitleOf } from './copy';
 // Tracker, Queue) at once, and in nobody else's search until an admin approves it; its detail says so, in
 // MSG_EXT_JOB_HELD's words. Nothing tells the person who else added or reported it.
 
-/** The job detail's held line: nothing for a job that is not held. */
+/**
+ * The job detail's held state: v32 JOBS2 (E4) a chip ("Waiting for approval") with its sentence behind a "?", no
+ * banner. Nothing for a job that is not held.
+ */
 export function HeldNotice({ held, className }: { held: boolean | undefined; className?: string }) {
   const { t, values } = usePublicConstants();
   if (!held) return null;
+  const title = heldTitleOf(values);
   return (
-    <Notice tone="info" title={heldTitleOf(values)} className={className}>
-      <span data-held-line="">{t('MSG_EXT_JOB_HELD')}</span>
-    </Notice>
+    <span className={clsx('inline-flex items-center gap-1', className)} data-held-state="">
+      <Badge tone="warning" icon={<ClockIcon size={12} aria-hidden="true" />} data-held-badge="">
+        {title}
+      </Badge>
+      <HelpTip label={title}>
+        <span data-held-line="">{t('MSG_EXT_JOB_HELD')}</span>
+      </HelpTip>
+    </span>
   );
 }
 

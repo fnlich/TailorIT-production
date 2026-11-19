@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRef } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -64,7 +65,7 @@ export function KitSheet({ item, open, onOpenChange, onMarkApplied }: KitSheetPr
       open={open}
       onOpenChange={onOpenChange}
       title={(row) => `${row.title} at ${row.company}`}
-      description="Everything prepared for this application, ready to copy."
+      description="Ready to copy."
       className="sm:max-w-120!"
     >
       {(row) => <KitBody item={row} onMarkApplied={onMarkApplied} />}
@@ -104,7 +105,7 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
     return (
       <Notice
         tone="error"
-        title="This kit could not be loaded"
+        title="This kit didn't load."
         action={
           <Button variant="outline" size="sm" onClick={() => void kit.refetch()}>
             Try again
@@ -140,7 +141,7 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
             <p className="text-[13px] leading-5 break-all text-muted-foreground">{href}</p>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">This job has no web address TailorIT can open.</p>
+          <p className="text-sm text-muted-foreground">This job has no web address to open.</p>
         )}
       </DetailStep>
 
@@ -172,7 +173,7 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">The prepared resume was deleted. Prepare &amp; Queue the job again to make a new kit.</p>
+          <p className="text-sm text-muted-foreground">The prepared resume was deleted. Prepare &amp; Queue it again.</p>
         )}
       </DetailStep>
 
@@ -265,17 +266,15 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
             ))}
           </dl>
         )}
-        <p className="text-[13px] leading-5 text-muted-foreground">
-          Questions about you (contact details, work authorization, self-identification) come from your autofill profile.
-        </p>
+        <p className="text-[13px] leading-5 text-muted-foreground">Questions about you come from your autofill profile.</p>
       </DetailStep>
 
       {offersMarkApplied(item) && (
         <DetailStep number={5} title="Mark as applied">
-          <p className="text-sm text-muted-foreground">Once you have sent the application on the employer&apos;s site.</p>
-          <Button className="self-start" onClick={() => onMarkApplied(item)}>
-            Mark as applied
-          </Button>
+          <span className="flex items-center gap-1.5 self-start">
+            <Button onClick={() => onMarkApplied(item)}>Mark as applied</Button>
+            <HelpTip label="Mark as applied">Once you have sent it on the employer&apos;s site.</HelpTip>
+          </span>
         </DetailStep>
       )}
     </ol>

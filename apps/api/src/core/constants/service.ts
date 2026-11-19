@@ -2,6 +2,7 @@ import {
   ADMIN_EDITABLE_KEYS,
   CONSTANT_KEYS,
   PUBLIC_CONSTANT_KEYS,
+  constantOfFormerKey,
   constantSpec,
   envKeysOf,
   formatConstant,
@@ -36,6 +37,9 @@ import { AppError, validationFailed } from '../http/errors';
 //   Constants shows the row as invalid until it is reset.
 // - Readers call get() at the moment of use, never once at load, so a change applies to the next request.
 // - A change is logged at info with the key, the source and the admin's id; never a value.
+// - v32 FIX-PLAN (E12): a constant renamed keeps its earlier key in its spec's `formerKeys` (TAILOR_PER_HOUR is now
+//   FREE_TAILOR_PER_HOUR): an override stored under the earlier key applies while the constant has none of its own
+//   (checked by the constant's spec), and a set or a clear of the constant removes the earlier key's row.
 
 /** How often the stored overrides are read again (a technical constant: the design's 60 s). */
 export const CONSTANTS_RELOAD_MS = 60_000;
@@ -45,6 +49,8 @@ export const CONSTANT_SETTING_PREFIX = 'const:';
 interface Stored {
   /** The raw JSON of the row, to tell a changed row on reload. */
   raw: string;
+  /** v32 FIX-PLAN: the earlier key the row is stored under (`formerKeys`), when it is not the constant's own. */
+  formerKey?: string;
   updatedAt: string | null;
   updatedBy: string | null;
   /** The checked value; absent when the stored override is invalid (ignored). */
@@ -77,6 +83,11 @@ export interface ConstantsService {
 }
 
 const settingKey = (key: ConstantKey) => `${CONSTANT_SETTING_PREFIX}${key}`;
+/** v32 FIX-PLAN: where `former` stands in the constant's `formerKeys` (the first listed wins). */
+const formerRank = (key: ConstantKey, former: string) => constantSpec(key).formerKeys!.indexOf(former);
+/** v32 FIX-PLAN: the app_settings keys of a constant's own override and of its earlier keys' (`formerKeys`). */
+const settingKeys = (key: ConstantKey) =>
+  [key, ...(constantSpec(key).formerKeys ?? [])].map((name) => `${CONSTANT_SETTING_PREFIX}${name}`);
 
 export function createConstantsService(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now'>): ConstantsService {
   let overrides = new Map<ConstantKey, Stored>();
@@ -97,14 +108,18 @@ export function createConstantsService(deps: Pick<AppDeps, 'db' | 'config' | 'lo
       "SELECT key, value, updated_at, updated_by FROM app_settings WHERE key LIKE 'const:%'",
     );
     const found = new Map<ConstantKey, Stored>();
+    /** v32 FIX-PLAN: the overrides stored under an earlier key, used where the constant has none of its own. */
+    const former = new Map<ConstantKey, Stored>();
     for (const row of rows) {
-      const key = row.key.slice(CONSTANT_SETTING_PREFIX.length);
-      if (!isConstantKey(key)) {
+      const name = row.key.slice(CONSTANT_SETTING_PREFIX.length);
+      const key = isConstantKey(name) ? name : constantOfFormerKey(name);
+      if (!key) {
         if (!unknownSeen.has(row.key)) deps.log.warn(`[constants] app_settings holds ${row.key}, which names no constant: ignored`);
         unknownSeen.add(row.key);
         continue;
       }
       const stored: Stored = { raw: row.value, updatedAt: row.updated_at, updatedBy: row.updated_by };
+      if (key !== name) stored.formerKey = name;
       let parsed: unknown;
       try {
         parsed = JSON.parse(row.value);
@@ -114,8 +129,12 @@ export function createConstantsService(deps: Pick<AppDeps, 'db' | 'config' | 'lo
       const holder = parsed !== null && typeof parsed === 'object' && Object.hasOwn(parsed, 'v') ? (parsed as { v: unknown }) : null;
       const checked = holder ? validateConstant(key, holder.v) : null;
       if (checked?.ok && constantSpec(key).adminEditable) stored.value = checked.value;
-      found.set(key, stored);
+      if (stored.formerKey === undefined) found.set(key, stored);
+      else if (!former.has(key) || formerRank(key, name) < formerRank(key, former.get(key)!.formerKey!)) {
+        former.set(key, stored);
+      }
     }
+    for (const [key, stored] of former) if (!found.has(key)) found.set(key, stored);
     return found;
   }
 
@@ -125,7 +144,8 @@ export function createConstantsService(deps: Pick<AppDeps, 'db' | 'config' | 'lo
       if (Object.hasOwn(stored, 'value')) continue;
       if (previous.get(key)?.raw === stored.raw) continue;
       const why = constantSpec(key).adminEditable ? 'no longer validates' : 'is for a constant set in .env only';
-      deps.log.warn(`[constants] the stored override of ${key} ${why}: ignored, .env or the default applies`);
+      const under = stored.formerKey ? ` (stored as ${stored.formerKey})` : '';
+      deps.log.warn(`[constants] the stored override of ${key}${under} ${why}: ignored, .env or the default applies`);
     }
   }
 
@@ -227,6 +247,11 @@ export function createConstantsService(deps: Pick<AppDeps, 'db' | 'config' | 'lo
            updated_by = excluded.updated_by`,
         [settingKey(key), raw, now, actorUserId],
       );
+      // v32 FIX-PLAN: an earlier key's override is replaced by this one (after the write: never neither of them).
+      const formerKeys = settingKeys(key).slice(1);
+      if (formerKeys.length > 0) {
+        await deps.db.run(`DELETE FROM app_settings WHERE key IN (${deps.db.dialect.list(formerKeys.length)})`, formerKeys);
+      }
       overrides.set(key, { raw, updatedAt: now, updatedBy: actorUserId, value: checked.value });
       version += 1;
       share();
@@ -236,7 +261,9 @@ export function createConstantsService(deps: Pick<AppDeps, 'db' | 'config' | 'lo
 
     async clear(key, actorUserId) {
       refuseUnknown(key);
-      await deps.db.run('DELETE FROM app_settings WHERE key = ?', [settingKey(key)]);
+      // v32 FIX-PLAN: a reset also removes an earlier key's override, so it never applies again.
+      const keys = settingKeys(key);
+      await deps.db.run(`DELETE FROM app_settings WHERE key IN (${deps.db.dialect.list(keys.length)})`, keys);
       const had = overrides.delete(key);
       if (had) {
         version += 1;

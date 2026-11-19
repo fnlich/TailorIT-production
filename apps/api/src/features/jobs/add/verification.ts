@@ -8,8 +8,9 @@ import {
 } from '@tailorit/shared';
 import { constantsOf } from '../../../core/constants/service';
 import type { AppDeps } from '../../../core/context';
-import type { DbQueries } from '../../../core/db/types';
+import type { DbQueries, DbTx } from '../../../core/db/types';
 import { sharedAddress } from './address';
+import { versionCounts } from './versions'; // v32 FIX-API (SB-1)
 
 // v31 LINK (D2, docs/design/v3.1/21-jobs-from-links.md §6): the jobs TailorIT could not read from their link, kept
 // for their adder alone (job_verifications, migration 0039): why, when it was last tried, how often. Read by the job
@@ -20,6 +21,13 @@ import { sharedAddress } from './address';
 // v31 FIX-LINK: a note keeps the link's shared form (address.ts, REV-SEC SEC-2: an admin never sees a person's ?token=);
 // a rejected link stays rejected with any parameter added or its path in another case (SEC-8: linkRejected); the
 // hourly Review summary counts a link new to the list, never one a retry read again (REV-BEH BEH-7: unverifiedLinkCounts).
+
+/**
+ * v32 ADMINAPP (E6): pg_advisory_xact_lock's key for approvals of one link (with hashtext(url_key)): a number no other
+ * code uses. v32 FIX-API (REV-SECBEH SB-3): a Reject of the link takes it too, so a Reject and an approval of one link
+ * never cross (approve.ts re-checks the rejection under it).
+ */
+export const APPROVAL_LOCK = 7_320_044;
 
 /** One job TailorIT could not read. */
 export interface UnverifiedNote {
@@ -95,10 +103,14 @@ export async function linkRejected(db: DbQueries, url: string): Promise<boolean>
   return rows.some((row) => rejectionCovers(row.url_key, key));
 }
 
-/** The SQL of a job's verification fields beside a job row `j` (the DTOs' `verification`): its held time and its row. */
+/**
+ * The SQL of a job's verification fields beside a job row `j` (the DTOs' `verification`): its held time and its row.
+ * v32 ADMINAPP (E6): and when an admin approved it as captured (job_admin_approvals, by its key: one row at most).
+ */
 export function verificationColumns(alias = 'j'): string {
   return `CASE WHEN ${alias}.owner_user_id IS NOT NULL THEN (SELECT json_build_object('reason', v.reason, 'checkedAt', v.checked_at)
-      FROM job_verifications v WHERE v.job_id = ${alias}.id) END AS verification_json, ${alias}.owner_user_id IS NOT NULL AS owned_job`;
+      FROM job_verifications v WHERE v.job_id = ${alias}.id) END AS verification_json, ${alias}.owner_user_id IS NOT NULL AS owned_job,
+    (SELECT aa.approved_at FROM job_admin_approvals aa WHERE aa.job_id = ${alias}.id) AS admin_approved_at`;
 }
 
 /**
@@ -108,7 +120,8 @@ export function verificationColumns(alias = 'j'): string {
 export function verificationRowSql(alias = 'j'): string {
   return `CASE WHEN ${alias}.owner_user_id IS NOT NULL THEN json_build_object('owned', true, 'v', (SELECT json_build_object('reason', v.reason,
       'checkedAt', v.checked_at) FROM job_verifications v WHERE v.job_id = ${alias}.id))
-    WHEN ${alias}.held_since IS NOT NULL THEN json_build_object('held', ${alias}.held_since) END`;
+    WHEN ${alias}.held_since IS NOT NULL THEN json_build_object('held', ${alias}.held_since)
+    ELSE (SELECT json_build_object('approved', aa.approved_at) FROM job_admin_approvals aa WHERE aa.job_id = ${alias}.id) END`;
 }
 
 /** An entry's job verification from verificationRowSql's value (absent for a job everyone sees). */
@@ -116,14 +129,19 @@ export function verificationOfJson(value: unknown): { verification?: JobVerifica
   const stored = parseJson(value);
   if (!stored) return {};
   if (stored.owned === true) return verificationOf({ owned_job: true, verification_json: stored.v ?? null });
+  if (typeof stored.approved === 'string') return verificationOf({ admin_approved_at: stored.approved }); // v32 ADMINAPP
   return typeof stored.held === 'string' ? verificationOf({ held_since: stored.held }) : {};
 }
 
-/** A job row's `verification` (absent for a job everyone sees): held for an admin, or the viewer's own unread job. */
+/**
+ * A job row's `verification` (absent for a job everyone sees that TailorIT read): held for an admin, or the viewer's own
+ * unread job; v32 ADMINAPP (E6) `admin_approved` for a job an admin published as it was captured.
+ */
 export function verificationOf(row: {
   held_since?: string | null;
   owned_job?: boolean | null;
   verification_json?: unknown;
+  admin_approved_at?: string | null;
 }): { verification?: JobVerification } {
   if (row.owned_job) {
     const stored = parseJson(row.verification_json);
@@ -133,6 +151,9 @@ export function verificationOf(row: {
   }
   if (row.held_since) {
     return { verification: { state: 'waiting_admin', checkedAt: new Date(row.held_since).toISOString(), reason: null } };
+  }
+  if (row.admin_approved_at) {
+    return { verification: { state: 'admin_approved', checkedAt: new Date(row.admin_approved_at).toISOString(), reason: null } };
   }
   return {};
 }
@@ -159,24 +180,58 @@ export async function ownJobsOfLink(db: DbQueries, urlKey: string): Promise<Arra
 
 /**
  * Rejects a link from the "Couldn't verify" list: never published from now on, whoever adds it, and every job of it
- * noted as rejected (each stays its adder's own). Answers the jobs noted.
+ * noted as rejected (each stays its adder's own). Answers the jobs noted. v32 FIX-API (REV-SECBEH SB-3): in a
+ * transaction under the link's approval lock (an approval under way finishes first, or sees the rejection); and
+ * `unpublish` (the route's: closeLink) closes each job an admin published of the link (an approval that ran out and is
+ * listed again, SB-4): the link is never published. (This module stays free of core/seams: the notifications'
+ * housekeeping reads it.)
  */
-export async function rejectLink(db: DbQueries, url: string, adminId: string, at: string): Promise<number> {
+export async function rejectLink(
+  deps: Pick<AppDeps, 'db'>,
+  url: string,
+  adminId: string,
+  at: string,
+  unpublish?: (t: DbTx, jobId: number) => Promise<unknown>,
+): Promise<number> {
   const key = linkKey(sharedAddress(url) ?? url);
   if (!key) return 0;
-  await db.run(
-    'INSERT INTO job_link_rejections(url_key, rejected_by, rejected_at) VALUES (?, ?, ?) ON CONFLICT (url_key) DO NOTHING',
-    [key, adminId, at],
+  return deps.db.tx(
+    async (t) => {
+      await t.run('SELECT pg_advisory_xact_lock(?, hashtext(?))', [APPROVAL_LOCK, key]);
+      await t.run(
+        'INSERT INTO job_link_rejections(url_key, rejected_by, rejected_at) VALUES (?, ?, ?) ON CONFLICT (url_key) DO NOTHING',
+        [key, adminId, at],
+      );
+      const { changes } = await t.run("UPDATE job_verifications SET reason = 'rejected', checked_at = ? WHERE url_key = ?", [at, key]);
+      const published = await t.all<{ job_id: number }>(
+        `SELECT a.job_id FROM job_admin_approvals a JOIN jobs j ON j.id = a.job_id
+         WHERE a.url_key = ? AND j.active AND j.owner_user_id IS NULL AND j.superseded_by IS NULL`,
+        [key],
+      );
+      for (const row of published) await unpublish?.(t, Number(row.job_id));
+      return changes;
+    },
+    { label: 'reject a link' },
   );
-  const { changes } = await db.run("UPDATE job_verifications SET reason = 'rejected', checked_at = ? WHERE url_key = ?", [at, key]);
-  return changes;
 }
 
 /**
- * The SQL condition of a "Couldn't verify" row (verification `v`, its job `j`). v31 FIX-LINK (SEC-8): a link a
- * rejection covers (its reason `rejected`) is not listed either.
+ * v32 FIX-API (SB-1): the SQL condition "the link of note `v` has a published approval" (its job open, everyone's, not
+ * given way): its adders' own jobs are no rows of the list then.
  */
-const LISTED = `(j.owner_user_id = v.user_id OR (v.user_id IS NULL AND j.owner_user_id IS NULL AND j.held_since IS NOT NULL))
+const LINK_APPROVED = `EXISTS (SELECT 1 FROM job_admin_approvals la JOIN jobs lj ON lj.id = la.job_id
+         WHERE la.url_key = v.url_key AND lj.active AND lj.owner_user_id IS NULL AND lj.superseded_by IS NULL)`;
+
+/**
+ * The SQL condition of a "Couldn't verify" row (verification `v`, its job `j`). v31 FIX-LINK (SEC-8): a link a
+ * rejection covers (its reason `rejected`) is not listed either. v32 FIX-API: an adder's own job only while no approval
+ * of its link is published (SB-1: the adders keep their own jobs after one); a job an admin published whose approval ran
+ * out and left search (SB-4: its note kept with no adder), to be approved again, read again or rejected.
+ */
+export const LISTED = `((j.owner_user_id = v.user_id AND NOT ${LINK_APPROVED})
+         OR (v.user_id IS NULL AND j.owner_user_id IS NULL AND j.held_since IS NOT NULL)
+         OR (v.user_id IS NULL AND j.owner_user_id IS NULL AND j.held_since IS NULL AND j.unverified_since IS NOT NULL
+             AND EXISTS (SELECT 1 FROM job_admin_approvals xa WHERE xa.job_id = j.id)))
        AND j.superseded_by IS NULL AND j.active AND v.reason NOT IN ('unreadable_host', 'rejected')
        AND NOT EXISTS (SELECT 1 FROM job_link_rejections r WHERE r.url_key = v.url_key)`;
 
@@ -211,6 +266,10 @@ export async function unverifiedLinkCounts(
 
 interface ListRow {
   job_id: number;
+  title: string | null;
+  company_name: string | null;
+  location: string | null;
+  approved_before: boolean | null;
   url_key: string;
   url: string;
   host: string;
@@ -249,18 +308,25 @@ export async function listUnverifiedLinks(
   if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { items: [], nextCursor: null };
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
   const after = readCursor(query.cursor);
+  // v32 ADMINAPP (E6): with the row's job as captured (its title and company), what Approve publishes. v32 FIX-API
+  // (SB-1): its place, and how many versions the link's adders captured (read in full in the row's detail).
   const rows = await deps.db.all<ListRow>(
-    `SELECT min(v.job_id) AS job_id, v.url_key, min(v.url) AS url, min(v.host) AS host,
-       (array_agg(v.reason ORDER BY v.checked_at DESC))[1] AS reason, max(v.checked_at) AS checked_at,
-       min(v.created_at) AS first_added_at, count(*)::int AS adders, sum(v.attempts)::int AS attempts
-     FROM job_verifications v JOIN jobs j ON j.id = v.job_id
-     WHERE ${LISTED}
-     GROUP BY v.url_key
-     ${after ? 'HAVING (max(v.checked_at), v.url_key) < (CAST(? AS timestamptz), ?)' : ''}
-     ORDER BY max(v.checked_at) DESC, v.url_key DESC LIMIT ?`,
+    `SELECT g.*, rj.title, rc.name AS company_name, rj.locations_text AS location,
+       EXISTS (SELECT 1 FROM job_admin_approvals ra WHERE ra.job_id = g.job_id) AS approved_before FROM (
+       SELECT min(v.job_id) AS job_id, v.url_key, min(v.url) AS url, min(v.host) AS host,
+         (array_agg(v.reason ORDER BY v.checked_at DESC))[1] AS reason, max(v.checked_at) AS checked_at,
+         min(v.created_at) AS first_added_at, count(*)::int AS adders, sum(v.attempts)::int AS attempts
+       FROM job_verifications v JOIN jobs j ON j.id = v.job_id
+       WHERE ${LISTED}
+       GROUP BY v.url_key
+       ${after ? 'HAVING (max(v.checked_at), v.url_key) < (CAST(? AS timestamptz), ?)' : ''}
+       ORDER BY max(v.checked_at) DESC, v.url_key DESC LIMIT ?) g
+     LEFT JOIN jobs rj ON rj.id = g.job_id LEFT JOIN companies rc ON rc.id = rj.company_id
+     ORDER BY g.checked_at DESC, g.url_key DESC`,
     after ? [after[0], after[1], limit + 1] : [limit + 1],
   );
   const page = rows.slice(0, limit);
+  const versions = await versionCounts(deps.db, page.map((row) => row.url_key));
   const items: UnverifiedLink[] = page.map((row) => ({
     jobId: Number(row.job_id),
     url: row.url,
@@ -270,6 +336,11 @@ export async function listUnverifiedLinks(
     firstAddedAt: new Date(row.first_added_at).toISOString(),
     adders: Number(row.adders),
     attempts: Number(row.attempts),
+    ...(row.title ? { title: row.title } : {}),
+    ...(row.company_name ? { companyName: row.company_name } : {}),
+    ...(row.location?.trim() ? { location: row.location.trim() } : {}),
+    versions: versions.get(row.url_key) ?? 1,
+    ...(row.approved_before ? { approvedBefore: true } : {}),
   }));
   return { items, nextCursor: rows.length > limit ? cursorOf(page[page.length - 1]!) : null };
 }

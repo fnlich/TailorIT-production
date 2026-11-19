@@ -10,6 +10,7 @@ export {
   changeEntitlement,
   effectiveType,
   entitlementsOf,
+  hourlyLimitOf, // v32 FIX-PLAN
   type EntitlementChange,
 } from './entitlements';
 export {

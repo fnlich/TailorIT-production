@@ -6,6 +6,7 @@ import { useState } from 'react';
 import type { ApplicationDetail, MatchedKeyword } from '@tailorit/shared';
 import { buttonClasses } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TapeMeter } from '@/components/ui/TapeMeter';
@@ -87,24 +88,22 @@ export function ResumeScoreTab({ application, onDocuments }: { application: Appl
       )}
       {result.state === 'no_resume' ? (
         <div className="flex flex-col items-start gap-3">
-          <div>
-            <p className="text-sm font-semibold text-foreground">Add a resume</p>
-            <p className="text-sm text-muted-foreground">Upload or create a resume and we&apos;ll score it against this job&apos;s keywords.</p>
-          </div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            Add a resume
+            <HelpTip label="Add a resume">It is scored against this job&apos;s keywords.</HelpTip>
+          </p>
           <Link href="/documents?tab=resumes" className={buttonClasses({ variant: 'primary', size: 'sm' })}>
             Go to Documents
           </Link>
           {result.total > 0 && <KeywordChips matched={[]} missing={result.missing} />}
         </div>
       ) : result.total === 0 ? (
-        <div>
-          <p className="text-sm font-semibold text-foreground">No keywords to score yet</p>
-          <p className="text-sm text-muted-foreground">
-            {application.jobId !== null
-              ? "This job's posting names no skills to score your resume against."
-              : 'Add a job description in Overview to see how your resume matches this job.'}
-          </p>
-        </div>
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+          No keywords to score yet
+          <HelpTip label="No keywords to score yet">
+            {application.jobId !== null ? 'The posting names no skills.' : 'Add a job description in Overview.'}
+          </HelpTip>
+        </p>
       ) : (
         <>
           <p className="text-sm text-foreground">{t('MSG_TRACKER_MATCH_COUNT', { matched: result.matchedCount, total: result.total })}</p>

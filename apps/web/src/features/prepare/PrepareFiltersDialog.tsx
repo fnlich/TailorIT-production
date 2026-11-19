@@ -52,11 +52,7 @@ export function PrepareFiltersDialog({ open, onOpenChange, onFilterAndPrepare, f
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         title={FILTERS_DIALOG.title}
-        description={
-          <>
-            {FILTERS_COPY.description} <strong className="font-semibold text-foreground">{FILTERS_COPY.note}</strong>
-          </>
-        }
+        help={`${FILTERS_COPY.description} ${FILTERS_COPY.note}`}
         size="xl"
         className="max-sm:p-4"
         finalFocus={finalFocus}

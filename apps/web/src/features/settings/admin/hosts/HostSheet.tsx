@@ -116,7 +116,7 @@ export function HostDetails({ host, now, onShowSources }: { host: AdminHost; now
             )}
           </>
         ) : (
-          <p className="mt-2 text-sm text-muted-foreground">Not read yet: it is read before the first request a reader sends to this host.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Not read yet.</p>
         )}
       </section>
     </div>
@@ -166,7 +166,7 @@ export function HostSheet({
       open={open}
       onOpenChange={onOpenChange}
       title={(item) => item.host}
-      description="Every process reading this host keeps one pace and one hold."
+      description="One pace and one hold for every reader."
       footer={() =>
         host ? (
           <div className="flex flex-wrap items-end justify-end gap-2">
@@ -194,7 +194,7 @@ export function HostSheet({
     >
       {() =>
         detail.error ? (
-          <Notice tone="error" title="The host could not be loaded">
+          <Notice tone="error" title="The host didn't load.">
             {userMessage(detail.error)}
           </Notice>
         ) : host ? (

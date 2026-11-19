@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { buttonClasses } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { ConstantSwitch, type ConstantItem } from './review/AutoApprove';
 import { PUBLISHING_INTRO, PUBLISHING_KEYS, PUBLISHING_LANE, PUBLISHING_WORDS, publishingNow } from './publishing';
 
@@ -18,10 +19,12 @@ export function PublishingCard({ rows }: { rows: readonly ConstantItem[] }) {
   if (shown.length === 0) return null;
   return (
     <Card as="section" padding="lg" aria-labelledby="constants-publishing" data-publishing="">
-      <h3 id="constants-publishing" className="text-heading font-semibold text-foreground">
-        How new jobs are published
-      </h3>
-      <p className="mt-1.5 max-w-3xl text-[13px] leading-5 text-muted-foreground">{PUBLISHING_INTRO}</p>
+      <div className="flex items-center gap-1.5">
+        <h3 id="constants-publishing" className="text-heading font-semibold text-foreground">
+          How new jobs are published
+        </h3>
+        <HelpTip label="How new jobs are published">{PUBLISHING_INTRO}</HelpTip>
+      </div>
       <ul className="mt-4 divide-y divide-divider-soft">
         {shown.map(({ key, row }) => {
           const lane = PUBLISHING_LANE[key];

@@ -38,7 +38,7 @@ export function progressPercent(step: TailorStep | null): number {
 export type TailorProblem =
   /** The source is an upload with no editable copy: offer to make one (the existing flow). */
   | { kind: 'needs_editable_copy' }
-  /** v2.0 fix (REQ-3, REQ-10): the server's words (MSG_TAILOR_PER_HOUR with the admin's TAILOR_PER_HOUR). */
+  /** v2.0 fix (REQ-3, REQ-10): the server's words (MSG_TAILOR_PER_HOUR with the person's plan's number; v3.2: Free only). */
   | { kind: 'rate_limited'; retryAfterSeconds: number | null; message: string }
   /** The server's words (MSG_AI_UNAVAILABLE), when it sent them. */
   | { kind: 'ai_unavailable'; message?: string }

@@ -6,20 +6,26 @@ import {
   JobIdParam,
   JOB_ADD_STATE_MESSAGE,
   JOB_VERIFY_REASON_MESSAGE,
+  UnverifiedApproveBodySchema,
   type AddJobResult,
+  type UnverifiedApproval,
+  type UnverifiedLinkDetail,
 } from '@tailorit/shared';
 import { adminRouter, PositiveId } from '../../../core/admin/index';
 import { requireUser, userOf } from '../../../core/auth/guards';
 import { constantsOf } from '../../../core/constants/service';
 import type { AppDeps } from '../../../core/context';
 import { notFound } from '../../../core/http/errors';
+import { closeLink } from '../../../core/seams'; // v32 FIX-API (SB-4)
 import { refuse } from '../../../core/http/refuse';
 import { parseInput } from '../../../core/http/validate';
 import { newInFlight } from '../../autofill/jobs';
 import { takeAddSlot } from './limits';
+import { approveUnverifiedJob } from './approve'; // v32 ADMINAPP (E6)
 import { addJobByLink, verifyJob, type AddJobByLinkOutcome } from './pipeline';
 import { batchProgress, queueLinks } from './queue';
 import { countUnverifiedLinks, listUnverifiedLinks, rejectLink } from './verification';
+import { unverifiedLinkDetail } from './versions'; // v32 FIX-API (SB-1)
 
 // v31 LINK: the add-by-link routes (docs/design/v3.1/21-jobs-from-links.md §7).
 //   POST /api/jobs/add {url, details?}           the web's Add job (signed in; JOB_ADDS_PER_HOUR per account): the
@@ -32,6 +38,11 @@ import { countUnverifiedLinks, listUnverifiedLinks, rejectLink } from './verific
 //   GET  /api/admin/jobs/unverified?cursor=      Admin › Review's "Couldn't verify" list (/count: how many links)
 //   POST /api/admin/jobs/unverified/:jobId/retry Retry read (every adder's own job of the link gives way when read)
 //   POST /api/admin/jobs/unverified/:jobId/reject the link is never published (each adder keeps their own job)
+//   POST /api/admin/jobs/unverified/:jobId/approve v32 ADMINAPP (E6): the job published as it was captured, marked
+//                                                approved by the admin (approve.ts; ADMIN_APPROVALS_PER_HOUR each);
+//                                                v32 FIX-API (SB-1): {version}, the version the admin read
+//   GET  /api/admin/jobs/unverified/:jobId       v32 FIX-API (SB-1): the row's link and every version of its job in
+//                                                full (versions.ts), what an approval publishes
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
@@ -123,6 +134,16 @@ export function createAdminJobLinksRouter(deps: AppDeps): Router {
         '/unverified/count',
         handle(() => countUnverifiedLinks(deps)),
       );
+      // v32 FIX-API (SB-1): what an approval of the row publishes, every version in full.
+      router.get(
+        '/unverified/:jobId',
+        handle(async (req, admin): Promise<UnverifiedLinkDetail> => {
+          const id = PositiveId.safeParse(req.params.jobId);
+          const detail = id.success ? await unverifiedLinkDetail(deps, id.data, admin) : null;
+          if (!detail) throw notFound('That job');
+          return detail;
+        }),
+      );
       router.post(
         '/unverified/:jobId/retry',
         handle(async (req, admin) => {
@@ -141,9 +162,25 @@ export function createAdminJobLinksRouter(deps: AppDeps): Router {
             ? await deps.db.one<{ url: string }>('SELECT url FROM job_verifications WHERE job_id = ?', [id.data])
             : undefined;
           if (!id.success || !row) throw notFound('That job');
-          const noted = await rejectLink(deps.db, row.url, admin.id, deps.now().toISOString());
+          const at = deps.now().toISOString();
+          // v32 FIX-API (SB-4): a job an admin published of the link (its approval ran out) closes with the Reject.
+          const noted = await rejectLink(deps, row.url, admin.id, at, (t, jobId) => closeLink(deps, t, { jobId, reason: 'admin', at }));
           await audit({ action: 'reject', ids: [id.data], actor: admin, change: { jobs: noted } });
           return { rejected: true, jobs: noted };
+        }),
+      );
+      // v32 ADMINAPP (E6): the job published as it was captured (approve.ts); the same answer again once approved.
+      router.post(
+        '/unverified/:jobId/approve',
+        handle(async (req, admin): Promise<UnverifiedApproval> => {
+          const id = PositiveId.safeParse(req.params.jobId);
+          if (!id.success) throw notFound('That job');
+          const body = parseInput(UnverifiedApproveBodySchema, req.body ?? {}, 'approval'); // v32 FIX-API (SB-1)
+          const outcome = await approveUnverifiedJob(deps, id.data, admin, body);
+          if (!outcome.already) {
+            await audit({ action: 'approve', ids: [outcome.jobId], actor: admin, change: { jobId: id.data, adders: outcome.adders, at: outcome.approvedAt } });
+          }
+          return { approved: true, ...outcome };
         }),
       );
     },

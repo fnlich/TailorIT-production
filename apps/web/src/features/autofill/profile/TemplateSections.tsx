@@ -6,8 +6,10 @@ import { SAMPLE_RESUME, THUMBNAIL_SLOTS } from '@tailorit/resume-templates';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { CheckIcon, FileTextIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { CheckIcon, FileTextIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { userMessage } from '@/lib/api';
@@ -103,8 +105,20 @@ function OwnTemplatePicture() {
   return (
     <div style={PAGE_RATIO} className="flex flex-col items-center justify-center gap-2 bg-surface-low px-4 text-center">
       <FileTextIcon size={28} className="text-primary-ink" />
-      <span className="text-xs leading-4 text-muted-foreground">The template of the resume it starts from</span>
+      <span className="text-xs leading-4 text-muted-foreground">Your resume&apos;s own template</span>
     </div>
+  );
+}
+
+/** v32 COPY (E4): a saved choice that is gone, as a small chip with its "?" (never a banner). */
+function StaleChoice({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1" data-stale-choice="">
+      <Badge tone="warning" icon={<WarningCircleIcon size={13} weight="fill" aria-hidden="true" />}>
+        {label}
+      </Badge>
+      <HelpTip label={label}>{children}</HelpTip>
+    </span>
   );
 }
 
@@ -116,11 +130,11 @@ export function ResumeTemplateSection() {
     <Section
       id="autofill-resume-template"
       title="Resume template for tailoring"
-      description="When TailorIT tailors your resume for a job, the new resume is written on this template. You can switch it later in the editor."
+      description="Tailored resumes use this template; you can switch it in the editor."
     >
       <div className="flex flex-col gap-3">
         {!known && (
-          <Notice tone="warning">That template is no longer offered: tailoring keeps your resume&apos;s own until you choose one.</Notice>
+          <StaleChoice label="Template no longer offered">Tailoring keeps your resume&apos;s own until you choose one.</StaleChoice>
         )}
         <div
           role="radiogroup"
@@ -136,7 +150,7 @@ export function ResumeTemplateSection() {
             onChoose={() => form.set(RESUME_TEMPLATE_PATH, null)}
             picture={<OwnTemplatePicture />}
             title="My resume's own template"
-            description="Keeps the look of the resume it starts from"
+            description="Keeps your resume's look"
             data={{ 'data-resume-template-choice': 'own' }}
           />
           {RESUME_TEMPLATE_IDS.map((templateId) => (
@@ -212,22 +226,23 @@ export function LetterTemplateSection() {
     <Section
       id="autofill-letter-template"
       title="Cover letter template for tailoring"
-      description="The cover letter written beside a tailored resume follows this template. Without one, TailorIT writes it in its own simple layout."
+      description="Letters written with a tailored resume use this template."
     >
       <div className="flex flex-col gap-3">
         {missing && (
-          <Notice tone="warning">That template was deleted: letters are written without a template until you choose another.</Notice>
+          <StaleChoice label="Template deleted">Letters use no template until you choose another.</StaleChoice>
         )}
         {templates.isError ? (
           <Notice
             tone="error"
+            title="Your cover letter templates didn't load."
             action={
               <Button variant="outline" size="sm" onClick={() => void templates.refetch()}>
                 Try again
               </Button>
             }
           >
-            {userMessage(templates.error, 'Your cover letter templates could not be loaded.')}
+            {userMessage(templates.error, 'Check your connection, then try again.')}
           </Notice>
         ) : null}
         <div

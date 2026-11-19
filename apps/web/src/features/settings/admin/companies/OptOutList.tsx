@@ -92,7 +92,7 @@ export function OptOutList({ viewSwitch, onOpenCompany }: { viewSwitch: ReactNod
   return (
     <AdminResourceTab
       title="Opt-out list"
-      description="Domains neither reader ever reads: company websites and career pages. An opted-out company's domains land here; add a domain when a site asks to be left alone."
+      description="Domains no reader ever reads; add one when a site asks to be left alone."
       actions={
         <>
           {viewSwitch}
@@ -103,7 +103,7 @@ export function OptOutList({ viewSwitch, onOpenCompany }: { viewSwitch: ReactNod
       }
       items={items}
       error={optOuts.error}
-      errorTitle="The opt-out list could not be loaded"
+      errorTitle="The opt-out list didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void optOuts.refetch()}>
           Try again
@@ -132,7 +132,7 @@ export function OptOutList({ viewSwitch, onOpenCompany }: { viewSwitch: ReactNod
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
         title={`Take ${removing?.domain ?? ''} off the opt-out list?`}
-        description="The readers may read the domain again where their own switches allow it. A company's opt-out switch stays as it is."
+        description="Readers may read it again where their switches allow."
         confirmLabel="Take off"
         busyLabel="Taking off…"
         onConfirm={async () => {
@@ -193,9 +193,9 @@ function AddOptOutDialog({ open, onOpenChange, onAdded }: { open: boolean; onOpe
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent title="Add a domain to the opt-out list" description="Neither reader will ever read it." size="md">
+      <DialogContent title="Add a domain to the opt-out list" help="No reader will ever read it." size="md">
         <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-4" noValidate>
-          <Field label="Domain" error={errors.domain} hint="The registrable domain: acme.com covers careers.acme.com too.">
+          <Field label="Domain" error={errors.domain} hint="acme.com covers careers.acme.com too.">
             <Input value={domain} autoComplete="off" spellCheck={false} onChange={(event) => setDomain(event.target.value)} />
           </Field>
           <Field label="Reason" error={errors.reason}>

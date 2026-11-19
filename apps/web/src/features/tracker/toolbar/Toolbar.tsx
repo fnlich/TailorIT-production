@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { clsx } from 'clsx';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
 import { APPLICATION_STATUSES, STATUS_INFO, type ApplicationStatus, type TrackerTab, type TrackerView } from '@tailorit/shared';
 import { Button } from '@/components/ui/Button';
 import { PrepareButton } from '../../prepare/PrepareButton';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Chip } from '@/components/ui/Chip';
+import { IconButton } from '@/components/ui/IconButton';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/Menu';
 import { SearchPill } from '@/components/ui/SearchPill';
@@ -19,6 +21,7 @@ import {
   FileZipIcon,
   KanbanIcon,
   LockSimpleIcon,
+  MagnifyingGlassIcon,
   PlusIcon,
   RowsIcon,
   TrashIcon,
@@ -43,24 +46,25 @@ export function TabsRow({
   onTabChange: (tab: TrackerTab) => void;
   onAdd?: () => void;
 }) {
+  // v32 FIX-UX (UXREQ-5): on a phone the counts are said, not drawn (the row holds the search, the tabs, Filter and ⋮).
   const label = (word: string, count: number | undefined) =>
     count === undefined ? (
       word
     ) : (
       <>
         {word}
-        <span className="num inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-muted px-1.5 text-[11px] leading-none text-muted-foreground in-data-active:bg-primary-soft in-data-active:text-primary-ink">
+        <span className="num inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-muted px-1.5 text-[11px] leading-none text-muted-foreground in-data-active:bg-primary-soft in-data-active:text-primary-ink max-sm:sr-only">
           {count}
         </span>
       </>
     );
   return (
-    <div className="flex items-center justify-between gap-3 max-sm:w-full">
+    <div className="flex items-center justify-between gap-3 max-sm:min-w-0 max-sm:flex-1">
       <SegmentedControl
         aria-label="Applications"
-        // On a phone the two segments share the row.
+        // On a phone the two segments share what the row leaves (44 px tall, touch targets).
         className="max-sm:w-full"
-        listClassName="max-sm:flex max-sm:w-full max-sm:[&>*]:flex-1"
+        listClassName="max-sm:flex max-sm:h-11 max-sm:w-full max-sm:[&>*]:flex-1"
         value={tab}
         onValueChange={onTabChange}
         items={[
@@ -77,9 +81,37 @@ export function TabsRow({
   );
 }
 
+/** Board | List | Chart (icons with their words; a phone keeps the words for screen readers). */
+export function ViewSwitch({
+  view,
+  onViewChange,
+  className,
+}: {
+  view: TrackerView;
+  onViewChange: (view: TrackerView) => void;
+  className?: string;
+}) {
+  return (
+    <SegmentedControl
+      aria-label="Tracker view"
+      value={view}
+      onValueChange={onViewChange}
+      className={className}
+      listClassName="max-sm:h-11"
+      items={[
+        { value: 'board', label: <span className="max-sm:sr-only">Board</span>, icon: <KanbanIcon size={16} /> },
+        { value: 'list', label: <span className="max-sm:sr-only">List</span>, icon: <RowsIcon size={16} /> },
+        { value: 'chart', label: <span className="max-sm:sr-only">Chart</span>, icon: <ChartLineIcon size={16} /> },
+      ]}
+    />
+  );
+}
+
 /**
  * v31 FIX-DOCS: the tracker's one toolbar row: the search (left, taking the room), Active | Archived, Board | List |
- * Chart, then "Filter and sort" and the ⋯ of the tracker's actions. On a phone the search takes the first row.
+ * Chart, then "Filter and sort" and the ⋯ of the tracker's actions. v32 FIX-UX (UXREQ-5): on a phone it is one row, the
+ * search a magnifier that opens the field (on its own line while it is open or holds words), Active | Archived, Filter
+ * and ⋮ (Board | List | Chart sits by the page's title there).
  */
 export function SearchRow({
   view,
@@ -98,33 +130,61 @@ export function SearchRow({
   options: ReactNode;
 }) {
   const { t } = usePublicConstants();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  const focusOpener = useRef(false);
+  const fieldShown = searchOpen || search !== '';
+  useEffect(() => {
+    if (searchOpen) field.current?.focus();
+    else if (focusOpener.current) {
+      focusOpener.current = false;
+      opener.current?.focus();
+    }
+  }, [searchOpen]);
   return (
-    <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+    <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap" data-tracker-toolbar="">
       {view === 'chart' ? (
         <div className="hidden flex-1 lg:block" />
       ) : (
-        <SearchPill
-          value={search}
-          onValueChange={onSearchChange}
-          placeholder={t('LABEL_TRACKER_SEARCH')}
-          className="w-full min-w-0 lg:min-w-56 lg:flex-1"
-        />
+        <>
+          {!fieldShown && (
+            <IconButton
+              ref={opener}
+              label={SEARCH_OPEN_LABEL}
+              variant="outline"
+              icon={<MagnifyingGlassIcon size={18} />}
+              className="size-11 sm:hidden"
+              onClick={() => setSearchOpen(true)}
+              data-tracker-search-open=""
+            />
+          )}
+          <SearchPill
+            ref={field}
+            value={search}
+            onValueChange={onSearchChange}
+            placeholder={t('LABEL_TRACKER_SEARCH')}
+            onBlur={() => {
+              if (search === '') setSearchOpen(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || search !== '') return;
+              focusOpener.current = true;
+              setSearchOpen(false);
+            }}
+            className={clsx('w-full min-w-0 lg:min-w-56 lg:flex-1', !fieldShown && 'max-sm:hidden', 'max-sm:[&_input]:h-11')}
+          />
+        </>
       )}
       {tabs}
-      <SegmentedControl
-        aria-label="Tracker view"
-        value={view}
-        onValueChange={onViewChange}
-        items={[
-          { value: 'board', label: <span className="max-sm:sr-only">Board</span>, icon: <KanbanIcon size={16} /> },
-          { value: 'list', label: <span className="max-sm:sr-only">List</span>, icon: <RowsIcon size={16} /> },
-          { value: 'chart', label: <span className="max-sm:sr-only">Chart</span>, icon: <ChartLineIcon size={16} /> },
-        ]}
-      />
+      <ViewSwitch view={view} onViewChange={onViewChange} className="max-sm:hidden" />
       <div className="ml-auto flex items-center gap-2">{options}</div>
     </div>
   );
 }
+
+/** v32 FIX-UX: the phone's magnifier that opens the tracker's search. */
+const SEARCH_OPEN_LABEL = 'Search applications';
 
 /** The removable chips of the active filters, and "Clear all filters". */
 export function FilterChipsRow({ filters, onChange }: { filters: FilterState; onChange: (filters: FilterState) => void }) {

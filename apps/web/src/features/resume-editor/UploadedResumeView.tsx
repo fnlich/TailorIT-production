@@ -9,10 +9,13 @@ import { EditorBar } from '@/components/shell/EditorBar';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { DownloadSimpleIcon, SparkleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Spinner } from '@/components/ui/Spinner';
+import { aiUsedUpLimit, limitOfTaskError, useAiUsedUp, useLimitDialog } from '@/components/limits';
 import { userMessage } from '@/lib/api';
+import { usePublicConstants } from '@/lib/constants';
 import { useAiTask } from '@/lib/useAiTask';
 import { ResumeThumb } from '@/features/documents/resumes/ResumeThumb';
 import {
@@ -48,6 +51,19 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
   const [error, setError] = useState<string | null>(null);
   const task = useAiTask(taskId, { kind: 'resume_import' });
   const copyId = taskId && task.isSucceeded ? readImportResult(task.task?.result) : null;
+  // v32 FIX-UX (UXREQ-3, E4): a limit (today's AI use spent, the resume limit) is the limit alert, on the press when
+  // the header already says the AI use is spent, never a red line under the button.
+  const limits = useLimitDialog();
+  const usedUp = useAiUsedUp();
+  const { t } = usePublicConstants();
+  const taskLimit = taskId && task.isFailed ? limitOfTaskError(task.task?.error) : null;
+  const shownLimitFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!taskLimit || !taskId || shownLimitFor.current === taskId) return;
+    shownLimitFor.current = taskId;
+    limits.show(taskLimit);
+    setTaskId(null);
+  }, [taskLimit, taskId, limits]);
 
   const opened = useRef<string | null>(null);
   useEffect(() => {
@@ -58,19 +74,23 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
   }, [copyId, queryClient, router]);
 
   const makeCopy = async () => {
+    if (usedUp) {
+      limits.show(aiUsedUpLimit(t));
+      return;
+    }
     setStarting(true);
     setError(null);
     try {
       setTaskId(await startEditableCopy(resume.id));
     } catch (caught) {
-      setError(userMessage(caught, 'The editable copy could not start. Please try again.'));
+      if (!limits.show(caught)) setError(userMessage(caught, 'The editable copy could not start. Please try again.'));
     } finally {
       setStarting(false);
     }
   };
 
   const running = starting || (taskId !== null && task.isRunning) || copyId !== null;
-  const failure = error ?? (taskId && task.isFailed ? (task.errorMessage ?? 'The resume could not be read.') : null);
+  const failure = error ?? (taskId && task.isFailed && !taskLimit ? (task.errorMessage ?? 'The resume could not be read.') : null);
   const kind = resume.fileKind ? resume.fileKind.toUpperCase() : null;
 
   return (
@@ -96,17 +116,19 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
               <Badge>Uploaded</Badge>
               {kind && <Badge>{kind}</Badge>}
             </div>
-            <h1 className="page-title mt-3 [overflow-wrap:anywhere]">{title}</h1>
+            <div className="mt-3 flex items-center gap-2">
+              <h1 className="page-title [overflow-wrap:anywhere]">{title}</h1>
+              {/* v32 COPY (E5): why it can't be edited, in the "?". */}
+              <HelpTip label={title} side="bottom">
+                An upload is kept exactly as it is; to edit it, make an editable copy.
+              </HelpTip>
+            </div>
             {resume.file && (
               <p className="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
                 {resume.file.name} · {sizeText(resume.file.sizeBytes)}
                 {resume.file.pageCount ? ` · ${resume.file.pageCount} ${resume.file.pageCount === 1 ? 'page' : 'pages'}` : ''}
               </p>
             )}
-            <p className="mt-5 text-sm leading-6 text-foreground">
-              This resume is a file you uploaded, so it is kept exactly as it is. To change it here, make an editable copy: an
-              AI reads the file into a new resume you can edit, on any template.
-            </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Button onClick={() => void makeCopy()} disabled={running} icon={running ? <Spinner size={16} /> : <SparkleIcon size={16} weight="fill" />}>
                 {running ? 'Making an editable copy...' : 'Make an editable copy'}
@@ -133,6 +155,7 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
                 {failure}
               </Notice>
             )}
+            {limits.dialog}
           </div>
         </div>
         <ResumeAnalysisPanel resumeId={resume.id} />

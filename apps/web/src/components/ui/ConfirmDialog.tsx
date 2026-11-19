@@ -28,6 +28,13 @@ export interface ConfirmDialogProps {
   /** First focus on the confirm button, not the dialog's first control (a checkbox a Space press would tick). */
   focusConfirm?: boolean;
   /**
+   * v32 FIX-UX (UXREQ-12): first focus on Cancel, the safe answer: for a confirm that spends (AI, credit) or publishes
+   * to everyone, so a quick Enter never does it. Wins over `focusConfirm`.
+   */
+  focusCancel?: boolean;
+  /** v32 INT-2: the confirm button is off (nothing it could do yet: the question's subject is loading or refused). */
+  confirmDisabled?: boolean;
+  /**
    * Where focus goes when the dialog closes: the element to focus, or true for Base UI's default (the opener). Use it
    * when the opener can be gone or busy by then (a row whose action changed).
    */
@@ -50,10 +57,13 @@ export function ConfirmDialog({
   tone = 'destructive',
   onConfirm,
   focusConfirm = false,
+  focusCancel = false,
+  confirmDisabled = false,
   finalFocus,
 }: ConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   const confirm = async () => {
@@ -83,7 +93,7 @@ export function ConfirmDialog({
         <AlertDialog.Backdrop className={BACKDROP} />
         <AlertDialog.Viewport className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <AlertDialog.Popup
-            initialFocus={focusConfirm ? confirmRef : undefined}
+            initialFocus={focusCancel ? cancelRef : focusConfirm ? confirmRef : undefined}
             finalFocus={finalFocus}
             className={clsx(
               'w-full max-w-md rounded-popup border border-border bg-surface p-6 text-foreground shadow-dialog outline-none',
@@ -104,8 +114,10 @@ export function ConfirmDialog({
               </Notice>
             )}
             <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
-              <AlertDialog.Close render={<Button variant="outline" disabled={busy} />}>{cancelLabel}</AlertDialog.Close>
-              <Button ref={confirmRef} variant={variant} loading={busy} onClick={() => void confirm()}>
+              <AlertDialog.Close ref={cancelRef} render={<Button variant="outline" disabled={busy} />}>
+                {cancelLabel}
+              </AlertDialog.Close>
+              <Button ref={confirmRef} variant={variant} loading={busy} disabled={confirmDisabled} onClick={() => void confirm()}>
                 {busy && busyLabel ? busyLabel : confirmLabel}
               </Button>
             </div>

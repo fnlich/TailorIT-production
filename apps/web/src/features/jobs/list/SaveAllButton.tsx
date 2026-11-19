@@ -20,7 +20,7 @@ import {
 } from '../format';
 import { useSaveAll, useUndoSaveAll, type useJobsList } from '../hooks';
 import { BookmarksSimpleIcon } from '../icons';
-import { BAR_BUTTON } from './styles'; // v31 FIX-JOBS: the results bar's button look
+import { BAR_BUTTON, BAR_WORD } from './styles'; // v31 FIX-JOBS: the results bar's button look
 
 /** The success toast stays this long, so its Undo can be reached. */
 const UNDO_TOAST_MS = 10_000;
@@ -138,8 +138,8 @@ export function SaveAllButton({ query, list }: SaveAllButtonProps) {
           onClick={() => void start()}
           className={BAR_BUTTON}
         >
-          {pendingCount ? <Spinner size={14} /> : <BookmarksSimpleIcon size={15} />}
-          Save all
+          {pendingCount ? <Spinner size={14} /> : <BookmarksSimpleIcon size={15} aria-hidden="true" />}
+          <span className={BAR_WORD}>Save all</span>
         </button>
       </Tooltip>
       {copy && (

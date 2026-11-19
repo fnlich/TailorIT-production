@@ -131,9 +131,12 @@ export type AddJobResult = z.infer<typeof AddJobResultSchema>;
  * A job's verification, on the job DTOs (JobSummary.verification) for the person who sees a job others do not: absent
  * for a published job. `waiting_admin`: TailorIT read it, an admin's approval comes next; `private_unverified`: TailorIT
  * could not read it (`reason`), it is the viewer's own until it can.
+ *
+ * v32 ADMINAPP (E6): `admin_approved`, on a published job anyone sees: TailorIT could not read it, and an admin
+ * approved it as it was captured (`checkedAt`: when; who is the admins' to see, never sent here).
  */
 export const JobVerificationSchema = z.object({
-  state: z.enum(['waiting_admin', 'private_unverified']),
+  state: z.enum(['waiting_admin', 'private_unverified', 'admin_approved']),
   checkedAt: IsoDateTime.nullable(),
   reason: z.enum(JOB_VERIFY_REASONS).nullable(),
 });
@@ -199,11 +202,106 @@ export const UnverifiedLinkSchema = z.object({
   /** Accounts that keep their own job of this link. */
   adders: z.number().int().nonnegative(),
   attempts: z.number().int().nonnegative(),
+  /** v32 ADMINAPP (E6): the row's job as captured (its title and company), what an approval publishes. */
+  title: z.string().optional(),
+  companyName: z.string().optional(),
+  /** v32 FIX-API (SB-1): the row's job's place as captured (absent: none). */
+  location: z.string().optional(),
+  /**
+   * v32 FIX-API (SB-1): how many different versions of the job the link's adders captured: the admin reads them in full
+   * (GET /api/admin/jobs/unverified/:jobId) and picks the one an approval publishes.
+   */
+  versions: z.number().int().nonnegative().optional(),
+  /**
+   * v32 FIX-API (SB-4): the link's job was published by an approval that ran out (ADMIN_APPROVED_JOB_DAYS): it left
+   * search, and waits to be approved again, read again or rejected.
+   */
+  approvedBefore: z.boolean().optional(),
 });
 export type UnverifiedLink = z.infer<typeof UnverifiedLinkSchema>;
+
+/** v32 FIX-API (SB-1): the most versions of a link's job the detail shows (the first captured first). */
+export const UNVERIFIED_VERSIONS_MAX = 20;
+
+/**
+ * v32 FIX-API (SB-1, the coordinator's decision): one version of a link's job as its adders captured it, in full: what
+ * an approval of it publishes, word for word. `version` is its content hash: the approval sends it back and is refused
+ * (409) when the job changed since.
+ */
+export const UnverifiedVersionSchema = z.object({
+  /** The adder's job an approval of this version publishes. */
+  jobId: z.number().int(),
+  version: z.string(),
+  title: z.string(),
+  companyName: z.string(),
+  locations: z.array(z.string()),
+  /** The pay as captured ("$120k - $150k/yr", or as written); null when none. */
+  pay: z.string().nullable(),
+  /** The description as it is stored and would be shown (sanitised HTML; captured text is escaped). */
+  descriptionHtml: z.string(),
+  /** The Apply link an approval publishes: the link listed, in its shared form. */
+  applyUrl: z.string(),
+  /** Accounts that captured this very version. */
+  adders: z.number().int().positive(),
+  /** Only the viewing admin captured it: another admin approves it (an admin never publishes words they added). */
+  yours: z.boolean(),
+  /** Published before by an approval that ran out (SB-4): approving it publishes it again. */
+  published: z.boolean(),
+  addedAt: IsoDateTime,
+});
+export type UnverifiedVersion = z.infer<typeof UnverifiedVersionSchema>;
+
+/** v32 FIX-API (SB-1): GET /api/admin/jobs/unverified/:jobId, the row's link and every version of its job. */
+export const UnverifiedLinkDetailSchema = z.object({
+  url: z.string(),
+  host: z.string(),
+  reason: z.enum(JOB_VERIFY_REASONS),
+  versions: z.array(UnverifiedVersionSchema).max(UNVERIFIED_VERSIONS_MAX),
+  /** Versions past UNVERIFIED_VERSIONS_MAX, not shown. */
+  moreVersions: z.number().int().nonnegative(),
+});
+export type UnverifiedLinkDetail = z.infer<typeof UnverifiedLinkDetailSchema>;
+
+/** v32 FIX-API (SB-1): POST .../approve's body: the version the admin read (UnverifiedVersion.version). */
+export const UnverifiedApproveBodySchema = z.object({
+  version: z.string().regex(/^[0-9a-f]{64}$/, 'Open the job again to approve it.'),
+});
+export type UnverifiedApproveBody = z.infer<typeof UnverifiedApproveBodySchema>;
 
 export const UnverifiedLinksResponseSchema = z.object({
   items: z.array(UnverifiedLinkSchema),
   nextCursor: z.string().nullable(),
 });
 export type UnverifiedLinksResponse = z.infer<typeof UnverifiedLinksResponseSchema>;
+
+/**
+ * v32 ADMINAPP (E6, the owner's "admin should be able to approve manually"): POST
+ * /api/admin/jobs/unverified/:jobId/approve, an admin's approval of a link TailorIT could not read. The job is published
+ * as it was captured (its adder's browser or typed words: the admin types nothing), marked approved by the admin.
+ * `already`: it was approved before (the same answer again). v32 FIX-API (SB-1): the version the admin read
+ * (UnverifiedApproveBody), and only it; every other adder keeps their own job and is told a public version exists.
+ */
+export const UnverifiedApprovalSchema = z.object({
+  approved: z.literal(true),
+  /** The published job (the one approved, or the public job of the link the adders' jobs gave way to). */
+  jobId: z.number().int(),
+  /** The link, in its shared form. */
+  url: z.string().nullable(),
+  approvedAt: IsoDateTime,
+  already: z.boolean(),
+  /** The adders whose own job of the link is now the published one (each is told): v32 FIX-API, its one adder. */
+  adders: z.number().int().nonnegative(),
+});
+export type UnverifiedApproval = z.infer<typeof UnverifiedApprovalSchema>;
+
+/**
+ * v32 ADMINAPP (E6): POST /api/admin/reviews/:id/retry, Retry read of a new job waiting in Review › New jobs (an ATS's
+ * or a page's read, D12): TailorIT reads its link again now, so the admin approves its latest words. `read`: read again
+ * (the job keeps waiting, its words the new read's); `closed`: the posting is gone (Reject it); `unreadable`: why not.
+ */
+export const ReviewRetryReadSchema = z.object({
+  state: z.enum(['read', 'closed', 'unreadable']),
+  jobId: z.number().int(),
+  reason: z.enum(JOB_VERIFY_REASONS).nullable(),
+});
+export type ReviewRetryRead = z.infer<typeof ReviewRetryReadSchema>;

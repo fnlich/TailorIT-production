@@ -121,9 +121,8 @@ export function activeLine(
   const one = batch.counts.total === 1;
   if (paused && batch.counts.waiting > 0) return pauseText(paused, now, one, messages, timeZone);
   if (batch.counts.waiting === 0 && batch.counts.stopped > 0) return 'The copy being made now will finish; the rest were stopped.';
-  return one
-    ? 'This can take a minute. You can leave this page; it carries on.'
-    : 'They are made one at a time, so this can take a while. You can leave this page; they carry on.';
+  // v32 COPY (E5): one short sentence (it is the row's "?").
+  return one ? 'You can leave this page; it carries on.' : 'Made one at a time; you can leave this page.';
 }
 
 /** A time's calendar day, as a count of days (in the browser's time zone, or `timeZone`). */
@@ -232,7 +231,7 @@ export function finishedNotice(batch: CopyBatch): FinishedNotice {
     return {
       tone: 'success',
       title: `${total} editable copies are ready`,
-      body: 'Each one is a new resume you can edit, listed with your resumes. The uploaded files are kept as they are.',
+      body: 'Each is a new resume in your list; the uploads stay as they are.',
     };
   }
   const parts: string[] = [];

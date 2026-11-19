@@ -8,8 +8,9 @@ import {
   type AutofillKnownQuestion,
   type AutofillSubmittedAnswerValue,
 } from '@tailorit/shared/autofill';
-import { isActivePrepareState, PREPARE_ANSWER_BATCH, HOUR_MS, type AiTaskView } from '@tailorit/shared';
+import { isActivePrepareState, PREPARE_ANSWER_BATCH, HOUR_MS, UNLIMITED, type AiTaskView } from '@tailorit/shared';
 import { liveTasksOfPrepare } from '../../ai/queue';
+import { hourlyLimitOf } from '../../core/accounts/entitlements';
 import { constantsOf } from '../../core/constants/service';
 import { nowIso, type AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
@@ -58,8 +59,9 @@ import {
 
 // The server path of Prepare & Queue (docs/design/v2.0/05-prepare-flow.md, "The runner"): TailorIT's AI prepares
 // each `server` Prepare, one at a time per account (accounts side by side, oldest row first, RUNNER_PARALLEL at
-// most), paced by PREPARE_PER_HOUR (Prepares started per account in the last hour, from prepare_jobs.started_at: it
-// waits, it refuses nothing). For one Prepare:
+// most), paced by the plan's Prepares an hour (FREE_/PAID_PREPARE_PER_HOUR, v32 FIX-PLAN: Paid's unlimited by default;
+// Prepares started per account in the last hour, from prepare_jobs.started_at: it waits, it refuses nothing). For one
+// Prepare:
 //   a. `filtering`: the Custom filter, when it is on and the job has no fresh verdict: a batch of the account's waiting
 //      jobs (CUSTOM_FILTER_BATCH) judged in one `custom_filter` task (P4's judgeOnServer, charged). A fail: `filtered`.
 //   b. `analyzing`: the job read again by the AI when its analysis is older than the current version (A7: charged to
@@ -148,11 +150,16 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
   const taskError = (view: AiTaskView, fallback: string) =>
     view.error && REFUSALS.has(view.error.code) ? view.error.message : fallback;
 
-  /** How long until the account may start another Prepare (0: now), by PREPARE_PER_HOUR. */
+  /**
+   * How long until the account may start another Prepare (0: now), by the plan's Prepares an hour at this moment (v32
+   * FIX-PLAN, E12: FREE_/PAID_PREPARE_PER_HOUR; a Paid term that ended is paced as Free). UNLIMITED: never waits.
+   */
   async function hourWait(userId: string): Promise<number> {
+    const max = await hourlyLimitOf(deps, userId, 'preparesPerHour');
+    if (max === UNLIMITED) return 0;
     const nowMs = deps.now().getTime();
     const { n, first } = await serverStartsSince(db, userId, new Date(nowMs - HOUR_MS).toISOString());
-    if (n < constants().get('PREPARE_PER_HOUR')) return 0;
+    if (n < max) return 0;
     return Math.max(1000, (first ? Date.parse(first) : nowMs) + HOUR_MS - nowMs);
   }
 

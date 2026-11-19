@@ -1,4 +1,4 @@
-import { UNLIMITED } from '@tailorit/shared';
+import { UNLIMITED, aiUsePercent } from '@tailorit/shared';
 import { NOTIFICATION_UNREAD_COUNT_CAP, type HeaderSummary } from '@tailorit/shared/notifications';
 import { entitlementsFrom, overrideOf, type AccountRow } from '../../core/accounts/entitlements';
 import { dayKeyAt, nextDailyResetAt } from '../../core/constants/index';
@@ -14,6 +14,9 @@ import type { Reader } from './store';
 //
 // D9 shows the person their own day's use against their budget (v2.0 kept the budget from people; the owner asked for
 // the usage in the header). The budget constants stay out of the public subset: this answers the person's own numbers.
+// v32 ADMINAPP (E7, the owner's "user can't see daily usage limit exact value (only can see percent)"): a person's
+// answer carries the share only (`ai.percent`, aiUsePercent: as the header rounds it; null: no daily limit) and the
+// reset; the amounts (`usedMicros`, `budgetMicros`) go to an admin's own header alone. Extra usage keeps its amount.
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
@@ -44,11 +47,13 @@ export async function headerSummary(deps: Deps, reader: Reader): Promise<HeaderS
   const override = overrideOf(row.budget_override === null ? undefined : { value: row.budget_override });
   const entitlements = entitlementsFrom(deps, row, override);
   const budget = entitlements.aiDailyBudgetMicros;
+  const usedMicros = Math.max(0, row.daily_spent ?? 0);
+  const budgetMicros = budget === UNLIMITED ? null : budget;
   return {
     unread: row.unread,
     ai: {
-      usedMicros: Math.max(0, row.daily_spent ?? 0),
-      budgetMicros: budget === UNLIMITED ? null : budget,
+      ...(reader.admin ? { usedMicros, budgetMicros } : {}), // v32 ADMINAPP (E7): amounts for admins only
+      percent: aiUsePercent(usedMicros, budgetMicros),
       resetsAt: nextDailyResetAt(deps, now).toISOString(),
     },
     extraCredit: { balanceMicros: Math.max(0, row.credit ?? 0) },

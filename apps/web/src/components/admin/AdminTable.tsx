@@ -2,6 +2,7 @@
 
 import { clsx } from 'clsx';
 import { Fragment, type ReactNode } from 'react';
+import { HelpTip } from '../ui/HelpTip';
 import { Skeleton } from '../ui/Skeleton';
 
 // v30 ST0: the admin tabs' table, its loading rows and its heading row, moved unchanged from
@@ -130,12 +131,13 @@ export function TableSkeleton({ rows = 4 }: { rows?: number }) {
 }
 
 /** A tab's heading row: its h2 (a section heading, 18/24) and description on the left, actions on the right. */
+/** A tab's heading row: the h2, its description as a "?" beside it (v32 COPY, E5), the actions at the right. */
 export function SectionHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5">
         <h2 className="text-heading font-semibold text-foreground">{title}</h2>
-        {description && <p className="mt-1 max-w-3xl text-[13px] leading-5 text-muted-foreground">{description}</p>}
+        {description ? <HelpTip label={title}>{description}</HelpTip> : null}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>

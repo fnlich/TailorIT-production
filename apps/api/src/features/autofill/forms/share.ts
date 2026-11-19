@@ -38,10 +38,14 @@ export async function shareOwnJob(
     // A submission named by the job's id (the agent's, the panel's) has no page address: the job's own is its page.
     const shown = /^https:\/\//i.test(page.url) ? page : readPage(job.apply_url);
     if (shown.linkedIn || isRefusedPageHost(new URL(shown.url).hostname)) return false;
+    // v32 FIX-API (REV-SECBEH SB-2): the note names the job's own Apply link (what an approval would publish), never the
+    // submission page's address; a job whose Apply link is a site TailorIT never reads is not offered.
+    const own = readPage(job.apply_url);
+    if (own.linkedIn || !/^https:\/\//i.test(own.url) || isRefusedPageHost(new URL(own.url).hostname)) return false;
     const kept = await deps.db.one<{ reason: string }>('SELECT reason FROM job_verifications WHERE job_id = ?', [jobId]);
     if (!kept) {
       // A page job kept before v3.1 has no row yet: why its link was not read is not known, so "try again".
-      await noteUnverified(deps.db, { jobId, userId, url: shown.url, origin: 'applied', reason: 'unavailable' }, nowIso(deps));
+      await noteUnverified(deps.db, { jobId, userId, url: job.apply_url, origin: 'applied', reason: 'unavailable' }, nowIso(deps));
     }
     const row = await deps.db.one<{ reason: string; rejected: boolean }>(
       `SELECT v.reason, EXISTS (SELECT 1 FROM job_link_rejections r WHERE r.url_key = v.url_key) AS rejected

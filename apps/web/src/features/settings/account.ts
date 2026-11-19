@@ -10,12 +10,14 @@ import { formatDate } from '../../lib/format';
 
 export const ACCOUNT_COPY = {
   title: 'Account',
-  description: "Your plan, today's auto-applies, your resumes and your extra credit.",
+  description: 'Your plan, usage and extra credit.',
   type: 'Account type',
   free: 'Free',
   paid: 'Paid',
   paidUntil: (date: string) => `Paid until ${date}`,
   autoApplies: 'Auto-applies today',
+  /** v32 COPY (E7): today's AI use, as a share of the daily budget only. */
+  aiUse: 'AI use today',
   resumes: 'Resumes',
   resumesLabel: 'Resumes saved',
   resumesText: (count: number, limit: number) => `${count} of ${limit} resumes`,
@@ -28,7 +30,7 @@ export const ACCOUNT_COPY = {
   unlimited: 'Unlimited',
   // v30 INT-0 (audit B24): the usage meter's label, one copy (components/limits/copy.ts).
   resetsAt: LIMIT_COPY.resetsAt,
-  loadFailed: 'Your account could not be loaded',
+  loadFailed: "Your account didn't load",
   tryAgain: 'Try again',
 } as const;
 

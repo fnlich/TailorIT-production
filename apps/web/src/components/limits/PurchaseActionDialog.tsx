@@ -2,7 +2,7 @@
 
 // Relative, not '@/': the web tests draw these views.
 import { Button, buttonClasses } from '../ui/Button';
-import { Dialog, DialogClose, DialogContent, DialogFooter } from '../ui/Dialog';
+import { Dialog, DialogContent } from '../ui/Dialog';
 import { CopyIcon, EnvelopeIcon } from '../ui/icons';
 import { useToast } from '../ui/Toast';
 import { LIMIT_COPY } from './copy';
@@ -59,7 +59,10 @@ export function PurchaseActionBody({
   );
 }
 
-/** The panel inside the open dialog (its own component, so the toast is only asked for while it shows). */
+/**
+ * The panel inside the open dialog (its own component, so the toast is only asked for while it shows). v32 FIX-UX
+ * (UXREQ-14): no footer Close beside the dialog's own × (two buttons named "Close").
+ */
 function PurchaseActionPanel({ action, emailMissing }: { action: PurchaseAction; emailMissing: string }) {
   const toast = useToast();
   const copy = async (email: string) => {
@@ -71,14 +74,9 @@ function PurchaseActionPanel({ action, emailMissing }: { action: PurchaseAction;
     }
   };
   return (
-    <>
-      <div className="mt-4">
-        <PurchaseActionBody action={action} emailMissing={emailMissing} onCopyEmail={(email) => void copy(email)} />
-      </div>
-      <DialogFooter>
-        <DialogClose render={<Button variant="outline">{LIMIT_COPY.close}</Button>} />
-      </DialogFooter>
-    </>
+    <div className="mt-4">
+      <PurchaseActionBody action={action} emailMissing={emailMissing} onCopyEmail={(email) => void copy(email)} />
+    </div>
   );
 }
 
@@ -89,16 +87,18 @@ export function PurchaseActionDialog({
   title,
   action,
   emailMissing,
+  finalFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   action: PurchaseAction;
   emailMissing: string;
+  finalFocus?: () => HTMLElement | boolean | null;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={title} size="md">
+      <DialogContent title={title} size="md" finalFocus={finalFocus}>
         <PurchaseActionPanel action={action} emailMissing={emailMissing} />
       </DialogContent>
     </Dialog>

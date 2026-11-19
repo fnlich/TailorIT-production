@@ -1,6 +1,7 @@
 'use client';
 
 import { SAVED_JOB_FILTERS, type SavedJobFilter, type SavedJobItem } from '@tailorit/shared/prepare';
+import { ListChecksIcon } from '@phosphor-icons/react/ListChecks';
 import { useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import Link from 'next/link';
@@ -10,10 +11,8 @@ import { Button, buttonClasses } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { FilterPill } from '@/components/ui/FilterPill';
 import { IconButton } from '@/components/ui/IconButton';
 import { Menu, MenuContent, MenuItem, MenuLinkItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
-import { Notice } from '@/components/ui/Notice';
 import { Popover, PopoverClose, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/Popover';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -53,6 +52,8 @@ import {
 } from '../auto-apply/copy';
 import type { useSavedJobs } from '../auto-apply/data';
 import { Pane, ROW_ACTION, SelectBar, useReducedMotion, useRowFocus, useThrottled } from '../../components/queue';
+import { CountIconButton } from '../../components/ui/CountIconButton';
+import { PaneLoadFailed, PaneOutOfDate } from '../../components/queue/PaneStates';
 import { SupportIcon } from '../auto-apply/Pane';
 import { CompanyLogo } from '../tracker/CompanyLogo';
 import { invalidateApplications, trackerApi } from '../tracker/data';
@@ -71,6 +72,10 @@ import type { PrepareAndQueue } from './usePrepareAndQueue';
 // the filters (the server chooses them; usePrepareAndQueue's confirm says how many). In select mode the select bar
 // holds the pane's action, so Select and Prepare All step aside. A row's Prepare & Queue is an outline button: the
 // pane's one primary action is Prepare All (or the select bar's).
+// v32 LAYOUT (E10): Filters and Select are their icons alone (named "Filters, 2 on" and "Select", with tooltips; the
+// count of filters on is a small badge), so the toolbar sits on the line of All | To prepare | Filtered | Draft where the
+// pane has the room; Prepare All keeps its words. E4: a list that could not be read is the pane's own state, and one
+// that could not be refreshed a small "Out of date" mark beside the pane's title, not a banner.
 
 const MARKER_ICON: Record<MarkerIcon, ReactNode> = {
   check: <CheckIcon size={12} weight="bold" aria-hidden="true" />,
@@ -184,22 +189,28 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
         items={SAVED_JOB_FILTERS.map((value) => ({ value, label: savedFilterLabel(value, t) }))}
       />
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <FilterPill
-          label={FILTERS_LABEL}
-          icon={<FunnelIcon size={16} aria-hidden="true" />}
-          count={filtersOn ?? undefined}
-          aria-label={filtersButtonName(filtersOn)}
+        {/* v31 FIX-WEB (REV-UX UX-12): it opens a dialog, not a list (its funnel, no caret). */}
+        <CountIconButton
+          label={filtersButtonName(filtersOn)}
+          tooltip={FILTERS_LABEL}
+          icon={<FunnelIcon size={18} aria-hidden="true" />}
+          count={filtersOn}
           aria-haspopup="dialog"
-          caret={false} // v31 FIX-WEB (REV-UX UX-12): it opens a dialog, not a list
           onClick={prepare.openFilters}
-          className="max-sm:h-11"
           data-filters-button=""
         />
         {!selectMode && (
           <>
-            <Button variant="outline" className="max-sm:h-11" disabled={choosable.length === 0} onClick={startSelection} data-saved-select="">
-              Select
-            </Button>
+            <IconButton
+              label="Select"
+              tooltip="Select jobs"
+              variant="outline"
+              className="max-sm:size-11"
+              icon={<ListChecksIcon size={18} aria-hidden="true" />}
+              disabled={choosable.length === 0}
+              onClick={startSelection}
+              data-saved-select=""
+            />
             <Button
               className="max-sm:h-11"
               loading={prepare.allPending}
@@ -240,21 +251,7 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
 
   let body: ReactNode;
   if (saved.isError && !saved.data) {
-    body = (
-      <div className="p-4 sm:p-5">
-        <Notice
-          tone="error"
-          title="Your saved jobs could not be loaded"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void saved.refetch()}>
-              Try again
-            </Button>
-          }
-        >
-          {userMessage(saved.error)}
-        </Notice>
-      </div>
-    );
+    body = <PaneLoadFailed title="Your saved jobs didn't load." message={userMessage(saved.error)} onRetry={() => void saved.refetch()} />;
   } else if (shown === null) {
     body = (
       <ul aria-busy="true" aria-label="Loading your saved jobs" className="divide-y divide-divider-soft">
@@ -290,20 +287,6 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
   } else {
     body = (
       <>
-        {saved.isError && (
-          <Notice
-            tone="warning"
-            className="mx-4 mt-3 sm:mx-5"
-            title="Your saved jobs could not be refreshed"
-            action={
-              <Button variant="outline" size="sm" onClick={() => void saved.refetch()}>
-                Try again
-              </Button>
-            }
-          >
-            What is shown may be out of date.
-          </Notice>
-        )}
         <ul aria-label="Saved jobs" aria-busy={saved.isFetching && saved.isPlaceholderData ? true : undefined} className="divide-y divide-divider-soft">
           {shown.map(({ item, leaving }) => (
             <SavedRow
@@ -350,6 +333,7 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
         title="Saved jobs"
         count={count === null ? null : count}
         controls={controls}
+        status={saved.isError && saved.data ? <PaneOutOfDate onRetry={() => void saved.refetch()} /> : undefined}
         scroll={scroll}
         footer={footer}
       >

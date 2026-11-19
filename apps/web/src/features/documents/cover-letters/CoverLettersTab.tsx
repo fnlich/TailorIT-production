@@ -187,7 +187,7 @@ export function CoverLettersTab() {
           query.isError ? (
             <Notice
               tone="error"
-              title="Could not load your cover letters"
+              title="Your cover letters didn't load."
               action={
                 <Button variant="outline" size="sm" loading={query.isFetching} onClick={() => void query.refetch()}>
                   Try again

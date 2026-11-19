@@ -17,9 +17,8 @@ import { resumeEditRouteHref } from '../../resume-editor/api';
  */
 
 export const UPLOAD_EDIT_TITLE = 'Edit an uploaded resume';
-export const UPLOAD_EDIT_TEXT =
-  "Editing an uploaded resume needs an editable copy. TailorIT's AI reads your file to make it, which can take a little " +
-  'while. Continue?';
+// v32 COPY (E5): one short sentence and the question (it was the owner's longer wording in v1.5).
+export const UPLOAD_EDIT_TEXT = 'Editing an upload needs an editable copy, which AI makes from your file. Continue?';
 export const UPLOAD_EDIT_DONT_SHOW = "Don't show this again";
 
 /** The remembered "Don't show this again", one per account (another account in the same browser is asked). */

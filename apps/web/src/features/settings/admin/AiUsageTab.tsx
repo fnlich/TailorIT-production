@@ -71,7 +71,7 @@ export function AiUsageTab() {
     <AdminResourceTab
       sectionProps={{ 'data-ai-usage': true }}
       title="AI usage"
-      description="Tokens each AI task used, as the Claude CLI reports them. Cache read is the part of a prompt read from Claude's prompt cache, at a tenth of the price; From cache counts the answers TailorIT gave from its own cache, with no call. The API price is what the calls would cost on the API; the subscription is not billed per call."
+      description="Tokens per AI task, as the Claude CLI reports them; API price is what the calls would cost on the API."
       actions={<SegmentedControl aria-label="Period" size="sm" items={WINDOW_ITEMS} value={days} onValueChange={setDays} />}
       items={items}
       error={usage.error}

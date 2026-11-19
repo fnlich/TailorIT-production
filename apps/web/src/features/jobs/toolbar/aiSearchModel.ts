@@ -34,6 +34,10 @@ export const AI_SEARCH_COPY = {
   editFilters: 'Edit filters',
   dismiss: 'Dismiss the AI search summary',
   failed: 'The AI search did not work',
+  // v32 JOBS2 (E4, E5): a sentence the AI answered unreadably; the summary's "?" (how the AI read the sentence). The
+  // Paid-only alert is the kit's (v32 INT-1: LockedFeatureDialog, its title LIMIT_TITLES.paid_feature).
+  unreadable: 'Try other words.',
+  summaryTip: 'AI search',
 } as const;
 
 /** POST /api/jobs/ai-search: 202 {taskId}; the page follows the task (GET /api/ai/tasks/:id). */

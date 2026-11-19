@@ -22,10 +22,7 @@ import { Section } from '../Section';
 import { answerSummary, filterAnswers, platformName, scopeLabel } from './answers';
 import { EditAnswerDialog } from './EditAnswerDialog';
 
-const DESCRIPTION =
-  'When you fix or fill a question the extension flagged, it can save your answer and give it the next time a form ' +
-  'asks the same question with the same choices. Self-identification, legal, pay and consent questions are never ' +
-  'saved: those come from your profile, or from you on each form.';
+const DESCRIPTION = 'Answers the extension reuses when a form asks the same question.';
 
 /** Past this many answers the list gets a search box. */
 const SEARCH_FROM = 6;
@@ -72,7 +69,7 @@ export function AnswersTab() {
         {answers.isError ? (
           <Notice
             tone="error"
-            title="Your saved answers could not be loaded"
+            title="Your saved answers didn't load."
             action={
               <Button variant="outline" size="sm" onClick={() => void answers.refetch()}>
                 Try again
@@ -90,7 +87,7 @@ export function AnswersTab() {
           <EmptyState
             icon={<ChatsIcon size={24} />}
             title="No saved answers yet"
-            description="When the extension flags a question and you answer it on the form, it offers to save your answer here."
+            description="Answer a flagged question on a form to save it here."
             variant="dashed"
             size="md"
           />
@@ -141,7 +138,7 @@ export function AnswersTab() {
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Delete this saved answer?"
-        description="The extension stops giving it, and leaves this question for you on the next form that asks it."
+        description="The extension will leave this question for you."
         confirmLabel="Delete"
         busyLabel="Deleting..."
         onConfirm={async () => {

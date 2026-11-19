@@ -6,6 +6,7 @@ import { clsx } from 'clsx';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, buttonClasses, type ButtonVariant } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CheckCircleIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Spinner } from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
@@ -41,15 +42,15 @@ const FAILED: Record<CopyAction, string> = {
 };
 
 /**
- * The colours of the kit's Notice (a soft tone, its ink, a 3 px bar of the full tone): info while copies are made,
- * warning while they wait for a pause, then how it ended.
+ * v32 COPY (E4): the icon's colour is the only tone (no coloured banner): info while copies are made, warning while they
+ * wait for a pause, then how it ended.
  */
-const BOX_TONES: Record<'making' | 'paused' | FinishedNotice['tone'], string> = {
-  making: 'border-info bg-info-soft text-info-ink',
-  paused: 'border-warning bg-warning-soft text-warning-ink',
-  success: 'border-success bg-success-soft text-success-ink',
-  warning: 'border-warning bg-warning-soft text-warning-ink',
-  error: 'border-danger bg-danger-soft text-danger-ink',
+const ICON_TONES: Record<'making' | 'paused' | FinishedNotice['tone'], string> = {
+  making: 'text-info',
+  paused: 'text-warning',
+  success: 'text-success',
+  warning: 'text-warning',
+  error: 'text-danger',
 };
 
 /**
@@ -93,35 +94,43 @@ export function EditableCopiesNotices() {
 }
 
 /**
- * A notice box like the kit's Notice, but only its sentences are a live region: the buttons and the details list sit
- * outside it, so a row that changes or a list shown is not read out again with the whole box.
+ * A compact status row (v32 COPY, E4: never a coloured banner): the icon in its tone, the title, the rest in a "?"
+ * beside it, then the buttons; the details list under it. Only the title and its sentence are a live region (the
+ * sentence for screen readers only): the buttons and the details list sit outside it, so a row that changes or a list
+ * shown is not read out again with the whole box.
  */
 function CopyBox({
   batchId,
   tone,
   icon,
   live,
-  sentences,
-  controls,
+  title,
+  body,
+  buttons,
+  list,
 }: {
   batchId: string;
-  tone: keyof typeof BOX_TONES;
+  tone: keyof typeof ICON_TONES;
   icon: ReactNode;
   live: 'status' | 'alert';
-  sentences: ReactNode;
-  /** The buttons and the details list. */
-  controls: ReactNode;
+  title: string;
+  body: ReactNode;
+  buttons: ReactNode;
+  list: ReactNode;
 }) {
   return (
-    <div data-copy-batch={batchId} className={clsx('flex items-start gap-2.5 rounded-control border-l-[3px] px-3.5 py-3 text-sm leading-5', BOX_TONES[tone])}>
-      {icon}
-      <div className="min-w-0 flex-1 break-words">
+    <div data-copy-batch={batchId} className="flex flex-col gap-2 rounded-card border border-border bg-surface-low px-3.5 py-2.5 text-sm leading-5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span className={clsx('flex shrink-0', ICON_TONES[tone])}>{icon}</span>
         {/* A new node when it turns into an alert, as an alert is announced when it appears. */}
-        <div key={live} role={live}>
-          {sentences}
+        <div key={live} role={live} className="min-w-0 font-medium break-words text-foreground">
+          {title}
+          <span className="sr-only"> {body}</span>
         </div>
-        {controls}
+        <HelpTip label={title}>{body}</HelpTip>
+        {buttons ? <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{buttons}</div> : null}
       </div>
+      {list}
     </div>
   );
 }
@@ -169,12 +178,6 @@ function CopyBatchNotice({ batch, paused, now }: { batch: CopyBatch; paused: Res
     </Button>
   );
   const list = details && !one ? <CopyList items={batch.items} /> : null;
-  const below = (buttons: ReactNode) => (
-    <>
-      <div className="flex flex-wrap gap-2">{buttons}</div>
-      {list}
-    </>
-  );
 
   if (batch.active) {
     const waits = batch.counts.waiting > 0;
@@ -182,32 +185,21 @@ function CopyBatchNotice({ batch, paused, now }: { batch: CopyBatch; paused: Res
       <CopyBox
         batchId={batch.batchId}
         tone={paused && waits ? 'paused' : 'making'}
-        icon={
-          <span className="mt-0.5 flex shrink-0">
-            <Spinner size={16} />
-          </span>
-        }
+        icon={<Spinner size={16} />}
         live="status"
-        sentences={
-          <>
-            <p className="font-semibold">{activeTitle(batch)}</p>
-            <p className="mt-0.5">{activeLine(batch, paused, now, pauseMessagesOf(t))}</p>
-          </>
-        }
-        controls={
+        title={activeTitle(batch)}
+        body={activeLine(batch, paused, now, pauseMessagesOf(t))}
+        buttons={
           (waits || detailsButton) && (
-            <div className="mt-2">
-              {below(
-                <>
-                  {/* v2.0 fix (REQ-2): the used-up usage's way forward, as MSG_AI_USAGE_EXHAUSTED says it. */}
-                  {waits && paused && pauseIsUsage(paused) && <LimitActions limit={{ subscribe: false, buyCredit: true }} />}
-                  {waits && actionButton('stop', stopCopiesText(batch))}
-                  {detailsButton}
-                </>,
-              )}
-            </div>
+            <>
+              {/* v2.0 fix (REQ-2): the used-up usage's way forward, as MSG_AI_USAGE_EXHAUSTED says it. */}
+              {waits && paused && pauseIsUsage(paused) && <LimitActions limit={{ subscribe: false, buyCredit: true }} />}
+              {waits && actionButton('stop', stopCopiesText(batch))}
+              {detailsButton}
+            </>
           )
         }
+        list={list}
       />
     );
   }
@@ -218,35 +210,24 @@ function CopyBatchNotice({ batch, paused, now }: { batch: CopyBatch; paused: Res
     <CopyBox
       batchId={batch.batchId}
       tone={notice.tone}
-      icon={
-        <span className="mt-px flex shrink-0">
-          {notice.tone === 'success' ? <CheckCircleIcon size={18} weight="fill" /> : <WarningCircleIcon size={18} weight="fill" />}
-        </span>
-      }
+      icon={notice.tone === 'success' ? <CheckCircleIcon size={18} weight="fill" /> : <WarningCircleIcon size={18} weight="fill" />}
       // As the kit's Notice: a success is said politely, a warning or an error at once.
       live={notice.tone === 'success' ? 'status' : 'alert'}
-      sentences={
+      title={notice.title}
+      body={notice.body}
+      buttons={
         <>
-          <p className="font-semibold">{notice.title}</p>
-          <div className="mt-0.5">{notice.body}</div>
+          {only?.state === 'ready' && only.resumeId && (
+            <Link key="open" href={resumeEditorHref(only.resumeId)} className={buttonClasses({ size: 'sm' })}>
+              Open the resume
+            </Link>
+          )}
+          {batch.counts.retryable > 0 && actionButton('retry', retryCopiesText(batch))}
+          {detailsButton}
+          {actionButton('dismiss', 'Dismiss', 'ghost')}
         </>
       }
-      controls={
-        <div className="mt-2">
-          {below(
-            <>
-              {only?.state === 'ready' && only.resumeId && (
-                <Link key="open" href={resumeEditorHref(only.resumeId)} className={buttonClasses({ size: 'sm' })}>
-                  Open the resume
-                </Link>
-              )}
-              {batch.counts.retryable > 0 && actionButton('retry', retryCopiesText(batch))}
-              {detailsButton}
-              {actionButton('dismiss', 'Dismiss', 'ghost')}
-            </>,
-          )}
-        </div>
-      }
+      list={list}
     />
   );
 }

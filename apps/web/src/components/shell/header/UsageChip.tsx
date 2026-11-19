@@ -2,7 +2,6 @@
 
 import { GaugeIcon } from '@phosphor-icons/react/Gauge';
 import { resetText as resetTextOf } from '@tailorit/shared/constants';
-import type { HeaderSummary } from '@tailorit/shared/notifications';
 import { clsx } from 'clsx';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
@@ -14,35 +13,38 @@ import { useNow } from '../../../lib/useNow';
 import { BuyCreditDialog } from '../../limits/BuyCreditDialog';
 import { SubscribeDialog } from '../../limits/SubscribeDialog';
 import { Badge } from '../../ui/Badge';
-import { ArrowRightIcon } from '../../ui/icons';
+import { ArrowRightIcon, WarningCircleIcon } from '../../ui/icons';
 import { Button, buttonClasses } from '../../ui/Button';
-import { Notice } from '../../ui/Notice';
 import { Popover, PopoverContent, PopoverTrigger } from '../../ui/Popover';
 import { Skeleton } from '../../ui/Skeleton';
 import { TapeMeter } from '../../ui/TapeMeter';
 import { useHeaderSummary } from './api';
 import { USAGE_COPY } from './copy';
+import { HelpTip } from '../../ui/HelpTip';
 import { useHeaderPreview } from './preview';
-import { resetLine, usageView, type UsageView } from './view';
+import { TEXT_TONE, TRIGGER_TONE, useHeaderTone, type HeaderTone } from './tone';
+import { resetLine, usageView, type UsageSummary, type UsageView } from './view';
 
 // v3.1 HEADER (D9; docs/design/v3.1/24-notifications-usage.md §6, §8; 20-visual-identity.md "Header slots"): the top
-// bar's usage chip. Today's AI use against the person's daily budget as a small tape meter (amber from
-// AI_USE_WARNING_PERCENT, red once the budget is used), the share used (v31 FIX-WEB: at every width) and, from 640 px,
-// "Extra usage $x.xx" (the extra credit left). Its popover says the plan, the money, when the day resets, today's auto-applies, and offers
-// Subscribe (Free), Buy credit and Settings › Account. The numbers come from GET /api/me/header (read every 60 s
-// while the page is shown); the auto-applies from GET /api/account when the popover opens.
+// bar's usage chip. Today's AI use against the person's daily limit as a small tape meter (amber from
+// AI_USE_WARNING_PERCENT, red once the limit is used), the share used (v31 FIX-WEB: at every width) and, from 640 px,
+// "Extra usage $x.xx" (the extra credit left). Its popover says the plan, today's share, when the day resets, the
+// extra usage, today's auto-applies, and offers Subscribe (Free), Buy credit and Settings › Account. v32 SHELL (E7):
+// today's use is a share only, never an amount of the daily limit (the API sends a non-admin no amount); extra usage
+// keeps its amount. The numbers come from GET /api/me/header (read every 60 s while the page is shown); the
+// auto-applies from GET /api/account when the popover opens.
 
 /** Settings › Account. */
 export const ACCOUNT_SETTINGS_HREF = '/settings#account';
 
 type Dialog = 'credit' | 'subscribe' | null;
 
-/** Where the chip's extra usage words start: 640 px (the top bar), 1280 or 1536 px (the editors' bar). */
+/** Where the chip's extra usage words start: 640 px (the header bar), 1280 or 1536 px (the editors' bar). */
 export type ExtraFrom = 'sm' | 'xl' | '2xl';
 const EXTRA_HIDDEN: Record<ExtraFrom, string> = { sm: 'max-sm:hidden', xl: 'max-xl:hidden', '2xl': 'max-2xl:hidden' };
 
 /**
- * The chip. `extraFrom` (v31 FIX-WEB, REV-REQ REQ-4) is where the extra usage words start: 640 px on the top bar; 1280
+ * The chip. `extraFrom` (v31 FIX-WEB, REV-REQ REQ-4) is where the extra usage words start: 640 px on the header bar; 1280
  * or 1536 px on the editors' bar, whose actions need the room. The meter and the share show at every width.
  */
 export function UsageChip({ extraFrom = 'sm' }: { extraFrom?: ExtraFrom } = {}) {
@@ -89,15 +91,16 @@ function LiveUsageChip({ extraFrom }: { extraFrom: ExtraFrom }) {
 }
 
 function ChipSkeleton() {
+  const tone = useHeaderTone();
   return (
     <span className="flex h-9 items-center px-2" aria-hidden="true" data-header-usage="loading">
-      <Skeleton className="h-1.5 w-10 sm:w-16" rounded="full" />
+      <Skeleton className={clsx('h-1.5 w-10 sm:w-16', tone === 'dark' && 'opacity-30')} rounded="full" />
     </span>
   );
 }
 
 export interface UsageChipFrameProps {
-  summary: HeaderSummary;
+  summary: UsageSummary;
   warningPercent: number;
   /** "12:00 AM Pacific Time". */
   resetText: string;
@@ -111,6 +114,7 @@ export interface UsageChipFrameProps {
 /** The chip and its popover for one summary. */
 export function UsageChipFrame({ summary, warningPercent, resetText, autoApply, onDialog, extraFrom = 'sm' }: UsageChipFrameProps) {
   const [open, setOpen] = useState(false);
+  const tone = useHeaderTone();
   const view = usageView(summary, warningPercent);
   const ask = (dialog: Exclude<Dialog, null>) => {
     setOpen(false);
@@ -121,12 +125,9 @@ export function UsageChipFrame({ summary, warningPercent, resetText, autoApply, 
       <PopoverTrigger
         aria-label={view.triggerLabel}
         data-header-usage={view.tone}
-        className={clsx(
-          'flex h-9 shrink-0 items-center gap-2 rounded-control px-2 text-foreground transition-colors duration-150',
-          'hover:bg-hover data-popup-open:bg-hover',
-        )}
+        className={clsx('flex h-9 shrink-0 items-center gap-2 rounded-control px-2 transition-colors duration-150', TRIGGER_TONE[tone])}
       >
-        <UsageChipFace view={view} extraFrom={extraFrom} />
+        <UsageChipFace view={view} extraFrom={extraFrom} tone={tone} />
       </PopoverTrigger>
       <PopoverContent align="end" aria-label={USAGE_COPY.popoverLabel} className="w-[min(23rem,calc(100vw-1rem))]">
         {open && <UsagePanel view={view} summary={summary} resetText={resetText} autoApply={autoApply} onDialog={ask} onClose={() => setOpen(false)} />}
@@ -138,29 +139,37 @@ export function UsageChipFrame({ summary, warningPercent, resetText, autoApply, 
 /**
  * What the trigger draws: the meter and the share, then from 640 px the extra usage. Its name says it all. v31 FIX-WEB
  * (REV-UX UX-14): the share at every width, so on a phone the bar is never a lone grey strip (at 0 % it read as a
- * loading skeleton).
+ * loading skeleton). On the dark header bar the words take its colours and the meter's track is a lighter band.
  */
-export function UsageChipFace({ view, extraFrom = 'sm' }: { view: UsageView; extraFrom?: ExtraFrom }) {
+export function UsageChipFace({ view, extraFrom = 'sm', tone = 'light' }: { view: UsageView; extraFrom?: ExtraFrom; tone?: HeaderTone }) {
   const wide = EXTRA_HIDDEN[extraFrom];
+  const words = TEXT_TONE[tone];
   // On the editors' bar (its extra usage words later) a phone shows the share alone: the document's name needs the room.
   const meter = extraFrom === 'sm' ? 'flex' : 'flex max-sm:hidden';
   return (
     <>
       {view.kind === 'budget' ? (
-        <span aria-hidden="true" className={clsx(meter, 'w-8 items-center sm:w-14')}>
+        <span
+          aria-hidden="true"
+          className={clsx(
+            meter,
+            'w-8 items-center sm:w-14',
+            tone === 'dark' && '[&_[role=meter]]:bg-sidebar-active [&_[role=meter]]:ring-sidebar-border',
+          )}
+        >
           <TapeMeter label={USAGE_COPY.meterLabel} value={view.percent} tone={view.tone} size="sm" layout="inline" showValue={false} className="w-full" />
         </span>
       ) : (
-        <GaugeIcon size={20} aria-hidden="true" className="text-muted-foreground" />
+        <GaugeIcon size={20} aria-hidden="true" className={words.quiet} />
       )}
-      <span className="num text-xs leading-4 text-foreground" data-usage-value="">
-        {view.kind === 'budget' ? view.percentText : view.valueText}
+      <span className={clsx('num text-xs leading-4', words.strong)} data-usage-value="">
+        {view.kind === 'budget' ? view.percentText : USAGE_COPY.unlimitedShort}
       </span>
       {/* The spaces keep the drawn words apart as the name says them (WCAG 2.5.3: "42% Extra usage $1.50"); a flex
           row draws none of them. */}{' '}
-      <span aria-hidden="true" className={clsx('h-4 w-px bg-border', wide)} />{' '}
-      <span className={clsx('text-xs leading-4 whitespace-nowrap text-muted-foreground', wide)} data-usage-extra="">
-        {USAGE_COPY.extraTitle} <span className="num text-foreground">{view.extraAmount}</span>
+      <span aria-hidden="true" className={clsx('h-4 w-px', words.rule, wide)} />{' '}
+      <span className={clsx('text-xs leading-4 whitespace-nowrap', words.quiet, wide)} data-usage-extra="">
+        {USAGE_COPY.extraTitle} <span className={clsx('num', words.strong)}>{view.extraAmount}</span>
       </span>
     </>
   );
@@ -168,7 +177,7 @@ export function UsageChipFace({ view, extraFrom = 'sm' }: { view: UsageView; ext
 
 export interface UsagePanelProps {
   view: UsageView;
-  summary: HeaderSummary;
+  summary: UsageSummary;
   resetText: string;
   autoApply: ReactNode;
   onDialog: (dialog: Exclude<Dialog, null>) => void;
@@ -184,9 +193,12 @@ export function UsagePanel({ view, summary, resetText, autoApply, onDialog, onCl
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-[15px] leading-5 font-semibold text-foreground">{USAGE_COPY.title}</h2>
         <span className="flex shrink-0 flex-col items-end gap-0.5">
-          <Badge tone={free ? 'neutral' : 'tint'} data-plan={summary.plan}>
-            {view.planLabel}
-          </Badge>
+          <span className="flex items-center gap-1">
+            {free && <HelpTip label={USAGE_COPY.freePlan}>{USAGE_COPY.freeLine}</HelpTip>}
+            <Badge tone={free ? 'neutral' : 'tint'} data-plan={summary.plan}>
+              {view.planLabel}
+            </Badge>
+          </span>
           {view.planUntil && <span className="text-xs leading-4 text-muted-foreground">{view.planUntil}</span>}
         </span>
       </div>
@@ -194,25 +206,26 @@ export function UsagePanel({ view, summary, resetText, autoApply, onDialog, onCl
         {view.kind === 'budget' ? (
           <TapeMeter label={USAGE_COPY.meterLabel} value={view.percent} valueText={view.valueText} tone={view.tone} />
         ) : (
-          <p className="flex items-baseline justify-between gap-3 text-sm">
-            <span className="text-muted-foreground">{USAGE_COPY.unlimited}</span>
-            <span className="num text-foreground">{view.valueText}</span>
+          <p className="text-sm text-foreground" data-usage-unlimited="">
+            {USAGE_COPY.unlimited}
           </p>
         )}
         <p className="text-xs leading-4 text-muted-foreground" data-usage-reset="">
           {resetLine(summary.ai.resetsAt, now, resetText)}
         </p>
       </div>
-      {view.waiting ? (
-        <Notice tone="warning">{USAGE_COPY.waiting}</Notice>
-      ) : view.reached ? (
-        <Notice tone="info">{USAGE_COPY.reached}</Notice>
-      ) : null}
+      {view.reached && (
+        // v32 SHELL (E4, E5): a short state line, not a notice box: what happens now that the limit is used.
+        <p className="flex items-center gap-1.5 text-[13px] leading-5 text-foreground" data-usage-state={view.waiting ? 'waiting' : 'reached'}>
+          <WarningCircleIcon size={16} weight="fill" aria-hidden="true" className={view.waiting ? 'shrink-0 text-danger' : 'shrink-0 text-warning'} />
+          {view.waiting ? USAGE_COPY.waiting : USAGE_COPY.reached}
+        </p>
+      )}
       <dl className="flex flex-col divide-y divide-divider-soft border-y border-divider-soft">
-        <div className="flex items-start justify-between gap-4 py-2.5">
-          <dt className="flex flex-col">
+        <div className="flex items-center justify-between gap-4 py-2.5">
+          <dt className="flex items-center gap-1">
             <span className="text-sm font-medium text-foreground">{USAGE_COPY.extraTitle}</span>
-            <span className="text-xs leading-4 text-muted-foreground">{USAGE_COPY.extraHint}</span>
+            <HelpTip label={USAGE_COPY.extraTitle}>{USAGE_COPY.extraHint}</HelpTip>
           </dt>
           <dd className="num text-sm text-foreground" data-usage-credit="">
             {view.extraAmount}
@@ -223,7 +236,6 @@ export function UsagePanel({ view, summary, resetText, autoApply, onDialog, onCl
           <dd className="flex min-w-0 flex-1 justify-end">{autoApply}</dd>
         </div>
       </dl>
-      {free && <p className="text-[13px] leading-5 text-muted-foreground">{USAGE_COPY.freeLine}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {free && (
           <Button size="sm" onClick={() => onDialog('subscribe')} className="max-sm:min-h-11">

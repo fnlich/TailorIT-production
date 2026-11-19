@@ -50,6 +50,10 @@ export interface Entitlements {
   mcp: boolean;
   /** FREE_/PAID_BATCH_DOWNLOAD (v20 P10, A28). */
   batchDownload: boolean;
+  /** FREE_/PAID_TAILOR_PER_HOUR (v32 FIX-PLAN, E12): tailorings started an hour; UNLIMITED is never counted. */
+  tailorsPerHour: Limit;
+  /** FREE_/PAID_PREPARE_PER_HOUR (v32 FIX-PLAN, E12): server Prepares started an hour; UNLIMITED never waits. */
+  preparesPerHour: Limit;
 }
 
 /** Whole micro-dollars, never below 0. */
@@ -287,3 +291,26 @@ export const AdminAccountHistorySchema = z.object({
   nextCursor: z.string().optional(),
 });
 export type AdminAccountHistory = z.infer<typeof AdminAccountHistorySchema>;
+
+// v32 ADMINAPP (E7): people see their day's AI use only as a share of their daily budget, never its amounts. The API
+// sends this share (GET /api/me/header, GET /api/prepare/all) and the raw micro-dollars to admins only; the web draws
+// the share as sent. One rounding for every place that shows it.
+
+/** A micro-dollar amount in whole cents, as the header rounds what was used ($1 = 100 cents = 1,000,000 micros). */
+const centsOfMicros = (micros: number) => Math.max(0, Math.round(micros / 10_000));
+
+/**
+ * Today's AI use as a whole percent of the day's budget, the way the header shows it: 100 only once the budget is used
+ * (just under it stays at 99), else the share of the amounts in whole cents ($0.06 of $0.10 is 60%); 0 for a budget
+ * under a cent that is not used yet. Null for no daily limit (an UNLIMITED budget).
+ */
+export function aiUsePercent(usedMicros: number, budgetMicros: number | null): number | null {
+  if (budgetMicros === null) return null;
+  if (usedMicros >= budgetMicros) return 100;
+  const budgetCents = centsOfMicros(budgetMicros);
+  return budgetCents > 0 ? Math.min(99, Math.round((centsOfMicros(usedMicros) / budgetCents) * 100)) : 0;
+}
+
+/** A share of the day's AI budget as sent to people: a whole percent, 0 to 100; null: no daily limit. */
+export const AiUsePercentSchema = z.number().int().min(0).max(100).nullable();
+// end v32 ADMINAPP

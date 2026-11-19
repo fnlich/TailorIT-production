@@ -508,8 +508,12 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
       [jobId, source.id],
     );
     // v31 FIX-LINK (SEC-1): a page an add read rewrites only a job no other source read (its own, or one stored from a
-    // row or a browser's text: ROW_SOURCE_KINDS); any other job it only fills where that job is empty.
-    if (isAddedPageSource(source)) return kinds.every((row) => (ROW_SOURCE_KINDS as readonly string[]).includes(row.kind));
+    // row or a browser's text: ROW_SOURCE_KINDS); any other job it only fills where that job is empty. v32 FIX-API
+    // (REV-SECBEH SB-4): a person's captured page (`page`) is a browser's text too: a job an admin approved as captured
+    // (the only shared job with such a link, and keys a read can find it by) is rewritten by TailorIT's read of its page.
+    if (isAddedPageSource(source)) {
+      return kinds.every((row) => (ROW_SOURCE_KINDS as readonly string[]).includes(row.kind) || row.kind === 'page');
+    }
     const others = kinds.map((row) => SOURCE_PRECEDENCE[row.kind] ?? 0);
     return others.length === 0 || SOURCE_PRECEDENCE[source.kind] >= Math.max(...others);
   }

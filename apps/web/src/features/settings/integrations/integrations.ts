@@ -36,7 +36,7 @@ export function integrationsHref(tab: IntegrationsTab): string {
 
 export const PAGE_COPY = {
   title: 'Integrations',
-  description: `Connect ${APP_NAME} to your AI assistant and, soon, to the other apps you use.`,
+  description: `Connect ${APP_NAME} to your AI assistant and other apps.`,
   tabsLabel: 'Integrations',
 } as const;
 
@@ -55,28 +55,28 @@ export const AI_CLIENTS: readonly AiClient[] = [
   {
     kind: 'claude',
     name: knownClientName('claude') ?? 'Claude',
-    summary: `Use ${APP_NAME} in Claude on the web, the desktop app and your phone. Claude opens with ${APP_NAME} filled in.`,
+    summary: `Use ${APP_NAME} in Claude on web, desktop and phone.`,
   },
   {
     kind: 'chatgpt',
     name: knownClientName('chatgpt') ?? 'ChatGPT',
-    summary: `Use ${APP_NAME} in ChatGPT. You paste ${APP_NAME}'s address into ChatGPT once.`,
+    summary: `Use ${APP_NAME} in ChatGPT.`,
   },
 ];
 
 export const AI_COPY = {
   serverTitle: `${APP_NAME} MCP`,
-  serverDescription: `AI assistants work with your ${APP_NAME} account through this address: they search and save jobs, prepare applications and read your Job Tracker.`,
+  serverDescription: `AI assistants reach your ${APP_NAME} account through this address.`,
   addressLabel: 'MCP server address',
-  addressHint: 'Claude and ChatGPT ask for this address when you connect them. Connect below fills it in for you.',
+  addressHint: 'Connect below fills it in for Claude and ChatGPT.',
   addressLoading: `Loading ${APP_NAME}'s address`,
-  addressFailed: `${APP_NAME}'s address could not be loaded`,
+  addressFailed: `${APP_NAME}'s address didn't load`,
   copyAddress: 'Copy the MCP server address',
   connectedTitle: 'Connected',
   connectedLoading: 'Loading your connected assistants',
-  connectedFailed: 'Your connected assistants could not be loaded',
+  connectedFailed: "Your connected assistants didn't load",
   connectedEmpty: 'No AI assistant is connected yet',
-  connectedEmptyHint: `Choose Connect on Claude or ChatGPT below, then Allow on ${APP_NAME}'s page.`,
+  connectedEmptyHint: 'Choose Connect on Claude or ChatGPT below.',
   connectedList: 'Connected AI assistants',
   clientsTitle: `Assistants to use with ${APP_NAME}`,
   clientsList: 'AI assistants you can connect',
@@ -87,17 +87,15 @@ export const AI_COPY = {
   manageName: (name: string) => `Manage ${name}'s connection`,
   disconnect: 'Disconnect',
   disconnectTitle: (name: string) => `Disconnect ${name}?`,
-  disconnectBody: (name: string) =>
-    `${name} can no longer reach your ${APP_NAME} account. What it saved stays. You can connect it again at any time.`,
+  disconnectBody: (name: string) => `${name} can no longer reach your account. What it saved stays.`,
   disconnecting: 'Disconnecting...',
   disconnected: (name: string) => `${name} disconnected`,
   settingsTitle: `How your AI works with ${APP_NAME}`,
-  settingsDescription:
-    `Prepare your saved jobs with an AI you run on your own plan, such as Claude, ChatGPT or Claude Code, instead of ${APP_NAME}'s AI. These settings apply to every AI you connect.`,
+  settingsDescription: 'Prepare saved jobs with your own AI plan, for every AI you connect.',
   advancedToggle: 'Advanced: personal access tokens',
-  advancedHint: 'For Claude Code, Claude Desktop and other MCP clients you run yourself',
+  advancedHint: 'For MCP clients you run yourself',
   tokensTitle: 'Personal access tokens',
-  tokensDescription: `An AI client you run yourself, such as Claude Code or Claude Desktop, connects to ${APP_NAME}'s MCP server with a token you make here. A token also works on this computer's own address (http://localhost).`,
+  tokensDescription: 'For Claude Code, Claude Desktop and other clients you run yourself.',
 } as const;
 
 /** The line under a connected assistant: when it was connected and last used. */
@@ -162,7 +160,7 @@ export { CHATGPT_PLUGINS_URL };
 export const CONNECT_COPY = {
   claude: {
     title: 'Connect Claude',
-    description: `Claude opens its "Add custom connector" window with ${APP_NAME}'s name and address filled in.`,
+    description: `Claude opens with ${APP_NAME} filled in.`,
     steps: [
       // v31 FIX-WEB (REV-UX UX-5): the address box is above the steps; the words name it instead of placing it.
       { title: 'Open Claude', body: `Claude shows "Add custom connector" with ${APP_NAME}'s name and address filled in.` },
@@ -174,13 +172,13 @@ export const CONNECT_COPY = {
     ] satisfies ConnectStep[],
     action: 'Open Claude',
     teamTitle: 'Claude for Team or Enterprise',
-    teamBody: `Only an owner can add a connector there: they add ${APP_NAME} once in the organization's settings, then each member chooses Connect in Claude.`,
+    teamBody: `An owner adds ${APP_NAME} once in the organization's settings; then each member connects.`,
     teamLink: "Open the organization's connector settings",
-    opened: `Claude opened in a new tab. Finish there: once you choose Allow, Claude shows up under Connected here.`,
+    opened: 'Claude opened in a new tab. Finish there.',
   },
   chatgpt: {
     title: 'Connect ChatGPT',
-    description: `ChatGPT has no link that fills ${APP_NAME} in, so you paste ${APP_NAME}'s address once.`,
+    description: `You paste ${APP_NAME}'s address into ChatGPT once.`,
     steps: [
       { title: "Open ChatGPT's plugins page", body: 'Choose + and then "Add custom MCP server".' },
       {
@@ -193,9 +191,9 @@ export const CONNECT_COPY = {
       },
     ] satisfies ConnectStep[],
     action: 'Copy address and open ChatGPT',
-    planNote: 'Your ChatGPT plan, or your workspace admin, must allow custom MCP servers.',
-    opened: `The address is copied and ChatGPT opened in a new tab: paste it there. Once you choose Allow, ChatGPT shows up under Connected here.`,
-    notCopied: `Your browser did not let ${APP_NAME} copy the address: copy it from the box above, then paste it in ChatGPT.`,
+    planNote: 'Your ChatGPT plan or workspace must allow custom MCP servers.',
+    opened: 'Address copied. Paste it in ChatGPT (new tab).',
+    notCopied: "Couldn't copy the address. Copy it from the box above, then paste it in ChatGPT.",
     openAgain: "ChatGPT's plugins page did not open? Open it here",
   },
   stepsLabel: (client: string) => `Steps to connect ${client}`,
@@ -214,7 +212,7 @@ export const CONNECT_COPY = {
     file: 'DEPLOYMENT.md',
     after: `in ${APP_NAME}'s folder, section 8, "Put HTTPS in front".`,
   },
-  meanwhile: 'Meanwhile, AI clients on this computer, such as Claude Code and Claude Desktop, can connect with a personal access token.',
+  meanwhile: 'AI clients on this computer can connect with a personal access token.',
   useToken: 'Use a personal token',
 } as const;
 
@@ -255,10 +253,10 @@ export const CONNECTIONS_COPY = {
   connect: 'Connect',
   ok: 'OK',
   noMatchTitle: (query: string) => `No connection matches "${query}"`,
-  noMatchHint: 'Try another name, or clear the search.',
+  noMatchHint: 'Try another name.',
   clear: 'Clear search',
   aiTitle: `Use ${APP_NAME} in Claude and ChatGPT`,
-  aiBody: `Connect your AI assistant to ${APP_NAME}'s MCP server.`,
+  aiBody: 'Connect your AI assistant.',
   aiLink: 'AI assistants',
 } as const;
 

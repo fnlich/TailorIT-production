@@ -161,7 +161,7 @@ export function QuestionsTab({ application }: { application: ApplicationDetail }
             size="sm"
             icon={<QuestionIcon size={20} />}
             title="No questions yet"
-            description="Keep the questions this application asked, and your answers, for the next round."
+            description="Keep its questions and your answers for the next round."
           />
         </div>
       ) : (

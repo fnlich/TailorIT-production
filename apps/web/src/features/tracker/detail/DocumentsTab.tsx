@@ -6,6 +6,7 @@ import { useState, type ReactNode } from 'react';
 import type { ApplicationDetail } from '@tailorit/shared';
 import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Notice } from '@/components/ui/Notice';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -195,11 +196,11 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
     <div className="flex flex-col gap-8">
       <section aria-labelledby="resume-docs-heading" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
+          <div className="flex items-center gap-1.5">
             <h3 id="resume-docs-heading" className="text-base font-semibold text-foreground">
               Resume
             </h3>
-            <p className="text-sm text-muted-foreground">The resume you used for this application.</p>
+            <HelpTip label="Resume">The resume you used for this application.</HelpTip>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canLetTailorItChoose && (
@@ -221,7 +222,7 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
           </div>
         </div>
         {resumesFailed ? (
-          <Notice tone="warning">Your resumes can&apos;t be listed right now. Please try again later.</Notice>
+          <Notice tone="warning">Your resumes can&apos;t be listed now. Try again later.</Notice>
         ) : resumesLoading ? (
           <Skeleton className="h-16 w-full" rounded="control" />
         ) : application.resumeId && !changingResume ? (
@@ -283,11 +284,11 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
 
       <section aria-labelledby="letter-docs-heading" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
+          <div className="flex items-center gap-1.5">
             <h3 id="letter-docs-heading" className="text-base font-semibold text-foreground">
               Cover Letter
             </h3>
-            <p className="text-sm text-muted-foreground">Write one for this job, or link a letter you already have.</p>
+            <HelpTip label="Cover Letter">Write one for this job, or link one you have.</HelpTip>
           </div>
           <Link
             href={`/cover-letter/new?applicationId=${encodeURIComponent(application.id)}`}
@@ -298,7 +299,7 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
           </Link>
         </div>
         {letters.isError ? (
-          <Notice tone="warning">Your cover letters can&apos;t be listed right now. Please try again later.</Notice>
+          <Notice tone="warning">Your cover letters can&apos;t be listed now. Try again later.</Notice>
         ) : letters.isLoading ? (
           <Skeleton className="h-16 w-full" rounded="control" />
         ) : application.coverLetterId ? (

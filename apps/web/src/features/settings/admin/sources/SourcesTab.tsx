@@ -18,11 +18,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AdminResourceTab, ShowMoreButton, type AdminColumn } from '@/components/admin';
 import { SelectBar } from '@/components/queue';
 import { Badge } from '@/components/ui/Badge';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
-import { ArrowsClockwiseIcon, BriefcaseIcon, DotsThreeIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
+import { ArrowsClockwiseIcon, BriefcaseIcon, DotsThreeIcon, PlusIcon, TrashIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import { Notice } from '@/components/ui/Notice';
 import { Switch } from '@/components/ui/Switch';
@@ -415,7 +416,7 @@ export function SourcesTab({
     <AdminResourceTab
       sectionProps={{ 'aria-labelledby': 'admin-sources-title' }}
       title="Job sources"
-      description="Every board, feed and import TailorIT reads: when each runs next, whether its terms and robots.txt allow it, and what it found. Due sources run on their own; any source can run now."
+      description="Every board, feed and import TailorIT reads; due sources run on their own."
       actions={
         <>
           <Button variant="outline" icon={<TrashIcon size={16} />} onClick={() => setPurgesOpen(true)}>
@@ -432,40 +433,45 @@ export function SourcesTab({
           <span id="admin-sources-title" className="sr-only">
             Job sources
           </span>
-          {/* v31 RUNS: every run paused: no source runs until Continue. */}
-          {runsPause.paused && (
-            <Notice
-              tone="warning"
-              className="mb-4"
-              title={runsBarText(runsPause.paused, now).title}
-              action={
-                <Button
-                  size="sm"
-                  icon={<PlayIcon size={14} weight="fill" />}
-                  loading={runsPause.continueAll.isPending}
-                  onClick={() => runsPause.continueAll.mutate()}
-                >
-                  Continue runs
-                </Button>
-              }
-            >
-              {runsBarText(runsPause.paused, now).description}
-            </Notice>
-          )}
-          {alarms.length > 0 && (
-            <Notice
-              tone="warning"
-              className="mb-4"
-              title={`${alarmCount(alarms.length)} today`}
-              action={
-                <Button variant="outline" size="sm" onClick={() => link({ tab: 'runs', view: 'report' })}>
-                  See the daily report
-                </Button>
-              }
-            >
-              {alarmText(alarms[0]!)}
-              {alarms.length > 1 ? ` And ${alarms.length - 1} more.` : ''}
-            </Notice>
+          {/* v31 RUNS: every run paused: no source runs until Continue. v32 COPY (E4): states are chips with a "?" and
+              their button, not banners. */}
+          {(runsPause.paused || alarms.length > 0) && (
+            <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+              {runsPause.paused && (
+                <span className="flex flex-wrap items-center gap-2" data-sources-runs-paused="">
+                  <span className="flex items-center gap-1">
+                    <Badge tone="warning" icon={<PauseIcon size={12} weight="fill" aria-hidden="true" />}>
+                      {runsBarText(runsPause.paused, now).title}
+                    </Badge>
+                    <HelpTip label={runsBarText(runsPause.paused, now).title}>{runsBarText(runsPause.paused, now).description}</HelpTip>
+                  </span>
+                  <Button
+                    size="sm"
+                    icon={<PlayIcon size={14} weight="fill" />}
+                    loading={runsPause.continueAll.isPending}
+                    onClick={() => runsPause.continueAll.mutate()}
+                  >
+                    Continue runs
+                  </Button>
+                </span>
+              )}
+              {alarms.length > 0 && (
+                <span className="flex flex-wrap items-center gap-2" data-sources-alarms={alarms.length}>
+                  <span className="flex items-center gap-1">
+                    <Badge tone="warning" icon={<WarningCircleIcon size={12} weight="fill" aria-hidden="true" />}>
+                      {`${alarmCount(alarms.length)} today`}
+                    </Badge>
+                    <HelpTip label={`${alarmCount(alarms.length)} today`}>
+                      {alarmText(alarms[0]!)}
+                      {alarms.length > 1 ? ` And ${alarms.length - 1} more.` : ''}
+                    </HelpTip>
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => link({ tab: 'runs', view: 'report' })}>
+                    See the daily report
+                  </Button>
+                </span>
+              )}
+            </div>
           )}
           <SourceFiltersBar
             filters={filters}
@@ -483,7 +489,7 @@ export function SourcesTab({
       }
       items={sources.data ? items : undefined}
       error={sources.error}
-      errorTitle="The sources could not be loaded"
+      errorTitle="Sources didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void sources.refetch()}>
           Try again
@@ -493,7 +499,7 @@ export function SourcesTab({
         filtered
           ? {
               title: 'No source matches',
-              description: 'Try other filters or another search.',
+              description: 'Try other filters.',
               card: false,
               action: (
                 <Button
@@ -511,7 +517,7 @@ export function SourcesTab({
           : {
               icon: <BriefcaseIcon size={22} />,
               title: 'No job sources yet',
-              description: 'Add a Greenhouse, Lever, Ashby or Workable board, the free_tailor lake or the demo jobs, or import a spreadsheet.',
+              description: 'Add a board, the free_tailor lake or the demo jobs, or import links.',
               action: <Button onClick={() => setAdding(true)}>Add source</Button>,
             }
       }

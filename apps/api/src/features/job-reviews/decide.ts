@@ -6,6 +6,7 @@ import { refuse } from '../../core/http/refuse';
 import { closeLink, offerToDiscovery, projectJob, type JobLinkRef } from '../../core/seams';
 import { upgradeOwnPageJob } from '../autofill/jobs';
 import { noticeVerification } from '../jobs/add/notify'; // v31 LINK
+import { publishCapturedIn } from '../jobs/add/approve'; // v32 ADMINAPP (E6)
 import { boardOfUrl } from '../ingest/discovery/boards';
 import { boardOfJob, companyOf } from './checks';
 import { pendingReview, recountReview, type ReviewRow } from './store';
@@ -27,6 +28,13 @@ import { pendingReview, recountReview, type ReviewRow } from './store';
 //   follow-ups.
 // A rejection changes nothing else (a held job stays its adders' own; a page job its account's). A reopen brings a
 // rejected or expired review back to the queue.
+// v32 ADMINAPP (E6, the owner's "admin should be able to approve manually", over v3.1's D2): a page review whose page
+// TailorIT cannot read is approved as it was captured when the admin says so (`captured`, after a confirm): the page job
+// whose text most reporters share is published as it is (jobs/add/approve.ts publishCapturedIn: its company by name
+// alone, marked approved by the admin), and every reporter's page job gives way to it.
+// v32 FIX-API (REV-SECBEH SB-1, the coordinator's decision): the other reporters' page jobs are never closed or moved
+// into the captured job published: each keeps theirs and is told a public version exists (`publicVersion`); the checks
+// of a Couldn't-verify approval hold too (approve.ts: the link's checks under its lock, never the admin's own words).
 
 /** Who decides: an admin (with their account), the automatic rules, or TailorIT's own check. */
 export interface Decider {
@@ -42,6 +50,16 @@ export interface FollowUp {
   sharedJobId: number;
   /** v31 LINK: the shared job was read from the page job's own link (upgradeOwnPageJob's sameLink). */
   sameLink?: boolean;
+  /** v32 ADMINAPP (E6): the shared job is the admin's approval of a captured page job (its own reporter's included). */
+  approvedByAdmin?: boolean;
+  /** v32 FIX-API (SB-1): the page job stays its reporter's; they are told another reporter's version is published. */
+  publicVersion?: boolean;
+}
+
+/** v32 ADMINAPP (E6): a page review approved as captured: its link (shared form), checked by the caller, and the admin. */
+export interface CapturedApproval {
+  url: string;
+  adminId: string;
 }
 
 /** v31 LINK: the shared job TailorIT read from a page review's link, before its approval's transaction. */
@@ -109,6 +127,21 @@ async function markDecided(t: DbQueries, review: ReviewRow, state: 'approved' | 
   );
 }
 
+/**
+ * v32 ADMINAPP (E6): a page review TailorIT cannot read, approved as captured: its most shared page job is published as
+ * it is (publishCapturedIn), its reporter told. v32 FIX-API (SB-1): every other reporter keeps their page job and is
+ * told a public version exists; only when the link's open job is one TailorIT read (joined) do their jobs give way.
+ */
+async function followUpsOfCapture(deps: AppDeps, t: DbTx, review: ReviewRow, captured: CapturedApproval, at: string): Promise<FollowUp[]> {
+  const { chosen, reports } = await pageJobsOf(t, review.id);
+  if (chosen === null) throw refuse(deps, 'conflict', 'MSG_JOB_REVIEW_PAGE_UNREADABLE');
+  const published = await publishCapturedIn(deps, t, { jobId: chosen, url: captured.url, adminId: captured.adminId, at });
+  return reports.map((report) => {
+    const followUp = { ...report, sharedJobId: published.jobId, sameLink: true, approvedByAdmin: published.approved };
+    return published.approved && report.pageJobId !== published.jobId ? { ...followUp, publicVersion: true } : followUp;
+  });
+}
+
 /** Approves a pending review (see above), in the caller's transaction; answers the follow-ups for after the commit. */
 export async function approveReview(
   deps: AppDeps,
@@ -117,6 +150,7 @@ export async function approveReview(
   decider: Decider,
   at: string,
   read?: PageReviewRead,
+  captured?: CapturedApproval,
 ): Promise<FollowUp[]> {
   if (review.state !== 'pending') throw conflict('This review was decided already.');
   let followUps: FollowUp[] = [];
@@ -130,6 +164,8 @@ export async function approveReview(
     await t.run('UPDATE jobs SET held_since = NULL, updated_at = ? WHERE id = ? AND held_since IS NOT NULL', [at, review.job_id]);
     await projectJob(t, review.job_id);
     await offerBoard(deps, t, review.job_id, null, at);
+  } else if (!read && captured) {
+    followUps = await followUpsOfCapture(deps, t, review, captured, at); // v32 ADMINAPP (E6)
   } else {
     followUps = await followUpsOfRead(deps, t, review, read);
     if (review.page_host && read) await offerBoard(deps, t, read.sharedJobId, { kind: 'career_site', name: review.page_host }, at);
@@ -168,9 +204,24 @@ export async function reopenReview(deps: AppDeps, t: DbTx, review: ReviewRow, no
 export async function runFollowUps(deps: AppDeps, followUps: readonly FollowUp[]): Promise<void> {
   for (const followUp of [...followUps].sort((a, b) => a.userId.localeCompare(b.userId))) {
     try {
-      const moved = await upgradeOwnPageJob(deps, followUp.userId, followUp.pageJobId, followUp.sharedJobId, { sameLink: followUp.sameLink === true });
-      // v31 LINK: the reporter hears that TailorIT read their job and published it.
-      if (moved) await noticeVerification(deps, { userId: followUp.userId, jobId: followUp.sharedJobId, state: 'published' });
+      // v32 FIX-API (SB-1): another reporter's version was published: theirs stays as it is, and they are told.
+      if (followUp.publicVersion) {
+        await noticeVerification(deps, { userId: followUp.userId, jobId: followUp.sharedJobId, state: 'published', publicVersion: true });
+        continue;
+      }
+      // v32 ADMINAPP (E6): the reporter whose own page job was published itself gives way to nothing, and is told.
+      const itself = followUp.approvedByAdmin === true && followUp.pageJobId === followUp.sharedJobId;
+      const moved =
+        itself || (await upgradeOwnPageJob(deps, followUp.userId, followUp.pageJobId, followUp.sharedJobId, { sameLink: followUp.sameLink === true }));
+      // v31 LINK: the reporter hears that TailorIT read their job and published it (v32: or that an admin approved it).
+      if (moved) {
+        await noticeVerification(deps, {
+          userId: followUp.userId,
+          jobId: followUp.sharedJobId,
+          state: 'published',
+          ...(followUp.approvedByAdmin ? { approvedByAdmin: true } : {}),
+        });
+      }
     } catch (error) {
       deps.log.warn('[job-reviews] a page job could not give way to its published copy', error instanceof Error ? error.name : 'unknown');
     }

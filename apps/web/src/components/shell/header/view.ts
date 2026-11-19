@@ -1,7 +1,8 @@
 import { HOUR_MS, MINUTE_MS } from '@tailorit/shared/core';
-import { NOTIFICATION_UNREAD_COUNT_CAP, type HeaderSummary, type Notification, type NotificationTone } from '@tailorit/shared/notifications';
+import { NOTIFICATION_UNREAD_COUNT_CAP, type Notification, type NotificationTone } from '@tailorit/shared/notifications';
 // Relative, not '@/': the web tests read these.
 import { formatDate } from '../../../lib/format';
+import { aiUseOf } from '../../limits/aiUse';
 import { BELL_COPY, USAGE_COPY } from './copy';
 
 // v3.1 HEADER (D8, D9): what the top bar's usage chip and bell show, as pure functions of GET /api/me/header and the
@@ -42,21 +43,51 @@ export function unreadAnnouncement(previous: number | undefined, next: number): 
 
 export type UsageTone = 'tape' | 'warning' | 'danger';
 
+/** Today's AI use as the header reads it (api.ts HeaderSummaryRead): the share, or the micros of a v3.1 API. */
+export interface HeaderAiRead {
+  percent?: number | null;
+  usedMicros?: number;
+  budgetMicros?: number | null;
+  resetsAt: string;
+}
+
+/** The header's summary, as far as the usage chip reads it. */
+export interface UsageSummary {
+  ai: HeaderAiRead;
+  extraCredit: { balanceMicros: number };
+  plan: 'free' | 'paid';
+  paidUntil: string | null;
+}
+
+/**
+ * v32 SHELL (E7): today's share of the daily limit, 0-100, or null with no daily limit. The API's `percent` when it
+ * sends one (v3.2); else the micros' share (a v3.1 API), by the API's own rule (ADMINAPP's aiUsePercent, v31 FIX-WEB
+ * UX-14): whole cents over whole cents, 99 at most below the limit and 100 once it is used, so the chip never says
+ * "100%" while AI work still runs on the day's budget.
+ */
+export function aiPercent(ai: HeaderAiRead): number | null {
+  // v32 INT-1: one rule for the share everywhere a person sees it (COPY's aiUseOf, as Settings › Account and Prepare
+  // All read it). An answer with neither the share nor a budget (none the API sends) reads as 0%, as before.
+  if (ai.percent === undefined && ai.budgetMicros === undefined) return 0;
+  const use = aiUseOf({ ...ai, usedMicros: ai.usedMicros ?? 0 });
+  return use.kind === 'unlimited' ? null : use.percent;
+}
+
 export interface UsageView {
-  /** `budget`: today's use against the daily budget (a meter); `unlimited`: no daily budget (no meter). */
+  /** `budget`: today's use against the daily limit (a meter); `unlimited`: no daily limit (no meter). */
   kind: 'budget' | 'unlimited';
-  /** 0-100, the meter's value (the share of the budget used, whole percent; 100 once it is used). */
+  /** 0-100, the meter's value (the share of the limit used, whole percent; 100 once it is used). */
   percent: number;
-  /** "42%". */
+  /** "42%" ("" with no daily limit). */
   percentText: string;
-  /** "$0.42 of $1.00" ("$0.42 today" with no daily limit). */
+  /** What the chip's popover says of today's use: "42% used", or "No daily limit". Never money (E7). */
   valueText: string;
   tone: UsageTone;
-  /** Today's budget is used: new AI work takes extra credit (or waits). */
+  /** Today's limit is used: new AI work takes extra credit (or waits). */
   reached: boolean;
   /** Reached with no extra credit left: new AI work waits for the reset. */
   waiting: boolean;
-  /** "$1.50", what is left of the extra credit (cents, rounded down). */
+  /** "$1.50", what is left of the extra credit (cents, rounded down): extra usage keeps its amount. */
   extraAmount: string;
   /** "Extra usage $1.50". */
   extraText: string;
@@ -70,46 +101,40 @@ export interface UsageView {
 
 /**
  * The chip and its popover for one header summary. `warningPercent` is the constant AI_USE_WARNING_PERCENT: the meter
- * is the tape until then, amber from it, red once the budget is used (docs/design/v3.1/20-visual-identity.md §7).
+ * is the tape until then, amber from it, red once the limit is used (docs/design/v3.1/20-visual-identity.md §7). v32
+ * SHELL (E7): today's use is a share only; no amount of the daily limit is drawn or named (extra usage keeps its amount).
  */
-export function usageView(summary: HeaderSummary, warningPercent: number): UsageView {
-  const { usedMicros, budgetMicros } = summary.ai;
+export function usageView(summary: UsageSummary, warningPercent: number): UsageView {
   const extraAmount = centsText(summary.extraCredit.balanceMicros, 'down');
   const extraText = USAGE_COPY.extra(extraAmount);
   const plan = {
     planLabel: summary.plan === 'paid' ? USAGE_COPY.paidPlan : USAGE_COPY.freePlan,
     planUntil: summary.plan === 'paid' && summary.paidUntil ? USAGE_COPY.paidUntil(formatDate(summary.paidUntil)) : null,
   };
-  const used = centsText(usedMicros);
-  if (budgetMicros === null) {
-    const valueText = USAGE_COPY.unlimitedUsed(used);
+  const percent = aiPercent(summary.ai);
+  if (percent === null) {
     return {
       kind: 'unlimited',
       percent: 0,
       percentText: '',
-      valueText,
+      valueText: USAGE_COPY.unlimited,
       tone: 'tape',
       reached: false,
       waiting: false,
       extraAmount,
       extraText,
       ...plan,
-      triggerLabel: `${USAGE_COPY.meterLabel} ${valueText}, ${extraText}`,
+      triggerLabel: `${USAGE_COPY.meterLabel} ${USAGE_COPY.unlimitedShort}, ${extraText}`,
     };
   }
-  const reached = usedMicros >= budgetMicros;
-  // v31 FIX-WEB (REV-UX UX-14): the share of the amounts the popover shows ("$0.06 of $0.10" is 60%, never 62%), so the
-  // chip and its popover round the same way. Just under the budget stays at 99%: 100% is for a used budget.
-  const usedCents = centsOf(usedMicros);
-  const budgetCents = centsOf(budgetMicros);
-  const percent = reached ? 100 : budgetCents > 0 ? Math.min(99, Math.round((usedCents / budgetCents) * 100)) : 0;
+  const reached = percent >= 100;
   const tone: UsageTone = reached ? 'danger' : percent >= warningPercent ? 'warning' : 'tape';
   const percentText = `${percent}%`;
   return {
     kind: 'budget',
     percent,
     percentText,
-    valueText: USAGE_COPY.of(used, centsText(budgetMicros)),
+    valueText: USAGE_COPY.percentUsed(percentText),
     tone,
     reached,
     waiting: reached && summary.extraCredit.balanceMicros <= 0,

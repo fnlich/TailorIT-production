@@ -59,7 +59,7 @@ export function BulkDialog({
         <DialogContent title={`${TITLE[action]} ${things}?`} description={WHAT[action]} size="md">
           <form onSubmit={submit} className="mt-5 flex flex-col gap-5">
             {takesNote && (
-              <Field label="Note" optional error={problem ?? undefined} hint="Kept with each decision. Plain text.">
+              <Field label="Note" optional error={problem ?? undefined} hint="Kept with each decision, as plain text.">
                 <Textarea value={note} rows={2} onChange={(event) => setNote(event.target.value)} />
               </Field>
             )}

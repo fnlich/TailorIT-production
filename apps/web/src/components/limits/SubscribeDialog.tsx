@@ -16,9 +16,11 @@ export interface SubscribeDialogProps {
   onOpenChange: (open: boolean) => void;
   /** The action to show; by default the account's (GET /api/account), else the constants' contact message. */
   action?: PurchaseAction;
+  /** Where focus goes when it closes (v32 FIX-UX: an alert's Subscribe opened it, so the alert's opener). */
+  finalFocus?: () => HTMLElement | boolean | null;
 }
 
-export function SubscribeDialog({ open, onOpenChange, action }: SubscribeDialogProps) {
+export function SubscribeDialog({ open, onOpenChange, action, finalFocus }: SubscribeDialogProps) {
   const { data: account } = useAccount();
   const { t, values } = usePublicConstants();
   return (
@@ -28,6 +30,7 @@ export function SubscribeDialog({ open, onOpenChange, action }: SubscribeDialogP
       title={LIMIT_COPY.subscribeTitle}
       action={action ?? subscribeActionOf(account, t, values)}
       emailMissing={t('MSG_CONTACT_EMAIL_MISSING')}
+      finalFocus={finalFocus}
     />
   );
 }

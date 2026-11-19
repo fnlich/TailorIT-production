@@ -56,7 +56,7 @@ export function AutofillSettingsPage() {
     <div className={clsx('mx-auto w-full max-w-[880px] pt-7 pb-20', PAGE_GUTTER)}>
       <PageHeader
         title="Autofill"
-        description="The answers the TailorIT extension fills job applications with, the ones it saved for you, the job-site sign-in it may use, and the browsers it is connected in."
+        description="What the extension fills into job applications."
       />
       <UnderlineTabs
         aria-label="Autofill sections"

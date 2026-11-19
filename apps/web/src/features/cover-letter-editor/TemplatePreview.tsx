@@ -61,7 +61,7 @@ function TemplateText({ id, name }: { id: string; name: string }) {
     );
   }
   if (query.isError) {
-    return <div className={clsx(PAPER, 'text-muted-foreground')}>The preview of {name} could not be loaded.</div>;
+    return <div className={clsx(PAPER, 'text-muted-foreground')}>The preview of {name} didn&apos;t load.</div>;
   }
   return (
     // A scrolling region reachable by keyboard, named for the template it shows.
@@ -115,8 +115,7 @@ function NoTemplateOutline() {
       <p className="text-center text-muted-foreground">Phone | Email | LinkedIn</p>
       <p className="mt-4">Dear Hiring Manager,</p>
       <p className="stitch mt-3 rounded-tag px-3 py-2 font-sans text-xs leading-5 text-muted-foreground">
-        Three or four paragraphs, written by AI from your resume for this job, the description you paste and any custom
-        prompt.
+        Three or four paragraphs AI writes from your resume for this job.
       </p>
       <p className="mt-3">Sincerely,</p>
       <p>Your name</p>

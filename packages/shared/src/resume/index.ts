@@ -22,3 +22,5 @@ export * from './download';
 export * from './printed';
 // v20 P10 (A28): Documents' batch resume download, Paid only.
 export * from './batch-download';
+// v32 FILL: "Fill from my resume" as Settings reads it (the autofill contract's seed, wrapped).
+export * from './profile-seed';

@@ -4,6 +4,7 @@ import { nowIso, type AppDeps } from '../../../core/context';
 import type { DailyStep } from '../../../core/feature';
 import { closeLink } from '../../../core/seams';
 import { ADDED_BY_AUTOFILL } from '../../ingest/liveness';
+import { approvedJobsDue, isApprovedJob, settleApprovedRecheck } from './approved'; // v32 FIX-API (SB-4)
 import { readPageToSharedJob } from './page';
 import { queueJobLinks } from './queue';
 
@@ -22,6 +23,10 @@ import { queueJobLinks } from './queue';
 // v31 FIX-LINK (REV-BEH BEH-10): a pass queues at most JOB_PAGE_RECHECKS_PER_PASS links (a constant), the longest
 // unchecked first, so every due job is reached in turn however many there are (v31 LINK2 took the lowest job ids first:
 // past 7 x 2,000 jobs the highest were never read again).
+//
+// v32 FIX-API (REV-SECBEH SB-4): the step queues the jobs an admin approved as captured too (approved.ts), their link
+// read again every JOB_PAGE_RECHECK_DAYS after the approval or the last read: a read makes the job a normal verified
+// one, a posting gone closes it.
 
 /** The SQL of the live career-site links Add job's reads made: their sources disabled, marked as Add job's. */
 const ADDED_PAGE_LINK_SQL = `l.missing_since IS NULL AND s.kind = 'career_site' AND NOT s.enabled AND s.config ->> 'addedBy' = ?`;
@@ -47,7 +52,9 @@ export const pageRecheckStep: DailyStep = {
       due.map((row) => ({ jobId: Number(row.job_id), url: row.apply_url })),
       'recheck',
     );
-    return queued;
+    // v32 FIX-API (SB-4): the approved jobs due a read.
+    const approved = await queueJobLinks(deps, await approvedJobsDue(deps, before), 'recheck');
+    return queued + approved;
   },
 };
 
@@ -62,6 +69,8 @@ async function addedPageLink(deps: Pick<AppDeps, 'db'>, jobId: number): Promise<
 
 /** Reads a queued `recheck` link again and settles its job (see the top). Answers what the read came to. */
 export async function settleRecheck(deps: AppDeps, jobId: number, url: string): Promise<'live' | 'closed' | 'unreadable'> {
+  // v32 FIX-API (SB-4): an admin's approval of captured words, read again (approved.ts).
+  if (await isApprovedJob(deps, jobId)) return settleApprovedRecheck(deps, jobId, url);
   const link = await addedPageLink(deps, jobId);
   if (!link) return 'unreadable';
   const read = await readPageToSharedJob(deps, url);

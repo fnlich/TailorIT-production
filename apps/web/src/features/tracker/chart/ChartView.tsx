@@ -14,13 +14,13 @@ import {
   type SankeyResponse,
 } from '@tailorit/shared';
 import { Button } from '@/components/ui/Button';
+import { LoadError } from '@/components/ui/LoadError';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Notice } from '@/components/ui/Notice';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TapeMeter } from '@/components/ui/TapeMeter';
 import { useToast } from '@/components/ui/Toast';
 import { ArrowCounterClockwiseIcon, ChartLineIcon, DownloadSimpleIcon } from '@/components/ui/icons';
-import { userMessage } from '@/lib/api';
 import { FlowChart, useChartPositions } from './FlowChart';
 
 const CARD = 'rounded-card border border-border bg-surface shadow-card';
@@ -142,7 +142,8 @@ export function ChartView({
   const [, setPositions] = useChartPositions();
 
   if (error) {
-    return <Notice tone="error">{userMessage(error, "We couldn't load the chart. Please try again.")}</Notice>;
+    // v32 FIX-UX (UXREQ-13): the kit's load error ("The chart didn't load.", its reason in view).
+    return <LoadError thing="The chart" error={error} />;
   }
 
   const empty = !loading && sankey !== undefined && sankey.total === 0;
@@ -151,11 +152,11 @@ export function ChartView({
     <div className="flex flex-col gap-6 pb-12">
       <section className={clsx(CARD, 'p-5')} aria-labelledby="flow-heading">
         <header className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
             <h2 id="flow-heading" className="text-heading font-semibold text-foreground">
               Application flow
             </h2>
-            <p className="text-sm text-muted-foreground">Drag stages to rearrange your chart. Reset positions to restore the default layout.</p>
+            <HelpTip label="Application flow">Drag stages to rearrange the chart.</HelpTip>
           </div>
           {!empty && (
             <div className="flex flex-wrap items-center gap-2">

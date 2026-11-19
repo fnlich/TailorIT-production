@@ -65,12 +65,13 @@ export function cardCompanyFacts(company: JobSummary['company']): string {
 /** v30 WEB-JOBS (owner question 4): the switch's words. */
 export const CAN_APPLY_COPY = {
   label: 'Jobs I can apply to',
-  hint: 'Hides jobs whose rules on where candidates live or work leave out your location or time zone. Jobs without such rules stay.',
+  // v32 JOBS2 (E5): the switch's "?" and the line under it, one short sentence each.
+  hint: 'Hides jobs whose rules on where you live or work leave you out.',
   chip: 'Jobs I can apply to',
   missing: {
-    both: 'Add where you live and your time zone in Settings. Until then this switch hides nothing.',
-    place: 'Add where you live in Settings. Until then rules about where candidates live are not checked.',
-    zone: 'Add your time zone in Settings. Until then rules about time zones are not checked.',
+    both: 'Add where you live and your time zone first.',
+    place: 'Add where you live to check place rules.',
+    zone: 'Add your time zone to check time zone rules.',
   },
   settingsLink: 'Open Settings',
 } as const;

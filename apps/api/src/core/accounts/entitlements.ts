@@ -67,8 +67,29 @@ export function entitlementsFrom(deps: Deps, row: AccountRow, override: { micros
     aiJobSearch: constants.get(paid ? 'PAID_AI_JOB_SEARCH' : 'FREE_AI_JOB_SEARCH'),
     mcp: constants.get(paid ? 'PAID_MCP' : 'FREE_MCP'),
     batchDownload: constants.get(paid ? 'PAID_BATCH_DOWNLOAD' : 'FREE_BATCH_DOWNLOAD'),
+    // v32 FIX-PLAN (E12): the hourly limits are the plan's; Paid's are UNLIMITED by default.
+    tailorsPerHour: constants.get(paid ? 'PAID_TAILOR_PER_HOUR' : 'FREE_TAILOR_PER_HOUR'),
+    preparesPerHour: constants.get(paid ? 'PAID_PREPARE_PER_HOUR' : 'FREE_PREPARE_PER_HOUR'),
   };
 }
+
+// v32 FIX-PLAN (E12)
+/** An account that is gone is held to Free's limits (the strictest). */
+const GONE: AccountRow = { account_type: 'free', paid_until: null };
+
+/**
+ * One hourly limit of the account's plan at this moment (one primary-key read and the constants): `tailorsPerHour`
+ * (FREE_/PAID_TAILOR_PER_HOUR) or `preparesPerHour` (FREE_/PAID_PREPARE_PER_HOUR). A Paid term that ended is Free's at
+ * that instant; UNLIMITED (Paid's default) means no hourly count and no wait. Free's for an account that is gone.
+ */
+export async function hourlyLimitOf(
+  deps: Deps,
+  userId: string,
+  limit: 'tailorsPerHour' | 'preparesPerHour',
+): Promise<Limit> {
+  return entitlementsFrom(deps, (await accountRow(deps, userId)) ?? GONE, undefined)[limit];
+}
+// end v32 FIX-PLAN
 
 /**
  * The resolved limits of one person, read per request (two primary-key reads and the constants), so an admin's change
@@ -252,6 +273,8 @@ export async function changeEntitlement(deps: Deps, change: EntitlementChange): 
       `[accounts] account ${change.userId}: ${write.join(', ')} changed (${change.source}` +
         `${change.actorUserId ? `, admin ${change.actorUserId}` : ''})`,
     );
+    // v32 FIX-PLAN (E12): a new plan may lift the Prepares an hour (Paid's unlimited): Prepare's runner looks again now.
+    if (write.includes('account_type') || write.includes('paid_until')) deps.services.prepare?.kick();
   }
   return accountStateOf(deps, change.userId);
 }

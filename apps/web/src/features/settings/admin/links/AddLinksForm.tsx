@@ -71,7 +71,7 @@ export function AddLinksForm({ actions, label = 'Job links', actionsLast = false
         <Field
           label={label}
           // The limit's words are the constant's (MSG_JOB_ADD_TOO_MANY_LINKS, with ADMIN_ADD_LINKS_MAX).
-          hint={`One per line. TailorIT reads each posting from its own link and keeps nothing else you paste. ${t('MSG_JOB_ADD_TOO_MANY_LINKS', { max })}`}
+          hint={`One per line; only each link is kept. ${t('MSG_JOB_ADD_TOO_MANY_LINKS', { max })}`}
           error={touched || problem === 'too_many' ? (problemText ?? undefined) : undefined}
         >
           <Textarea

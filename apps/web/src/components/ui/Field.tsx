@@ -2,6 +2,7 @@
 
 import { clsx } from 'clsx';
 import { createContext, useContext, useId, type ReactNode } from 'react';
+import { HelpTip } from './HelpTip';
 
 /*
  * A labelled form row. Controls inside (Input, Textarea, Select, Combobox) pick up the id, aria-describedby and
@@ -36,7 +37,10 @@ export function useFieldControl(props: {
 export interface FieldProps {
   label: ReactNode;
   children: ReactNode;
-  /** A short line under the control. */
+  /**
+   * v32 COPY (E5): one short sentence in a "?" beside the label (never a visible line); the control is still described
+   * by it (aria-describedby).
+   */
   hint?: ReactNode;
   /** A validation sentence; marks the control invalid. */
   error?: ReactNode;
@@ -60,22 +64,35 @@ export function Field({ label, children, hint, error, required, optional, inline
   return (
     <FieldContext.Provider value={{ controlId, describedBy, invalid: Boolean(error), labelId }}>
       <div className={clsx(inline ? 'flex items-center gap-2.5' : 'flex flex-col gap-1.5', className)}>
-        {!inline && <FieldLabel id={labelId} htmlFor={controlId} required={required} optional={optional}>{label}</FieldLabel>}
+        {!inline &&
+          (hint ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <FieldLabel id={labelId} htmlFor={controlId} required={required} optional={optional}>
+                {label}
+              </FieldLabel>
+              <HelpTip label={label}>{hint}</HelpTip>
+            </span>
+          ) : (
+            <FieldLabel id={labelId} htmlFor={controlId} required={required} optional={optional}>
+              {label}
+            </FieldLabel>
+          ))}
         {children}
         {inline && (
           <FieldLabel id={labelId} htmlFor={controlId} required={required} optional={optional} weight="normal">
             {label}
           </FieldLabel>
         )}
+        {inline && hint ? <HelpTip label={label}>{hint}</HelpTip> : null}
         {error ? (
           <p id={errorId} className="text-[13px] leading-5 text-danger">
             {error}
           </p>
         ) : null}
         {hint ? (
-          <p id={hintId} className="text-[13px] leading-5 text-muted-foreground">
+          <span id={hintId} hidden>
             {hint}
-          </p>
+          </span>
         ) : null}
       </div>
     </FieldContext.Provider>

@@ -46,6 +46,7 @@ import {
   ChipListField,
   DECLINED_LABEL,
   FieldGroup,
+  FromResumeHint,
   NOT_ANSWERED_LABEL,
   NumberField,
   SelectField,
@@ -81,7 +82,7 @@ function WorkStatusField({ path }: { path: string }) {
   const answer = answerAt<WorkStatus>(form.read, path);
   const value = answer.state === 'value' ? answer.value : answer.state;
   return (
-    <Field label="Work status" error={form.errorWithin(path)} hint="Only for forms that ask for the status itself.">
+    <Field label="Work status" error={form.errorWithin(path)} hint="Only for forms that ask for the status.">
       <Select<string>
         options={[
           { value: NOT_PROVIDED, label: NOT_ANSWERED_LABEL },
@@ -123,13 +124,9 @@ export function WorkAuthorizationSection() {
     <Section
       id={ONCE_SECTIONS.workAuthorization}
       title="Work authorization"
-      description="One set of answers for each country you apply to work in."
+      description="One set per country, never sent to AI or logged."
     >
       <div className="flex flex-col gap-4">
-        <Notice tone="info">
-          Used only for questions that ask exactly this. TailorIT never sends these answers to AI and never writes them to
-          its logs.
-        </Notice>
         {rows.map((row, index) => {
           const base = `sensitive.workAuthorization.${index}`;
           const name = countryDisplayName(row.country);
@@ -308,7 +305,7 @@ function RacesEditor({ value, update }: { value: RaceCategory[]; update: (next: 
         <FieldGroup
           label="Asian: which apply"
           error={form.errorWithin('sensitive.eeo.raceSubgroups')}
-          hint="For forms that list East, South and Southeast Asian apart."
+          hint="For forms that list Asian groups apart."
         >
           <div className="grid gap-2.5 sm:grid-cols-3">
             {ASIAN_SUBGROUP_OPTIONS.map((option) => (
@@ -376,13 +373,9 @@ export function SelfIdentificationSection() {
     <Section
       id={ONCE_SECTIONS.selfIdentification}
       title="Voluntary self-identification"
-      description="The equal opportunity questions many US applications ask. Each one is optional."
+      description="Optional US equal opportunity answers, never sent to AI or logged."
     >
       <div className="flex flex-col gap-6">
-        <Notice tone="info">
-          Not answered: TailorIT leaves the question blank for you. Prefer not to say: TailorIT chooses the form&apos;s
-          decline option. These answers never go to AI and never reach TailorIT&apos;s logs.
-        </Notice>
         <GenderField />
         <SensitiveBooleanField path="sensitive.eeo.hispanicOrLatino" label="Hispanic or Latino" />
         <AnswerField<RaceCategory[]> path="sensitive.eeo.races" label="Race" blank={() => []}>
@@ -393,7 +386,7 @@ export function SelfIdentificationSection() {
             path="sensitive.eeo.raceSelfDescribed"
             label="Your race in your words"
             maxLength={100}
-            hint={'For a form\'s "I prefer to self-describe". Empty: that choice is never taken.'}
+            hint={'For "I prefer to self-describe"; left empty, it is never chosen.'}
           />
         </div>
         <VeteranField />
@@ -431,13 +424,9 @@ export function OnceChecklistSection() {
     <Section
       id="autofill-answer-once"
       title="Answer these once"
-      description="The extension never guesses these and never asks AI about them: it fills each one from your answer here, on every form."
+      description="Never guessed or sent to AI; left empty, it stays blank or is declined on equal opportunity forms."
     >
       <div className="flex flex-col gap-3">
-        <p className="text-[13px] leading-5 text-foreground">
-          Left empty, a work authorization, sponsorship or criminal record question is left blank for you, and an equal
-          opportunity question gets the form&apos;s decline option.
-        </p>
         <p className="text-sm leading-5 font-semibold text-foreground" data-once-count="">
           {answered} of {items.length} answered
         </p>
@@ -503,7 +492,8 @@ function EarliestStartField() {
     <FieldGroup
       label="Earliest start date"
       error={form.error(path)}
-      hint={hintOf(form, path, day ? null : 'Empty: the extension leaves the question for you.')}
+      hint={day || form.isFromResume(path) ? undefined : 'Empty: left for you.'}
+      note={form.isFromResume(path) ? <FromResumeHint path={path} /> : undefined}
     >
       <div>
         <DatePickerPopover
@@ -533,7 +523,9 @@ function RelocateField() {
   const raw = form.read(path);
   const value = raw === 'yes' || raw === 'no' ? raw : NOT_PROVIDED;
   return (
-    <Field label="Willing to relocate?" error={form.error(path)} hint={hintOf(form, path, null)}>
+    // The kit's RadioGroup takes its description from the Field: the "From your resume" mark is the hint while it
+    // shows, and is drawn under the choices too (v32 COPY: a hint is a "?", a status stays in sight).
+    <Field label="Willing to relocate?" error={form.error(path)} hint={form.markText(path) ?? undefined}>
       <RadioGroup
         orientation="horizontal"
         disabled={form.busy}
@@ -541,6 +533,11 @@ function RelocateField() {
         value={value}
         onValueChange={(next) => form.set(path, next === NOT_PROVIDED ? null : next)}
       />
+      {form.isFromResume(path) && (
+        <p aria-hidden="true" data-field-note="" className="text-[13px] leading-5">
+          <FromResumeHint path={path} />
+        </p>
+      )}
     </Field>
   );
 }
@@ -550,7 +547,7 @@ function WorkArrangementsField() {
   const path = 'profile.preferences.workArrangements';
   const selected = form.state.draft.profile.preferences.workArrangements;
   return (
-    <FieldGroup label="Work arrangements you accept" error={form.errorWithin(path)} hint={hintOf(form, path, null)}>
+    <FieldGroup label="Work arrangements you accept" error={form.errorWithin(path)} note={hintOf(form, path, null)}>
       <div className="flex flex-wrap gap-2">
         {WORK_ARRANGEMENT_OPTIONS.map((option) => {
           const on = selected.includes(option.value);
@@ -618,7 +615,7 @@ export function OtherQuestionsSection() {
         <SensitiveBooleanField
           path="sensitive.legal.criminalRecord"
           label="Have you ever been convicted of a crime?"
-          hint="Used only for questions that ask this. Never sent to AI. Not answered: the extension leaves the question for you."
+          hint="Never sent to AI; not answered, it is left for you."
         />
         <AnswerField<ExpectedSalary>
           path="sensitive.compensation.expectedSalary"
@@ -633,7 +630,7 @@ export function OtherQuestionsSection() {
           placeholder="Type a city and press Enter"
           max={10}
           maxLength={100}
-          hint={'For "Where would you relocate?" and "Which of these locations could you work from?"'}
+          hint="For where-would-you-relocate questions."
         />
         <div className="grid gap-5 sm:grid-cols-2">
           <TextField
@@ -641,7 +638,7 @@ export function OtherQuestionsSection() {
             label='Usual answer to "How did you hear about us?"'
             maxLength={100}
             placeholder="LinkedIn"
-            hint="Empty: the extension leaves the question for you."
+            hint="Empty: left for you."
           />
           <SelectField
             path="profile.preferences.referralSourceCategory"
@@ -649,7 +646,7 @@ export function OtherQuestionsSection() {
             options={REFERRAL_CATEGORY_OPTIONS}
             emptyLabel="Not said"
             placeholder="Not said"
-            hint="For forms that list kinds of sources (Social media, Employee referral...)."
+            hint="Social media, Employee referral..."
           />
         </div>
       </div>
@@ -787,7 +784,7 @@ export function ScreeningSection() {
     <Section
       id={ONCE_SECTIONS.screening}
       title="Screening questions"
-      description="Used only for questions that ask exactly this. Never sent to AI. Not answered: the extension leaves the question for you."
+      description="Never sent to AI; not answered, they are left for you."
     >
       <div className="flex flex-col gap-6">
         <SensitiveBooleanField
@@ -834,7 +831,7 @@ export function ScreeningSection() {
               placeholder="Type a company and press Enter"
               max={20}
               maxLength={100}
-              hint="None listed: no relative of yours works at a company you apply to. No relative's name is kept."
+              hint="None listed: no relative works where you apply."
             />
           )}
         </AnswerField>
@@ -878,7 +875,7 @@ export function AnythingElseSection({ flagged }: { flagged: FlaggedNote | null }
   return (
     <Section
       title="Anything else we should know?"
-      description="TailorIT's AI reads this note when it answers application questions and writes answers for you: what you are looking for, what to stress, how you like to come across. Never put passwords or sensitive details here (work authorization, salary, age, health): those come from your answers above, and a line that states one is left out of what the AI reads."
+      description="AI reads this when it answers for you, so leave out passwords and sensitive details."
     >
       <div className="flex flex-col gap-4">
         <TextareaField
@@ -889,10 +886,7 @@ export function AnythingElseSection({ flagged }: { flagged: FlaggedNote | null }
         />
         {shown && (
           <Notice tone="warning" title="Remove these lines from your note">
-            <p>
-              They state a sensitive answer, so the AI never reads them. Keep those answers in the questions above
-              instead.
-            </p>
+            <p>AI never reads lines with sensitive answers. Keep those above.</p>
             <ul className="mt-1.5 list-disc pl-5">
               {shown.lines
                 .filter((index) => index >= 0 && index < lines.length)
@@ -920,7 +914,7 @@ export function ResumeSection({ resumes }: { resumes: AutofillResumeList | null 
   const options = (resumes?.items ?? []).map((resume) => ({ value: resume.id, label: resumeLabel(resume) }));
   const missing = resumes !== null && chosen !== null && !resumes.items.some((resume) => resume.id === chosen);
   return (
-    <Section title="Resume to attach" description="The file the extension uploads where a form asks for a resume.">
+    <Section title="Resume to attach" description="Uploaded where a form asks for a resume.">
       <div className="sm:max-w-md">
         <SelectField
           path="profile.documents.resumeId"
@@ -929,8 +923,8 @@ export function ResumeSection({ resumes }: { resumes: AutofillResumeList | null 
           emptyLabel="Best match for each job (recommended)"
           hint={
             missing
-              ? 'That resume was deleted: the extension uses the best match until you choose another.'
-              : 'The best match is the one TailorIT suggests for the job.'
+              ? 'That resume was deleted: the best match is used until you choose another.'
+              : 'The best match is the one suggested for each job.'
           }
         />
       </div>

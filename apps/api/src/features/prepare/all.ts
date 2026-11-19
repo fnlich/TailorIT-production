@@ -1,6 +1,7 @@
 import {
   PREPARE_ALL_HELD_MESSAGES,
   UNLIMITED,
+  aiUsePercent,
   type PrepareAllHeld,
   type PrepareAllHeldReason,
   type PrepareAllPlan,
@@ -128,10 +129,14 @@ async function choose(deps: AppDeps, userId: string, confirmed?: ReadonlySet<str
   return { toPrepare: entries.length, passing: passing.length, taking, ...(held ? { held } : {}), queueLimit, resumes };
 }
 
-/** GET /api/prepare/all: what Prepare All would take now, with today's AI budget (nothing starts). */
-export async function prepareAllPlan(deps: AppDeps, userId: string): Promise<PrepareAllPlan> {
+/**
+ * GET /api/prepare/all: what Prepare All would take now, with today's AI budget (nothing starts). v32 ADMINAPP (E7): a
+ * person sees the day's use as a share only (`ai.percent`); the amounts are sent to an admin alone (`admin`).
+ */
+export async function prepareAllPlan(deps: AppDeps, userId: string, options: { admin?: boolean } = {}): Promise<PrepareAllPlan> {
   const choice = await choose(deps, userId);
   const budget = await aiBudgetState(deps, userId);
+  const budgetMicros = budget.budgetMicros === UNLIMITED ? null : budget.budgetMicros;
   return {
     toPrepare: choice.toPrepare,
     passing: choice.passing,
@@ -139,8 +144,8 @@ export async function prepareAllPlan(deps: AppDeps, userId: string): Promise<Pre
     applicationIds: choice.taking, // v31 FIX-AUTH (BEH-8)
     ...(choice.held ? { held: choice.held } : {}),
     ai: {
-      usedMicros: budget.dailySpentMicros,
-      budgetMicros: budget.budgetMicros === UNLIMITED ? null : budget.budgetMicros,
+      ...(options.admin ? { usedMicros: budget.dailySpentMicros, budgetMicros } : {}),
+      percent: aiUsePercent(budget.dailySpentMicros, budgetMicros),
       creditMicros: budget.creditMicros,
     },
   };

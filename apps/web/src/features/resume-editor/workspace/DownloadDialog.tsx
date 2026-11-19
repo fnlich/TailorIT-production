@@ -19,9 +19,9 @@ import { ResumeCanvas } from '../pages/ResumeCanvas';
 // upgraded as it is read, and stores nothing.
 
 const FORMATS: ReadonlyArray<{ value: ResumeDownloadExtension; label: string; hint: string }> = [
-  { value: 'pdf', label: 'PDF', hint: 'Best for applying: it prints exactly as you see it.' },
-  { value: 'docx', label: 'Word', hint: 'Plain text in Word, for forms that ask for a .docx.' },
-  { value: 'txt', label: 'TXT', hint: 'Plain text, to paste into application forms.' },
+  { value: 'pdf', label: 'PDF', hint: 'Prints exactly as you see it.' },
+  { value: 'docx', label: 'Word', hint: 'For forms that ask for a .docx.' },
+  { value: 'txt', label: 'TXT', hint: 'Plain text to paste into forms.' },
 ];
 
 /** The most boxes POST /api/resumes/:id/layout compares (a longer resume sends its breaks alone). */
@@ -119,10 +119,7 @@ export function DownloadDialog(props: DownloadDialogProps) {
       <DialogContent title={step === 'check' ? `Empty fields detected: ${emptyFields}` : 'Download your resume'} size="md">
         {step === 'check' ? (
           <>
-            <p className="text-[15px] text-muted-foreground">
-              Some fields on your resume are shown but still empty. Fill them in, or hide them in the entry&apos;s Settings, so
-              they do not leave gaps. Empty fields are left out of the download.
-            </p>
+            <p className="text-[15px] text-muted-foreground">Fill them in or hide them; empty fields are left out of the download.</p>
             <DialogFooter>
               <Button
                 variant="outline"

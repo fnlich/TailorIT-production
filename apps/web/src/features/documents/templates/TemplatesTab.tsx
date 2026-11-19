@@ -148,7 +148,7 @@ export function TemplatesTab() {
           query.isError ? (
             <Notice
               tone="error"
-              title="Could not load your templates"
+              title="Your templates didn't load."
               action={
                 <Button variant="outline" size="sm" loading={query.isFetching} onClick={() => void query.refetch()}>
                   Try again

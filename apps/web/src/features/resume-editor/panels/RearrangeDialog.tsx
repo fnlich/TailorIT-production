@@ -227,7 +227,7 @@ export function RearrangeDialog({ open, onClose, document, store }: { open: bool
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogContent title="Rearrange sections" description="Hold & Drag the boxes to rearrange the sections" size="md">
+      <DialogContent title="Rearrange sections" help="Drag the boxes to reorder the sections." size="md">
         <DndContext
           sensors={sensors}
           collisionDetection={pointerWithin}

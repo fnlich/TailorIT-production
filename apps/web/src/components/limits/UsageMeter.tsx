@@ -6,6 +6,7 @@ import { usePublicConstants } from '../../lib/constants';
 // Relative, not '@/': the web tests draw these views.
 import { Skeleton } from '../ui/Skeleton';
 import { TapeMeter } from '../ui/TapeMeter';
+import { aiUseOf, aiUseTone, type AiUseInput } from './aiUse';
 import { LIMIT_COPY } from './copy';
 import { usageState } from './limits';
 
@@ -79,5 +80,57 @@ export function UsageMeterSkeleton({ className }: { className?: string }) {
       <Skeleton className="h-1.5 flex-1" />
       <Skeleton className="h-3 w-24" />
     </span>
+  );
+}
+
+export interface AiUseMeterProps {
+  /** Today's AI use as an answer gives it (the share, or the amounts): only the share is drawn. */
+  ai: AiUseInput | null | undefined;
+  /** AI_USE_WARNING_PERCENT; by default the public constants'. */
+  warningPercent?: number;
+  /** The meter's name, also drawn when `showLabel` ("AI use today"). */
+  label?: string;
+  showLabel?: boolean;
+  /** `stacked` (default): the name and share above the bar; `inline`: the share after the bar (a row's value). */
+  layout?: 'stacked' | 'inline';
+  className?: string;
+}
+
+/**
+ * v32 COPY (E7): today's AI use as a share of the daily budget, "40%", never its amounts. The tone turns to warning
+ * from AI_USE_WARNING_PERCENT and to danger once the budget is used. A plan with no daily budget reads "No daily
+ * limit".
+ */
+export function AiUseMeter({
+  ai,
+  warningPercent,
+  label = LIMIT_COPY.aiUseLabel,
+  showLabel = true,
+  layout = 'stacked',
+  className,
+}: AiUseMeterProps) {
+  const { values } = usePublicConstants();
+  const use = aiUseOf(ai);
+  if (use.kind === 'unlimited') {
+    return (
+      <p className={clsx('text-sm leading-5 text-foreground', className)} data-ai-use="unlimited">
+        {showLabel && <span className="text-muted-foreground">{label}: </span>}
+        {LIMIT_COPY.aiUseUnlimited}
+      </p>
+    );
+  }
+  return (
+    <div className={clsx('min-w-0', className)} data-ai-use={use.reached ? 'reached' : 'normal'} data-ai-use-percent={use.percent}>
+      <TapeMeter
+        label={label}
+        showLabel={showLabel}
+        value={use.percent}
+        max={100}
+        valueText={use.percentText}
+        tone={aiUseTone(use.percent, warningPercent ?? values.AI_USE_WARNING_PERCENT)}
+        size="sm"
+        layout={layout}
+      />
+    </div>
   );
 }

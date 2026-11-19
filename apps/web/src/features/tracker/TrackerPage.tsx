@@ -20,8 +20,8 @@ import {
 import { LockedFeatureDialog, useLimitDialog } from '@/components/limits';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button } from '@/components/ui/Button';
+import { LoadError } from '@/components/ui/LoadError';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { Notice } from '@/components/ui/Notice';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { PlusIcon } from '@/components/ui/icons';
@@ -58,7 +58,7 @@ import { useArchivedColumn, useColumnPrefs, useDebouncedValue, useDraftColumn, u
 import { ListView, type ListEmptyKind } from './list/ListView';
 import { AddApplicationSheet } from './sheets/AddApplicationSheet';
 import { activeFilterCount, chooseView, effectiveView, filterKey, DEFAULT_FILTERS, type FilterState } from './state';
-import { FilterChipsRow, ManageBar, PrepareBar, SearchRow, TabsRow, type BulkKind } from './toolbar/Toolbar';
+import { FilterChipsRow, ManageBar, PrepareBar, SearchRow, TabsRow, ViewSwitch, type BulkKind } from './toolbar/Toolbar';
 import { OptionsMenu } from './toolbar/OptionsMenu';
 import { buildingProgress, buildingTitle, buildResumeZip, resumeZipRun, zipOutcomeText } from './zip/resumeZip';
 
@@ -154,8 +154,10 @@ function Tracker() {
     () => Object.fromEntries((columns ?? []).map((column) => [column.status, column.total])) as Record<string, number>,
     [columns],
   );
-  // v20 A30: Draft between Saved and Applied.
-  const visible = boardColumnsShown(prefs, draftMode, totals);
+  // v20 A30: Draft between Saved and Applied. v32 LAYOUT (E11): the board always keeps a lane (Saved, when every one
+  // was hidden before Lanes shown and the eyes kept the last one).
+  const lanesChosen = boardColumnsShown(prefs, draftMode, totals);
+  const visible: DisplayStatus[] = lanesChosen.length > 0 || archivedShown ? lanesChosen : [STATUS.saved];
   const listItems = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? null, [list.data]);
   const archivedItems = useMemo(() => archivedList.data?.pages.flatMap((page) => page.items) ?? null, [archivedList.data]);
   // "Select all" takes what is on screen: the shown columns' cards (and the Archived column's), or the list's rows.
@@ -394,18 +396,36 @@ function Tracker() {
   const emptyKind: ListEmptyKind = filtered ? 'no-match' : url.tab === 'archived' ? 'archived' : 'first';
 
   return (
-    <div className={clsx('flex flex-col', view === 'board' ? 'h-[calc(100dvh_-_var(--spacing-topbar))] min-h-[560px]' : 'min-h-full')}>
-      <div className={clsx(PAGE_GUTTER, 'flex shrink-0 flex-col gap-3 pt-6', view === 'board' ? 'pb-5' : 'pb-6')}>
-        {/* v31 JOBSWEB: the page header (the visual identity's page pattern), "Add application" its main action. */}
+    // v32 FIX-UX (UXREQ-13): a wide page, as Jobs and Auto-apply (up to 1600 px).
+    <div
+      className={clsx(
+        'mx-auto flex w-full max-w-[1600px] flex-col',
+        view === 'board' ? 'h-[calc(100dvh_-_var(--spacing-topbar))] min-h-[560px]' : 'min-h-full',
+      )}
+    >
+      <div className={clsx(PAGE_GUTTER, 'flex shrink-0 flex-col gap-3 pt-4 sm:pt-6', view === 'board' ? 'pb-3 sm:pb-5' : 'pb-6')}>
+        {/* v31 JOBSWEB: the page header (the visual identity's page pattern), "Add application" its main action. v32 FIX-UX
+            (UXREQ-5): on a phone Add application is its "+" alone and Board | List | Chart sits by the title, so one
+            toolbar row is left above the board. */}
         <PageHeader
           title="Job Tracker"
           description={t('MSG_TRACKER_PAGE_DESCRIPTION')}
           actions={
-            <Button ref={addButton} icon={<PlusIcon size={16} weight="bold" />} onClick={openAdd} data-add-application="">
-              Add application
-            </Button>
+            <>
+              <ViewSwitch view={view} onViewChange={changeView} className="sm:hidden" />
+              <Button
+                ref={addButton}
+                icon={<PlusIcon size={16} weight="bold" />}
+                onClick={openAdd}
+                aria-label="Add application"
+                className="max-sm:size-11 max-sm:px-0"
+                data-add-application=""
+              >
+                <span className="max-sm:sr-only">Add application</span>
+              </Button>
+            </>
           }
-          className="mb-3"
+          className="max-sm:items-center sm:mb-3"
         />
         <SearchRow
           view={view}
@@ -586,20 +606,9 @@ function Tracker() {
   );
 }
 
-/** A read that failed, with its sentence and a way to try again. */
+/** A read that failed: the kit's load error ("Your applications didn't load.", its reason, Try again; v32 FIX-UX). */
 function LoadFailure({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  return (
-    <Notice
-      tone="error"
-      action={
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Try again
-        </Button>
-      }
-    >
-      {userMessage(error, "We couldn't load your applications. Please try again.")}
-    </Notice>
-  );
+  return <LoadError thing="Your applications" error={error} onRetry={onRetry} />;
 }
 
 export function TrackerPage() {

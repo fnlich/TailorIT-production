@@ -3,7 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { Button } from '@/components/ui/Button';
-import { ArrowsClockwiseIcon, SparkleIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { ArrowsClockwiseIcon, SparkleIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TapeMeter } from '@/components/ui/TapeMeter';
@@ -69,7 +70,7 @@ export function AiTab() {
   return (
     <AdminResourceTab
       title="AI"
-      description="AI features run through the Claude CLI signed in on this server, on its subscription. By default, Claude reads each added job once, in the background, newest first. Opening or saving a job never starts a reading."
+      description="AI runs through the Claude CLI on this server, reading each added job once in the background."
       actions={
         <>
           <Button variant="outline" icon={<ArrowsClockwiseIcon size={16} />} onClick={() => recheck.mutate()} loading={recheck.isPending}>
@@ -200,10 +201,12 @@ function ServerAiStatusCard() {
       <p className="mt-1.5 text-right text-xs leading-4 text-muted-foreground">
         Blocks at <span className="num">{percentText(data.threshold)}</span>
       </p>
+      {/* v32 COPY (E4): the blocked state is a red status line in the card, not a banner. */}
       {state.tone === 'blocked' ? (
-        <Notice tone="error" className="mt-3">
+        <p className="mt-3 flex items-start gap-1.5 text-sm leading-5 font-medium text-danger" data-ai-blocked="">
+          <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0" aria-hidden="true" />
           {state.text}
-        </Notice>
+        </p>
       ) : (
         <p className="mt-3 text-sm leading-5 text-foreground">{state.text}</p>
       )}
@@ -255,10 +258,13 @@ function BackgroundWorkCard() {
         {rows.map((row) => (
           <li key={row.key} data-ai-background-row={row.key} className="py-3 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
-              <p className="text-sm font-medium text-foreground tabular-nums">{row.title}</p>
+              {/* v32 COPY (E5): the row's note is the "?" beside its title. */}
+              <p className="flex items-center gap-1.5 text-sm font-medium text-foreground tabular-nums">
+                {row.title}
+                <HelpTip label={row.title}>{row.note}</HelpTip>
+              </p>
               {row.detail && <p className="text-[13px] leading-5 text-muted-foreground tabular-nums">{row.detail}</p>}
             </div>
-            <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{row.note}</p>
           </li>
         ))}
       </ul>

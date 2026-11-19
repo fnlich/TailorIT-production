@@ -36,7 +36,7 @@ import {
 import {
   ArchiveIcon,
   CheckCircleIcon,
-  DotsThreeIcon,
+  DotsThreeVerticalIcon,
   DownloadSimpleIcon,
   FileZipIcon,
   FunnelIcon,
@@ -103,6 +103,23 @@ export interface ColumnChoice {
   visible: boolean;
 }
 
+/**
+ * v32 LAYOUT (E11): a lane's count after its name, a word apart, so it is named "Applied (1)" (it read "Applied(1)").
+ */
+function LaneCount({ count }: { count: number }) {
+  return (
+    <>
+      {' '}
+      <span className="text-muted-foreground tabular-nums">({count})</span>
+    </>
+  );
+}
+
+/** v32 LAYOUT (E11): how many lanes the board shows (the stages ticked, Draft and Archived). */
+export function lanesShownCount(columns: readonly ColumnChoice[], draft: { visible: boolean }, archived: { visible: boolean }): number {
+  return columns.filter((column) => column.visible).length + (draft.visible ? 1 : 0) + (archived.visible ? 1 : 0);
+}
+
 export function OptionsMenu({
   view,
   filters,
@@ -156,11 +173,17 @@ export function OptionsMenu({
   const showFilters = view !== 'chart';
   const { t } = usePublicConstants();
   const filterLabel = t('LABEL_TRACKER_FILTER');
-  const lanesShown = columns.filter((column) => column.visible).length + (draftColumn.visible ? 1 : 0) + (archivedColumn.visible ? 1 : 0);
+  const lanesShown = lanesShownCount(columns, draftColumn, archivedColumn);
+  // v32 LAYOUT (E11): the board keeps at least one lane, so the last one ticked cannot be unticked.
+  const lastLane = (visible: boolean) => visible && lanesShown <= 1;
 
   return (
     <>
-      {/* v31 FIX-DOCS: "Filter and sort" (the filters, favorites, lanes and sort) and the ⋯ of the tracker's actions. */}
+      {/*
+        v31 FIX-DOCS: "Filter and sort" (the filters, favorites and sort) and the tracker's actions. v32 LAYOUT (E11, the
+        owner: "we should be able to set which lane will be shown (you can add this on vertical three dot)"): the
+        actions are a vertical ⋮, and "Lanes shown" moved there from Filter and sort (the board's lanes are not a filter).
+      */}
       {showFilters && (
         <Menu open={open} onOpenChange={setOpen}>
           {/*
@@ -269,49 +292,6 @@ export function OptionsMenu({
               <MenuCheckboxItem checked={filters.favorites} onCheckedChange={(on) => set({ favorites: on })}>
                 Show only favorites
               </MenuCheckboxItem>
-              {view === 'board' && (
-                <MenuSub
-                  label={`${t('LABEL_TRACKER_LANES')} (${lanesShown})`}
-                >
-                  <MenuSubContent width="w-60">
-                    {columns.flatMap((column) => {
-                      const item = (
-                        <MenuCheckboxItem
-                          key={column.status}
-                          checked={column.visible}
-                          icon={<StatusIcon status={column.status} size={16} />}
-                          onCheckedChange={(on) => onColumnToggle(column.status, on)}
-                        >
-                          {STATUS_INFO[column.status].label}
-                          <span className="ml-1 text-muted-foreground tabular-nums">({column.count})</span>
-                        </MenuCheckboxItem>
-                      );
-                      if (column.status !== 1) return [item];
-                      // v20 A30: Draft right after Saved, as on the board.
-                      return [
-                        item,
-                        <MenuCheckboxItem
-                          key={DISPLAY_STATUS_DRAFT}
-                          checked={draftColumn.visible}
-                          icon={<DisplayStatusIcon status={DISPLAY_STATUS_DRAFT} size={16} />}
-                          onCheckedChange={onDraftToggle}
-                        >
-                          {draftColumn.label}
-                          <span className="ml-1 text-muted-foreground tabular-nums">({draftColumn.count})</span>
-                        </MenuCheckboxItem>,
-                      ];
-                    })}
-                    <MenuCheckboxItem
-                      checked={archivedColumn.visible}
-                      icon={<ArchiveIcon size={16} />}
-                      onCheckedChange={onArchivedToggle}
-                    >
-                      Archived
-                      <span className="ml-1 text-muted-foreground tabular-nums">({archivedColumn.count})</span>
-                    </MenuCheckboxItem>
-                  </MenuSubContent>
-                </MenuSub>
-              )}
               <MenuSub label="Sort by">
                 <MenuSubContent width="w-52">
                   <MenuRadioGroup value={filters.sort} onValueChange={(sort) => set({ sort: sort as TrackerSort })}>
@@ -337,9 +317,65 @@ export function OptionsMenu({
       )}
       <Menu>
         <MenuTrigger
-          render={<IconButton label={t('LABEL_TRACKER_MORE')} variant="outline" icon={<DotsThreeIcon size={18} weight="bold" />} />}
+          render={
+            <IconButton
+              label={t('LABEL_TRACKER_MORE')}
+              variant="outline"
+              icon={<DotsThreeVerticalIcon size={18} weight="bold" />}
+              data-tracker-actions=""
+            />
+          }
         />
         <MenuContent align="end" width="w-60" aria-label={t('LABEL_TRACKER_MORE')}>
+        {view === 'board' && (
+          <>
+            <MenuGroup label="Board">
+              <MenuSub label={`${t('LABEL_TRACKER_LANES')} (${lanesShown})`}>
+                <MenuSubContent width="w-60">
+                  {columns.flatMap((column) => {
+                    const item = (
+                      <MenuCheckboxItem
+                        key={column.status}
+                        checked={column.visible}
+                        disabled={lastLane(column.visible)}
+                        icon={<StatusIcon status={column.status} size={16} />}
+                        onCheckedChange={(on) => onColumnToggle(column.status, on)}
+                      >
+                        {STATUS_INFO[column.status].label}
+                        <LaneCount count={column.count} />
+                      </MenuCheckboxItem>
+                    );
+                    if (column.status !== 1) return [item];
+                    // v20 A30: Draft right after Saved, as on the board.
+                    return [
+                      item,
+                      <MenuCheckboxItem
+                        key={DISPLAY_STATUS_DRAFT}
+                        checked={draftColumn.visible}
+                        disabled={lastLane(draftColumn.visible)}
+                        icon={<DisplayStatusIcon status={DISPLAY_STATUS_DRAFT} size={16} />}
+                        onCheckedChange={onDraftToggle}
+                      >
+                        {draftColumn.label}
+                        <LaneCount count={draftColumn.count} />
+                      </MenuCheckboxItem>,
+                    ];
+                  })}
+                  <MenuCheckboxItem
+                    checked={archivedColumn.visible}
+                    disabled={lastLane(archivedColumn.visible)}
+                    icon={<ArchiveIcon size={16} />}
+                    onCheckedChange={onArchivedToggle}
+                  >
+                    Archived
+                    <LaneCount count={archivedColumn.count} />
+                  </MenuCheckboxItem>
+                </MenuSubContent>
+              </MenuSub>
+            </MenuGroup>
+            <MenuSeparator />
+          </>
+        )}
         <MenuGroup label="Actions">
           <MenuItem icon={<CheckCircleIcon size={16} />} onClick={onManage}>
             {t('LABEL_TRACKER_SELECT')}

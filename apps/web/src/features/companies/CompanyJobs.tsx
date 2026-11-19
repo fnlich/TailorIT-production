@@ -7,8 +7,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { BriefcaseIcon } from '@/components/ui/icons';
-import { Notice } from '@/components/ui/Notice';
+import { BriefcaseIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { userMessage } from '@/lib/api';
@@ -29,13 +28,13 @@ export const POSITION_WORDS: Record<CompanyJobState, { tab: string; list: string
     tab: 'Open',
     list: 'Open positions',
     empty: 'No open positions right now',
-    emptyHint: (name) => `When ${name} posts a job, it shows here.`,
+    emptyHint: (name) => `${name}'s new jobs show here.`,
   },
   closed: {
     tab: 'Closed',
     list: 'Closed positions',
     empty: 'No closed positions yet',
-    emptyHint: (name) => `Jobs ${name} no longer lists show here, with the day they closed.`,
+    emptyHint: (name) => `Jobs ${name} took down show here.`,
   },
 };
 
@@ -96,17 +95,20 @@ export function CompanyJobs({ company, className }: { company: Pick<CompanyPage,
       </div>
       <div className="mt-4">
         {jobs.error && !items ? (
-          <Notice
-            tone="error"
-            title="The positions could not be loaded"
-            action={
-              <Button variant="outline" size="sm" onClick={() => void jobs.refetch()}>
-                Try again
-              </Button>
-            }
-          >
-            {userMessage(jobs.error)}
-          </Notice>
+          // v32 JOBS2 (E4): the list's state with its next step, not a banner.
+          <div className="rounded-card border border-border bg-surface shadow-card">
+            <EmptyState
+              icon={<WarningCircleIcon size={22} />}
+              title="The positions didn't load."
+              description={userMessage(jobs.error)}
+              size="sm"
+              action={
+                <Button variant="outline" size="sm" onClick={() => void jobs.refetch()}>
+                  Try again
+                </Button>
+              }
+            />
+          </div>
         ) : items === undefined ? (
           <div className="flex flex-col gap-4 rounded-card border border-border bg-surface shadow-card p-5" aria-busy="true">
             {Array.from({ length: 4 }, (_, index) => (

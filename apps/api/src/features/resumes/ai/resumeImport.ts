@@ -34,8 +34,8 @@ export function importedDocument(answer: ImportedResume): ResumeDocument {
   return normalizeResumeDocument({ ...answer, contact: answer.contact ?? {}, customSections });
 }
 
-/** Whether a document holds anything worth opening in the editor. */
-function hasContent(document: ResumeDocument): boolean {
+/** Whether a document holds anything worth opening in the editor (v32 FILL: and worth filling a profile from). */
+export function hasImportedContent(document: ResumeDocument): boolean {
   return Boolean(
     document.name ||
       document.summary ||
@@ -45,12 +45,21 @@ function hasContent(document: ResumeDocument): boolean {
   );
 }
 
+/** The AI read the file but found nothing of a resume in it. */
+export const NO_RESUME_CONTENT =
+  'The AI found no resume content in that file. Check that it is a resume with selectable text, then try again.';
+
 export const ImportTaskInputSchema = z.object({
   sourceResumeId: z.string().min(1).max(64),
   templateId: z.string().max(100).optional(),
   layout: z.enum(TECHNICAL_SKILLS_LAYOUTS).optional(),
   /** A copy the copy line started (copies/backlog.ts counts its copies in flight by it); the copy is made the same. */
   copyLine: z.literal(true).optional(),
+  /**
+   * v32 FILL: a reading only ("Fill from my resume" on an upload, ./uploadReading.ts): the document is kept for the
+   * account and no resume is made, so neither the template nor the room for a copy matters.
+   */
+  readOnly: z.literal(true).optional(),
 });
 export type ImportTaskInput = z.infer<typeof ImportTaskInputSchema>;
 
@@ -105,12 +114,7 @@ export async function runResumeImport(deps: AppDeps, input: ImportTaskInput, ctx
   if (editorTemplate) {
     document = upgradeLegacyDocument(document, { templates: engine.templates, skills: await engine.skillsFor(userId), into: editorTemplate });
   }
-  if (!hasContent(document)) {
-    throw new AppError(
-      'ai_failed',
-      'The AI found no resume content in that file. Check that it is a resume with selectable text, then try again.',
-    );
-  }
+  if (!hasImportedContent(document)) throw new AppError('ai_failed', NO_RESUME_CONTENT);
   // The upload may have been deleted while the AI read it; the copy is kept either way.
   const sourceStillThere = await deps.db.one('SELECT 1 FROM resumes WHERE id = ? AND user_id = ?', [upload.id, userId]);
   const resumeId = await insertResume(deps, userId, {

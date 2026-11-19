@@ -7,6 +7,7 @@ import Script from 'next/script';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { ApiError, userMessage } from '@/lib/api';
@@ -35,9 +36,8 @@ declare global {
   }
 }
 
-const OPTIONS_UNREACHABLE =
-  "We can't reach the server right now. Please try again in a moment, or contact your administrator if this continues.";
-const NOTHING_CONFIGURED = "Sign-in isn't available right now. Please contact your administrator.";
+const OPTIONS_UNREACHABLE = "We can't reach the server right now. Try again in a moment.";
+const NOTHING_CONFIGURED = "Sign-in isn't available right now. Contact your administrator.";
 
 type Stage = 'address' | 'code';
 
@@ -207,8 +207,10 @@ export function SignInPage() {
         </div>
       ) : (
         <div className={SIGN_IN_CARD}>
-          <h1 className={SIGN_IN_TITLE}>Sign in</h1>
-          <p className="mt-2 text-sm text-muted-foreground">TailorIT keeps your resumes to your own account.</p>
+          <div className="flex items-center gap-1.5">
+            <h1 className={SIGN_IN_TITLE}>Sign in</h1>
+            <HelpTip label="Sign in">TailorIT keeps your resumes to your own account.</HelpTip>
+          </div>
 
           {optionsError && (
             <Notice

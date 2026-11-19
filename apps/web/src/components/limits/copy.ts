@@ -7,7 +7,6 @@ import type { LimitKind } from './limits';
 export const LIMIT_COPY = {
   subscribe: 'Subscribe',
   buyCredit: 'Get extra credit',
-  close: 'Close',
   copyEmail: 'Copy email',
   emailCopied: 'Email copied',
   copyByHand: 'Copy the email by hand',
@@ -26,13 +25,16 @@ export const LIMIT_COPY = {
   resetsAt: (when: string) => `Resets at ${when}`,
   /** v31 AUTO: under the UsageMeter while runs are in progress: "1 applying now". */
   running: (count: number) => `${count} applying now`,
+  /** v32 COPY (E7): the AI use meter's name (a share only, never the amounts). */
+  aiUseLabel: 'AI use today',
+  aiUseUnlimited: 'No daily limit',
 } as const;
 
 /** The LimitDialog's title for each kind of limit (its body is the message). */
 export const LIMIT_TITLES: Record<LimitKind, string> = {
-  ai_unavailable: 'AI is unavailable',
-  ai_usage_exhausted: 'AI usage used up',
+  ai_unavailable: 'AI unavailable',
+  ai_usage_exhausted: "Today's AI use is used up",
   resume_limit_reached: 'Resume limit reached',
-  paid_feature: 'Available with a Paid account',
+  paid_feature: 'Paid feature',
   auto_apply_limit: 'Daily auto-apply limit reached',
 };

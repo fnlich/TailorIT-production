@@ -2,8 +2,9 @@
 
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { clsx } from 'clsx';
-import type { ComponentProps, ReactNode } from 'react';
+import { useRef, type ComponentProps, type ReactNode } from 'react';
 import { BACKDROP } from './Dialog';
+import { firstFocusSkippingTips, HelpTip } from './HelpTip';
 import { IconButton } from './IconButton';
 import { XIcon } from './icons';
 
@@ -27,7 +28,10 @@ export type SheetSize = '3xl' | '7xl';
 export interface SheetContentProps {
   children: ReactNode;
   title: ReactNode;
+  /** A visible line under the title when it is a value (an email, a company's id). Helper text goes in `help`. */
   description?: ReactNode;
+  /** v32 COPY (E5): one short sentence of help in a "?" beside the title (never a visible line). */
+  help?: ReactNode;
   /** A 40 px denim-soft tile before the title (Add Application: a briefcase). */
   icon?: ReactNode;
   /** Buttons beside the close ✕ (detail view: Apply, Favorite, Archive, Delete). */
@@ -46,6 +50,7 @@ export function SheetContent({
   children,
   title,
   description,
+  help,
   icon,
   headerActions,
   footer,
@@ -55,11 +60,14 @@ export function SheetContent({
   initialFocus,
   wrapTitle = false,
 }: SheetContentProps) {
+  // v32 COPY: by default the sheet opens on its first control that is not a "?".
+  const popup = useRef<HTMLDivElement>(null);
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className={BACKDROP} />
       <BaseDialog.Popup
-        initialFocus={initialFocus}
+        ref={popup}
+        initialFocus={initialFocus ?? (() => firstFocusSkippingTips(popup.current))}
         className={clsx(
           'fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface text-foreground shadow-dialog outline-none',
           'transition-transform duration-300 ease-out-soft data-starting-style:translate-x-full data-ending-style:translate-x-full',
@@ -74,12 +82,19 @@ export function SheetContent({
             </span>
           )}
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 self-center">
-            <BaseDialog.Title
-              className={clsx('text-heading font-semibold text-foreground', wrapTitle ? 'line-clamp-3 break-words' : 'truncate')}
-              data-sheet-title=""
-            >
-              {title}
-            </BaseDialog.Title>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <BaseDialog.Title
+                className={clsx('min-w-0 text-heading font-semibold text-foreground', wrapTitle ? 'line-clamp-3 break-words' : 'truncate')}
+                data-sheet-title=""
+              >
+                {title}
+              </BaseDialog.Title>
+              {help ? (
+                <HelpTip label={title} side="bottom">
+                  {help}
+                </HelpTip>
+              ) : null}
+            </span>
             {description && (
               <BaseDialog.Description className="text-sm text-muted-foreground">{description}</BaseDialog.Description>
             )}

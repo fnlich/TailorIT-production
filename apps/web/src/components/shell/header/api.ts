@@ -1,16 +1,17 @@
 'use client';
 
+import { IsoDateTime } from '@tailorit/shared/core';
 import {
   HeaderSummarySchema,
   NotificationListSchema,
   NotificationReadAllSchema,
-  type HeaderSummary,
   type Notification,
   type NotificationList,
   type NotificationReadAll,
 } from '@tailorit/shared/notifications';
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import { z } from 'zod';
 // Relative, not '@/': the web tests read these.
 import { api, apiFetch } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
@@ -33,8 +34,24 @@ export const LATEST_QUERY_KEY = ['notifications', 'latest'] as const;
 /** The bell lists this many. */
 export const BELL_LIMIT = 10;
 
-export function fetchHeaderSummary(signal?: AbortSignal): Promise<HeaderSummary> {
-  return apiFetch<HeaderSummary>('/api/me/header', { schema: HeaderSummarySchema, signal });
+/**
+ * v32 SHELL (E7): GET /api/me/header as the web reads it, from either API: v3.2 sends `ai.percent` (today's share of the
+ * daily limit, 0-100; null with no daily limit) and leaves the money out for anyone but an administrator; v3.1 sent the
+ * micros only. The chip reads `percent` when it is there, else works it out from the micros (view.ts aiPercent).
+ */
+export const HeaderSummaryReadSchema = HeaderSummarySchema.extend({
+  ai: z.object({
+    percent: z.number().int().min(0).max(100).nullable().optional(),
+    usedMicros: z.number().int().nonnegative().optional(),
+    budgetMicros: z.number().int().nonnegative().nullable().optional(),
+    resetsAt: IsoDateTime,
+  }),
+});
+/** The header's summary as the slots read it (HeaderSummaryReadSchema). */
+export type HeaderSummaryRead = z.infer<typeof HeaderSummaryReadSchema>;
+
+export function fetchHeaderSummary(signal?: AbortSignal): Promise<HeaderSummaryRead> {
+  return apiFetch<HeaderSummaryRead>('/api/me/header', { schema: HeaderSummaryReadSchema, signal });
 }
 
 export interface NotificationsQuery {
@@ -91,7 +108,7 @@ function useHeaderPoll(enabled: boolean): void {
  * The header's summary: read once the account is known, then every 60 s while the page is shown and when it comes
  * back (poll.ts); never in a hidden tab. A preview (HeaderPreview) answers its own data and reads nothing.
  */
-export function useHeaderSummary(): { data: HeaderSummary | undefined; isError: boolean } {
+export function useHeaderSummary(): { data: HeaderSummaryRead | undefined; isError: boolean } {
   const preview = useHeaderPreview();
   const { account } = useAuth();
   const live = !preview && account !== null;
@@ -178,7 +195,7 @@ export function useMarkRead(): (item: Notification) => void {
       // A read already on its way would answer the row as unread again.
       await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
       const at = new Date().toISOString();
-      queryClient.setQueryData<HeaderSummary>(HEADER_QUERY_KEY, (old) => (old ? { ...old, unread: Math.max(0, old.unread - 1) } : old));
+      queryClient.setQueryData<HeaderSummaryRead>(HEADER_QUERY_KEY, (old) => (old ? { ...old, unread: Math.max(0, old.unread - 1) } : old));
       updateLists(queryClient, (items) => markedRead(items, id, at), (count) => Math.max(0, count - 1));
     },
     onError: () => toast.error(BELL_COPY.markFailed),
@@ -201,7 +218,7 @@ export function useMarkAllRead(): { markAll: () => void; pending: boolean } {
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
       const at = new Date().toISOString();
-      queryClient.setQueryData<HeaderSummary>(HEADER_QUERY_KEY, (old) => (old ? { ...old, unread: 0 } : old));
+      queryClient.setQueryData<HeaderSummaryRead>(HEADER_QUERY_KEY, (old) => (old ? { ...old, unread: 0 } : old));
       updateLists(queryClient, (items) => allRead(items, at), () => 0);
     },
     onError: () => toast.error(BELL_COPY.markFailed),

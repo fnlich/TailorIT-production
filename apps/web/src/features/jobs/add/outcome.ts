@@ -9,10 +9,11 @@ import type { PublicMessageKey } from '@/lib/constants';
 /** The link field's words, kept beside the dialog's other copy. */
 export const ADD_JOB_COPY = {
   title: 'Add a job by its link',
-  description: "Paste the job posting's link. TailorIT reads the job from the posting itself, so its title, company and details are the employer's.",
+  // v32 JOBS2 (E5): one short sentence each.
+  description: "Paste the posting's link; TailorIT reads the job from it.",
   linkLabel: 'Job posting link',
   linkPlaceholder: 'https://',
-  linkHint: "The posting's own page or its application page, not a search results page.",
+  linkHint: "The posting's own page, not a search results page.",
   linkRequired: 'Paste a link to the job posting.',
   add: 'Add job',
   adding: 'Reading the posting...',
@@ -22,7 +23,7 @@ export const ADD_JOB_COPY = {
   close: 'Close',
   back: 'Back',
   saveForMe: 'Save for me only',
-  detailsLead: 'Only you will see what you type here. TailorIT keeps trying to read the link, and shares the job once it can.',
+  detailsLead: 'Only you will see what you type here.',
   failed: "We couldn't add the job. Please try again.",
 } as const;
 

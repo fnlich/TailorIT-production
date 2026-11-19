@@ -8,6 +8,7 @@ import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button } from '@/components/ui/Button';
 import { Combobox } from '@/components/ui/Combobox';
 import { Field, FieldLabel } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { MapPinIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
@@ -62,23 +63,20 @@ export function SettingsPage() {
 
   return (
     <div className={clsx('mx-auto w-full max-w-[880px] pt-7 pb-20', PAGE_GUTTER)}>
-      <PageHeader
-        title="Settings"
-        description="Your account, your profile, the jobs you are looking for, and how Prepare & Queue works."
-      />
+      <PageHeader title="Settings" description="Your account, profile, job preferences and Prepare & Queue." />
       <AccountSection className="mt-6" />
       {preferences.isError ? (
         <Notice
           tone="error"
           className="mt-6"
-          title="Your settings could not be loaded"
+          title="Settings didn't load"
           action={
             <Button variant="outline" size="sm" onClick={() => void preferences.refetch()}>
               Try again
             </Button>
           }
         >
-          {userMessage(preferences.error, 'Please try again in a moment.')}
+          {userMessage(preferences.error, 'Try again in a moment.')}
         </Notice>
       ) : preferences.isPending || !account ? (
         <SettingsSkeleton />
@@ -192,16 +190,13 @@ function SettingsForm({ account, initial }: { account: Account; initial: Setting
               }}
             />
           </Field>
-          <Field label="Email" hint="You sign in with this address.">
+          <Field label="Email" hint="You sign in with it.">
             <Input value={account.email} readOnly disabled />
           </Field>
         </div>
       </Section>
 
-      <Section
-        title="Contact details"
-        description="Cover letters use these when your resume does not include them."
-      >
+      <Section title="Contact details" description="Cover letters use these when your resume lacks them.">
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Phone" optional error={errors.phone}>
             <Input
@@ -370,12 +365,12 @@ function WhereYouLive({
       aria-labelledby={titleId}
       className="flex scroll-mt-[calc(var(--spacing-topbar)_+_16px)] flex-col gap-4 border-t border-divider-soft pt-6"
     >
-      <div>
+      <div className="flex items-center gap-1.5">
         <h3 id={titleId} className="flex items-center gap-2 text-sm leading-5 font-semibold text-foreground">
           <MapPinIcon size={16} aria-hidden="true" />
           {LOCATION_COPY.group}
         </h3>
-        <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{LOCATION_COPY.helper}</p>
+        <HelpTip label={LOCATION_COPY.group}>{LOCATION_COPY.helper}</HelpTip>
       </div>
       <div className="grid gap-5 sm:grid-cols-2">
         <Field label={LOCATION_COPY.country} optional error={errors.homeCountry}>
@@ -422,28 +417,23 @@ function WhereYouLive({
             onChange={(event) => set('homeCity', event.target.value || null)}
           />
         </Field>
-        <Field
-          label={LOCATION_COPY.timeZone}
-          optional
-          error={errors.timeZone}
-          hint={
-            device && device !== prefs.timeZone ? (
-              <button
-                type="button"
-                className="font-medium text-primary-ink underline-offset-2 hover:underline"
-                onClick={() => set('timeZone', device)}
-              >
-                {LOCATION_COPY.deviceZone(device)}
-              </button>
-            ) : undefined
-          }
-        >
+        <Field label={LOCATION_COPY.timeZone} optional error={errors.timeZone}>
           <Combobox
             options={zones}
             value={prefs.timeZone}
             placeholder={LOCATION_COPY.timeZonePlaceholder}
             onValueChange={(zone) => set('timeZone', zone)}
           />
+          {/* v32 COPY: an action, so it stays visible (a hint is a "?" tooltip now). */}
+          {device && device !== prefs.timeZone ? (
+            <button
+              type="button"
+              className="self-start text-[13px] leading-5 font-medium text-primary-ink underline-offset-2 hover:underline"
+              onClick={() => set('timeZone', device)}
+            >
+              {LOCATION_COPY.deviceZone(device)}
+            </button>
+          ) : null}
         </Field>
       </div>
     </div>

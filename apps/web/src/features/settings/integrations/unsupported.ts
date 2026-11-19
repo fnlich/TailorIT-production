@@ -4,9 +4,8 @@ import type { McpUnsupportedItem } from '@tailorit/shared/mcp';
 // reads them.
 
 export const UNSUPPORTED_TITLE = 'Requests your AI could not do';
-export const UNSUPPORTED_INTRO =
-  'When you ask your AI for something no TailorIT tool can do, it reports it here instead of guessing. Delete a report once you have read it.';
-export const UNSUPPORTED_EMPTY = 'Nothing yet. Your AI has done everything you asked it through TailorIT.';
+export const UNSUPPORTED_INTRO = "What your AI couldn't do with TailorIT's tools, instead of guessing.";
+export const UNSUPPORTED_EMPTY = 'Your AI has done everything you asked.';
 
 /**
  * What else the person's own AI can do through TailorIT (v1.5 Q2), in the owner's words of the plan. v2.0 fix (UX-5):
@@ -14,9 +13,9 @@ export const UNSUPPORTED_EMPTY = 'Nothing yet. Your AI has done everything you a
  * filters always applied.
  */
 export const ALSO_ASK = [
-  'Search every job in your own words ("devops jobs from yesterday, no security clearance").',
-  'Save the jobs it found, filter your saved jobs, and Prepare & Queue them. Your saved filters always apply.',
-  'Count your applications ("how many did I apply to this week", "interviews this week by job board").',
+  'Search jobs in your own words.',
+  'Save, filter and Prepare & Queue jobs; your saved filters always apply.',
+  'Count your applications and interviews.',
 ] as const;
 
 /**

@@ -31,10 +31,10 @@ const NO_RESUME = 'none';
 
 /** v31 JOBSWEB: the sheet's words for the link-first add (docs/design/v3.1/21-jobs-from-links.md §3, Tracker). */
 export const ADD_APPLICATION_COPY = {
-  linkHint: 'TailorIT reads the title and company from the posting.',
+  linkHint: 'The title and company are read from the posting.',
   noLink: 'Add it without a link',
   withLink: 'Add a link instead',
-  typedNote: 'Without a link, what you type stays in your tracker: only you see it.',
+  typedNote: 'Without a link, only you see it.',
   unreadNote: 'Type the title and company below: only you will see them.',
 } as const;
 
@@ -181,16 +181,12 @@ function AddApplicationForm({
         </Notice>
       )}
       {mode === 'typed' && (
-        <Notice
-          tone="info"
-          action={
-            <Button variant="link" size="sm" onClick={() => switchMode('link')}>
-              {ADD_APPLICATION_COPY.withLink}
-            </Button>
-          }
-        >
+        <p className="flex flex-wrap items-center gap-x-2 text-[13px] leading-5 text-muted-foreground" data-typed-note="">
           {ADD_APPLICATION_COPY.typedNote}
-        </Notice>
+          <Button variant="link" size="sm" onClick={() => switchMode('link')}>
+            {ADD_APPLICATION_COPY.withLink}
+          </Button>
+        </p>
       )}
       {withLink && (
         <div className="flex flex-col gap-2">
@@ -283,11 +279,7 @@ function AddApplicationForm({
           }}
         />
       </Field>
-      <Field
-        label="Resume used"
-        error={errors.resumeId}
-        hint={resumes.isError ? "Your resumes can't be listed right now. You can link one later from the application." : undefined}
-      >
+      <Field label="Resume used" error={errors.resumeId}>
         <Select
           options={[
             { value: NO_RESUME, label: resumeItems.length > 0 ? 'None' : 'No resumes found' },
@@ -305,6 +297,9 @@ function AddApplicationForm({
             clearError('resumeId');
           }}
         />
+        {resumes.isError && (
+          <p className="text-[13px] leading-5 text-muted-foreground">Your resumes can&apos;t be listed now. Link one later.</p>
+        )}
       </Field>
       {failure && <Notice tone="error">{failure}</Notice>}
     </form>

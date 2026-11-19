@@ -15,7 +15,6 @@ import { ApiError, userMessage } from '@/lib/api';
 import { redirectToLogin } from '@/lib/navigation';
 import { saveSignIn } from '../api';
 import {
-  EVERY_SITE_COVERS,
   bodyOf,
   existingFor,
   formOf,
@@ -31,9 +30,9 @@ const SCOPE_OPTIONS: { value: SignInScope; label: string; description: string }[
   {
     value: 'any',
     label: 'All job sites',
-    description: `Used on ${EVERY_SITE_COVERS}, unless a site has a sign-in of its own.`,
+    description: 'Unless a site has its own.',
   },
-  { value: 'site', label: 'One site', description: 'Only on the site you name, such as one company’s Workday.' },
+  { value: 'site', label: 'One site', description: 'Only the site you name.' },
 ];
 
 /**
@@ -169,7 +168,7 @@ export function SignInDialog({
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent
         title={title}
-        description="The email and password you use to sign in to job sites, for the extension's Sign-in mode Auto."
+        help="For the extension's Sign-in mode Auto."
         size="lg"
       >
         <form
@@ -199,7 +198,7 @@ export function SignInDialog({
                   label="Site"
                   required
                   error={problems.site}
-                  hint="Its host name as the address bar shows it, such as acme.wd5.myworkdayjobs.com. A pasted address works too."
+                  hint="Its host name, or paste its address."
                 >
                   <Input
                     value={form.site}
@@ -216,7 +215,7 @@ export function SignInDialog({
               )}
               {replaces && (
                 <p className="text-[13px] leading-5 text-muted-foreground">
-                  This replaces the sign-in saved for {hostLabel(replaces.host)}. Leave the password empty to keep its saved one.
+                  Replaces the sign-in for {hostLabel(replaces.host)}. Leave the password empty to keep its own.
                 </p>
               )}
             </div>
@@ -243,10 +242,8 @@ export function SignInDialog({
             error={problems.password}
             hint={
               <>
-                {hasSaved
-                  ? 'Leave it empty to keep the saved password. It is never shown here. '
-                  : 'Typed exactly as you sign in with it. '}
-                If your browser offers to save this password, choose Never: TailorIT keeps it.
+                {hasSaved ? 'Leave it empty to keep the saved password. ' : ''}
+                If your browser offers to save it, choose Never.
               </>
             }
           >

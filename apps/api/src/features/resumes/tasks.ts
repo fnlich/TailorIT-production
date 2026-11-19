@@ -1,16 +1,18 @@
-import { BulletsRequestSchema } from '@tailorit/shared';
+import { BulletsRequestSchema, type ResumeImportTaskResult } from '@tailorit/shared';
 import { entryBulletsPrompt } from '../../ai/prompts/resumes/entry-bullets';
 import { resumeAnalysisPrompt } from '../../ai/prompts/resumes/resume-analysis';
 import { resumeImportPrompt } from '../../ai/prompts/resumes/resume-import';
 import { defineAiTask } from '../../ai/task';
 import { writeEntryBullets } from './ai/entryBullets';
 import { ImportTaskInputSchema, runResumeImport } from './ai/resumeImport';
+import { runUploadReading, type UploadReadingResult } from './ai/uploadReading';
 import { ResumeAnalysisTaskInputSchema, runResumeAnalysis } from './analysis/task';
 
 // v30 ST1: the resumes feature's AI task kinds (ai/task.ts defineAiTask), listed on resumesFeature.aiTasks, which
 // setupServices registers on the AI queue after the feature's services hook. Each reads its stored input with the
 // schema its handler read it with before (a failure fails the task as it did), and each is the account's that queued
-// it: the editable copy (`resume_import`: Make an editable copy, and the copy line), Write with AI (`entry_bullets`)
+// it: the editable copy (`resume_import`: Make an editable copy, and the copy line; v32 FILL: also an upload's reading
+// for "Fill from my resume", `readOnly`), Write with AI (`entry_bullets`)
 // and the AI reading of an upload (`resume_analysis`, queued by the backlog worker for the uploader, on the
 // background slot).
 
@@ -20,7 +22,9 @@ export const resumeImportTask = defineAiTask({
   parse: ImportTaskInputSchema,
   charge: 'person',
   defaultModel: 'cli',
-  run: (deps, input, ctx) => runResumeImport(deps, input, ctx),
+  // v32 FILL: `readOnly` is a reading of the upload for "Fill from my resume" (ai/uploadReading.ts), no copy made.
+  run: (deps, input, ctx): Promise<ResumeImportTaskResult | UploadReadingResult> =>
+    input.readOnly ? runUploadReading(deps, input, ctx) : runResumeImport(deps, input, ctx),
 });
 
 export const entryBulletsTask = defineAiTask({

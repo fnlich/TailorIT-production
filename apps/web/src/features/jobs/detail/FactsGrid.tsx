@@ -27,21 +27,20 @@ import {
 } from '../icons';
 
 /**
- * One fact of the spec sheet: the fact's name in spaced capitals with a small icon, its value under it (and a detail
- * line). v31 FIX-JOBS: a measurement card's row, not an icon-tile grid.
+ * One fact of the spec line: its icon and its value (and a detail after it), its name said to screen readers before
+ * the value and shown as the icon's tooltip. v32 FIX-UX (UXREQ-1): a compact line of facts, not a grid of rows, so
+ * "About the role" starts in the first screen.
  */
 function Fact({ icon, children, detail, label }: { icon: ReactNode; children: ReactNode; detail?: ReactNode; label: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 py-3" role="listitem" aria-label={label}>
-      <p
-        className="flex items-center gap-1.5 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase [&_svg]:size-3.5"
-        aria-hidden="true"
-      >
-        {icon}
-        {label}
-      </p>
-      <div className="flex min-w-0 items-center gap-2 text-sm leading-5 font-medium text-foreground">{children}</div>
-      {detail && <div className="text-[13px] leading-5 text-muted-foreground">{detail}</div>}
+    <div className="flex min-w-0 items-center gap-1.5 text-sm leading-5" role="listitem" aria-label={label} data-fact={label}>
+      <Tooltip content={label}>
+        <span className="flex shrink-0 text-subtle-foreground [&_svg]:size-4" aria-hidden="true">
+          {icon}
+        </span>
+      </Tooltip>
+      <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">{children}</span>
+      {detail && <span className="truncate text-[13px] text-muted-foreground">{detail}</span>}
     </div>
   );
 }
@@ -81,9 +80,10 @@ const ARRANGEMENT_ICON = {
 } as const;
 
 /**
- * v31 FIX-JOBS: the job's spec sheet under its title (two columns, the drawer's width at any size), in this order: salary ("No salary listed"), experience level with its
- * match icon, the experience the posting asks for ("Experience: 7+ years"), degree, location (+N more), work
- * arrangement (none when unknown), category / subcategory, H1B, clearance.
+ * v31 FIX-JOBS: the job's spec sheet under its title, in this order: salary ("No salary listed"), experience level with
+ * its match icon, the experience the posting asks for ("7+ years"), degree, location (+N more), work arrangement (none
+ * when unknown), category / subcategory, H1B, clearance. v32 FIX-UX (UXREQ-1): one compact card of facts that wrap
+ * (an icon and a value each), two lines in the pane, so the role follows close under it.
  */
 export function FactsGrid({
   job,
@@ -107,12 +107,7 @@ export function FactsGrid({
     <div
       role="list"
       aria-label="Job facts"
-      className={clsx(
-        'grid grid-cols-2 gap-x-4 rounded-card border border-border bg-surface-low px-4 sm:gap-x-6',
-        // Rows of the sheet are ruled like a measurement card: a soft line under every row but the last.
-        '[&>*]:border-b [&>*]:border-divider-soft [&>*:last-child]:border-b-0 [&>*:nth-last-child(2):nth-child(odd)]:border-b-0',
-        className,
-      )}
+      className={clsx('flex flex-wrap gap-x-6 gap-y-2 rounded-card border border-border bg-surface-low px-4 py-3', className)}
       data-spec-sheet=""
     >
       <Fact icon={<MoneyIcon size={20} />} label="Salary">

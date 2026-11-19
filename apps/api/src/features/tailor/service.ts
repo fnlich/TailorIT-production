@@ -19,11 +19,12 @@ import {
   normalizeJobTitle,
   printedDocument,
   HOUR_MS,
+  UNLIMITED,
   type ResumeTemplateId,
 } from '@tailorit/shared';
 import { requireAi, type AiTaskContext } from '../../ai/index';
 import { taskInputSql, taskResultSql } from '../../ai/payloads';
-import { constantsOf } from '../../core/constants/service';
+import { hourlyLimitOf } from '../../core/accounts/entitlements';
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse';
@@ -54,10 +55,11 @@ import { tailorTask } from './task';
 import type { JobAnalysis, Profile, TailoredContent } from './types';
 
 // Tailoring as a task of the AI queue (kind `tailor`): POST /api/tailor and /api/autofill/tailor check the request,
-// choose the source resume and the templates, apply the limits (TAILOR_PER_HOUR an hour, and the same
-// tailoring within AUTOFILL_TAILOR_DEDUPE_HOURS answers the earlier task), and queue it; the handler runs
-// tailor_builder0's pipeline (analysis.ts, pipeline.ts) on the source's words and stores the result (output.ts). The
-// task's input holds the posting's cleaned text; its result is a TailorResult. Its step lives in memory while it runs.
+// choose the source resume and the templates, apply the limits (the plan's tailorings an hour, FREE_/PAID_TAILOR_PER_HOUR
+// since v32 FIX-PLAN, and the same tailoring within AUTOFILL_TAILOR_DEDUPE_HOURS answers the earlier task), and queue
+// it; the handler runs tailor_builder0's pipeline (analysis.ts, pipeline.ts) on the source's words and stores the result
+// (output.ts). The task's input holds the posting's cleaned text; its result is a TailorResult. Its step lives in memory
+// while it runs.
 // The log names the account, the task and counts; never a word of a resume, a letter or a posting.
 // v3.0 D2-F: on the async client.
 
@@ -92,19 +94,23 @@ export const TailorTaskInputSchema = z.object({
   coverLetter: z.boolean(),
   page: z.object({ canaries: z.array(z.string()) }).optional(),
   // v2.0: a tailoring a Prepare started (input.$.prepare.id, the Prepare's id): never counted against the interactive
-  // hourly limit (PREPARE_PER_HOUR paces Prepares).
+  // hourly limit (FREE_/PAID_PREPARE_PER_HOUR pace Prepares).
   prepare: z.object({ id: z.string() }).optional(),
   // end v2.0
 });
 export type TailorTaskInput = z.infer<typeof TailorTaskInputSchema>;
 
 /**
- * v20 FIX-A (REQ-10, A18): the hourly limit's refusal, MSG_TAILOR_PER_HOUR with the resolved TAILOR_PER_HOUR (the
- * extension contract's AUTOFILL_TAILOR_PER_HOUR is its default) and the minutes until a start leaves the hour, with
- * Retry-After. v30 ST2: through refuse(), and the own-AI tailor's (mcp/own-ai-tailor.ts) too.
+ * v20 FIX-A (REQ-10, A18): the hourly limit's refusal, MSG_TAILOR_PER_HOUR with the person's own plan's number `max`
+ * (v32 FIX-PLAN, E12: FREE_/PAID_TAILOR_PER_HOUR; Free's default is the extension contract's AUTOFILL_TAILOR_PER_HOUR)
+ * and the minutes until a start leaves the hour, with Retry-After. v30 ST2: through refuse(), and the own-AI tailor's
+ * (mcp/own-ai-tailor.ts) too.
  */
-export function tailorRateLimited(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>, seconds: number): AppError {
-  const max = constantsOf(deps).get('TAILOR_PER_HOUR');
+export function tailorRateLimited(
+  deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
+  seconds: number,
+  max: number,
+): AppError {
   const minutes = Math.max(1, Math.ceil(seconds / 60));
   return refuse(deps, 'rate_limited', 'MSG_TAILOR_PER_HOUR', { max, minutes }, { retryAfterSeconds: seconds });
 }
@@ -137,8 +143,8 @@ export interface TailorStartOptions {
   page?: boolean;
   /**
    * A Prepare's tailoring (features/prepare): queued as background work (when the seat has a background slot), marked
-   * `$.prepare.id` in its input, and neither counted against nor held to TAILOR_PER_HOUR: Prepares are paced
-   * by PREPARE_PER_HOUR (prepare_jobs.started_at) instead.
+   * `$.prepare.id` in its input, and neither counted against nor held to the plan's tailorings an hour: Prepares
+   * are paced by FREE_/PAID_PREPARE_PER_HOUR (prepare_jobs.started_at) instead.
    */
   prepare?: { id: string };
 }
@@ -169,7 +175,7 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
           AND finished_at >= ?
         ORDER BY finished_at DESC, ${db.dialect.seq()} DESC LIMIT 1`,
     running: "SELECT id FROM ai_tasks WHERE dedupe_key = ? AND status IN ('queued', 'running')",
-    // v2.0: a Prepare's tailorings ($.prepare) are not the person's own: PREPARE_PER_HOUR paces them instead. A task
+    // v2.0: a Prepare's tailorings ($.prepare) are not the person's own: the Prepares an hour pace them instead. A task
     // v1.5's Prebuild started keeps its $.prebuild mark (01-data-model.md, 0822), and is not the person's own either.
     startedSince: `SELECT count(*) AS n, min(created_at) AS first FROM ai_tasks
         WHERE user_id = ? AND kind = 'tailor' AND created_at >= ? AND ${db.dialect.jsonText(input, '$.prepare')} IS NULL
@@ -191,15 +197,19 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
   }
 
   /**
-   * 429 past TAILOR_PER_HOUR tasks started in the last hour (v20 FIX-A, REQ-10: the resolved constant, read at each
-   * start), with when the oldest of them leaves the hour.
+   * 429 past the plan's tailorings an hour (v20 FIX-A, REQ-10: the resolved constant, read at each start; v32 FIX-PLAN,
+   * E12: FREE_/PAID_TAILOR_PER_HOUR by the account's plan at this start, so a Paid term that ended is held to Free's),
+   * with when the oldest of them leaves the hour. UNLIMITED (Paid's default): nothing is counted or refused. Every
+   * tailoring the person started in the hour counts, whatever their plan was then.
    */
   async function assertUnderHourlyLimit(userId: string): Promise<void> {
+    const max = await hourlyLimitOf(deps, userId, 'tailorsPerHour');
+    if (max === UNLIMITED) return;
     const { n, first } = (await db.one<{ n: number; first: string | null }>(sql.startedSince, [userId, since(HOUR_MS)])) ?? { n: 0, first: null };
-    if (n < constantsOf(deps).get('TAILOR_PER_HOUR')) return;
+    if (n < max) return;
     const freesAt = (first ? Date.parse(first) : deps.now().getTime()) + HOUR_MS;
     const seconds = Math.max(1, Math.ceil((freesAt - deps.now().getTime()) / 1000));
-    throw tailorRateLimited(deps, seconds);
+    throw tailorRateLimited(deps, seconds, max);
   }
 
   return {

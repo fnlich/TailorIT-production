@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Field } from '@/components/ui/Field';
 import { CopyIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -68,13 +69,13 @@ export function PersonalTokens() {
 
   const copy = async (text: string, what: string) => {
     if (await copyText(text)) toast.success(`${what} copied`);
-    else toast.info(`Copy the ${what.toLowerCase()} by hand`, 'Your browser did not let TailorIT copy it.');
+    else toast.info(`Copy the ${what.toLowerCase()} by hand`, "Your browser didn't allow copying.");
   };
 
   return (
     <div className="flex flex-col gap-6">
       <form onSubmit={submit} noValidate className="flex flex-wrap items-end gap-3">
-        <Field label="Token name" hint="Where you use it, for example the computer or the AI client." error={nameError} className="min-w-0 flex-1 basis-64">
+        <Field label="Token name" hint="Where you use it: a computer or an AI client." error={nameError} className="min-w-0 flex-1 basis-64">
           <Input
             value={name}
             maxLength={MCP_TOKEN_NAME_MAX}
@@ -100,7 +101,7 @@ export function PersonalTokens() {
         {address.isError ? (
           <Notice
             tone="error"
-            title="Your tokens could not be loaded"
+            title="Your tokens didn't load"
             action={
               <Button variant="outline" size="sm" onClick={address.retry}>
                 Try again
@@ -130,7 +131,7 @@ export function PersonalTokens() {
         onOpenChange={(open) => !open && setRevoking(null)}
         finalFocus={() => (revoked.current ? tokensHeading.current : true)}
         title={`Revoke ${revoking?.name ?? 'this token'}?`}
-        description="The AI client that uses it can no longer reach TailorIT. The drafts it saved stay."
+        description="Its AI client can no longer reach TailorIT. Saved drafts stay."
         confirmLabel="Revoke"
         busyLabel="Revoking..."
         onConfirm={async () => {
@@ -166,7 +167,7 @@ export function NewToken({
   return (
     <Notice
       tone="success"
-      title={`${token.name} is ready. Copy it now: TailorIT shows it only this once.`}
+      title={`${token.name} is ready. Copy it now: it's shown only once.`}
       action={
         <Button variant="outline" size="sm" onClick={onDone}>
           Done
@@ -203,15 +204,15 @@ export function SetupSnippets({
         title="Claude Code"
         hint={
           token
-            ? 'Run this in a terminal: it adds TailorIT with your new token.'
-            : 'Run this in a terminal with your token in place of <your-token>.'
+            ? 'Run it in a terminal to add TailorIT with your new token.'
+            : 'Run it in a terminal with your token in place of <your-token>.'
         }
         text={snippets.command}
         onCopy={() => onCopy(snippets.command, 'Command')}
       />
       <Snippet
         title="Claude Desktop and other MCP clients"
-        hint="Add this to the client's MCP configuration (in Claude Desktop: Settings › Developer › Edit Config), then quit the client fully and open it again. It runs mcp-remote with npx, so Node.js must be installed."
+        hint="Add it to the client's MCP configuration, then restart the client (it needs Node.js)."
         text={snippets.json}
         onCopy={() => onCopy(snippets.json, 'Configuration')}
       />
@@ -223,9 +224,9 @@ function Snippet({ title, hint, text, onCopy }: { title: string; hint: ReactNode
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
           <h3 className="text-sm leading-5 font-semibold text-foreground">{title}</h3>
-          <p className="text-[13px] leading-5 text-muted-foreground">{hint}</p>
+          <HelpTip label={title}>{hint}</HelpTip>
         </div>
         <Button variant="outline" size="sm" onClick={onCopy} aria-label={`Copy the ${title} setup`}>
           <CopyIcon size={14} aria-hidden />
@@ -254,7 +255,7 @@ export function TokenList({
       <EmptyState
         icon={<RobotIcon size={24} />}
         title="No MCP token yet"
-        description="Make one above, then add TailorIT to your AI client with it."
+        description="Make one above, then add it to your AI client."
         variant="dashed"
         size="sm"
       />

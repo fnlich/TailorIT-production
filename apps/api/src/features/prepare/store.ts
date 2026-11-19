@@ -181,7 +181,7 @@ export async function waitingServerRows(db: DbQueries, userId: string): Promise<
   );
 }
 
-/** PREPARE_PER_HOUR's count: the account's `server` Prepares started since `since`, and the oldest of them. */
+/** FREE_/PAID_PREPARE_PER_HOUR's count: the account's `server` Prepares started since `since`, and the oldest. */
 export async function serverStartsSince(db: DbQueries, userId: string, since: string): Promise<{ n: number; first: string | null }> {
   return (
     (await db.one<{ n: number; first: string | null }>(

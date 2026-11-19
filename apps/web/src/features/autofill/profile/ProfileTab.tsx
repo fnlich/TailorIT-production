@@ -8,13 +8,26 @@ import type {
 import { isResumeTemplateId, RESUME_TEMPLATES } from '@tailorit/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+} from 'react';
+import { useLimitDialog } from '@/components/limits';
 import { Button } from '@/components/ui/Button';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { ApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
+import { useAiTask } from '@/lib/useAiTask';
 import {
   autofillKeys,
   fetchAutofillProfile,
@@ -22,8 +35,10 @@ import {
   fetchAutofillSeed,
   fetchAutofillSensitive,
   saveAutofillProfile,
+  startAutofillSeed,
 } from '../api';
 import { cleanDraft, type AutofillDraft } from '../draft';
+import { mergeSeed } from '../mergeSeed';
 import { SectionHeadingLevel } from '../Section';
 import { validateAutofillProfile } from '../validate';
 import { ProfileFormProvider, useProfileFormState } from './form';
@@ -54,6 +69,12 @@ import {
   type WizardStepId,
 } from './wizard';
 
+/** v32 FILL: an uploaded file the AI is reading for "Fill from my resume" (its task), and the resume asked for. */
+interface SeedReading {
+  taskId: string;
+  resumeId: string | null;
+}
+
 /**
  * What outlives the form between saves: a save gives both queries new data, and the form starts again from it (a new
  * mount), so where focus goes next is kept here, above it.
@@ -75,6 +96,8 @@ export function ProfileTab() {
   const resumes = useQuery({ queryKey: autofillKeys.resumes, queryFn: ({ signal }) => fetchAutofillResumes(signal) });
   const memoryRef = useRef<WizardMemory>({ focus: null, anchor: null });
   const [savedThisVisit, setSavedThisVisit] = useState(false);
+  // v32 FILL: kept above the form, so a save while the AI reads (Next) does not lose what the reading fills.
+  const [reading, setReading] = useState<SeedReading | null>(null);
 
   const reload = () => {
     void profile.refetch();
@@ -85,7 +108,7 @@ export function ProfileTab() {
     return (
       <Notice
         tone="error"
-        title="Your autofill profile could not be loaded"
+        title="Your autofill profile didn't load."
         action={
           <Button variant="outline" size="sm" onClick={reload}>
             Try again
@@ -108,6 +131,8 @@ export function ProfileTab() {
       memoryRef={memoryRef}
       savedThisVisit={savedThisVisit}
       onSaved={() => setSavedThisVisit(true)}
+      reading={reading}
+      setReading={setReading}
     />
   );
 }
@@ -129,6 +154,8 @@ function ProfileForm({
   memoryRef,
   savedThisVisit,
   onSaved,
+  reading,
+  setReading,
 }: {
   profile: AutofillProfileEnvelope;
   sensitive: AutofillSensitiveEnvelope;
@@ -137,6 +164,8 @@ function ProfileForm({
   memoryRef: RefObject<WizardMemory>;
   savedThisVisit: boolean;
   onSaved: () => void;
+  reading: SeedReading | null;
+  setReading: Dispatch<SetStateAction<SeedReading | null>>;
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -268,17 +297,68 @@ function ProfileForm({
     },
   });
 
+  // v32 FILL: a profile never saved shows the sign-in address as its email (GET /profile fills an empty one): that is
+  // no answer of the person's, so a fill puts the resume's over it while it is untouched.
+  const defaults = useMemo(
+    () => (revision === 0 && initial.profile.contact.email ? { 'contact.email': initial.profile.contact.email } : {}),
+    [revision, initial],
+  );
+
+  // v32 INT-1 (E4): a limit is an alert when the person acts (the day's AI use spent: Get extra credit / Not now).
+  const limits = useLimitDialog();
+  // v32 FILL: POST answers the seed, or the task of the AI reading an uploaded file (followed below).
   const fill = useMutation({
-    mutationFn: (resumeId: string | null) =>
-      queryClient.fetchQuery({
-        queryKey: autofillKeys.seed(resumeId),
-        queryFn: ({ signal }) => fetchAutofillSeed(resumeId, signal),
-        staleTime: 0,
-      }),
+    mutationFn: (resumeId: string | null) => startAutofillSeed(resumeId),
     // Merged in the reducer, into the draft as it stands now.
-    onSuccess: (seed) => dispatch({ type: 'fill', seed }),
-    onError: (error) => toast.error('Your resume could not be read', userMessage(error)),
+    onSuccess: (answer, resumeId) => {
+      if ('taskId' in answer) {
+        setReading({ taskId: answer.taskId, resumeId });
+        return;
+      }
+      dispatch({ type: 'fill', seed: answer, defaults });
+      // v32 INT-1 (E4): an upload the AI did not read because today's AI use is spent: the contact details still fill
+      // (above), and the limit's alert says so with its action.
+      if (answer.unread?.code === 'ai_usage_exhausted') {
+        limits.show({ kind: 'ai_usage_exhausted', message: answer.unread.message, subscribe: false, buyCredit: true });
+      }
+    },
+    onError: (error) => {
+      if (!limits.show(error)) toast.error('Your resume could not be read', userMessage(error));
+    },
   });
+
+  // The reading's end: the seed it gives. A reading that failed says why, and the file's contact details still fill.
+  const readingTask = useAiTask(reading?.taskId ?? null, { kind: 'resume_import' });
+  const readingDone = readingTask.isSucceeded || readingTask.isFailed;
+  const readingError = readingTask.isFailed ? readingTask.errorMessage : null;
+  // Each reading ends once here (a toast changes `toast`, which runs the effect again).
+  const endedReading = useRef<string | null>(null);
+  useEffect(() => {
+    if (!reading || !readingDone || endedReading.current === reading.taskId) return;
+    endedReading.current = reading.taskId;
+    if (readingError !== null) toast.error('Your resume could not be read', readingError);
+    queryClient
+      .fetchQuery({
+        queryKey: autofillKeys.seed(reading.resumeId),
+        queryFn: ({ signal }) => fetchAutofillSeed(reading.resumeId, signal),
+        staleTime: 0,
+      })
+      .then(
+        (seed) => dispatch({ type: 'fill', seed, defaults }),
+        (error: unknown) => toast.error('Your resume could not be read', userMessage(error)),
+      )
+      .finally(() => setReading((current) => (current?.taskId === reading.taskId ? null : current)));
+  }, [reading, readingDone, readingError, setReading, queryClient, dispatch, toast, defaults]);
+  const filling = fill.isPending || reading !== null;
+
+  // v32 FILL: the fields that kept the person's answer though the resume's differs, offered for their yes.
+  const kept = useMemo(
+    () => (state.lastSeed ? mergeSeed(state.draft.profile, state.lastSeed, [], defaults).kept : []),
+    [state.lastSeed, state.draft.profile, defaults],
+  );
+  const applyResume = () => {
+    if (state.lastSeed) dispatch({ type: 'fill', seed: state.lastSeed, replace: kept });
+  };
 
   // Each fill is announced once: showing a toast changes `toast` itself, which runs this effect again.
   const { lastFill } = state;
@@ -287,8 +367,11 @@ function ProfileForm({
     if (!lastFill || announcedFill.current === lastFill) return;
     announcedFill.current = lastFill;
     const from = lastFill.label ? `"${lastFill.label}"` : 'your settings';
-    if (lastFill.count === 0) toast.info('Nothing to fill', `Every field ${from} covers already has an answer.`);
-    else toast.success(`Filled ${lastFill.count} ${lastFill.count === 1 ? 'field' : 'fields'} from ${from}`, 'Check them in the next steps.');
+    const fields = `${lastFill.count} ${lastFill.count === 1 ? 'field' : 'fields'}`;
+    if (lastFill.replaced) toast.success(`Used ${from} for ${fields}`, 'Check them in the next steps.');
+    else if (lastFill.count === 0 && lastFill.kept) toast.info('Your answers were kept', "Choose Use the resume's to replace them.");
+    else if (lastFill.count === 0) toast.info('Nothing to fill', `Every field ${from} covers already has an answer.`);
+    else toast.success(`Filled ${fields} from ${from}`, 'Check them in the next steps.');
   }, [lastFill, toast]);
 
   // After a refused move or save, bring the first field with a message on this step into view.
@@ -410,10 +493,13 @@ function ProfileForm({
           resumes={resumes}
           seedResumeId={seedResumeId}
           onPickResume={setPickedResume}
-          filling={fill.isPending}
+          filling={filling}
+          reading={reading !== null}
           busy={save.isPending}
           onFill={() => fill.mutate(seedResumeId)}
           notes={state.notes}
+          kept={kept}
+          onUseResume={applyResume}
         />
       );
       break;
@@ -497,7 +583,7 @@ function ProfileForm({
                   </Button>
                 }
               >
-                Reload it to see those changes. The changes made here are not saved.
+                Your changes here are not saved.
               </Notice>
             )}
             {needChange > 0 && (
@@ -518,6 +604,7 @@ function ProfileForm({
               onSaveAndExit={() => saveAll({ kind: 'exit' })}
             />
           </form>
+          {limits.dialog}
         </SectionHeadingLevel.Provider>
       </SectionLinkContext.Provider>
     </ProfileFormProvider>

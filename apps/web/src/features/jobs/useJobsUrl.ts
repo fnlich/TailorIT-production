@@ -10,14 +10,17 @@ export interface JobsUrlApi extends JobsUrlState {
   setQuery: (query: JobsQuery) => void;
   /** Changes some filters, starting from the latest ones (so quick successive clicks all count). */
   updateQuery: (patch: Partial<JobsQuery>) => void;
-  /** Shows another job in the open drawer (or none), keeping the filters; the address is replaced, not pushed. */
+  /**
+   * Shows another job (or none), keeping the filters; the address is replaced, not pushed. v32 JOBS2: how the split
+   * shows a job in its pane (a row, the first job, Previous / Next), and how the open sheet steps.
+   */
   selectJob: (jobId: number | null) => void;
   /**
-   * v31 FIX-JOBS: opens a job's drawer from the feed. The address gets its own history entry, so the browser's Back
-   * closes the drawer and the job's link can be shared.
+   * v31 FIX-JOBS: opens a job from the list. The address gets its own history entry, so the browser's Back closes it
+   * and the job's link can be shared. v32 JOBS2: how the stack (below 1024 px) opens its full-screen sheet.
    */
   openJob: (jobId: number) => void;
-  /** v31 FIX-JOBS: closes the drawer: back to the entry `openJob` added, or (a job opened from a link) the address without the job. */
+  /** v31 FIX-JOBS: closes the sheet: back to the entry `openJob` added, or (a job opened from a link) the address without the job. */
   closeJob: () => void;
   /** v31 FIX-JOBS: the job in the address as last asked for, before the router has applied it (quick Next presses). */
   currentJobId: () => number | null;

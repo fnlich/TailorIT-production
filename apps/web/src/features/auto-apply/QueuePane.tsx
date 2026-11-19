@@ -12,7 +12,6 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
 import { Menu, MenuContent, MenuItem, MenuLinkItem, MenuTrigger } from '@/components/ui/Menu';
-import { Notice } from '@/components/ui/Notice';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -49,6 +48,7 @@ import {
 } from './copy';
 import type { useQueuePane } from './data';
 import { Pane, ROW_ACTION, StateLine, useReducedMotion, useRowFocus, useThrottled } from '../../components/queue';
+import { PaneLoadFailed, PaneOutOfDate } from '../../components/queue/PaneStates';
 import { RowCredit } from '../jobs/credits/JobCredit'; // v30 FIX-WEB (REQ-1)
 import { creditOf } from '../jobs/credits/credit';
 
@@ -56,6 +56,8 @@ import { creditOf } from '../jobs/credits/credit';
 // prepared, what is up next (supported jobs, in the order the extension takes them), what is applied to by hand, what
 // needs attention and what is done, each group with its count; every row's state line, its kit line (which resume it
 // uses, v20 A29) and its actions; the Free daily limit's notice; one polite live summary.
+// v32 LAYOUT (E4): a queue that could not be read is the pane's own state; one that could not be refreshed a small
+// "Out of date" mark beside the title (no banner). The daily limit stays LimitNotice (COPY: a chip with a "?").
 
 /** How long a row that changed state flashes. */
 const FLASH_MS = 1_500;
@@ -271,21 +273,7 @@ export function QueuePane({
 
   let body: ReactNode;
   if (queue.isError && !data) {
-    body = (
-      <div className="p-4 sm:p-5">
-        <Notice
-          tone="error"
-          title="The auto-apply queue could not be loaded"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void queue.refetch()}>
-              Try again
-            </Button>
-          }
-        >
-          {userMessage(queue.error)}
-        </Notice>
-      </div>
-    );
+    body = <PaneLoadFailed title="The auto-apply queue didn't load." message={userMessage(queue.error)} onRetry={() => void queue.refetch()} />;
   } else if (!data) {
     body = (
       <ul aria-busy="true" aria-label="Loading the auto-apply queue" className="divide-y divide-divider-soft">
@@ -306,26 +294,13 @@ export function QueuePane({
       <EmptyState
         icon={<RobotIcon size={22} />}
         title="Nothing in the queue"
-        description="Prepare & Queue a saved job and it shows up here, ready to apply."
+        // v32 FIX-UX (UXREQ-8): the next step in view, not in the "?".
+        nextStep="Prepare & Queue a saved job and it shows up here, ready to apply."
       />
     );
   } else {
     body = (
       <>
-        {queue.isError && (
-          <Notice
-            tone="warning"
-            className="mx-4 mt-3 sm:mx-5"
-            title="The queue could not be refreshed"
-            action={
-              <Button variant="outline" size="sm" onClick={() => void queue.refetch()}>
-                Try again
-              </Button>
-            }
-          >
-            What is shown may be out of date.
-          </Notice>
-        )}
         {groups.length === 0 ? (
           <EmptyState
             size="sm"
@@ -379,7 +354,14 @@ export function QueuePane({
 
   return (
     <>
-      <Pane id="queue-pane-title" title="Auto-apply queue" count={data ? allRows.length : null} controls={controls} scroll={scroll}>
+      <Pane
+        id="queue-pane-title"
+        title="Auto-apply queue"
+        count={data ? allRows.length : null}
+        controls={controls}
+        status={queue.isError && data ? <PaneOutOfDate onRetry={() => void queue.refetch()} /> : undefined}
+        scroll={scroll}
+      >
         {usage?.reached && (
           <div className="px-4 pt-3 sm:px-5" data-waiting-reset="">
             <LimitNotice limit={autoApplyLimit(t, usage.limit, usage.resetsAt, account?.type)}>{waitingNoticeLine(t, resetText)}</LimitNotice>

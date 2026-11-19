@@ -8,8 +8,7 @@ import { useEffect } from 'react';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { BuildingsIcon } from '@/components/ui/icons';
-import { Notice } from '@/components/ui/Notice';
+import { BuildingsIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Skeleton, SkeletonText } from '@/components/ui/Skeleton';
 import { isApiError, userMessage } from '@/lib/api';
 import { CompanyLogo } from '../jobs/CompanyLogo';
@@ -66,7 +65,7 @@ export function CompanyPage({ idParam }: { idParam: string }) {
           <EmptyState
             icon={<BuildingsIcon size={22} />}
             title="That company was not found"
-            description="It may have been removed, or the link is wrong."
+            description="It was removed, or the link is wrong."
             action={
               <Link href="/jobs" className={buttonClasses({ variant: 'primary' })}>
                 Back to jobs
@@ -75,18 +74,19 @@ export function CompanyPage({ idParam }: { idParam: string }) {
           />
         </div>
       ) : company.error && !data ? (
-        <Notice
-          tone="error"
-          className="mt-6"
-          title="The company could not be loaded"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void company.refetch()}>
-              Try again
-            </Button>
-          }
-        >
-          {userMessage(company.error)}
-        </Notice>
+        // v32 JOBS2 (E4): the page's state with its next step, not a banner.
+        <div className="mt-6 rounded-card border border-border bg-surface shadow-card">
+          <EmptyState
+            icon={<WarningCircleIcon size={22} />}
+            title="The company didn't load."
+            description={userMessage(company.error)}
+            action={
+              <Button variant="outline" onClick={() => void company.refetch()}>
+                Try again
+              </Button>
+            }
+          />
+        </div>
       ) : !data ? (
         <CompanyPageSkeleton />
       ) : (
@@ -170,7 +170,7 @@ function CompanyProfileView({ company }: { company: CompanyPageData }) {
           {facts.length > 0 ? (
             <CompanyFactsGrid facts={facts} className="mt-3 lg:grid-cols-1" />
           ) : (
-            <p className="mt-3 text-sm leading-5 text-muted-foreground">No facts about this company yet.</p>
+            <p className="mt-3 text-sm leading-5 text-muted-foreground">None yet.</p>
           )}
           <SourcesLine sources={company.sources} updatedAt={company.updatedAt} className="mt-3" />
         </aside>

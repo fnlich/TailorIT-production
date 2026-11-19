@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/Menu';
 import { ArchiveIcon, ArrowCounterClockwiseIcon, ArrowSquareOutIcon, ArrowsClockwiseIcon, RobotIcon } from '@/components/ui/icons';
 import { RETRY_READ_COPY, canRetryRead } from '@/features/jobs/verification/copy'; // v31 JOBSWEB
+import { usePublicConstants } from '@/lib/constants';
 import { prepareBlockReason } from '../draft';
 import { StatusIcon } from '../status';
 
@@ -33,10 +34,12 @@ export interface ApplicationActions {
 
 /**
  * The card menu (the ⋯ button, a right-click and a long press): Open application, View job posting, Prepare & Queue,
- * Retry read (v31: a job only the person sees), Move to › (every status, the current one disabled), Archive / Restore
- * application.
+ * Retry read (v31: a job only the person sees), Move to stage › (every status, the current one disabled), Archive /
+ * Restore application. v32 LAYOUT (E9): "Move to stage", as the selection bar says it; on a phone, where the board shows
+ * one lane at a time, this is how a card changes lanes.
  */
 export function ApplicationMenuItems({ application, actions }: { application: ApplicationSummary; actions: ApplicationActions }) {
+  const { t } = usePublicConstants();
   return (
     <>
       <MenuItem icon={<ArrowsOutSimpleIcon size={16} />} onClick={() => actions.onOpen(application)}>
@@ -62,7 +65,7 @@ export function ApplicationMenuItems({ application, actions }: { application: Ap
         </MenuItem>
       )}
       <MenuSeparator />
-      <MenuSub label="Move to" icon={<ArrowsLeftRightIcon size={16} />}>
+      <MenuSub label={t('LABEL_TRACKER_MOVE_TO_STAGE')} icon={<ArrowsLeftRightIcon size={16} />}>
         <MenuSubContent width="w-52">
           <MenuRadioGroup
             value={String(application.currentStatus)}

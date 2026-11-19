@@ -58,9 +58,8 @@ export function HeaderToolbar({
           <PanelGroup className="border-t border-border pt-3">
             <Checkbox label="Name in capitals" checked={tools.uppercaseName} onCheckedChange={commands.setUppercaseName} />
           </PanelGroup>
-          <PanelGroup label="Years of experience" className="border-t border-border pt-3">
+          <PanelGroup label="Years of experience" help="Not printed; Write with AI pitches your bullets to it." className="border-t border-border pt-3">
             <YearsField years={tools.years} onChange={commands.setYears} />
-            <p className="text-[13px] leading-5 text-muted-foreground">Not printed. Write with AI pitches your bullets to it.</p>
           </PanelGroup>
         </div>
       </ToolPopover>

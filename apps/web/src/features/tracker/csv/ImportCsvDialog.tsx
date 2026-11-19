@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { FieldLabel } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
@@ -421,7 +422,12 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
         onOpenChange(next);
       }}
     >
-      <DialogContent title={t('MSG_TRACKER_IMPORT_TITLE')} size="xl" className="sm:max-w-3xl">
+      <DialogContent
+        title={t('MSG_TRACKER_IMPORT_TITLE')}
+        help="Needs Company name and Position Title columns; Location is optional."
+        size="xl"
+        className="sm:max-w-3xl"
+      >
         <div className="mt-5 flex min-h-0 flex-col gap-4 overflow-y-auto">
           {step === 'file' && (
             <div
@@ -442,7 +448,6 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
               <Button icon={<UploadSimpleIcon size={16} />} onClick={() => input.current?.click()}>
                 Choose CSV File
               </Button>
-              <p className="text-sm text-muted-foreground">Expected headers: Company name, Position Title. Location is optional.</p>
               <input
                 ref={input}
                 type="file"
@@ -545,11 +550,10 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
           {step === 'companies' && (
             <>
-              <h3 className="text-base font-semibold text-foreground">Review companies</h3>
-              <p className="text-sm text-muted-foreground">
-                These companies are new to TailorIT. Pick the one you mean from the suggestions, or keep the name to add it
-                as a new company.
-              </p>
+              <h3 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+                Review companies
+                <HelpTip label="Review companies">New to TailorIT: pick a suggestion, or keep the name.</HelpTip>
+              </h3>
               <div className="flex flex-col gap-3">
                 {unknownCompanies.slice(0, MAX_COMPANY_REVIEW).map((name, index) => {
                   const key = name.toLowerCase();
@@ -578,8 +582,10 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
           {step === 'statuses' && (
             <>
-              <h3 className="text-base font-semibold text-foreground">Map status values</h3>
-              <p className="text-sm text-muted-foreground">Choose the tracker status for each value in your file.</p>
+              <h3 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+                Map status values
+                <HelpTip label="Map status values">Pick a tracker status for each value.</HelpTip>
+              </h3>
               <div className="flex flex-col gap-3">
                 {unknownStatuses.map((text) => (
                   <div key={text} className="grid items-center gap-2 sm:grid-cols-[1fr_14rem]">
@@ -599,8 +605,10 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
           {step === 'jobTypes' && (
             <>
-              <h3 className="text-base font-semibold text-foreground">Map job types</h3>
-              <p className="text-sm text-muted-foreground">Choose the job type for each value in your file.</p>
+              <h3 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+                Map job types
+                <HelpTip label="Map job types">Pick a job type for each value.</HelpTip>
+              </h3>
               <div className="flex flex-col gap-3">
                 {unknownJobTypes.map((text) => (
                   <div key={text.toLowerCase()} className="grid items-center gap-2 sm:grid-cols-[1fr_14rem]">

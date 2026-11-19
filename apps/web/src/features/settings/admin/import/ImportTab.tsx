@@ -6,6 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { AdminResourceTab } from '@/components/admin';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { FileTextIcon, UploadSimpleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { SegmentedControl, TabPanel } from '@/components/ui/SegmentedControl';
@@ -59,7 +60,7 @@ export function ImportTab({ sourceId = null, onShowRuns }: { sourceId?: number |
   return (
     <AdminResourceTab
       title="Import links"
-      description="Add jobs by their links: paste them, or import the link column of a CSV or JSON file or a Google Sheet tab. TailorIT reads each posting from its own link; nothing else a list says is kept."
+      description="Paste job links, or import the link column of a file or a Google Sheet tab."
       sectionProps={{ 'data-import-links': '' }}
       body={
         <SegmentedControl aria-label="Import from" items={MODES} value={mode} onValueChange={setChosenMode}>
@@ -164,14 +165,14 @@ function FileImport({ onShowRuns }: { onShowRuns: (sourceId: number) => void }) 
             {file ? <FileTextIcon size={22} /> : <UploadSimpleIcon size={22} />}
           </span>
           <div className="min-w-0 flex-1 basis-56">
-            <p className="text-[15px] leading-5 font-semibold break-words text-foreground">
+            <p className="flex items-center gap-1.5 text-[15px] leading-5 font-semibold break-words text-foreground">
               {file ? file.name : 'Drop a CSV or JSON file here, or choose a file'}
+              {/* v32 COPY (E5): what the file holds is the "?"; a chosen file's size stays visible. */}
+              {!file && (
+                <HelpTip label="The file">{`A column of job links. ${t('MSG_UPLOAD_SIZE_HINT', { max_mb: get('UPLOAD_MAX_MB') })}`}</HelpTip>
+              )}
             </p>
-            <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
-              {file
-                ? `${Math.max(1, Math.round(file.size / 1024))} KB`
-                : `A column of job links, one row each (CSV) or one object each (JSON). ${t('MSG_UPLOAD_SIZE_HINT', { max_mb: get('UPLOAD_MAX_MB') })}`}
-            </p>
+            {file && <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{`${Math.max(1, Math.round(file.size / 1024))} KB`}</p>}
           </div>
           <Button variant={file ? 'outline' : 'primary'} icon={<UploadSimpleIcon size={16} />} onClick={() => inputRef.current?.click()}>
             {file ? 'Choose another file' : 'Choose file'}

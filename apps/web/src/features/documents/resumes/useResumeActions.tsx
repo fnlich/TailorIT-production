@@ -242,7 +242,7 @@ export function useResumeActions({
           if (!open) setRenaming(null);
         }}
         title={t('LABEL_DOCS_RENAME_TITLE', { noun: RESUME_NOUN.one })}
-        description="The name shown in your documents list."
+        description="Shown in your documents list."
         label="Resume name"
         initialValue={renaming?.label ?? ''}
         maxLength={MAX_RESUME_TITLE_LENGTH}
@@ -279,7 +279,7 @@ export function useResumeActions({
           }, 320);
         }}
       >
-        {deleting?.isDefault ? <p className="text-muted-foreground">It is your default resume: the newest other resume becomes the default.</p> : null}
+        {deleting?.isDefault ? <p className="text-muted-foreground">Your newest other resume becomes the default.</p> : null}
       </ConfirmDialog>
     </>
   );

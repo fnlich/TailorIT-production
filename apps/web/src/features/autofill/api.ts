@@ -4,7 +4,6 @@ import {
   AutofillResumeListSchema,
   AutofillSavedAnswerListSchema,
   AutofillSavedAnswerSchema,
-  AutofillSeedSchema,
   AutofillSensitiveEnvelopeSchema,
   AutofillSignInItemSchema,
   AutofillSignInListSchema,
@@ -17,7 +16,6 @@ import {
   type AutofillResumeList,
   type AutofillSavedAnswer,
   type AutofillSavedAnswerList,
-  type AutofillSeed,
   type AutofillSensitiveEnvelope,
   type AutofillSignInItem,
   type AutofillSignInList,
@@ -28,6 +26,7 @@ import {
   type PutAutofillSavedAnswerBody,
   type PutAutofillSignInBody,
 } from '@tailorit/shared/autofill';
+import { ProfileSeedStartSchema, ProfileSeedViewSchema, type ProfileSeedStart, type ProfileSeedView } from '@tailorit/shared';
 import { api } from '@/lib/api';
 
 /** React Query keys of Settings › Autofill. */
@@ -66,7 +65,15 @@ export function saveAutofillProfile(body: PutAutofillProfileBody) {
 
 /** GET /api/autofill/profile/seed: what that resume (else the default, else the latest) says. Writes nothing. */
 export function fetchAutofillSeed(resumeId: string | null, signal?: AbortSignal) {
-  return api.get<AutofillSeed>('/api/autofill/profile/seed', { query: { resumeId }, signal, schema: AutofillSeedSchema });
+  return api.get<ProfileSeedView>('/api/autofill/profile/seed', { query: { resumeId }, signal, schema: ProfileSeedViewSchema });
+}
+
+/**
+ * v32 FILL: POST /api/autofill/profile/seed, "Fill from my resume": the seed, or `{ taskId }` while the AI reads an
+ * uploaded file (then GET /api/ai/tasks/:id until it ends, then fetchAutofillSeed).
+ */
+export function startAutofillSeed(resumeId: string | null) {
+  return api.post<ProfileSeedStart>('/api/autofill/profile/seed', resumeId ? { resumeId } : {}, { schema: ProfileSeedStartSchema });
 }
 
 /** GET /api/autofill/resumes */

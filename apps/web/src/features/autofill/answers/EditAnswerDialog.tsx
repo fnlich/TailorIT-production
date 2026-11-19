@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { PlusIcon, TrashIcon } from '@/components/ui/icons';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input, Textarea } from '@/components/ui/Input';
@@ -55,23 +56,26 @@ export function EditAnswerDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !save.isPending && onClose()}>
-      <DialogContent title="Edit saved answer" description={answer.questionLabel} size="lg">
+      <DialogContent
+        title="Edit saved answer"
+        description={answer.questionLabel}
+        help="Given to forms with this question and the same choices."
+        size="lg"
+      >
         <form onSubmit={submit} noValidate className="mt-5 flex flex-col gap-4">
-          <p className="text-[13px] leading-5 text-muted-foreground">
-            {scopeLabel(answer)}. The extension gives this answer to forms that ask this question with the same choices.
-          </p>
+          <p className="text-[13px] leading-5 text-muted-foreground">{scopeLabel(answer)}</p>
           {edit.kind === 'text' && (
-            <Field
-              label="Your answer"
-              error={problems.text ?? serverField ?? undefined}
-              hint={`${edit.text.length.toLocaleString('en-US')} of ${TEXT_MAX.toLocaleString('en-US')} characters`}
-            >
+            <Field label="Your answer" error={problems.text ?? serverField ?? undefined}>
               <Textarea
                 value={edit.text}
                 rows={7}
                 maxLength={TEXT_MAX}
                 onChange={(event) => setEdit({ kind: 'text', text: event.target.value })}
               />
+              {/* A count stays in sight (v32 COPY: a hint is a "?", a value is not). */}
+              <p className="num text-[13px] leading-5 text-muted-foreground" data-answer-count="">
+                {`${edit.text.length.toLocaleString('en-US')} of ${TEXT_MAX.toLocaleString('en-US')} characters`}
+              </p>
             </Field>
           )}
           {edit.kind === 'checked' && (
@@ -116,7 +120,7 @@ function OptionsEditor({
   error: string | undefined;
   onChange: (labels: string[]) => void;
 }) {
-  const hint = 'Write each option exactly as the form shows it.';
+  const hint = 'Exactly as the form shows it.';
   if (!several) {
     return (
       <Field label="The option to choose" error={error} hint={hint}>
@@ -127,7 +131,10 @@ function OptionsEditor({
   const rows = labels.length > 0 ? labels : [''];
   return (
     <div className="flex flex-col gap-2" role="group" aria-label="The options to choose">
-      <p className="text-sm leading-5 font-medium text-foreground">The options to choose</p>
+      <span className="flex items-center gap-1.5">
+        <span className="text-sm leading-5 font-medium text-foreground">The options to choose</span>
+        <HelpTip label="The options to choose">{hint}</HelpTip>
+      </span>
       {rows.map((label, index) => (
         <div key={index} className="flex items-center gap-2">
           <Input
@@ -146,7 +153,6 @@ function OptionsEditor({
         </div>
       ))}
       {error ? <p className="text-[13px] leading-5 text-danger">{error}</p> : null}
-      <p className="text-[13px] leading-5 text-muted-foreground">{hint}</p>
       <div>
         <Button
           variant="outline"

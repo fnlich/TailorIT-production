@@ -1,6 +1,7 @@
 'use client';
 
 import { FileTextIcon } from '@phosphor-icons/react/FileText';
+import { SparkleIcon } from '@phosphor-icons/react/Sparkle';
 import type { SensitiveAnswer } from '@tailorit/shared/autofill';
 import { clsx } from 'clsx';
 import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Chip } from '@/components/ui/Chip';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input, Textarea, type InputProps } from '@/components/ui/Input';
@@ -20,8 +22,20 @@ import { useProfileForm, type ProfileForm } from './form';
 // The Profile tab's fields. Each one needs only its key (draft.ts): it reads its value, writes its changes, and shows
 // its message and its "From your resume" mark through the form context.
 
-/** What a filled field says until it is edited. */
-export function FromResumeHint() {
+/**
+ * What a filled field says until it is edited. v32 FIX-API (REV-SECBEH SF-1): "AI read, check it" for a value the AI
+ * read from an uploaded file (`path`'s), so the person checks it before saving.
+ */
+export function FromResumeHint({ path }: { path?: string }) {
+  const form = useProfileForm();
+  if (path && form.isFromAi(path)) {
+    return (
+      <span className="inline-flex items-center gap-1 font-medium text-warning-ink" data-ai-read="">
+        <SparkleIcon size={14} aria-hidden="true" />
+        {form.markText(path)}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 text-primary-ink">
       <FileTextIcon size={14} />
@@ -32,7 +46,33 @@ export function FromResumeHint() {
 
 /** The field's own hint, or the "From your resume" mark while it has one. */
 export function hintOf(form: ProfileForm, path: string, hint: ReactNode): ReactNode {
-  return form.isFromResume(path) ? <FromResumeHint /> : hint;
+  return form.isFromResume(path) ? <FromResumeHint path={path} /> : hint;
+}
+
+/**
+ * v32 COPY (E5): a field's hint is a "?" beside its label, but a status stays in sight: the "From your resume" mark
+ * and a character count are a visible line under the control (`noteLine`), which describes the control as the hint
+ * did. While the mark shows it stands in for the hint (as hintOf did).
+ */
+export function useFieldNote(form: ProfileForm, path: string, hint: ReactNode, fallbackNote?: ReactNode) {
+  const id = `profile-field-${useId()}`;
+  const fromResume = form.isFromResume(path);
+  const note: ReactNode = fromResume ? <FromResumeHint path={path} /> : (fallbackNote ?? null);
+  const tip: ReactNode = fromResume ? undefined : hint || undefined;
+  const error = form.error(path);
+  const describedBy =
+    [error ? `${id}-error` : '', tip ? `${id}-hint` : '', note ? `${id}-note` : ''].filter(Boolean).join(' ') || undefined;
+  const noteLine = note ? <FieldNote id={`${id}-note`}>{note}</FieldNote> : null;
+  return { id, hint: tip, describedBy, noteLine };
+}
+
+/** A visible status line under a control (the "From your resume" mark, a count). */
+export function FieldNote({ id, children }: { id?: string; children: ReactNode }) {
+  return (
+    <p id={id} data-field-note="" className="text-[13px] leading-5 text-muted-foreground">
+      {children}
+    </p>
+  );
 }
 
 /** A message under a group of controls (a Field draws its own). */
@@ -44,11 +84,15 @@ export function GroupMessage({ id, children }: { id?: string; children: ReactNod
   );
 }
 
-/** Labelled controls that are not one input (dates, chips, an answer and its mode). */
+/**
+ * Labelled controls that are not one input (dates, chips, an answer and its mode). v32 COPY: `hint` is a "?" beside
+ * the label; `note` a visible status line under the controls (the "From your resume" mark); both describe the group.
+ */
 export function FieldGroup({
   label,
   error,
   hint,
+  note,
   required,
   children,
   className,
@@ -56,6 +100,7 @@ export function FieldGroup({
   label: ReactNode;
   error?: ReactNode;
   hint?: ReactNode;
+  note?: ReactNode;
   required?: boolean;
   children: ReactNode;
   className?: string;
@@ -65,23 +110,27 @@ export function FieldGroup({
     <div
       role="group"
       aria-labelledby={`${id}-label`}
-      aria-describedby={[error ? `${id}-error` : '', hint ? `${id}-hint` : ''].filter(Boolean).join(' ') || undefined}
+      aria-describedby={[error ? `${id}-error` : '', hint ? `${id}-hint` : '', note ? `${id}-note` : ''].filter(Boolean).join(' ') || undefined}
       className={clsx('flex flex-col gap-1.5', className)}
     >
-      <span id={`${id}-label`} className="text-sm leading-5 font-medium text-foreground">
-        {label}
-        {required && (
-          <span aria-hidden="true" className="ml-0.5 text-danger">
-            *
-          </span>
-        )}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span id={`${id}-label`} className="text-sm leading-5 font-medium text-foreground">
+          {label}
+          {required && (
+            <span aria-hidden="true" className="ml-0.5 text-danger">
+              *
+            </span>
+          )}
+        </span>
+        {hint ? <HelpTip label={label}>{hint}</HelpTip> : null}
       </span>
       {children}
       {error ? <GroupMessage id={`${id}-error`}>{error}</GroupMessage> : null}
+      {note ? <FieldNote id={`${id}-note`}>{note}</FieldNote> : null}
       {hint ? (
-        <p id={`${id}-hint`} className="text-[13px] leading-5 text-muted-foreground">
+        <span id={`${id}-hint`} hidden>
           {hint}
-        </p>
+        </span>
       ) : null}
     </div>
   );
@@ -104,14 +153,17 @@ export function TextField({
   className?: string;
 }) {
   const form = useProfileForm();
+  const noted = useFieldNote(form, path, hint);
   return (
-    <Field label={label} required={required} error={form.error(path)} hint={hintOf(form, path, hint)} className={className}>
+    <Field id={noted.id} label={label} required={required} error={form.error(path)} hint={noted.hint} className={className}>
       <Input
         {...input}
+        aria-describedby={noted.describedBy}
         value={form.text(path)}
         disabled={form.busy || input.disabled}
         onChange={(event) => form.set(path, event.target.value)}
       />
+      {noted.noteLine}
     </Field>
   );
 }
@@ -133,20 +185,20 @@ export function TextareaField({
 }) {
   const form = useProfileForm();
   const value = form.text(path);
+  const count = `${value.length.toLocaleString('en-US')} / ${maxLength.toLocaleString('en-US')}`;
+  // A given hint stood in for the count before v3.2; now the hint is a "?" and the count stays in sight.
+  const noted = useFieldNote(form, path, hint, count);
   return (
-    <Field
-      label={label}
-      error={form.error(path)}
-      hint={hintOf(form, path, hint ?? `${value.length.toLocaleString('en-US')} / ${maxLength.toLocaleString('en-US')}`)}
-      className={className}
-    >
+    <Field id={noted.id} label={label} error={form.error(path)} hint={noted.hint} className={className}>
       <Textarea
+        aria-describedby={noted.describedBy}
         value={value}
         rows={rows}
         maxLength={maxLength}
         disabled={form.busy}
         onChange={(event) => form.set(path, event.target.value)}
       />
+      {noted.noteLine}
     </Field>
   );
 }
@@ -182,8 +234,11 @@ export function SelectField<V extends string>({
   const raw = form.read(path);
   const value = typeof raw === 'string' && raw !== '' ? raw : emptyLabel ? NONE : null;
   const choices: SelectOption<string>[] = emptyLabel ? [{ value: NONE, label: emptyLabel }, ...options] : [...options];
+  const fromResume = form.isFromResume(path);
   return (
-    <Field label={label} required={required} error={form.error(path)} hint={hintOf(form, path, hint)} className={className}>
+    // The kit's Select takes its description from the Field only: while the "From your resume" mark shows it is the
+    // hint (the control's description), and it is drawn under the control too.
+    <Field label={label} required={required} error={form.error(path)} hint={fromResume ? form.markText(path) : hint} className={className}>
       <Select
         options={choices}
         value={value}
@@ -191,6 +246,11 @@ export function SelectField<V extends string>({
         disabled={form.busy || disabled}
         onValueChange={(next) => form.set(path, next === NONE ? emptyValue : next)}
       />
+      {fromResume && (
+        <p aria-hidden="true" data-field-note="" className="text-[13px] leading-5">
+          <FromResumeHint path={path} />
+        </p>
+      )}
     </Field>
   );
 }
@@ -222,9 +282,11 @@ export function NumberField({
   const form = useProfileForm();
   const raw = form.read(path);
   const value = typeof raw === 'number' && !(zeroIsEmpty && raw === 0) ? raw : '';
+  const noted = useFieldNote(form, path, hint);
   return (
-    <Field label={label} error={form.error(path)} hint={hintOf(form, path, hint)} className={className}>
+    <Field id={noted.id} label={label} error={form.error(path)} hint={noted.hint} className={className}>
       <Input
+        aria-describedby={noted.describedBy}
         type="number"
         inputMode={step === 1 ? 'numeric' : 'decimal'}
         min={min}
@@ -239,6 +301,7 @@ export function NumberField({
           form.set(path, number === null || Number.isNaN(number) ? (zeroIsEmpty ? 0 : null) : number);
         }}
       />
+      {noted.noteLine}
     </Field>
   );
 }
@@ -286,7 +349,7 @@ export function MonthYearField({ path, label, disabled }: { path: string; label:
   const text = typeof label === 'string' ? label : 'Date';
   const off = form.busy || disabled;
   return (
-    <FieldGroup label={label} error={form.error(path)} hint={hintOf(form, path, null)}>
+    <FieldGroup label={label} error={form.error(path)} note={hintOf(form, path, null)}>
       <div className="grid grid-cols-2 gap-2">
         <Select
           aria-label={`${text}: month`}
@@ -337,7 +400,12 @@ export function ChipListField({
     }
   };
   return (
-    <FieldGroup label={label} error={form.errorWithin(path)} hint={hintOf(form, path, hint)}>
+    <FieldGroup
+      label={label}
+      error={form.errorWithin(path)}
+      hint={form.isFromResume(path) ? undefined : hint}
+      note={form.isFromResume(path) ? <FromResumeHint path={path} /> : undefined}
+    >
       {items.length > 0 && (
         <ul className="flex flex-wrap gap-2" aria-label={text}>
           {items.map((item, index) => (

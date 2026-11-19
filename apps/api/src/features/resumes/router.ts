@@ -44,6 +44,7 @@ import { parseInput } from '../../core/http/validate';
 import { cancelResumeAnalysis, flushResumeAnalysis } from './analysis/deferred';
 import { currentResumeAnalyses, resumeAnalysisBrief, resumeAnalysisView } from './analysis/store';
 import { adoptableCopyTemplate, adoptCopyTask, requestBatchCopy } from './copies/store';
+import { forgetUploadReading } from './ai/uploadReading'; // v32 FIX-API (SF-3)
 import { getResumeEngine } from './engine';
 import { editorResumePlan, exportBuiltResume } from './export';
 import { prunePhotos, withOwnPhoto } from './photos';
@@ -161,10 +162,16 @@ async function enqueueImport(deps: AppDeps, userId: string, row: ResumeWithFile,
  * application was sent with keeps its file: the record's snapshot names it (uploads are kept byte for byte).
  */
 async function deleteOne(deps: AppDeps, userId: string, id: string) {
+  // v32 FIX-API (REV-SECBEH SF-3): an upload's text, read before it goes, so the AI's reading of it goes too.
+  const upload = await deps.db.one<{ extracted_text: string | null }>(
+    "SELECT extracted_text FROM resumes WHERE id = ? AND user_id = ? AND kind = 'uploaded'",
+    [id, userId],
+  );
   const outcome = await deleteResumeRow(deps, userId, id);
   if (outcome) {
     cancelResumeAnalysis(deps, id);
     await prunePhotos(deps, userId);
+    if (upload) await forgetUploadReading(deps, userId, upload.extracted_text);
   }
   if (outcome?.fileId && !(await fileOfSentResume(deps, userId, outcome.fileId))) {
     try {

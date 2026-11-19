@@ -8,6 +8,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useId, type ReactNode } from 'react';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { CountBadge } from '@/components/ui/Badge';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CirclesFourIcon, FileTextIcon } from '@/components/ui/icons';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
@@ -167,7 +168,10 @@ export function DocumentsPage() {
   );
 }
 
-/** The shown section: one white panel with its name, count and line on top, then the section (toolbar, grid or list). */
+/**
+ * The shown section: one white panel with its name and count on top (its line in a "?" beside them: v32 COPY, E5), then
+ * the section (toolbar, grid or list).
+ */
 function SectionPanel({
   id,
   title,
@@ -183,12 +187,12 @@ function SectionPanel({
 }) {
   return (
     <section aria-labelledby={id} data-documents-panel="" className="min-w-0 rounded-card border border-border bg-surface shadow-card">
-      <header className="border-b border-border px-4 py-4 sm:px-6">
+      <header className="flex items-center gap-1.5 border-b border-border px-4 py-4 sm:px-6">
         <h2 id={id} className="flex items-baseline gap-2 text-heading font-semibold text-foreground">
           {title}
           {count !== null && <span className="num text-sm font-medium text-muted-foreground">{count}</span>}
         </h2>
-        <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{intro}</p>
+        <HelpTip label={title}>{intro}</HelpTip>
       </header>
       <div className="px-4 pt-4 pb-6 sm:px-6 sm:pt-5">{children}</div>
     </section>

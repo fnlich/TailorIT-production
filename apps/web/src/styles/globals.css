@@ -88,7 +88,7 @@
   --color-info-soft: #e6effa;
   --color-info-ink: #1c4f91;
 
-  /* ---- The shell's dark denim sidebar */
+  /* ---- The shell's dark denim (v3.2 SHELL: the header bar and the menu sheet; v3.1's sidebar, whose names they keep) */
   --color-sidebar: #171c38;
   --color-sidebar-foreground: #c7cae0;
   --color-sidebar-muted: #9da2c4;
@@ -118,10 +118,8 @@
   --shadow-focus: 0 0 0 3px rgb(58 69 201 / 0.22);
   --shadow-focus-danger: 0 0 0 3px rgb(194 54 58 / 0.2);
 
-  /* ---- Shell sizes */
+  /* ---- Shell sizes (v3.2 SHELL: the header bar holds the links; no sidebar, no rail) */
   --spacing-topbar: 56px;
-  --spacing-sidebar: 240px;
-  --spacing-rail: 64px;
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 

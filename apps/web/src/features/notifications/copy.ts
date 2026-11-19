@@ -7,7 +7,7 @@ import { BELL_COPY } from '../../components/shell/header/copy';
 
 export const PAGE_COPY = {
   title: 'Notifications',
-  description: 'What TailorIT did for you: your applications, the jobs you added, your account and the extension.',
+  description: 'What TailorIT did for you.',
   filterLabel: 'Show',
   all: 'All',
   unread: 'Unread',
@@ -18,19 +18,19 @@ export const PAGE_COPY = {
   emptyAll: BELL_COPY.empty,
   emptyAllHint: BELL_COPY.emptyHint,
   emptyUnread: "You're all caught up",
-  emptyUnreadHint: 'You have no unread notifications. Earlier ones are under All.',
+  emptyUnreadHint: 'Earlier ones are under All.',
   showAll: 'Show all',
-  loadFailed: "Your notifications couldn't be loaded",
-  loadFailedHint: 'Check your connection, then try again.',
+  loadFailed: "Your notifications didn't load.",
+  loadFailedHint: 'Check your connection and try again.',
   tryAgain: BELL_COPY.tryAgain,
   loading: 'Loading notifications',
 } as const;
 
 export const SETTINGS_COPY = {
   title: 'Notification settings',
-  description: 'Choose what the bell tells you about. Changes save at once; turning one off stops new ones and keeps the ones you have.',
-  loadFailed: "Your notification settings couldn't be loaded",
-  saveFailed: "That setting couldn't be saved. Please try again.",
+  description: 'What the bell tells you about; changes save at once.',
+  loadFailed: "Your notification settings didn't load",
+  saveFailed: "That setting wasn't saved. Try again.",
   tryAgain: BELL_COPY.tryAgain,
   loading: 'Loading your notification settings',
 } as const;
@@ -39,22 +39,22 @@ export const SETTINGS_COPY = {
 export const GROUP_SETTINGS: Readonly<Record<NotificationGroup, { title: string; hint: string }>> = {
   applications: {
     title: 'Applications',
-    hint: 'When Prepare & Queue finishes or fails, and when an auto-apply is submitted, needs you or fails.',
+    hint: 'Prepare & Queue and auto-apply results.',
   },
   jobs: {
     title: 'Jobs you added',
-    hint: 'When TailorIT has checked a job you added: published, waiting for a review, only visible to you, or refused.',
+    hint: 'When a job you added is checked.',
   },
   account: {
     title: 'Account',
-    hint: "When today's AI budget is used, your extra credit runs low or out, or your Paid plan is about to end.",
+    hint: "Today's AI use, extra credit and your Paid plan's end.",
   },
   extension: {
     title: 'Browser extension',
-    hint: 'When the extension disconnects itself or its connection runs out.',
+    hint: 'When the extension disconnects.',
   },
   admin: {
     title: 'Admin',
-    hint: 'New items in Review, failed runs, sources turned off after failing, and runs another admin paused or continued.',
+    hint: 'Review items, failed runs and paused sources.',
   },
 };

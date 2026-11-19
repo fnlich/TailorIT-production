@@ -8,7 +8,8 @@ import type { ApplicationDraftAnswer, ApplicationDraftResponse, PreparePartStatu
 import { Badge } from '../../../components/ui/Badge';
 import { Button, buttonClasses } from '../../../components/ui/Button';
 import { EmptyState } from '../../../components/ui/EmptyState';
-import { ANSWER_STATE_TEXT, QUESTIONS_UNKNOWN, RESUME_MODE_SHORT, partLine, preparedByText } from '../../prepare/copy';
+import { HelpTip } from '../../../components/ui/HelpTip';
+import { ANSWER_STATE_TEXT, RESUME_MODE_SHORT, noAnswersText, partLine, preparedByText } from '../../prepare/copy';
 import { appliedWithText } from '../draft';
 
 // v2.0: the Tracker's "Prepared" tab (v1.5's "Draft" tab): the application's kit, as Prepare & Queue made it and the
@@ -129,7 +130,7 @@ export function DraftView({ data, records = null, draft: isDraft = false, draftL
             size="sm"
             icon={<SparkleIcon size={20} />}
             title="Nothing prepared for this application yet."
-            description="Prepare & Queue this job on the Auto-apply page."
+            description="Prepare & Queue it on Auto-apply."
             action={
               <Link href="/auto-apply" className={buttonClasses({ variant: 'outline', size: 'sm' })}>
                 Open Auto-apply
@@ -156,17 +157,13 @@ export function DraftView({ data, records = null, draft: isDraft = false, draftL
                 {draftLabel}
               </Badge>
             )}
+            {isDraft && <HelpTip label={draftLabel}>In your auto-apply queue: this kit is used as it is.</HelpTip>}
           </h3>
           <p className="text-sm text-muted-foreground">
             {preparedByText(kit)} on{' '}
             <time dateTime={when}>{formatMediumDate(when)}</time>
           </p>
         </div>
-        {isDraft && (
-          <p className="text-sm leading-5 text-muted-foreground">
-            In your auto-apply queue with this kit. It is used as it is when the job is applied to.
-          </p>
-        )}
         {kit.error && <p className="text-sm leading-5 text-danger">{kit.error}</p>}
         <ul className="flex flex-col gap-2" aria-label="Prepared documents">
           <DocumentRow
@@ -195,9 +192,7 @@ export function DraftView({ data, records = null, draft: isDraft = false, draftL
           {data.answers.length === 0 ? (
             // v2.0 fix (UX-4): no "made during the application": a job applied to by hand has no automated run.
             <p className="text-sm text-muted-foreground" data-draft-answers="unknown">
-              {QUESTIONS_UNKNOWN}, so no answers were prepared. TailorIT learns a job&apos;s questions when someone
-              applies to it. When the extension fills the form it can answer them then; otherwise, answer them on the
-              form.
+              {noAnswersText(0)}
             </p>
           ) : (
             <dl className="flex flex-col gap-3">

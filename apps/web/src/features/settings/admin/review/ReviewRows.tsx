@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
-import { ArrowCounterClockwiseIcon, CheckIcon, XIcon } from '@/components/ui/icons';
+import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, CheckIcon, XIcon } from '@/components/ui/icons';
 import { relativeTime } from '@/lib/format';
 import { ROW_ACTION, StateLine, useRowFocus } from '../../../../components/queue';
 import { evidenceLine, flagStateLine, originLine, reviewStateLine, rowName } from './copy';
@@ -100,9 +100,11 @@ export interface ReviewRowViewProps {
   outcome: string | null;
   onDecide: (decision: ReviewDecision) => void;
   onOpen: () => void;
+  /** v32 ADMINAPP (E6): Retry read, on a waiting new job a read made (copy.ts retriesRead); absent: no button. */
+  onRetry?: () => void;
 }
 
-export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, outcome, onDecide, onOpen }: ReviewRowViewProps) {
+export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, outcome, onDecide, onOpen, onRetry }: ReviewRowViewProps) {
   const name = rowName(row.job);
   const pending = row.state === 'pending';
   const [rowRef, rowFocus] = useRowFocus<HTMLLIElement>(`${row.state}:${selectMode}`);
@@ -137,7 +139,7 @@ export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, 
               · {relativeTime(row.lastReportedAt, now)}
             </time>
           </p>
-          <StateLine icon={line.icon} text={line.text} detail={line.detail} tone={line.tone} />
+          {line && <StateLine icon={line.icon} text={line.text} detail={line.detail} tone={line.tone} />}
           <OutcomeLine text={outcome} />
           <ReportersDisclosure reviewId={row.id} count={row.reporters} name={name} />
         </div>
@@ -156,6 +158,20 @@ export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, 
               >
                 Approve
               </Button>
+              {onRetry && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={TOUCH}
+                  icon={<ArrowsClockwiseIcon size={14} weight="bold" aria-hidden="true" />}
+                  disabled={busy}
+                  focusableWhenDisabled
+                  aria-label={`Retry read: ${name}`}
+                  onClick={onRetry}
+                >
+                  Retry read
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -258,7 +274,7 @@ export function FlagRowView({ flag, now, selectMode, checked, onChecked, busy, o
           <p className="truncate text-[13px] leading-5 text-muted-foreground">
             Reported by {flag.reporter.name || flag.reporter.email} · {relativeTime(flag.createdAt, now)}
           </p>
-          <StateLine icon={line.icon} text={line.text} detail={line.detail} tone={line.tone} />
+          {line && <StateLine icon={line.icon} text={line.text} detail={line.detail} tone={line.tone} />}
           <OutcomeLine text={outcome} />
         </div>
         <RowActions>

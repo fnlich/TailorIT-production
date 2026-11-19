@@ -4,6 +4,7 @@ import { Toolbar } from '@base-ui/react/toolbar';
 import { clsx } from 'clsx';
 import { useCallback, useEffect, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { IconButton } from '@/components/ui/IconButton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -188,11 +189,26 @@ export function PanelTitle({ children }: { children: ReactNode }) {
   return <p className="px-1 pb-2 text-[13px] font-semibold text-foreground">{children}</p>;
 }
 
-/** A small muted group heading inside a popover. */
-export function PanelGroup({ label, children, className }: { label?: string; children: ReactNode; className?: string }) {
+/** A small muted group heading inside a popover; `help` is a "?" beside it (v32 COPY, E5). */
+export function PanelGroup({
+  label,
+  help,
+  children,
+  className,
+}: {
+  label?: string;
+  help?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <div className={clsx('flex flex-col gap-2 px-1', className)} role="group" aria-label={label}>
-      {label ? <p className="text-xs font-medium text-muted-foreground">{label}</p> : null}
+      {label ? (
+        <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          {label}
+          {help ? <HelpTip label={label}>{help}</HelpTip> : null}
+        </p>
+      ) : null}
       {children}
     </div>
   );

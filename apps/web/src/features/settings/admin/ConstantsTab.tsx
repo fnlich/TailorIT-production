@@ -12,6 +12,7 @@ import { Combobox } from '@/components/ui/Combobox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Dialog, DialogClose, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { LockSimpleIcon, MagnifyingGlassIcon } from '@/components/ui/icons';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -78,7 +79,7 @@ export function ConstantsTab() {
   return (
     <AdminResourceTab
       title="Constants"
-      description="Every limit, price, time and message TailorIT uses. A value comes from your override first, then .env, then the default. An override applies at once, with no restart."
+      description="Every limit, price, time and message; an override wins over .env and the default, at once."
       lead={
         <div className="mb-6 max-w-md">
           <Input
@@ -94,13 +95,13 @@ export function ConstantsTab() {
       }
       items={constants.data ? groups : undefined}
       error={constants.error}
-      errorTitle="The constants could not be loaded"
+      errorTitle="Constants didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void constants.refetch()}>
           Try again
         </Button>
       }
-      empty={{ title: 'No constant matches', description: 'Try another word, or clear the search.', card: false }}
+      empty={{ title: 'No constant matches', description: 'Try another word.', card: false }}
       skeletonRows={8}
       renderItems={(shown) => (
         <div className="flex flex-col gap-8">
@@ -175,9 +176,12 @@ export function ConstantRowView({
   return (
     <li data-constant={row.key} className="flex flex-col gap-3 px-5 py-3.5 md:flex-row md:items-start md:gap-6">
       <div className="min-w-0 md:w-[38%] md:shrink-0">
-        <p className="text-sm leading-5 font-semibold text-foreground">{row.label}</p>
+        {/* v32 COPY (E5): the constant's help is the "?" beside its label. */}
+        <p className="flex items-center gap-1.5 text-sm leading-5 font-semibold text-foreground">
+          {row.label}
+          <HelpTip label={row.label}>{row.help}</HelpTip>
+        </p>
         <p className="mt-0.5 font-mono text-xs leading-4 break-all text-muted-foreground">{row.key}</p>
-        <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{row.help}</p>
       </div>
       <div className="min-w-0 flex-1">
         <p
@@ -258,6 +262,7 @@ function ConstantEditDialog({
             <span className="font-mono text-xs">{row.key}</span> · now {row.display} ({sourceBadge(row).label.toLowerCase()})
           </>
         }
+        help={row.help}
         size={row.kind === 'message' || row.kind === 'prices' ? 'xl' : 'md'}
       >
         <form
@@ -270,7 +275,6 @@ function ConstantEditDialog({
           }}
         >
           <ConstantEditor row={row} draft={draft} error={error} onChange={change} />
-          <p className="text-[13px] leading-5 text-muted-foreground">{row.help}</p>
           <DialogFooter>
             <DialogClose render={<Button variant="outline">Cancel</Button>} />
             <Button type="submit" loading={save.isPending} disabled={touched && !result.ok}>
@@ -342,7 +346,7 @@ function ConstantEditor({
       );
     case 'ratio':
       return (
-        <Field label={label} error={error ?? undefined} hint="A share above 0 and at most 1: 0.98 is 98%.">
+        <Field label={label} error={error ?? undefined} hint="Above 0, at most 1: 0.98 is 98%.">
           <Input inputMode="decimal" value={draft.text} className="max-w-48" onChange={(event) => onChange({ text: event.target.value })} />
         </Field>
       );
@@ -386,12 +390,9 @@ function ConstantEditor({
             />
           </Field>
           {choice === 'custom' && (
-            <Field
-              label="Custom length"
-              error={error ?? undefined}
-              hint={`An ISO length of one unit: P30D (30 days), P2M (2 months), P1Y (1 year).${draft.text ? ` Now: ${durationWords(draft.text)}.` : ''}`}
-            >
+            <Field label="Custom length" error={error ?? undefined} hint="One ISO unit: P30D, P2M or P1Y.">
               <Input value={draft.text} className="max-w-48 font-mono" onChange={(event) => onChange({ text: event.target.value.toUpperCase() })} />
+              {draft.text ? <span className="text-xs leading-4 text-muted-foreground">{`Now: ${durationWords(draft.text)}`}</span> : null}
             </Field>
           )}
         </div>
@@ -459,12 +460,10 @@ function MessageEditor({
   const sample = previewParams({ time: values.DAY_RESET_TIME, zoneLabel: values.DAY_RESET_ZONE_LABEL });
   return (
     <div className="flex flex-col gap-3">
-      <Field
-        label="Message"
-        error={error ?? undefined}
-        hint={max ? `${draft.text.length} / ${max} characters` : undefined}
-      >
+      <Field label="Message" error={error ?? undefined}>
         <Textarea ref={box} rows={4} value={draft.text} onChange={(event) => onChange({ text: event.target.value })} />
+        {/* A count is a value: it stays visible. */}
+        {max ? <span className="num text-xs leading-4 text-muted-foreground">{`${draft.text.length} / ${max} characters`}</span> : null}
       </Field>
       {row.placeholders.length > 0 && (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Insert a placeholder">

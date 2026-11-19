@@ -12,9 +12,8 @@ import { JOB_TYPE_CHIPS, LOCATION_TYPE_LABEL } from './prepare/filters';
 // says which in its description; both use one vocabulary, the filters' words (which the "Filtered: on-site" labels use
 // too), and the same group names.
 
-/** Job preferences' description: what they do, and what they don't (UX-7). */
-export const JOB_PREFERENCES_DESCRIPTION =
-  "Jobs uses these to rank the roles that fit what you are looking for. They don't skip any job: your Prepare filters, under Prepare & Queue, do that.";
+/** Job preferences' description: what they do, and what they don't (UX-7). v32 COPY: one sentence, the "?". */
+export const JOB_PREFERENCES_DESCRIPTION = "Jobs ranks roles by these; they don't skip any job.";
 
 export const CHOICE_GROUP_LABEL = {
   experience: 'Experience level',

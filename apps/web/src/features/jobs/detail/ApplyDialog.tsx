@@ -30,7 +30,8 @@ export function ApplyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         title="Applied to this job?"
-        description={`If you sent your application for ${title} at ${company}, Yes files it in your Job Tracker under Applied, dated today.`}
+        // v32 JOBS2 (E5): one short sentence.
+        description={`Yes adds ${title} at ${company} to your Job Tracker as applied today.`}
         size="sm"
       >
         {error ? (

@@ -224,7 +224,7 @@ function DetailBody({
         open={askApplied}
         onOpenChange={setAskApplied}
         title="Applied to this job?"
-        description={`If you finished applying to ${application.title} at ${application.companyName}, Yes moves it to Applied.`}
+        description={`Yes moves ${application.title} at ${application.companyName} to Applied.`}
         confirmLabel="Yes, I applied"
         cancelLabel="Not yet"
         tone="primary"

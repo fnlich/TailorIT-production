@@ -35,6 +35,7 @@ import { clearedQuery, minSalaryLabel, toggled } from '../filters';
 import { showJobsLabel } from '../format';
 import { useFacet, useFacetsSummary, useJobsCount } from '../hooks';
 import { FunnelSimpleIcon } from '../icons';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CanApplySwitch } from './CanApplySwitch';
 import { CategoryPicker } from './CategoryFilter';
 import { LocationFields } from './LocationFilter';
@@ -57,13 +58,14 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** One filter of the dialog: its label (v32 JOBS2 (E5): a hint is the label's "?"), then its control. */
 function Row({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
     <div className="flex flex-col gap-2.5">
-      <div>
-        <p className="text-sm leading-5 font-medium text-foreground">{label}</p>
-        {hint && <p className="text-[13px] leading-5 text-muted-foreground">{hint}</p>}
-      </div>
+      <p className="flex items-center gap-1.5 text-sm leading-5 font-medium text-foreground">
+        {label}
+        {hint && <HelpTip label={label}>{hint}</HelpTip>}
+      </p>
       {children}
     </div>
   );
@@ -188,7 +190,14 @@ export function AllFiltersDialog({
             setOpen(true);
           }}
         />
-        {otherCount > 0 && <CountBadge count={otherCount} className="pointer-events-none absolute -top-1.5 -right-1.5" />}
+        {/* The filters beside it are counted on their own buttons; on a phone, where All filters holds them all
+            (v32 FIX-UX), its badge counts every filter on. */}
+        {otherCount > 0 && (
+          <CountBadge count={otherCount} className="pointer-events-none absolute -top-1.5 -right-1.5 @max-[36rem]/jobs-toolbar:hidden" />
+        )}
+        {counts.total > 0 && (
+          <CountBadge count={counts.total} className="pointer-events-none absolute -top-1.5 -right-1.5 @min-[36rem]/jobs-toolbar:hidden" />
+        )}
       </span>
       <DialogContent title="All filters" size="xl">
         <div className="-mx-6 mt-2 min-h-0 flex-1 overflow-y-auto px-6">
@@ -257,7 +266,7 @@ export function AllFiltersDialog({
 
           {available?.salary && (
             <Group title="Compensation">
-              <Row label="Minimum salary" hint="Postings that pay at least this much (in US dollars).">
+              <Row label="Minimum salary" hint="Pays at least this much, in US dollars.">
                 <div className="flex items-center gap-4">
                   <Slider
                     min={0}

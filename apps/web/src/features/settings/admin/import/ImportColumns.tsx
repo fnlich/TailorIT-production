@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Field, FieldLabel } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
@@ -77,7 +78,11 @@ export function ImportColumns({
     <div className="flex flex-col gap-6" data-import-columns="">
       <Card padding="lg">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h3 className="text-[15px] leading-5 font-semibold text-foreground">Columns</h3>
+          {/* v32 COPY (E5): what a column other than the link does is the heading's "?". */}
+          <span className="flex items-center gap-1.5">
+            <h3 className="text-[15px] leading-5 font-semibold text-foreground">Columns</h3>
+            <HelpTip label="Columns">Only the link column is read; the others only name a row in a message.</HelpTip>
+          </span>
           <p className="text-[13px] leading-5 text-muted-foreground" aria-live="polite" data-import-count="">
             {linkCountText(preview, countLabel)}
           </p>
@@ -93,9 +98,6 @@ export function ImportColumns({
                 value={mapping[field.field] ?? NONE}
                 onValueChange={(column) => onRemap(field.field, column === NONE ? null : column)}
               />
-              {field.field !== 'url' && (
-                <p className="text-xs leading-4 text-muted-foreground">Only names a row in a message: the job is read from its link.</p>
-              )}
             </div>
           ))}
         </div>
@@ -105,8 +107,11 @@ export function ImportColumns({
           </Notice>
         )}
         <div className="mt-5 border-t border-divider-soft pt-4" data-import-ignored="">
-          <p className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
-            Ignored columns <span className="num">{ignored.length}</span>
+          <p className="flex items-center gap-1.5 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
+            <span>
+              Ignored columns <span className="num">{ignored.length}</span>
+            </span>
+            <HelpTip label="Ignored columns">{ignoredText(ignored.length)}</HelpTip>
           </p>
           {ignored.length > 0 && (
             <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Ignored columns">
@@ -117,7 +122,6 @@ export function ImportColumns({
               ))}
             </ul>
           )}
-          <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{ignoredText(ignored.length)}</p>
         </div>
         {preview.problems.length > 0 && (
           <Notice tone="warning" className="mt-5" title="Some rows will be skipped">

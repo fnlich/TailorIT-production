@@ -100,7 +100,7 @@ export function NameSection() {
           path="profile.name.preferred"
           label="Preferred first name"
           maxLength={100}
-          hint="Leave it empty when it is your first name."
+          hint="Leave empty if it is your first name."
           autoComplete="nickname"
         />
       </div>
@@ -124,7 +124,7 @@ export function ContactSection() {
           type="email"
           maxLength={254}
           autoComplete="email"
-          hint={!email.trim() && signInAddress ? `Left empty, applications get your sign-in address, ${signInAddress}.` : undefined}
+          hint={!email.trim() && signInAddress ? `If empty, applications use ${signInAddress}.` : undefined}
         />
         <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_140px]">
           <TextField
@@ -143,7 +143,7 @@ export function ContactSection() {
             options={PHONE_DEVICE_TYPE_OPTIONS}
             emptyLabel="Not said"
             placeholder="Phone type"
-            hint="For forms that ask for the phone's device type."
+            hint="Mobile, home or work."
           />
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
@@ -172,7 +172,7 @@ export function LinksSection() {
       },
     });
   return (
-    <Section title="Links" description="Full addresses, starting with https://.">
+    <Section title="Links" description="Full addresses, starting with https://">
       <div className="flex flex-col gap-5">
         <div className="grid gap-5 sm:grid-cols-2">
           <LinkField path="profile.links.linkedin" label="LinkedIn" placeholder="https://www.linkedin.com/in/your-name" />
@@ -210,7 +210,7 @@ export function LinksSection() {
             ))}
           </div>
         )}
-        {form.isFromResume('profile.links.other') && <FromResumeHint />}
+        {form.isFromResume('profile.links.other') && <FromResumeHint path="profile.links.other" />}
         <div>
           <AddButton
             label="Add another link"

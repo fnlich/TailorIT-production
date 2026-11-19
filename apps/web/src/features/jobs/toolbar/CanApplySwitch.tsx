@@ -2,12 +2,11 @@
 
 import { clsx } from 'clsx';
 import Link from 'next/link';
-import { useId } from 'react';
-import { CheckIcon } from '@/components/ui/icons';
-import { Notice } from '@/components/ui/Notice';
+import { CheckIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Switch } from '@/components/ui/Switch';
 import { WHERE_YOU_LIVE_ANCHOR } from '@/features/settings/prepare/PrepareFilters';
 import { CAN_APPLY_COPY, applicantGap } from '../format';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { useApplicantLocation } from '../hooks';
 
 // v30 WEB-JOBS (owner question 4; 11-database.md §6 Q4): "Jobs I can apply to", off by default (the address's
@@ -44,23 +43,29 @@ export function CanApplyPill({ on, onChange, className }: { on: boolean; onChang
   );
 }
 
+/**
+ * The switch in All filters. v32 JOBS2 (E4, E5): what it does is its "?"; while on and a part of the person's place is
+ * missing, one short line under it says what to add, with the Settings link (next to the field, not a banner).
+ */
 export function CanApplySwitch({ checked, onCheckedChange }: { checked: boolean; onCheckedChange: (on: boolean) => void }) {
-  const hintId = useId();
   const location = useApplicantLocation(checked);
   const gap = checked && location.data ? applicantGap(location.data) : null;
   return (
     <div className="flex flex-col gap-2" data-can-apply="">
-      <Switch label={CAN_APPLY_COPY.label} checked={checked} onCheckedChange={onCheckedChange} aria-describedby={hintId} />
-      <p id={hintId} className="text-[13px] leading-5 text-muted-foreground">
-        {CAN_APPLY_COPY.hint}
-      </p>
+      <div className="flex items-center gap-1.5">
+        <Switch label={CAN_APPLY_COPY.label} checked={checked} onCheckedChange={onCheckedChange} />
+        <HelpTip label={CAN_APPLY_COPY.label}>{CAN_APPLY_COPY.hint}</HelpTip>
+      </div>
       {gap && (
-        <Notice tone="warning">
-          {CAN_APPLY_COPY.missing[gap]}{' '}
-          <Link href={WHERE_YOU_LIVE_HREF} className="font-semibold underline underline-offset-2">
-            {CAN_APPLY_COPY.settingsLink}
-          </Link>
-        </Notice>
+        <p role="alert" className="flex items-start gap-1.5 text-[13px] leading-5 text-warning-ink" data-can-apply-gap={gap}>
+          <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+          <span>
+            {CAN_APPLY_COPY.missing[gap]}{' '}
+            <Link href={WHERE_YOU_LIVE_HREF} className="font-semibold underline underline-offset-2">
+              {CAN_APPLY_COPY.settingsLink}
+            </Link>
+          </span>
+        </p>
       )}
     </div>
   );

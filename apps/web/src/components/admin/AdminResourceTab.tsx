@@ -57,7 +57,7 @@ interface AdminListState<T> {
   items: readonly T[] | undefined;
   /** The query failed (its error says why): the error notice replaces the table. */
   error?: unknown;
-  /** The error notice's title ("The reports could not be loaded"). */
+  /** The error notice's title, "<Thing> didn't load." (v32 FIX-UX, UXREQ-13: "Reports didn't load."). */
   errorTitle: string;
   /** The error notice's button (Try again). */
   errorAction?: ReactNode;

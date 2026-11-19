@@ -29,12 +29,12 @@ export function runsBarText(paused: RunsPaused | null, now: number): { title: st
   if (!paused) {
     return {
       title: 'Runs are running',
-      description: 'Sources run on their schedule. Pause all stops every run at its next safe point and starts no new one.',
+      description: 'Sources run on their schedule. Pause all stops every run safely.',
     };
   }
   return {
     title: 'Runs are paused',
-    description: `${pausedSince(paused, now)}. No source runs until you continue. What the stopped runs saved stays, and nothing was closed.`,
+    description: `${pausedSince(paused, now)}. No source runs until you continue; what was saved stays.`,
   };
 }
 

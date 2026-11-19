@@ -211,7 +211,7 @@ function CompanyList({ viewSwitch, onOpenCompany }: { viewSwitch: ReactNode; onO
   return (
     <AdminResourceTab
       title="Companies"
-      description="Company profiles and where each value came from. Open a company to correct a field (an admin's value is locked), merge or split it, refresh it, or opt it out."
+      description="Company profiles and where each value came from; open one to correct it."
       actions={viewSwitch}
       lead={
         <div className="mb-4 flex flex-wrap items-center gap-3" role="search" aria-label="Find companies">
@@ -236,7 +236,7 @@ function CompanyList({ viewSwitch, onOpenCompany }: { viewSwitch: ReactNode; onO
       }
       items={items}
       error={companies.error}
-      errorTitle="The companies could not be loaded"
+      errorTitle="Companies didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void companies.refetch()}>
           Try again

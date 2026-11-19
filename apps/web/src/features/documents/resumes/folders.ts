@@ -308,12 +308,12 @@ export function tileLeftBehind(from: FolderLocation, to: FolderLocation): string
 /** A folder with nothing in it while other resumes exist: what to say, and what to offer. */
 export function emptyFolderCopy(location: FolderLocation): { title: string; description: string; action: 'upload' | 'new' | 'jobs' | 'dates' } {
   if (location.folder === 'uploaded') {
-    return { title: 'No uploaded resumes yet', description: 'Upload a PDF or Word resume and it is kept here exactly as it is.', action: 'upload' };
+    return { title: 'No uploaded resumes yet', description: 'Uploads are kept here exactly as they are.', action: 'upload' };
   }
   if (location.folder === 'edited') {
     return {
       title: 'No edited resumes yet',
-      description: 'Build a resume from a template, or make an editable copy of an upload, and it shows up here.',
+      description: 'Resumes you build or copy from an upload land here.',
       action: 'new',
     };
   }
@@ -322,7 +322,7 @@ export function emptyFolderCopy(location: FolderLocation): { title: string; desc
   }
   return {
     title: 'No tailored resumes yet',
-    description: 'Tailor your resume for a job from Jobs or the Tracker, and each tailored resume is kept here by the day it was made.',
+    description: 'Resumes you tailor for a job are kept here by day.',
     action: 'jobs',
   };
 }

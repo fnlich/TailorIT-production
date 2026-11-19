@@ -3,9 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ApplicationDetail } from '@tailorit/shared';
-import { Notice } from '@/components/ui/Notice';
+import { LoadError } from '@/components/ui/LoadError';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { LetterPreviewDialog } from '../../documents/preview/LetterPreviewDialog';
 import { ResumePreviewDialog } from '../../documents/preview/ResumePreviewDialog';
@@ -28,7 +27,8 @@ export function DraftTab({ application }: { application: ApplicationDetail }) {
   const [previewing, setPreviewing] = useState<'resume' | 'letter' | null>(null);
   if (draft.isLoading) return <Skeleton className="h-48 w-full" rounded="surface" />;
   if (draft.isError || !draft.data) {
-    return <Notice tone="error">{userMessage(draft.error, "We couldn't load what was prepared for this application. Please try again.")}</Notice>;
+    // v32 FIX-UX (UXREQ-13): the kit's load error, its reason in view.
+    return <LoadError thing="What was prepared for this application" error={draft.error} onRetry={() => void draft.refetch()} />;
   }
   const { resume, letter } = draft.data.draft ?? { resume: null, letter: null };
   return (

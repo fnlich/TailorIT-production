@@ -3,9 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { SHEET_MAX_HEADER_ROW, parseSpreadsheetRef } from '@tailorit/shared/ingest';
+import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
-import { ArrowSquareOutIcon, CopyIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { ArrowSquareOutIcon, CopyIcon, InfoIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
@@ -41,6 +43,9 @@ interface ReadRequest {
  * the sheet. v31 ADMINWEB: the posted date is the posting's own (TailorIT reads it from the link), so the tab-name date
  * choice is gone; a re-import still sends the stored choice.
  */
+/** What the import needs (the off chip's "?"). */
+const SHEETS_OFF_TIP = 'Importing reads a Google Sheet through a service account key saved on this server.';
+
 export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | null; onShowRuns: (sourceId: number) => void }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -249,7 +254,7 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
       ) : account.isError ? (
         <Notice
           tone="error"
-          title="The Google Sheet settings could not be loaded"
+          title="The Google Sheet settings didn't load."
           action={
             <Button variant="outline" size="sm" onClick={() => void account.refetch()}>
               Try again
@@ -260,36 +265,38 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
         </Notice>
       ) : (
         <div className="flex flex-col gap-6">
+          {/* v32 COPY (E4): the server's state is a chip. v32 FIX-UX (UXREQ-8): what the admin must do to turn it on are
+              steps to follow, so they show under it (the Google Cloud part, the server's sentence of where the key goes,
+              then Check again); the "?" says what the import needs, in one sentence. */}
           {!configured && (
-            <Notice
-              tone="warning"
-              title="Google Sheet import is off on this server"
-              action={
+            <div className="flex flex-col gap-2" data-sheets-off="">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1">
+                  <Badge tone="warning" icon={<WarningCircleIcon size={13} weight="fill" aria-hidden="true" />}>
+                    Google Sheet import is off on this server
+                  </Badge>
+                  <HelpTip label="Google Sheet import is off on this server">{SHEETS_OFF_TIP}</HelpTip>
+                </span>
                 <Button variant="outline" size="sm" onClick={() => void account.refetch()} loading={account.isFetching}>
                   Check again
                 </Button>
-              }
-            >
-              <p>{account.data.problem}</p>
-              <ol className="mt-2 list-decimal pl-5">
-                <li>In Google Cloud, create a service account and a JSON key for it.</li>
-                <li>Turn on the Google Sheets API for that project.</li>
-                <li>
-                  Save the key as <span className="font-mono break-all">{account.data.keyFile}</span>, or set GOOGLE_SERVICE_ACCOUNT_KEY_FILE in
-                  .env and restart the API.
-                </li>
+              </div>
+              <ol className="list-decimal pl-5 text-[13px] leading-5 break-words text-muted-foreground" data-sheets-steps="">
+                <li>Create a service account key in Google Cloud and turn on its Sheets API.</li>
+                <li>{account.data.problem}</li>
+                <li>Then press Check again (npm run doctor checks the key too).</li>
               </ol>
-            </Notice>
+            </div>
           )}
           <div className="rounded-card border border-border bg-surface p-6 shadow-card">
             {configured && account.data.clientEmail && (
               <>
-                <h3 className="text-[15px] leading-5 font-semibold text-foreground">Share the sheet with TailorIT</h3>
-                <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
-                  TailorIT reads Google Sheets as this service account. In the sheet, click Share, add the address below as a Viewer, then paste
-                  the sheet&apos;s link here. TailorIT only reads the sheet: it never changes it, and it imports it once (import it again to pick
-                  up changes).
-                </p>
+                <span className="flex items-center gap-1.5">
+                  <h3 className="text-[15px] leading-5 font-semibold text-foreground">Share the sheet with TailorIT</h3>
+                  <HelpTip label="Share the sheet with TailorIT">
+                    In the sheet, share it with this address as a Viewer; TailorIT only reads it, once per import.
+                  </HelpTip>
+                </span>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <code
                     data-testid="sheet-client-email"
@@ -306,7 +313,7 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
             <form onSubmit={submit} className={configured ? 'mt-5 flex flex-wrap items-start gap-3' : 'flex flex-wrap items-start gap-3'}>
               <Field
                 label="Sheet link"
-                hint="Copy it from the address bar. A link that ends in #gid=... opens that tab."
+                hint="From the address bar; #gid=... picks the tab."
                 error={linkError}
                 className="min-w-72 flex-1"
               >
@@ -351,7 +358,7 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
                   onValueChange={(value) => chooseTab(Number(value))}
                 />
               </Field>
-              <Field label="Header row" hint="The row with the column names. Rows above it are skipped." error={headerRowError}>
+              <Field label="Header row" hint="The row with the column names; rows above it are skipped." error={headerRowError}>
                 <Input
                   type="number"
                   inputMode="numeric"
@@ -369,34 +376,28 @@ export function SheetImport({ prefill, onShowRuns }: { prefill: SheetPrefill | n
                 />
               </Field>
             </div>
+            {/* v32 COPY (E4): suggestions and notes are short lines with a "?", not banners. */}
             {preview.suggestedHeaderRow !== null && (
-              <Notice
-                tone="info"
-                className="mt-4"
-                action={
-                  <Button variant="outline" size="sm" onClick={() => applyHeaderRow(String(preview.suggestedHeaderRow))}>
-                    Use row {preview.suggestedHeaderRow}
-                  </Button>
-                }
-              >
+              <p className="mt-4 flex flex-wrap items-center gap-2 text-sm leading-5 text-foreground" data-suggested-header-row="">
+                <InfoIcon size={16} weight="fill" className="shrink-0 text-info" aria-hidden="true" />
                 Row {preview.suggestedHeaderRow} looks like the header row.
-              </Notice>
+                <Button variant="outline" size="sm" onClick={() => applyHeaderRow(String(preview.suggestedHeaderRow))}>
+                  Use row {preview.suggestedHeaderRow}
+                </Button>
+              </p>
             )}
             {preview.notes.length > 0 && (
-              <Notice tone="info" className="mt-4" title="About this tab">
-                <ul className="list-disc pl-5">
-                  {preview.notes.map((note) => (
-                    <li key={note}>{note}</li>
-                  ))}
-                </ul>
-              </Notice>
+              <p className="mt-4 flex items-center gap-1.5 text-sm leading-5 font-medium text-foreground" data-sheet-notes="">
+                About this tab
+                <HelpTip label="About this tab">{preview.notes.join(' ')}</HelpTip>
+              </p>
             )}
             {existing &&
               (existing.sameSheet ? (
-                <Notice tone="info" className="mt-4">
-                  You imported this tab before as &quot;{existing.name}&quot;. Importing it again replaces that copy: new and changed rows are
-                  updated, and jobs you removed from the sheet stay open.
-                </Notice>
+                <p className="mt-4 flex items-center gap-1.5 text-sm leading-5 text-muted-foreground" data-sheet-existing="">
+                  {`Imported before as "${existing.name}".`}
+                  <HelpTip label="Imported before">Importing again replaces that copy; jobs you removed from the sheet stay open.</HelpTip>
+                </p>
               ) : (
                 <Notice tone="warning" className="mt-4">
                   A source named &quot;{existing.name}&quot; holds another import. Enter a different source name below.

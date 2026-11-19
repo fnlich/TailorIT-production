@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -116,40 +117,35 @@ export function ExtensionTab({
     <div className="flex flex-col gap-6">
       <Section
         title="Connect the extension"
-        description="TailorIT Autofill fills job applications from your autofill profile. A connected browser can also add jobs to your Jobs and Tracker, attach a cover letter to an application (yours for the job, or one it writes with AI when you have none), edit your autofill profile, mark jobs Applied and run auto-apply on the jobs you queue. Only if you allow it below, it can also sign in to job sites with the password you save in Job-site sign-in. Connect each browser you apply from once."
+        description="Fills applications, adds jobs, attaches letters and auto-applies; connect each browser once."
       >
         <div className="flex flex-col items-start gap-4">
           {pairingState && (
-            <Notice tone="info" className="self-stretch">
-              The TailorIT extension opened this page to connect. Choose Connect the extension to finish.
-            </Notice>
+            <span className="inline-flex items-center gap-1" data-pairing-waiting="">
+              <Badge tone="sky">The extension is waiting to connect</Badge>
+              <HelpTip label="The extension is waiting to connect">Press Connect the extension to finish.</HelpTip>
+            </span>
           )}
-          <div className="flex flex-col gap-1">
+          <span className="flex items-start gap-1.5">
             <Checkbox
               label="Let this browser read and change work authorization and self-identification answers"
               checked={includeSensitive}
               disabled={connect.isPending}
               onCheckedChange={onIncludeSensitiveChange}
             />
-            <p className="pl-7 text-[13px] leading-5 text-muted-foreground">
-              Without it, the extension leaves those questions for you to answer on each form, and cannot change those
-              answers in your profile.
-            </p>
-          </div>
-          <div className="flex flex-col gap-1">
+            <HelpTip label="Work authorization and self-identification">Without it, you answer those on each form.</HelpTip>
+          </span>
+          <span className="flex items-start gap-1.5">
             <Checkbox
               label="Let this browser sign in to job sites with my saved password"
               checked={allowSignIn}
               disabled={connect.isPending}
               onCheckedChange={onAllowSignInChange}
             />
-            <p className="pl-7 text-[13px] leading-5 text-muted-foreground">
-              With it, the extension can read your saved job-site password (Settings › Autofill › Job-site sign-in) and
-              type it into a job site&apos;s sign-in form when its Sign-in mode is Auto; where you have no account yet,
-              it may create one with that email and password. Use a password you use only for job sites. Without it,
-              you sign in yourself. Asked again for each connection.
-            </p>
-          </div>
+            <HelpTip label="Job-site sign-in">
+              Sign-in Auto may type your saved password or create an account with it, asked for each connection.
+            </HelpTip>
+          </span>
           <Button ref={connectButton} loading={connect.isPending} onClick={() => connect.mutate()}>
             Connect the extension
           </Button>
@@ -158,12 +154,12 @@ export function ExtensionTab({
 
       <Section
         title="Connected browsers"
-        description="A connection lasts until the date it shows, and is never extended. Disconnect one to stop it at once; signing out of TailorIT does not."
+        description="Each lasts until the date shown; disconnect one to stop it now."
       >
         {connections.isError ? (
           <Notice
             tone="error"
-            title="Your connections could not be loaded"
+            title="Your connections didn't load."
             action={
               <Button variant="outline" size="sm" onClick={() => void connections.refetch()}>
                 Try again
@@ -182,7 +178,7 @@ export function ExtensionTab({
             <EmptyState
               icon={<PuzzlePieceIcon size={24} />}
               title="No browser is connected"
-              description="Install the TailorIT extension, then connect it here or from its options page."
+              description="Install it, then connect it here or from its options page."
               variant="dashed"
               size="md"
             />
@@ -252,13 +248,13 @@ function ConnectionRow({ item, now, onDisconnect }: { item: AutofillTokenItem; n
         <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
           {item.label}
           {expired && <Badge tone="warning">Expired</Badge>}
-          {older && <Badge tone="warning">Connect again</Badge>}
+          {older && (
+            <span className="inline-flex items-center gap-1">
+              <Badge tone="warning">Connect again</Badge>
+              <HelpTip label="Connect again">Connected before auto-apply and sign-in existed; connect again to use them.</HelpTip>
+            </span>
+          )}
         </p>
-        {older && (
-          <p className="text-[13px] leading-5 text-muted-foreground">
-            Connected before the extension could do everything it does now (auto-apply and job-site sign-in among them). Connect this browser again to use them.
-          </p>
-        )}
         <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
           Connected {formatDate(item.createdAt)} · Last used {item.lastUsedAt ? relativeTime(item.lastUsedAt, now) : 'never'} ·{' '}
           {expired ? 'Expired' : 'Expires'} {formatDate(item.expiresAt)}

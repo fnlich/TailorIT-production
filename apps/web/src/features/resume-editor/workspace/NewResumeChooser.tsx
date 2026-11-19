@@ -5,7 +5,7 @@ import { FilePdfIcon } from '@phosphor-icons/react/FilePdf';
 import { clsx } from 'clsx';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useId, useMemo } from 'react';
 import {
   DEFAULT_TEMPLATE_ID,
   normalizeResumeDocument,
@@ -20,7 +20,6 @@ import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { CaretDownIcon, UploadSimpleIcon } from '@/components/ui/icons';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/Menu';
-import { Notice } from '@/components/ui/Notice';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { RESUMES_TAB_HREF, newResumeHref, resumeEditorHref } from '../api';
@@ -30,6 +29,7 @@ import { ResumeCanvas } from '../pages/ResumeCanvas';
 import { useResumeImport } from '../useResumeImport';
 import { LimitNotice } from '@/components/limits'; // v20 P8
 import { useResumeLimitGate } from '../../documents/resumes/resumeLimit'; // v20 P8
+import { StatusLine } from '../../documents/core/StatusLine';
 
 // The first step of a new resume (Enhancv's template picker): the ten templates, the newest first, each showing the
 // sample person as it would print, its name and what it is for. Picking one opens a blank page on it. "Import existing
@@ -41,9 +41,11 @@ function TemplateCard({ templateId }: { templateId: ResumeTemplateId }) {
   // The sample drawn on this template: its layout re-seeded for the template's columns, its design the template's own.
   const document = useMemo(() => normalizeResumeDocument({ templateId }, SAMPLE_RESUME), [templateId]);
   const page = PAGE_SIZES.letter;
+  const descriptionId = useId();
   return (
     <Link
       href={newResumeHref(templateId)}
+      aria-describedby={descriptionId}
       className="group flex flex-col gap-3 rounded-card outline-none focus-visible:ring-2 focus-visible:ring-primary"
       data-template-card={templateId}
     >
@@ -60,7 +62,10 @@ function TemplateCard({ templateId }: { templateId: ResumeTemplateId }) {
       </div>
       <div>
         <p className="text-[15px] font-semibold text-foreground">{spec.name}</p>
-        <p className="text-[13px] text-muted-foreground">{spec.description}</p>
+        {/* v32 COPY (E5): what the design is for describes the card; the card shows the page and its name. */}
+        <span id={descriptionId} hidden>
+          {spec.description}
+        </span>
       </div>
     </Link>
   );
@@ -106,12 +111,12 @@ function useImportMenu() {
       <MenuContent align="end" width="w-[22rem]">
         <MenuItem
           icon={<FilePdfIcon size={18} />}
-          hint={`An AI reads it into a new resume. ${t('MSG_UPLOAD_SIZE_HINT', { max_mb: get('UPLOAD_MAX_MB') })}`}
+          hint={`AI reads it into a new resume. ${t('MSG_UPLOAD_SIZE_HINT', { max_mb: get('UPLOAD_MAX_MB') })}`}
           onClick={() => void pick('pdf')}
         >
           Resume PDF
         </MenuItem>
-        <MenuItem icon={<BracketsCurlyIcon size={18} />} hint="A resume downloaded from this app, or several." onClick={() => void pick('json')}>
+        <MenuItem icon={<BracketsCurlyIcon size={18} />} hint="One or more resumes downloaded from TailorIT." onClick={() => void pick('json')}>
           Resume JSON file
         </MenuItem>
       </MenuContent>
@@ -121,23 +126,25 @@ function useImportMenu() {
   const notices =
     importer.working || importer.error || importer.notice ? (
       <div className="mt-5 flex flex-col gap-3">
+        {/* v32 COPY (E4): short status lines, never banners. */}
         {importer.phase === 'uploading' || importer.phase === 'reading' ? (
-          <Notice tone="info" title={importer.progress ?? 'Reading your resume...'}>
-            Reading your resume with AI. This can take a minute; its editor opens when it is done.
-          </Notice>
+          <StatusLine
+            tone="busy"
+            title={importer.progress ?? 'Reading your resume...'}
+            details="This can take a minute; its editor opens when it is done."
+          />
         ) : null}
-        {importer.error ? <Notice tone="error">{importer.error}</Notice> : null}
+        {importer.error ? <StatusLine tone="error" title={importer.error} /> : null}
         {importer.notice ? (
-          <Notice
+          <StatusLine
             tone="success"
-            action={
+            title={`Imported ${importer.notice.imported} ${importer.notice.imported === 1 ? 'resume' : 'resumes'} from ${importer.notice.fileName}.`}
+            actions={
               <Link href={RESUMES_TAB_HREF} className={buttonClasses({ variant: 'outline', size: 'sm' })}>
                 See your resumes
               </Link>
             }
-          >
-            Imported {importer.notice.imported} {importer.notice.imported === 1 ? 'resume' : 'resumes'} from {importer.notice.fileName}.
-          </Notice>
+          />
         ) : null}
       </div>
     ) : null;
@@ -154,12 +161,12 @@ export function NewResumeChooser() {
       <main className={clsx('mx-auto w-full max-w-6xl pt-7 pb-10', PAGE_GUTTER)}>
         <PageHeader
           title="Start building a resume"
-          description="Choose a design you like. You can switch it any time."
+          description="Pick a design; you can switch it any time."
           actions={menu}
         />
         {resumeGate.info && ( // v20 P8
           <LimitNotice limit={resumeGate.info} className="mt-6">
-            A new resume can&apos;t be saved until you have fewer resumes. Delete some in Documents first.
+            Delete some in Documents first.
           </LimitNotice>
         )}
         {notices}

@@ -15,8 +15,10 @@ import { Skeleton } from '../../ui/Skeleton';
 import { Tooltip } from '../../ui/Tooltip';
 import { useLatestNotifications, useListsFollowUnread, useMarkAllRead, useMarkRead, useHeaderSummary } from './api';
 import { BELL_COPY } from './copy';
+import { HelpTip } from '../../ui/HelpTip';
 import { NotificationItem } from './NotificationItem';
 import { useHeaderPreview } from './preview';
+import { TRIGGER_TONE, useHeaderTone } from './tone';
 import { badgeText, bellLabel, unreadAnnouncement } from './view';
 
 // v3.1 HEADER (D8; docs/design/v3.1/24-notifications-usage.md §8): the top bar's bell. Its count comes from the
@@ -49,6 +51,7 @@ export function NotificationBell() {
   useListsFollowUnread(preview ? undefined : unread);
   const arrivals = useArrivals(unread);
   const [open, setOpen] = useState(false);
+  const tone = useHeaderTone();
   if (!preview && !account) return null;
   const count = unread ?? 0;
   const badge = badgeText(count);
@@ -59,15 +62,18 @@ export function NotificationBell() {
           aria-label={bellLabel(count)}
           data-header-bell=""
           className={clsx(
-            'relative inline-flex size-9 shrink-0 items-center justify-center rounded-control text-muted-foreground',
-            'transition-colors duration-150 hover:bg-hover hover:text-foreground data-popup-open:bg-hover data-popup-open:text-foreground',
+            'relative inline-flex size-9 shrink-0 items-center justify-center rounded-control transition-colors duration-150',
+            TRIGGER_TONE[tone],
           )}
         >
           <BellIcon size={20} weight={badge ? 'fill' : 'regular'} aria-hidden="true" />
           {badge && (
             <span
               data-unread-badge=""
-              className="num absolute -top-1 -right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] leading-none text-on-primary ring-2 ring-surface"
+              className={clsx(
+                'num absolute -top-1 -right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] leading-none text-on-primary ring-2',
+                tone === 'dark' ? 'ring-sidebar' : 'ring-surface',
+              )}
             >
               {badge}
             </span>
@@ -133,7 +139,10 @@ export function BellPanelView({ count, items, pending, failed, now, marking, onR
   return (
     <div className="flex max-h-[min(36rem,calc(100dvh-5rem))] flex-col" data-bell-panel="">
       <div className="flex items-center justify-between gap-3 border-b border-divider-soft py-2 pr-2 pl-4">
-        <h2 className="text-[15px] leading-5 font-semibold text-foreground">{BELL_COPY.title}</h2>
+        <span className="flex items-center gap-1">
+          <h2 className="text-[15px] leading-5 font-semibold text-foreground">{BELL_COPY.title}</h2>
+          <HelpTip label={BELL_COPY.title}>{BELL_COPY.emptyHint}</HelpTip>
+        </span>
         <Button variant="ghost" size="sm" disabled={!anyUnread} loading={marking} onClick={onMarkAll} className="max-sm:min-h-11">
           {BELL_COPY.markAll}
         </Button>
@@ -162,7 +171,6 @@ export function BellPanelView({ count, items, pending, failed, now, marking, onR
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center gap-1 px-6 py-10 text-center" data-bell-empty="">
             <p className="font-display text-base leading-6 font-semibold text-foreground">{BELL_COPY.empty}</p>
-            <p className="text-[13px] leading-5 text-muted-foreground">{BELL_COPY.emptyHint}</p>
           </div>
         ) : (
           <ul aria-label={BELL_COPY.title} className="divide-y divide-divider-soft">

@@ -272,7 +272,7 @@ export function MatchReviews({ viewSwitch, onOpenCompany }: { viewSwitch: ReactN
   return (
     <AdminResourceTab
       title="Match reviews"
-      description="Matches the matcher would not make alone: two companies that may be one, a name several companies share, a website, Wikidata item or second board joined by name. Accept takes the match; Reject keeps them apart."
+      description="Matches the matcher won't make alone: Accept takes one, Reject keeps them apart."
       actions={viewSwitch}
       lead={
         <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -299,7 +299,7 @@ export function MatchReviews({ viewSwitch, onOpenCompany }: { viewSwitch: ReactN
       }
       items={items}
       error={reviews.error}
-      errorTitle="The match reviews could not be loaded"
+      errorTitle="Match reviews didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void reviews.refetch()}>
           Try again
@@ -308,7 +308,7 @@ export function MatchReviews({ viewSwitch, onOpenCompany }: { viewSwitch: ReactN
       empty={{
         icon: <ShieldCheckIcon size={22} />,
         title: status === 'open' ? 'No match waits for a decision' : 'No match reviews here',
-        description: status === 'open' ? 'When the matcher is not sure two records are one company, it asks here.' : undefined,
+        description: status === 'open' ? "The matcher asks here when it isn't sure." : undefined,
       }}
       tableLabel="Company match reviews"
       columns={columns}

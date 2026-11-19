@@ -49,7 +49,7 @@ import { contentProblem, CONTENT_REFUSALS } from './screen';
 //   generated letter linked to the application, from the resume named (else the application's, else the default).
 // - tailor (v2.0 FIX-C, REQ-6): the web's "Tailor my resume" for one job (jobId, or applicationId), which it does not
 //   queue: the keyword analysis, then the resume, saved as a new tailored resume under the resume limit and
-//   TAILOR_PER_HOUR (own-ai-tailor.ts).
+//   the plan's tailorings an hour (FREE_/PAID_TAILOR_PER_HOUR, own-ai-tailor.ts).
 
 export const OWN_AI_FEATURES = ['resume_copy', 'entry_bullets', 'cover_letter', 'tailor'] as const;
 export type OwnAiFeature = (typeof OWN_AI_FEATURES)[number];

@@ -54,7 +54,7 @@ export { HeartIcon } from '@phosphor-icons/react/Heart';
 export { InfoIcon } from '@phosphor-icons/react/Info';
 export { KanbanIcon } from '@phosphor-icons/react/Kanban';
 export { ListBulletsIcon } from '@phosphor-icons/react/ListBullets';
-// v3.1 DS: the top bar's menu button (opens the sidebar drawer below 1024 px).
+// v3.1 DS: the top bar's menu button (v3.2: opens the menu sheet below 1024 px).
 export { ListIcon } from '@phosphor-icons/react/List';
 export { LockIcon } from '@phosphor-icons/react/Lock';
 export { LockSimpleIcon } from '@phosphor-icons/react/LockSimple';

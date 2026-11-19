@@ -75,12 +75,19 @@ export interface JobsToolbarProps {
 }
 
 /**
- * v31 FIX-JOBS: the search panel, a white card above the feed. Its first line is the search (Classic | AI (v2.0), the
- * box, the saved searches); its second the filters (Location, Job Type, Experience Level, Category, "Jobs I can apply
- * to", All filters), wrapping on a narrow column; while anything filters the list, a third line names each filter as
- * a removable chip ("Filtering by: Full-Time ×  Senior ×") with Clear all. The search words stay in the box, not in
- * a chip. In AI mode (Paid) the box takes a sentence and the AI's filters go into the address; under the card, the
- * limit message, the AI's progress, or the summary of what it set.
+ * v31 FIX-JOBS: the search panel, a white card above the feed: the search (Keywords | Ask AI (v2.0), the box, the
+ * saved searches) and the filters (Location, Job Type, Experience Level, Category, "Jobs I can apply to", All
+ * filters); while anything filters the list, a last line names each filter as a removable chip ("Filtering by:
+ * Full-Time ×  Senior ×") with Clear all. The search words stay in the box, not in a chip. In AI mode (Paid) the box
+ * takes a sentence and the AI's filters go into the address; under the card, the AI's progress, a sentence it could
+ * not use, or the summary of what it set (v32 JOBS2: limits are dialogs, see AiSearch).
+ *
+ * v32 FIX-UX (UXREQ-1: the first jobs in view, as v3.0's one search line had them), by the card's width:
+ *   - from 74 rem (a 1280 px window): the search and the filters on one line (they wrap only when a filter's value
+ *     makes them too long);
+ *   - from 36 rem: the search on the first line, the filters on the second (v3.1's panel);
+ *   - a phone: Keywords | Ask AI with All filters (counting every filter on) and the saved searches, then the box; the
+ *     filters are All filters' (it holds every one), so the first job shows in the first screen.
  */
 export function JobsToolbar({ query, onChange, onReplace, onClearAll, companyNames, className }: JobsToolbarProps) {
   const { t } = usePublicConstants();
@@ -95,10 +102,10 @@ export function JobsToolbar({ query, onChange, onReplace, onClearAll, companyNam
         aria-label="Job search"
         data-jobs-toolbar=""
       >
-        {/* A narrow panel puts the search box on its own line, under Classic | AI and the saved searches. */}
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-3" data-jobs-search-line="">
           <SearchModeControl state={ai} />
-          <div className="order-last w-full min-w-0 @min-[36rem]/jobs-toolbar:order-none @min-[36rem]/jobs-toolbar:w-auto @min-[36rem]/jobs-toolbar:flex-1">
+          {/* A phone puts the box on its own line, under Keywords | Ask AI, All filters and the saved searches. */}
+          <div className="order-last w-full min-w-0 @min-[36rem]/jobs-toolbar:order-none @min-[36rem]/jobs-toolbar:w-auto @min-[36rem]/jobs-toolbar:min-w-56 @min-[36rem]/jobs-toolbar:flex-1">
             {ai.mode === 'ai' ? (
               <AiSearchInput state={ai} className="w-full" />
             ) : (
@@ -108,15 +115,21 @@ export function JobsToolbar({ query, onChange, onReplace, onClearAll, companyNam
           <div className="ml-auto flex @min-[36rem]/jobs-toolbar:ml-0">
             <SavedSearches query={query} onApply={onReplace} />
           </div>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2" data-jobs-filters="">
-          <LocationFilter query={query} onChange={onChange} />
-          <JobTypeFilter query={query} onChange={onChange} />
-          <ExperienceLevelFilter query={query} onChange={onChange} />
-          <CategoryFilter query={query} onChange={onChange} />
-          {/* v30 FIX-WEB (INT-4 #8): "Jobs I can apply to" beside the other filters, pressed while on. */}
-          <CanApplyPill on={Boolean(query.canApply)} onChange={(on) => onChange({ canApply: on || undefined })} />
-          <AllFiltersDialog query={query} onApply={onReplace} requestOpen={editFilters} />
+          {/* The filters' own line on a mid-width panel (a break), the search's line from 74 rem. */}
+          <span aria-hidden="true" className="hidden h-0 basis-full @min-[36rem]/jobs-toolbar:block @min-[74rem]/jobs-toolbar:hidden" />
+          <div className="contents" data-jobs-filters="">
+            <span className="contents @max-[36rem]/jobs-toolbar:hidden">
+              <LocationFilter query={query} onChange={onChange} />
+              <JobTypeFilter query={query} onChange={onChange} />
+              <ExperienceLevelFilter query={query} onChange={onChange} />
+              <CategoryFilter query={query} onChange={onChange} />
+              {/* v30 FIX-WEB (INT-4 #8): "Jobs I can apply to" beside the other filters, pressed while on. */}
+              <CanApplyPill on={Boolean(query.canApply)} onChange={(on) => onChange({ canApply: on || undefined })} />
+            </span>
+            <span className="flex @max-[36rem]/jobs-toolbar:order-2">
+              <AllFiltersDialog query={query} onApply={onReplace} requestOpen={editFilters} />
+            </span>
+          </div>
         </div>
         {chips.length > 0 && (
           <div

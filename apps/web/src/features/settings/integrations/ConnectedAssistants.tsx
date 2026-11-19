@@ -6,6 +6,7 @@ import { useRef, type RefObject } from 'react';
 import { CountBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -146,9 +147,9 @@ export function GrantList({
 }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-control bg-surface-low px-4 py-3.5 text-sm leading-5" data-connected-empty="">
+      <div className="flex items-center gap-1.5 rounded-control bg-surface-low px-4 py-3.5 text-sm leading-5" data-connected-empty="">
         <p className="font-semibold text-foreground">{AI_COPY.connectedEmpty}</p>
-        <p className="mt-0.5 text-muted-foreground">{AI_COPY.connectedEmptyHint}</p>
+        <HelpTip label={AI_COPY.connectedEmpty}>{AI_COPY.connectedEmptyHint}</HelpTip>
       </div>
     );
   }

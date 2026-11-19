@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AiUsePercentSchema } from '../accounts/index'; // v32 ADMINAPP (E7)
 import {
   AUTOFILL_AGENT_REASONS,
   AUTOFILL_AGENT_RUN_KINDS,
@@ -24,8 +25,8 @@ import { JobCreditSchema } from '../jobs/dto'; // v30 FIX-B
 // filters, then the tailored resume, the cover letter (by the person's letter mode) and answers to the job's known
 // questions, then the queue row, inserted when the required parts are ready. One `prepare_jobs` row per Prepare of one
 // saved job (0822); its parts are kept in the application's draft (application_drafts), the "kit". Two modes: `server`
-// (TailorIT's AI, a background runner paced by PREPARE_PER_HOUR) and `mcp` (the person's own AI through TailorIT's MCP
-// server, never charged). Routes (session):
+// (TailorIT's AI, a background runner paced by FREE_/PAID_PREPARE_PER_HOUR) and `mcp` (the person's own AI through
+// TailorIT's MCP server, never charged). Routes (session):
 //   POST /api/prepare                    PrepareStartRequest → 202 PrepareStartResponse (or one error for all)
 //   GET  /api/prepare/settings           → PrepareSettings
 //   PUT  /api/prepare/settings           PrepareSettingsBody → PrepareSettings, as saved
@@ -234,8 +235,17 @@ export const PrepareAllPlanSchema = z.object({
   /** v31 FIX-AUTH (BEH-8): the saved jobs (Tracker entries) it takes, `taking` of them, in the pane's order: the confirm
    *  sends them back, and Prepare All starts no other. */
   applicationIds: z.array(z.string().min(1).max(64)),
-  /** The person's AI use today: `budgetMicros` null is no daily limit; `creditMicros` is the extra credit left. */
-  ai: z.object({ usedMicros: Count, budgetMicros: Count.nullable(), creditMicros: Count }),
+  /**
+   * The person's AI use today: `percent` its share of the daily budget (aiUsePercent; null: no daily limit);
+   * `creditMicros` the extra credit left. v32 ADMINAPP (E7): the amounts (`usedMicros`, `budgetMicros`, null: no daily
+   * limit) are sent to admins only.
+   */
+  ai: z.object({
+    usedMicros: Count.optional(),
+    budgetMicros: Count.nullable().optional(),
+    percent: AiUsePercentSchema.optional(), // v32 ADMINAPP (E7)
+    creditMicros: Count,
+  }),
 });
 export type PrepareAllPlan = z.infer<typeof PrepareAllPlanSchema>;
 

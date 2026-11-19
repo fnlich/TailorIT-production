@@ -2,13 +2,14 @@
 
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { clsx } from 'clsx';
-import type { ComponentProps, ReactNode } from 'react';
+import { useRef, type ComponentProps, type ReactNode } from 'react';
+import { firstFocusSkippingTips, HelpTip } from './HelpTip';
 import { IconButton } from './IconButton';
 import { XIcon } from './icons';
 
 /*
  *   <Dialog open={open} onOpenChange={setOpen}>
- *     <DialogContent title="Rename resume" description="…">
+ *     <DialogContent title="Rename resume" help="…">
  *       …
  *       <DialogFooter><Button variant="outline" onClick={…}>Cancel</Button><Button>Rename</Button></DialogFooter>
  *     </DialogContent>
@@ -44,7 +45,13 @@ export const BACKDROP =
 export interface DialogContentProps {
   children: ReactNode;
   title?: ReactNode;
+  /**
+   * A visible line under the title for what the dialog is about when it is a value or a question ("Senior Designer at
+   * Acme", "What is wrong with this job?"). Helper text goes in `help`.
+   */
   description?: ReactNode;
+  /** v32 COPY (E5): one short sentence of help in a "?" beside the title (never a visible line). */
+  help?: ReactNode;
   size?: DialogSize;
   /** The ✕ in the corner (default on). */
   showClose?: boolean;
@@ -61,12 +68,15 @@ export function DialogContent({
   children,
   title,
   description,
+  help,
   size = 'md',
   showClose = true,
   className,
   initialFocus,
   finalFocus,
 }: DialogContentProps) {
+  // v32 COPY: by default the dialog opens on its first control that is not a "?" (its title's or a field's tip).
+  const popup = useRef<HTMLDivElement>(null);
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className={BACKDROP} />
@@ -77,7 +87,8 @@ export function DialogContent({
         )}
       >
         <BaseDialog.Popup
-          initialFocus={initialFocus}
+          ref={popup}
+          initialFocus={initialFocus ?? (() => firstFocusSkippingTips(popup.current))}
           finalFocus={finalFocus}
           className={clsx(
             'relative flex max-h-full w-full flex-col bg-surface text-foreground shadow-dialog outline-none',
@@ -90,7 +101,17 @@ export function DialogContent({
         >
           {(title || description) && (
             <div className={clsx('flex flex-col gap-1.5', showClose && 'pr-8')}>
-              {title && <DialogTitle>{title}</DialogTitle>}
+              {title &&
+                (help ? (
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <DialogTitle>{title}</DialogTitle>
+                    <HelpTip label={title} side="bottom">
+                      {help}
+                    </HelpTip>
+                  </span>
+                ) : (
+                  <DialogTitle>{title}</DialogTitle>
+                ))}
               {description && <DialogDescription>{description}</DialogDescription>}
             </div>
           )}

@@ -21,12 +21,12 @@ import { fetchMcpSettings, MCP_SETTINGS_KEY, saveMcpSettings } from './api';
 
 export const CUSTOM_INSTRUCTIONS_COPY = {
   label: 'Custom instructions',
-  hint: "Your own AI gets these with TailorIT's default instructions. Use them to change how your resume is prepared, for example 'keep it to one page'. They can't change the platform's rules: your filters and your account's limits always apply.",
+  hint: "Added to TailorIT's instructions for your AI; your filters and limits always apply.",
   placeholder: 'For example: keep my resume to one page, and write cover letters in a warm, plain tone.',
   save: 'Save',
   saving: 'Saving...',
   saved: 'Custom instructions saved',
-  saveFailed: 'The custom instructions could not be saved',
+  saveFailed: "The custom instructions weren't saved",
 } as const;
 
 /** The text as it is saved (the server cleans it the same way): plain text, line ends as "\n", no trailing space. */
@@ -69,12 +69,7 @@ function CustomInstructionsForm({ saved, disabled }: { saved: string; disabled: 
     <div className="flex flex-col gap-3" data-custom-instructions="">
       <Field
         label={CUSTOM_INSTRUCTIONS_COPY.label}
-        hint={
-          <span className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-            <span className="min-w-0 flex-1 basis-80">{CUSTOM_INSTRUCTIONS_COPY.hint}</span>
-            <CharacterCount length={value.length} max={max} />
-          </span>
-        }
+        hint={CUSTOM_INSTRUCTIONS_COPY.hint}
         // v2.0 fix (REQ-3): the constant's words (MSG_TEXT_TOO_LONG).
         error={error ?? (tooLong ? t('MSG_TEXT_TOO_LONG', { max }) : undefined)}
       >
@@ -89,7 +84,11 @@ function CustomInstructionsForm({ saved, disabled }: { saved: string; disabled: 
           }}
         />
       </Field>
-      <div className="flex justify-end">
+      {/* A count is a value: it stays visible beside Save. */}
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[13px] leading-5 text-muted-foreground">
+          <CharacterCount length={value.length} max={max} />
+        </span>
         <Button
           size="sm"
           loading={save.isPending}

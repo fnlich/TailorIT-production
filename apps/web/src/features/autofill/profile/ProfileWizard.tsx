@@ -2,16 +2,20 @@
 
 import type { AutofillResumeList } from '@tailorit/shared/autofill';
 import { clsx } from 'clsx';
-import type { ReactNode, Ref } from 'react';
+import Link from 'next/link';
+import { useId, type ReactNode, type Ref } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
-import { CaretLeftIcon, CaretRightIcon, CheckCircleIcon, PencilSimpleIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { CaretLeftIcon, CaretRightIcon, CheckCircleIcon, PencilSimpleIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
+import { usePublicConstants } from '@/lib/constants';
 import { WizardStepper, type WizardStepperStep } from '@/components/ui/Stepper';
 import type { AutofillDraft } from '../draft';
 import { Section } from '../Section';
+import { KeptAnswers } from './KeptAnswers';
 import { OnceChecklistSection } from './QuestionSections';
 import {
   WIZARD_STEPS,
@@ -54,7 +58,7 @@ export function ProfileStepper({
   );
 }
 
-/** "Step 3 of 9", the step's title (focused when the step changes) and what it is for. */
+/** "Step 3 of 9", the step's title (focused when the step changes) and what it is for, in a "?" (v32 COPY). */
 export function StepHeader({ step, headingRef }: { step: WizardStepId; headingRef: Ref<HTMLHeadingElement> }) {
   const info = wizardStep(step);
   return (
@@ -62,74 +66,113 @@ export function StepHeader({ step, headingRef }: { step: WizardStepId; headingRe
       <p className="text-xs leading-4 font-semibold tracking-[0.06em] text-primary-ink uppercase">
         Step {stepIndex(step) + 1} of {WIZARD_STEPS.length}
       </p>
-      <h2
-        ref={headingRef}
-        tabIndex={-1}
-        className="scroll-mt-24 font-display text-xl leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none"
-        data-step-heading=""
-      >
-        {info.title}
-      </h2>
-      <p className="text-sm leading-5 text-muted-foreground">{info.description}</p>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          className="scroll-mt-24 font-display text-xl leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none"
+          data-step-heading=""
+        >
+          {info.title}
+        </h2>
+        <HelpTip label={info.title}>{info.description}</HelpTip>
+      </div>
     </div>
   );
 }
 
-/** Step 1: "Fill from my resume", and what to check once it has filled the form. */
+/**
+ * Step 1: "Fill from my resume", and what to check once it has filled the form. v32 FIX-API (REV-UXREQ UXREQ-4,
+ * UXREQ-10): the button keeps keyboard focus while the AI reads an upload (focusable while busy, presses ignored; the
+ * status line says so politely); with no resume it is off, its reason in sight with a link to add one; it is the step's
+ * primary action; what to check is a compact line with a "?" (no banner), like the fields' "AI read" marks.
+ */
 export function ImportStep({
   resumes,
   seedResumeId,
   onPickResume,
   filling,
+  reading = false,
   busy,
   onFill,
   notes,
+  kept = [],
+  onUseResume,
 }: {
   resumes: AutofillResumeList | null;
   seedResumeId: string | null;
   onPickResume: (id: string | null) => void;
   filling: boolean;
+  /** v32 FILL: the AI is reading an uploaded file. */
+  reading?: boolean;
   busy: boolean;
   onFill: () => void;
   notes: readonly string[];
+  /** v32 FILL: the fields that kept the person's answer though the resume's differs. */
+  kept?: readonly string[];
+  onUseResume?: () => void;
 }) {
+  const { t } = usePublicConstants();
+  const reasonId = useId();
   const options = (resumes?.items ?? []).map((resume) => ({ value: resume.id, label: resume.label }));
+  // v32 FIX-API (UXREQ-10): nothing to fill from: the button is off, and says why.
+  const none = resumes !== null && resumes.items.length === 0;
+  const checkLabel = t('LABEL_AUTOFILL_CHECK_THESE');
   return (
     <>
-      <Notice tone="info">
-        Your autofill profile fills job applications through the TailorIT extension. It is separate from your resume.
-      </Notice>
-      <Section
-        title="Fill from my resume"
-        description="Fills only the fields that are still empty. Nothing is saved until you go on with Next or save."
-      >
+      <Section title="Fill from my resume" description="Fills empty fields only; with no resume, press Next and type them in.">
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-end gap-3">
             <Field label="Resume to fill from" className="min-w-0 flex-1 sm:max-w-sm">
               <Select
                 options={options}
                 value={seedResumeId}
-                placeholder={resumes && resumes.items.length === 0 ? 'No resumes yet' : 'Choose a resume'}
+                placeholder={none ? 'No resumes yet' : 'Choose a resume'}
                 disabled={options.length === 0}
                 onValueChange={onPickResume}
               />
             </Field>
-            <Button variant="secondary" loading={filling} disabled={busy} onClick={onFill}>
+            {/* v32 FIX-API (UXREQ-4): focusable while busy (aria-disabled, presses ignored), so a keyboard user keeps
+                their place while the AI reads, and after. */}
+            <Button
+              variant="primary"
+              loading={filling}
+              disabled={busy || none}
+              focusableWhenDisabled
+              aria-describedby={none ? reasonId : undefined}
+              onClick={onFill}
+              data-fill-button=""
+            >
               Fill from my resume
             </Button>
+            {/* v32 FILL: an uploaded file is read by the AI first (once). */}
+            <span role="status" className="self-center text-[13px] leading-5 text-muted-foreground">
+              {reading ? 'Reading your resume...' : ''}
+            </span>
           </div>
+          {none && (
+            <p id={reasonId} className="text-[13px] leading-5 text-muted-foreground" data-fill-no-resume="">
+              {t('MSG_AUTOFILL_FILL_NO_RESUME')}{' '}
+              <Link href="/documents" className="font-medium text-primary-ink underline underline-offset-2">
+                {t('LABEL_AUTOFILL_ADD_RESUME')}
+              </Link>
+            </p>
+          )}
+          {kept.length > 0 && onUseResume && <KeptAnswers kept={kept} onUse={onUseResume} />}
           {notes.length > 0 && (
-            <Notice tone="info" title="Check these">
-              <ul className="list-disc pl-5">
+            <div className="flex flex-col gap-1" data-fill-notes="">
+              <p className="flex items-center gap-1 text-[13px] leading-5 font-medium text-warning-ink">
+                <WarningCircleIcon size={14} aria-hidden="true" />
+                {checkLabel}
+                <HelpTip label={checkLabel}>{t('MSG_AUTOFILL_CHECK_THESE_TIP')}</HelpTip>
+              </p>
+              <ul className="list-disc pl-5 text-[13px] leading-5 text-foreground" aria-label={checkLabel}>
                 {notes.map((note) => (
                   <li key={note}>{note}</li>
                 ))}
               </ul>
-            </Notice>
+            </div>
           )}
-          <p className="text-[13px] leading-5 text-muted-foreground">
-            No resume to fill from? Go on with Next and type your answers in.
-          </p>
         </div>
       </Section>
     </>

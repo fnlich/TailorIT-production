@@ -14,6 +14,7 @@ export interface RenameDialogProps {
   onOpenChange: (open: boolean) => void;
   /** "Rename this resume" (LABEL_DOCS_RENAME_TITLE) */
   title: string;
+  /** v32 COPY (E5): one short sentence in the "?" beside the title. */
   description?: string;
   /** The field's label (default "Name"). */
   label?: string;
@@ -82,7 +83,7 @@ function RenameForm({
   };
 
   return (
-    <DialogContent title={title} description={description} size="md">
+    <DialogContent title={title} help={description} size="md">
       <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-4">
         <Field label={label} error={fieldError}>
           <Input

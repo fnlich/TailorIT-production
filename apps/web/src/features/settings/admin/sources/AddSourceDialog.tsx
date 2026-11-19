@@ -177,7 +177,15 @@ export function AddSourceDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent title="Add source" description="Where TailorIT should read jobs from." size="lg">
+      {/* v32 COPY (E5): what the chosen kind needs or does is the title's "?" (the kind's note, the demo jobs' words). */}
+      <DialogContent
+        title="Add source"
+        help={
+          note ??
+          (kind === 'seed' ? 'About 120 fictional postings from 15 made-up companies, dated from today.' : 'Where TailorIT should read jobs from.')
+        }
+        size="lg"
+      >
         <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
           <SegmentedControl
             aria-label="Source kind"
@@ -227,19 +235,19 @@ export function AddSourceDialog({
             <Field
               label="Database path"
               optional
-              hint="free_tailor.db, opened read-only. Leave it empty to use FT_LAKE_DB_PATH (by default the free_tailor folder in your local app data)."
+              hint="The free_tailor.db file, read-only (empty: FT_LAKE_DB_PATH)."
             >
               <Input value={draft.path} onChange={set('path')} placeholder="C:\Users\you\AppData\Local\free_tailor\db\free_tailor.db" autoComplete="off" />
             </Field>
           )}
           {/* v30 S4: a feed's own setting, and what keeps it off. */}
           {kind === 'himalayas' && (
-            <Field label="Country" optional hint='Keeps the jobs open to this country. Defaults to US; "any" keeps every job.'>
+            <Field label="Country" optional hint='Jobs open to this country (default US; "any" keeps all).'>
               <Input value={draft.country} onChange={set('country')} placeholder="US" autoComplete="off" />
             </Field>
           )}
           {kind === 'jobicy' && (
-            <Field label="Region" optional hint='As Jobicy writes it (usa, canada, emea...). Defaults to usa; "any" reads every region.'>
+            <Field label="Region" optional hint='As Jobicy writes it, such as usa or emea (default usa; "any" reads all).'>
               <Input value={draft.geo} onChange={set('geo')} placeholder="usa" autoComplete="off" />
             </Field>
           )}
@@ -247,22 +255,18 @@ export function AddSourceDialog({
           {kind === 'career_site' && (
             <Field
               label="Career site address"
-              hint="The site's address or host (careers.acme.com). Its sitemaps and posting pages are found from it."
+              hint="The site's address or host, such as careers.acme.com."
               error={siteUrlError ? 'Enter a public address such as careers.acme.com.' : undefined}
             >
               <Input value={draft.siteUrl} onChange={set('siteUrl')} placeholder="careers.acme.com" autoComplete="off" spellCheck={false} />
             </Field>
           )}
-          {note && <Notice tone="info">{note}</Notice>}
-          {kind === 'seed' && (
-            <Notice tone="info">About 120 fictional postings from 15 made-up companies, for trying TailorIT out. They are dated from today.</Notice>
-          )}
           {(kind === 'greenhouse' || kind === 'lever' || kind === 'ashby' || kind === 'workable' || kind === 'career_site') && (
-            <Field label="Company name" optional hint="Shown on the jobs when the board does not name the company.">
+            <Field label="Company name" optional hint="Shown when the board doesn't name the company.">
               <Input value={draft.companyName} onChange={set('companyName')} autoComplete="off" />
             </Field>
           )}
-          <Field label="Display name" optional hint="How this source is listed here. Defaults to the board name.">
+          <Field label="Display name" optional hint="How it's listed here (the board's name by default).">
             <Input value={draft.name} onChange={set('name')} autoComplete="off" />
           </Field>
 

@@ -1,19 +1,7 @@
+import type { Role } from '@tailorit/shared/auth';
+
 /** Horizontal page gutter shared by the top bar and page bodies: 16 px on a phone, 24 px from 640 px, 28 px from 1024 px. */
 export const PAGE_GUTTER = 'px-4 sm:px-6 lg:px-7';
-
-/** The cookie that remembers the person's sidebar choice (read by app/(app)/layout.tsx, so the first paint is right). */
-export const SIDEBAR_COOKIE = 'tailorit_sidebar';
-
-/**
- * The sidebar from 1024 px: `auto` until the person chooses (the icon rail below 1280 px, the full sidebar from
- * 1280 px), then their choice at every width.
- */
-export type SidebarMode = 'auto' | 'collapsed' | 'expanded';
-
-/** The mode a cookie value says; anything else is `auto`. */
-export function sidebarModeOf(value: string | undefined): SidebarMode {
-  return value === 'collapsed' || value === 'expanded' ? value : 'auto';
-}
 
 export interface NavItem {
   href: string;
@@ -24,7 +12,10 @@ export interface NavItem {
   adminOnly?: boolean;
 }
 
-/** The sidebar's main destinations, in the order of the work: find, track, apply, write. */
+/**
+ * v3.2 SHELL (E2): the header bar's links, in the order of the work: find, track, apply, write. From 1024 px they sit in
+ * the bar; below it the menu button opens them in a sheet.
+ */
 export const APP_NAV = [
   { href: '/jobs', label: 'Jobs', also: ['/companies'] },
   { href: '/tracker', label: 'Job Tracker' },
@@ -32,12 +23,21 @@ export const APP_NAV = [
   { href: '/documents', label: 'Documents' },
 ] as const satisfies readonly NavItem[];
 
-/** The sidebar's bottom group: setting things up. Admin is for administrators only. */
-export const APP_NAV_SECONDARY = [
+/**
+ * v3.2 SHELL (E2): setting things up, in the account menu (and the phone's sheet, after the work). Admin is for
+ * administrators only.
+ */
+export const ACCOUNT_NAV = [
   { href: '/settings/integrations', label: 'Integrations' },
   { href: '/settings', label: 'Settings' },
+  { href: '/settings/autofill', label: 'Autofill' },
   { href: '/settings/admin', label: 'Admin', adminOnly: true },
 ] as const satisfies readonly NavItem[];
+
+/** The account links `role` may follow: Admin for administrators only. */
+export function accountNavFor(role: Role | null | undefined): NavItem[] {
+  return ACCOUNT_NAV.filter((item: NavItem) => !item.adminOnly || role === 'admin');
+}
 
 /** Whether `pathname` is inside the section that starts at `href`. */
 export function isSectionActive(pathname: string | null, href: string): boolean {
@@ -49,7 +49,7 @@ export function isSectionActive(pathname: string | null, href: string): boolean 
  * The nav item `pathname` belongs to: the one whose href (or `also` path) is the longest prefix of it, so
  * /settings/integrations is Integrations, not Settings; null when no item holds it.
  */
-export function activeNavHref(pathname: string | null, items: readonly NavItem[] = [...APP_NAV, ...APP_NAV_SECONDARY]): string | null {
+export function activeNavHref(pathname: string | null, items: readonly NavItem[] = [...APP_NAV, ...ACCOUNT_NAV]): string | null {
   let best: { href: string; length: number } | null = null;
   for (const item of items) {
     for (const prefix of [item.href, ...(item.also ?? [])]) {
@@ -59,7 +59,13 @@ export function activeNavHref(pathname: string | null, items: readonly NavItem[]
   return best?.href ?? null;
 }
 
-/** The top bar's words for each part of the app; the longest matching path wins. */
+/** Whether `pathname` is one of the account menu's pages (its trigger then carries the tape bar). */
+export function isAccountPath(pathname: string | null): boolean {
+  const active = activeNavHref(pathname);
+  return active !== null && ACCOUNT_NAV.some((item) => item.href === active);
+}
+
+/** The top bar's words for each part of the app below 1024 px (where the links wait in the sheet); the longest matching path wins. */
 const SECTION_TITLES: readonly (readonly [string, string])[] = [
   ['/jobs', 'Jobs'],
   ['/companies', 'Companies'],
@@ -74,7 +80,7 @@ const SECTION_TITLES: readonly (readonly [string, string])[] = [
   // v31 FIX-WEB (REV-UX UX-16): /oauth/consent has no top bar (app/(focus)), so no name here.
 ];
 
-/** The section name the top bar shows for `pathname` ("Autofill" for /settings/autofill), else "TailorIT". */
+/** The section name the narrow top bar shows for `pathname` ("Autofill" for /settings/autofill), else "TailorIT". */
 export function sectionTitle(pathname: string | null): string {
   let best: readonly [string, string] | null = null;
   for (const entry of SECTION_TITLES) {

@@ -114,7 +114,7 @@ export function SavedSearches({ query, onApply }: { query: JobsQuery; onApply: (
             <p className="px-2.5 py-3 text-sm text-muted-foreground">{userMessage(saved.error)}</p>
           ) : saved.data.items.length === 0 ? (
             <p className="px-2.5 py-3 text-sm leading-5 text-muted-foreground">
-              No saved searches yet. Set a search or filters, then save it to come back to it in one click.
+              No saved searches yet.
             </p>
           ) : (
             <ul aria-label="Saved searches">

@@ -5,27 +5,27 @@ import type { CoverLetterMode, PrepareResumeMode } from '@tailorit/shared/prepar
 
 export const PREPARE_COPY = {
   title: 'Prepare & Queue',
-  description: 'How TailorIT prepares a saved job before it joins your auto-apply queue.',
-  loadFailed: 'These settings could not be loaded',
+  description: 'How a saved job is prepared before it joins your queue.',
+  loadFailed: "These settings didn't load",
   tryAgain: 'Try again',
 
   resume: 'Resume',
-  resumeHint: 'Your cover letter and answers are written from the resume each application uses.',
+  resumeHint: 'Letters and answers are written from this resume.',
   letters: 'Cover letters',
   saved: 'Saved',
-  saveFailed: 'The setting could not be saved',
+  saveFailed: "The setting wasn't saved",
 
   askTitle: 'Ask before using AI',
-  askHint: "Show a confirmation before Prepare & Queue uses TailorIT's AI.",
+  askHint: 'Confirm before Prepare & Queue uses AI.',
   askOn: 'TailorIT asks before Prepare & Queue uses its AI',
   askOff: 'Prepare & Queue starts without asking',
 } as const;
 
-/** What each resume mode does, under its label. */
+/** What each resume mode does, under its label (v32 COPY: a few words). */
 export const RESUME_MODE_HINT: Record<PrepareResumeMode, string> = {
-  default: 'Every application uses your default resume as it is. No AI is used for the resume.',
-  similar: 'TailorIT picks your resume that best matches each job, without AI, or your default resume when none fits.',
-  tailor: "TailorIT's AI tailors a new resume for each job. Each one counts toward your resumes.",
+  default: 'Your default resume as it is. No AI.',
+  similar: 'Your best match for each job. No AI.',
+  tailor: 'AI tailors one per job; each counts as a resume.',
 };
 
 export const LETTER_MODE_LABEL: Record<CoverLetterMode, string> = {
@@ -34,15 +34,15 @@ export const LETTER_MODE_LABEL: Record<CoverLetterMode, string> = {
 };
 
 export const LETTER_MODE_HINT: Record<CoverLetterMode, string | undefined> = {
-  required: "When the job's form asks for one, or the posting says it's required",
+  required: 'When the form or the posting asks for one',
   always: undefined,
 };
 
 export const FILTERS_COPY = {
   title: 'Prepare filters',
-  note: 'Unknown details never filter a job out.',
-  // v2.0 fix (UX-7): what the filters do, first (Job preferences only rank Jobs).
-  description: 'Prepare & Queue skips the saved jobs that fail a filter: they are labelled and stay in your Saved jobs.',
+  note: 'unknown details never filter a job out.',
+  // v2.0 fix (UX-7): what the filters do, first (Job preferences only rank Jobs). v32 COPY: the heading's "?".
+  description: 'Prepare & Queue skips saved jobs that fail a filter;',
   locationType: 'Location type',
   anyHint: 'None picked: any.',
   jobType: 'Job type',
@@ -51,21 +51,21 @@ export const FILTERS_COPY = {
   industrySkip: 'Skip',
   industryModeLabel: 'Industry filter mode',
   locationMismatch: 'Location mismatch',
-  locationMismatchHint:
-    "Skip jobs whose candidate rules exclude where you live or your time zone (for example 'TX or CA only', 'PST only'). An office address doesn't count.",
+  locationMismatchHint: "Skip jobs that exclude where you live or your time zone (an office address doesn't count).",
   locationMissing: 'Add your location and time zone in Job preferences so this filter can work.',
+  /** v32 COPY (E4): the passive state is a chip with a "?" (locationMissing), not a banner. */
+  locationMissingChip: 'Location not set',
   locationMissingLink: 'Add them now',
   qualifications: 'Qualifications',
-  qualificationsHint:
-    'Skip jobs that require a higher degree, more years of experience, or a citizenship than your autofill profile shows.',
+  qualificationsHint: 'Skip jobs needing a degree, years or citizenship your profile lacks.',
   certifications: 'Certifications',
-  certificationsHint: "Skip jobs that require a certification your autofill profile doesn't list.",
+  certificationsHint: 'Skip jobs needing a certification your profile lacks.',
   certificationsLink: 'Edit certifications',
   autoApply: 'Auto-apply support',
   autoApplyAll: 'All jobs',
   autoApplySupported: 'Only auto-apply supported',
   minPay: 'Minimum pay',
-  minPayHint: 'Jobs that state lower pay are skipped. Dollars a year.',
+  minPayHint: 'Skips jobs that state lower pay, in dollars a year.',
   experience: 'Experience level',
   sponsorship: 'Visa sponsorship',
   sponsorshipSwitch: 'I need visa sponsorship',
@@ -76,15 +76,15 @@ export const FILTERS_COPY = {
   customSwitch: 'Use a custom filter',
   customPrompt: 'Describe the jobs to skip or keep',
   customPlaceholder: 'For example: skip jobs at staffing agencies, and keep only roles that work with healthcare data.',
-  customHint: "TailorIT's AI judges each job against this, using your AI usage. Through MCP, your own AI judges it.",
+  customHint: 'AI judges each job against this, using your AI use.',
   previewChecking: 'Checking your saved jobs...',
-  previewFailed: 'The preview could not be read.',
+  previewFailed: "The preview didn't load.",
   previewFix: 'Fix the highlighted fields to see the preview.',
   unsaved: 'You have unsaved filter changes',
   discard: 'Discard',
   save: 'Save filters',
   saving: 'Saving...',
   savedToast: 'Filters saved',
-  saveFailed: 'The filters could not be saved',
+  saveFailed: "The filters weren't saved",
   onCount: (count: number) => (count === 0 ? 'No filters on' : count === 1 ? '1 filter on' : `${count} filters on`),
 } as const;

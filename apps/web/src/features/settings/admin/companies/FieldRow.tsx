@@ -187,7 +187,7 @@ export function FieldRow({
 
       {editing && (
         <form onSubmit={submit} className="flex flex-col gap-3 rounded-card border border-border bg-surface-low p-3" aria-label={`Edit ${spec.label}`}>
-          <Field label={spec.label} hint={spec.hint ?? 'Saving locks the field: no source changes it until it is unlocked.'} error={error ?? undefined} id={inputId}>
+          <Field label={spec.label} hint={spec.hint ?? 'Saving locks it: no source changes it until unlocked.'} error={error ?? undefined} id={inputId}>
             <DraftInput spec={spec} draft={draft} onChange={setDraft} id={inputId} />
           </Field>
           <div className="flex flex-wrap gap-2">

@@ -5,6 +5,7 @@ import { clsx } from 'clsx';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Chip, type ChipTone } from '@/components/ui/Chip';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { ClockIcon, InfoIcon, SparkleIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -81,10 +82,13 @@ export function ResumeAnalysisPanel({ resumeId }: { resumeId: string }) {
         'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
       )}
     >
-      <h2 id={headingId} className="text-heading font-semibold text-foreground">
-        What TailorIT read from this resume
-      </h2>
-      <p className="mt-1 text-sm leading-5 text-muted-foreground">Used to pick your best resume for each job you save.</p>
+      <div className="flex items-center gap-1.5">
+        <h2 id={headingId} className="text-heading font-semibold text-foreground">
+          What TailorIT read from this resume
+        </h2>
+        {/* v32 COPY (E5): what it is for, in the "?". */}
+        <HelpTip label="What TailorIT read from this resume">Used to pick your best resume for each job you save.</HelpTip>
+      </div>
       {body}
     </section>
   );
@@ -118,8 +122,10 @@ function Reading({ view }: { view: ResumeAnalysisView }) {
       </p>
       <div className="mt-5 flex flex-col">
         <Group label="Experience">
-          <p className="text-sm leading-6 font-semibold text-foreground">{experienceText(view.yearsExperience)}</p>
-          {basis && <p className="text-[13px] leading-5 text-muted-foreground">{basis}</p>}
+          <p className="flex items-center gap-1.5 text-sm leading-6 font-semibold text-foreground">
+            {experienceText(view.yearsExperience)}
+            {basis ? <HelpTip label="Experience">{basis}</HelpTip> : null}
+          </p>
         </Group>
         <Group label="Main skills">
           <ChipList items={view.hardSkills} label="Main skills" tone="tint" />

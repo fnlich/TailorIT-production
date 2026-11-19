@@ -227,7 +227,16 @@ export type AdminReviewReporters = z.infer<typeof AdminReviewReportersSchema>;
  */
 export const REVIEW_DECISIONS = ['approve', 'reject', 'reopen'] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
-export const AdminReviewDecisionBodySchema = z.object({ decision: z.enum(REVIEW_DECISIONS), note: NoteSchema.optional() });
+export const AdminReviewDecisionBodySchema = z.object({
+  decision: z.enum(REVIEW_DECISIONS),
+  note: NoteSchema.optional(),
+  /**
+   * v32 ADMINAPP (E6): approving a page review of v3.0 whose page TailorIT cannot read publishes the posting as the
+   * reporters' browsers captured it (the text most of them share), marked approved by the admin. Without it, such an
+   * approval is refused (409), as in v3.1.
+   */
+  captured: z.boolean().optional(),
+});
 export type AdminReviewDecisionBody = z.infer<typeof AdminReviewDecisionBodySchema>;
 
 /** Approve or reject chosen reviews, one request per ADMIN_BULK_MAX; each row says what happened. */

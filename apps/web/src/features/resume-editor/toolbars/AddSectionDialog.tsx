@@ -116,7 +116,7 @@ export function AddSectionDialog({ open, onOpenChange, document, onAdd, onAddCus
       <DialogContent
         size="xl"
         title="Add a section"
-        description="Pick a section to add to your resume. A section you removed comes back with what it held."
+        help="A section you removed comes back with what it held."
         finalFocus={() => !added.current}
       >
         <div className="mt-4 flex items-center justify-end">
@@ -131,6 +131,7 @@ export function AddSectionDialog({ open, onOpenChange, document, onAdd, onAddCus
                     type="button"
                     disabled={tile.used}
                     aria-label={tile.used ? `${tile.label}, on the page already` : `Add ${tile.label}`}
+                    aria-describedby={`add-section-${tile.ref}`}
                     onClick={() => {
                       onAdd(tile.ref);
                       finish();
@@ -147,14 +148,17 @@ export function AddSectionDialog({ open, onOpenChange, document, onAdd, onAddCus
                         {tile.label}
                         {tile.used ? <Badge tone="neutral">On the page</Badge> : null}
                       </span>
-                      <span className="text-[13px] leading-[18px] text-muted-foreground">{tile.blurb}</span>
+                      {/* v32 COPY (E5): what the section holds describes the tile (never a visible line). */}
+                      <span id={`add-section-${tile.ref}`} hidden>
+                        {tile.blurb}
+                      </span>
                     </span>
                   </button>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">Every section is on the page already. A custom section can still be added.</p>
+            <p className="text-sm text-muted-foreground">Every section is on the page already.</p>
           )}
           <div className="stitch rounded-card bg-surface-low p-3.5">
             {custom ? (

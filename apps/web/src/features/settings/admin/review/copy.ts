@@ -20,7 +20,8 @@ import {
 } from '@tailorit/shared/reviews';
 import { JOB_SOURCE_KIND_LABEL, type JobSourceKind } from '@tailorit/shared/sourcing';
 import type { StateIconName, StateTone } from '../../../../components/queue';
-import { ADMIN_REVIEW_LANES, ADMIN_REVIEW_LANE_LABEL, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
+import { ADMIN_REVIEW_LANES, ADMIN_REVIEW_LANE_LABEL, REASON_ADMIN_TEXT, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
+import type { JobVerifyReason } from '@tailorit/shared/jobs'; // v32 ADMINAPP (E6)
 
 // v30 X1-WEB: Admin › Review's words and rules, apart from its components so the tests read them (docs/design/part2/
 // 14-extension-reports.md §6.2): the lanes and their counts, a row's lines (origin, people, signal, check, state),
@@ -174,14 +175,21 @@ export interface ReviewStateLine {
   tone: StateTone;
 }
 
-/** A review row's state line (components/queue's StateLine): its group's icon, its words, TailorIT's check. */
-export function reviewStateLine(row: AdminReviewRow): ReviewStateLine {
+/** v32 FIX-API (UXREQ-9): "Needs review", where no group heading says it (the detail sheet). */
+export const PENDING_LINE: ReviewStateLine = { icon: 'hand', text: REVIEW_STATE_LABEL.pending, detail: null, tone: 'muted' };
+
+/**
+ * A review row's state line (components/queue's StateLine): its group's icon, its words, TailorIT's check. v32 FIX-API
+ * (UXREQ-9): a row waiting in the Needs review group does not say "Needs review" again (its group heading and the
+ * filter say it): only TailorIT's check, else nothing (null).
+ */
+export function reviewStateLine(row: AdminReviewRow): ReviewStateLine | null {
   const check = checkLine(row);
   switch (row.state) {
     case 'pending':
       if (row.group === 'checking') return { icon: 'spinner', text: REVIEW_GROUP_LABEL.checking, detail: check, tone: 'muted' };
       if (row.group === 'server_live') return { icon: 'warning', text: REVIEW_GROUP_LABEL.server_live, detail: check, tone: 'warning' };
-      return { icon: 'hand', text: REVIEW_STATE_LABEL.pending, detail: check, tone: 'muted' };
+      return check ? { icon: 'hand', text: check, detail: null, tone: 'muted' } : null;
     case 'approved':
       return { icon: 'check', text: decisionText(row), detail: row.note, tone: 'muted' };
     case 'rejected':
@@ -193,9 +201,12 @@ export function reviewStateLine(row: AdminReviewRow): ReviewStateLine {
   }
 }
 
-/** A flag's state line: open (needs review), resolved or dismissed, and by whom. */
-export function flagStateLine(flag: Pick<AdminFlag, 'status' | 'resolvedBy'>): ReviewStateLine {
-  if (flag.status === 'open') return { icon: 'hand', text: REVIEW_STATE_LABEL.pending, detail: null, tone: 'muted' };
+/**
+ * A flag's state line: resolved or dismissed, and by whom. v32 FIX-API (UXREQ-9): none for an open flag (its Needs
+ * review group says it).
+ */
+export function flagStateLine(flag: Pick<AdminFlag, 'status' | 'resolvedBy'>): ReviewStateLine | null {
+  if (flag.status === 'open') return null;
   const by = flag.resolvedBy ? `by ${flag.resolvedBy}` : null;
   return { icon: flag.status === 'resolved' ? 'check' : 'x', text: flag.status === 'resolved' ? 'Resolved' : 'Dismissed', detail: by, tone: 'muted' };
 }
@@ -279,6 +290,40 @@ export function rowOutcomeText(result: BulkRowResult | undefined): string | null
 export function decidedText(decision: 'approve' | 'reject' | 'reopen'): string {
   return decision === 'approve' ? 'Approved' : decision === 'reject' ? 'Rejected' : 'Reopened';
 }
+
+/**
+ * v32 ADMINAPP (E6): whether approving the row may publish what browsers captured: a v3.0 page review still pending
+ * (TailorIT reads its page first; when it cannot, the approval publishes the captured job, after the admin's yes).
+ */
+export function approvesCaptured(row: Pick<AdminReviewRow, 'kind' | 'origin' | 'state'>): boolean {
+  return row.kind === 'new_job' && row.origin === 'page' && row.state === 'pending';
+}
+
+/**
+ * v32 ADMINAPP (E6): whether a row offers Retry read: a new job waiting for approval that a read made (an ATS's, or a
+ * page's under D12). A v3.0 page review is read by its approval; a closed link has nothing to read again.
+ */
+export function retriesRead(row: Pick<AdminReviewRow, 'kind' | 'origin' | 'state'>): boolean {
+  return row.kind === 'new_job' && row.origin === 'ats' && row.state === 'pending';
+}
+
+/** v32 ADMINAPP (E6): what a New jobs Retry read came to, for the toast and the live region. */
+export function reviewRetryText(result: { state: 'read' | 'closed' | 'unreadable'; reason: JobVerifyReason | null }): {
+  tone: 'success' | 'info';
+  title: string;
+  body: string;
+} {
+  if (result.state === 'read') return { tone: 'success', title: 'Read again', body: 'Approve publishes what TailorIT just read.' };
+  if (result.state === 'closed') return { tone: 'info', title: 'The posting has closed', body: 'Reject it, so it is not published.' };
+  return { tone: 'info', title: "Couldn't read it now", body: result.reason ? REASON_ADMIN_TEXT[result.reason] : 'Try again later.' };
+}
+
+/** v32 ADMINAPP (E6): the confirm before such an approval, brief. */
+export const CAPTURED_APPROVE_COPY = {
+  title: 'Approve this page job?',
+  description: 'TailorIT reads the page first. If it can\'t, the job is published as people\'s browsers captured it, marked "Approved by an admin".',
+  confirm: 'Approve',
+} as const;
 
 // The auto-approve switches ---------------------------------------------------------------------------------------------
 

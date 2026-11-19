@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Logo, LogoMark } from '@/components/shell/Logo';
+import { HelpTip } from '@/components/ui/HelpTip';
 
 export const metadata: Metadata = { title: 'Page not found' };
 
@@ -27,10 +28,10 @@ export default function NotFound() {
           <span aria-hidden="true" className="num mb-2 flex h-9 items-center rounded-tag bg-tape px-3 text-sm text-foreground">
             404
           </span>
-          <h1 className="font-display text-xl leading-7 font-semibold text-foreground">Page not found</h1>
-          <p className="max-w-md text-sm leading-5 text-muted-foreground">
-            The address may be mistyped, or the page has moved. Your jobs, applications and documents are all still here.
-          </p>
+          <div className="flex items-center gap-1.5">
+            <h1 className="font-display text-xl leading-7 font-semibold text-foreground">Page not found</h1>
+            <HelpTip label="Page not found">The address may be mistyped or moved; your work is all still here.</HelpTip>
+          </div>
           <Link
             href="/jobs"
             className="mt-4 inline-flex h-9 items-center justify-center rounded-control bg-primary px-3.5 text-sm font-medium whitespace-nowrap text-on-primary shadow-control transition-colors duration-150 hover:bg-primary-hover"

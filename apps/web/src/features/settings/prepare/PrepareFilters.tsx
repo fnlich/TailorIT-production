@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, type RefObject } from 'react';
 // Relative, not '@/': the web tests draw these views.
 import { Button } from '../../../components/ui/Button';
+import { HelpTip } from '../../../components/ui/HelpTip';
 import { FunnelIcon } from '../../../components/ui/icons';
 import { Notice } from '../../../components/ui/Notice';
 import { Skeleton } from '../../../components/ui/Skeleton';
@@ -53,14 +54,14 @@ export function PrepareFilters() {
           <FiltersHeading count={null} />
           <Notice
             tone="error"
-            title="Your filters could not be loaded"
+            title="Your filters didn't load"
             action={
               <Button variant="outline" size="sm" loading={query.isFetching} onClick={() => void query.refetch()}>
                 Try again
               </Button>
             }
           >
-            {userMessage(query.error, 'Please try again in a moment.')}
+            {userMessage(query.error, 'Try again in a moment.')}
           </Notice>
         </>
       ) : (
@@ -80,7 +81,7 @@ export function PrepareFilters() {
 function FiltersHeading({ count, headingRef }: { count: number | null; headingRef?: RefObject<HTMLHeadingElement | null> }) {
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <h3
           ref={headingRef}
           tabIndex={-1}
@@ -90,15 +91,16 @@ function FiltersHeading({ count, headingRef }: { count: number | null; headingRe
           <FunnelIcon size={16} aria-hidden="true" className="text-muted-foreground" />
           {FILTERS_COPY.title}
         </h3>
+        {/* v32 COPY (E5): what the filters do is the "?" beside the heading. */}
+        <HelpTip label={FILTERS_COPY.title}>
+          {FILTERS_COPY.description} {FILTERS_COPY.note}
+        </HelpTip>
         {count !== null && (
-          <span className="text-[13px] leading-5 text-muted-foreground" data-filters-on={count}>
+          <span className="ml-1.5 text-[13px] leading-5 text-muted-foreground" data-filters-on={count}>
             {FILTERS_COPY.onCount(count)}
           </span>
         )}
       </div>
-      <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
-        {FILTERS_COPY.description} <strong className="font-semibold text-foreground">{FILTERS_COPY.note}</strong>
-      </p>
     </div>
   );
 }

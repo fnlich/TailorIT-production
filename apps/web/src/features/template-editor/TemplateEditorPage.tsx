@@ -19,6 +19,7 @@ import { Button, buttonClasses } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CirclesFourIcon, LockIcon, PlusIcon, TrashIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { PageSpinner } from '@/components/ui/Spinner';
@@ -290,19 +291,15 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
         belowToolbar={
           <div className="flex flex-col gap-3">
             {readOnly && (
-              <Notice
-                tone="info"
-                title="This is a TailorIT starter template"
-                action={
-                  <Button size="sm" icon={<CopyIcon size={14} />} loading={duplicating} onClick={() => void duplicateToEdit()}>
-                    Duplicate to edit
-                  </Button>
-                }
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <LockIcon size={14} /> Starter templates are read-only. Duplicate it to make your own copy you can change.
-                </span>
-              </Notice>
+              // v32 COPY (E4/E5): a compact line (a lock, the title, its "?", the button), never a banner.
+              <div role="status" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-sm leading-5" data-starter-template="">
+                <LockIcon size={16} className="text-muted-foreground" aria-hidden="true" />
+                <span className="font-medium text-foreground">This is a TailorIT starter template</span>
+                <HelpTip label="Starter template">Starter templates are read-only; duplicate one to change it.</HelpTip>
+                <Button size="sm" variant="outline" icon={<CopyIcon size={14} />} loading={duplicating} onClick={() => void duplicateToEdit()}>
+                  Duplicate to edit
+                </Button>
+              </div>
             )}
             {!readOnly && (
               <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">

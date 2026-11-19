@@ -1,12 +1,23 @@
 // TailorIT's UI kit: Base UI primitives styled with the "Denim & Tape" tokens in styles/globals.css
 // (docs/design/v3.1/20-visual-identity.md).
 // Import from '@/components/ui' (or a single file, e.g. '@/components/ui/Button'). Icons: '@/components/ui/icons'.
+export {
+  ALERT_COPY,
+  AlertDialog,
+  useGateAlert,
+  type AlertAction,
+  type AlertDialogProps,
+  type AlertTone,
+  type GateAlert,
+  type GateAlertHandle,
+} from './AlertDialog';
 export { Badge, CountBadge, type BadgeProps, type BadgeTone } from './Badge';
 export { Button, buttonClasses, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button';
-export { Card, type CardPadding, type CardProps, type CardTone } from './Card';
+export { Card, CardHeader, type CardPadding, type CardProps, type CardTone } from './Card';
 export { Checkbox, type CheckboxProps } from './Checkbox';
 export { Chip, type ChipProps, type ChipTone } from './Chip';
 export { Combobox, type ComboboxProps } from './Combobox';
+export { CountIconButton, type CountIconButtonProps } from './CountIconButton'; // v32 LAYOUT (E10), INT-1 into the kit
 export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog';
 export { ContextMenu, ContextMenuContent, ContextMenuTrigger } from './ContextMenu';
 export { DatePickerPopover, type DatePickerPopoverProps } from './DatePickerPopover';
@@ -24,9 +35,11 @@ export {
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { Field, FieldLabel, useFieldControl, type FieldProps } from './Field';
 export { FilterPill, type FilterPillProps } from './FilterPill';
+export { firstFocusSkippingTips, HELP_TIP_NAME, HelpTip, helpTipFor, helpTipName, TitleWithTip, type HelpTipProps } from './HelpTip';
 export { IconButton, type IconButtonProps } from './IconButton';
 export { CONTROL_SURFACE, Input, Textarea, type InputProps, type InputSize, type TextareaProps } from './Input';
 export { LetterAvatar, lettersOf, type LetterAvatarProps } from './LetterAvatar';
+export { LoadError, loadErrorTitle, type LoadErrorProps } from './LoadError'; // v32 FIX-UX (UXREQ-13)
 export {
   Menu,
   MenuCheckboxItem,

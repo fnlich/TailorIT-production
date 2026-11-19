@@ -27,7 +27,7 @@ export const SEVERITY_LABEL: Record<AnnouncementSeverity, string> = {
 export const BANNER_COPY = {
   region: 'Announcements',
   dismiss: (title: string) => `Dismiss announcement: ${title}`,
-  dismissFailed: 'The announcement could not be dismissed',
+  dismissFailed: "The announcement wasn't dismissed",
 } as const;
 
 /**

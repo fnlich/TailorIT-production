@@ -15,8 +15,9 @@ import type { TailorService } from './service';
 //   POST /api/autofill/tailor           Settings or a token (ai:run): AutofillTailorRequest → 202 {taskId, deduped}
 //   GET  /api/autofill/tailor/:id       Settings or a token (ai:run) → AutofillTailorTask
 //   GET  /api/autofill/templates        Settings or a token (profile:read) → AutofillTemplateList
-// Tailoring is costly (several Claude calls), so the service allows TAILOR_PER_HOUR (a constant) an hour per account and
-// answers the same tailoring done in the last day with the earlier task; these limits only stop a flood of requests.
+// Tailoring is costly (several Claude calls), so the service allows the plan's tailorings an hour per account
+// (FREE_/PAID_TAILOR_PER_HOUR, v32 FIX-PLAN: Paid's unlimited by default) and answers the same tailoring done in the last
+// day with the earlier task; the routes' own limits only stop a flood of requests, for every plan.
 
 /** The service, or a 503 when this server was built without AI (v2.0: MSG_AI_UNAVAILABLE, the server's state never said). */
 function serviceOf(deps: AppDeps): TailorService {

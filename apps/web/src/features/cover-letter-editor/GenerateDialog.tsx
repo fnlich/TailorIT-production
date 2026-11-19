@@ -18,10 +18,12 @@ import { Button, buttonClasses } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { SegmentedControl, TabPanel } from '@/components/ui/SegmentedControl';
 import { Spinner } from '@/components/ui/Spinner';
+import { aiUsedUpLimit, limitOfTaskError, useAiDialogGate, useAiUsedUp, useLimitDialog } from '@/components/limits';
 import { api, isApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { useAiTask } from '@/lib/useAiTask';
@@ -62,6 +64,11 @@ export function GenerateDialog(props: GenerateDialogProps) {
   const task = useAiTask(run?.taskId ?? null, { kind: run?.kind });
   const running = run !== null && task.isRunning;
   const reported = useRef<string | null>(null);
+  // v32 FIX-UX (UXREQ-3, E4): today's AI use spent: the limit alert on the press; a limit met on the way (a refused
+  // start, a task that ended on one) is that alert too, never a red line in the form.
+  const gate = useAiDialogGate(props.open, onOpenChange);
+  const limits = useLimitDialog();
+  const taskLimit = run && task.isFailed ? limitOfTaskError(task.task?.error) : null;
 
   // The task's end, once: hand the letter to the editor and close, or unlock the editor (the form shows why).
   useEffect(() => {
@@ -74,9 +81,11 @@ export function GenerateDialog(props: GenerateDialogProps) {
     } else if (task.isFailed || task.status === 'cancelled') {
       reported.current = run.taskId;
       onDone(null);
+      if (taskLimit) limits.show(taskLimit);
     }
-  }, [run, task.isSucceeded, task.isFailed, task.status, task.task, onDone, onOpenChange]);
+  }, [run, task.isSucceeded, task.isFailed, task.status, task.task, onDone, onOpenChange, taskLimit, limits]);
 
+  if (gate.gated) return gate.alert;
   return (
     <Dialog
       open={props.open}
@@ -97,11 +106,13 @@ export function GenerateDialog(props: GenerateDialogProps) {
           }}
           running={running}
           progress={task.message}
-          failure={run && task.isFailed ? (task.errorMessage ?? 'The cover letter could not be generated. Please try again.') : null}
+          failure={run && task.isFailed && !taskLimit ? (task.errorMessage ?? 'The cover letter could not be generated. Please try again.') : null}
           onTask={(taskId, kind) => setRun({ taskId, kind })}
           onCancel={() => void task.cancel()}
+          onLimit={limits.show}
         />
       )}
+      {limits.dialog}
     </Dialog>
   );
 }
@@ -117,12 +128,15 @@ function GenerateForm({
   failure,
   onTask,
   onCancel,
+  onLimit,
 }: GenerateDialogProps & {
   running: boolean;
   progress: string | null;
   failure: string | null;
   onTask: (taskId: string, kind: GenerateKind) => void;
   onCancel: () => void;
+  /** v32 FIX-UX: shows a limit refusal as the limit alert (true), or leaves it to the form (false). */
+  onLimit: (error: unknown) => boolean;
 }) {
   const ids = { company: useId(), title: useId(), description: useId(), picker: useId(), prompt: useId() };
   const [tab, setTab] = useState<Tab>('job');
@@ -135,6 +149,7 @@ function GenerateForm({
   const [fieldErrors, setFieldErrors] = useState<{ companyName?: string; jobTitle?: string }>({});
   const [requestError, setRequestError] = useState<{ message: string; needsResume: boolean } | null>(null);
   const [sending, setSending] = useState(false);
+  const usedUp = useAiUsedUp();
   const [confirmingReplace, setConfirmingReplace] = useState(false);
   const [pickedJob, setPickedJob] = useState<ApplicationSummary | null>(null);
   const companyInput = useRef<HTMLInputElement>(null);
@@ -192,6 +207,11 @@ function GenerateForm({
   };
 
   const start = async () => {
+    // v32 FIX-UX (UXREQ-3): spent since the dialog opened (the header learned it meanwhile): the limit alert, no request.
+    if (usedUp) {
+      onLimit(aiUsedUpLimit(t));
+      return;
+    }
     setRequestError(null);
     setSending(true);
     try {
@@ -205,9 +225,10 @@ function GenerateForm({
       });
       onTask(accepted.taskId, chosen ? 'template_fill' : 'cover_letter');
     } catch (caught) {
+      onDone(null);
+      if (onLimit(caught)) return;
       const needsResume = isApiError(caught) && Boolean(caught.fields?.resume);
       setRequestError({ message: userMessage(caught, 'The cover letter could not be generated. Please try again.'), needsResume });
-      onDone(null);
     } finally {
       setSending(false);
     }
@@ -218,7 +239,7 @@ function GenerateForm({
   return (
     <DialogContent
       title={t('MSG_LETTER_GENERATE_TITLE')}
-      description={t('MSG_LETTER_GENERATE_TEXT')}
+      help={t('MSG_LETTER_GENERATE_TEXT')}
       size="xl"
       initialFocus={companyInput}
     >
@@ -231,7 +252,7 @@ function GenerateForm({
             <Spinner size={16} />
             {progress ?? AI_PROGRESS_MESSAGES.cover_letter[0]}
           </div>
-          <p className="max-w-sm text-sm text-muted-foreground">This usually takes under a minute. Keep this window open.</p>
+          <p className="max-w-sm text-sm text-muted-foreground">Keep this window open.</p>
           {running && (
             <Button variant="outline" size="sm" onClick={onCancel}>
               Cancel
@@ -255,9 +276,9 @@ function GenerateForm({
               onValueChange={setTab}
             >
               <TabPanel value="job" className="mt-5 min-h-[370px]">
-                <p className="text-sm text-muted-foreground">{t('MSG_LETTER_JOB_INTRO')}</p>
-                <div className="mt-4 flex flex-col gap-4">
-                  <Field label={t('LABEL_LETTER_PICK_JOB')} id={ids.picker}>
+                {/* v32 COPY (E5): each tab's line is a "?" beside its first label. */}
+                <div className="flex flex-col gap-4">
+                  <Field label={t('LABEL_LETTER_PICK_JOB')} hint={t('MSG_LETTER_JOB_INTRO')} id={ids.picker}>
                     <JobPicker id={ids.picker} selected={job} onPick={(application) => void pickJob(application)} />
                   </Field>
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -291,7 +312,10 @@ function GenerateForm({
                 </div>
               </TabPanel>
               <TabPanel value="template" className="mt-5 min-h-[370px]">
-                <p className="text-sm text-muted-foreground">{t('MSG_LETTER_TEMPLATE_INTRO')}</p>
+                <p className="flex items-center gap-1.5 text-sm leading-5 font-medium text-foreground">
+                  Choose a template
+                  <HelpTip label="Choose a template">{t('MSG_LETTER_TEMPLATE_INTRO')}</HelpTip>
+                </p>
                 <TemplateChoice
                   templates={templateItems}
                   loading={templates.isPending}
@@ -300,17 +324,16 @@ function GenerateForm({
                 />
               </TabPanel>
               <TabPanel value="prompt" className="mt-5 min-h-[370px]">
-                <p className="text-sm text-muted-foreground">{t('MSG_LETTER_NOTES_INTRO')}</p>
-                <div className="mt-4 flex flex-col gap-2">
-                  <Textarea
-                    id={ids.prompt}
-                    aria-label={t('LABEL_LETTER_TAB_NOTES')}
-                    value={customPrompt}
-                    rows={8}
-                    maxLength={CUSTOM_PROMPT_MAX}
-                    placeholder={t('MSG_LETTER_NOTES_PLACEHOLDER')}
-                    onChange={(event) => setCustomPrompt(event.target.value)}
-                  />
+                <div className="flex flex-col gap-2">
+                  <Field label={t('LABEL_LETTER_TAB_NOTES')} hint={t('MSG_LETTER_NOTES_INTRO')} id={ids.prompt}>
+                    <Textarea
+                      value={customPrompt}
+                      rows={8}
+                      maxLength={CUSTOM_PROMPT_MAX}
+                      placeholder={t('MSG_LETTER_NOTES_PLACEHOLDER')}
+                      onChange={(event) => setCustomPrompt(event.target.value)}
+                    />
+                  </Field>
                   <div>
                     <Button variant="link" onClick={() => setCustomPrompt(CUSTOM_PROMPT_EXAMPLE)}>
                       Load an example
@@ -405,7 +428,7 @@ function TemplateChoice({
           })
         )}
         {!loading && templates.length === 0 && (
-          <p className="px-1 py-2 text-sm text-muted-foreground">No templates available. Create one from the Documents page.</p>
+          <p className="px-1 py-2 text-sm text-muted-foreground">No templates yet. Make one in Documents.</p>
         )}
       </div>
       <TemplatePreview template={chosen} className="h-64 sm:h-72" />

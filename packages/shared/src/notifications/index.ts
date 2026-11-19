@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AiUsePercentSchema } from '../accounts/index'; // v32 ADMINAPP (E7)
 import { IsoDateTime } from '../core/list';
 
 // v3.1 NOTIFY (docs/design/v3.1/24-notifications-usage.md; build plan D8, D9): in-app notifications (the bell and the
@@ -175,14 +176,22 @@ export type NotificationPrefsUpdate = z.infer<typeof NotificationPrefsUpdateSche
 
 /**
  * GET /api/me/header (D9): what the top bar shows on every page. `ai` is today's server-AI use against the person's
- * daily budget (`budgetMicros` null: unlimited); `extraCredit` is what is left once the day's budget is used ("Extra
- * usage"). Money is whole micro-dollars ($1 = 1,000,000).
+ * daily budget; `extraCredit` is what is left once the day's budget is used ("Extra usage"). Money is whole
+ * micro-dollars ($1 = 1,000,000).
+ *
+ * v32 ADMINAPP (E7): people see their day's use as a percent only: `ai.percent` (aiUsePercent: 0-100, 100 once the
+ * budget is used; null: no daily limit). The amounts (`usedMicros`, `budgetMicros`, null: unlimited) are sent to an
+ * admin's own header only; a person's answer has neither.
  */
 export const HeaderSummarySchema = z.object({
   unread: z.number().int().nonnegative(),
   ai: z.object({
-    usedMicros: z.number().int().nonnegative(),
-    budgetMicros: z.number().int().nonnegative().nullable(),
+    /** Admins only (E7): today's spend from the daily budget. */
+    usedMicros: z.number().int().nonnegative().optional(),
+    /** Admins only (E7): the day's budget; null: unlimited. */
+    budgetMicros: z.number().int().nonnegative().nullable().optional(),
+    /** v32 ADMINAPP (E7): today's use as a share of the day's budget (aiUsePercent); null: no daily limit. */
+    percent: AiUsePercentSchema.optional(),
     /** When today's budget starts again (the day's reset: DAY_RESET_TIME in DAY_RESET_TIME_ZONE). */
     resetsAt: IsoDateTime,
   }),

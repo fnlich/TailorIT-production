@@ -4,9 +4,10 @@ import type { AutofillAgentSettings } from '@tailorit/shared/autofill';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useEffect, useId, useRef, useState } from 'react';
+import { Badge } from '@/components/ui/Badge';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CaretDownIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
-import { Notice } from '@/components/ui/Notice';
 import { Slider } from '@/components/ui/Slider';
 import { Switch } from '@/components/ui/Switch';
 import { useToast } from '@/components/ui/Toast';
@@ -169,26 +170,26 @@ export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
         </button>
       </h2>
       <div id={panelId} hidden={!expanded} className="border-t border-border px-4 py-4 sm:px-5">
-      <p className="mb-4 text-sm leading-5 text-muted-foreground">
-        Off unless you turn it on. When it is on, TailorIT saves new jobs whose match with your best resume for them
-        reaches the minimum below to your Saved Jobs. It never prepares or queues them, so it never uses your AI usage:
-        Prepare &amp; Queue the ones you want. Only jobs TailorIT first sees after you turn it on count; jobs you track
-        already are left out.
-      </p>
       <div className="flex flex-col gap-5">
-        <Switch
-          checked={ruleEnabled}
-          label={`Save new jobs of at least ${minMatch}% match to Saved Jobs`}
-          // Never disabled while saving, which would take the focus away: a change made meanwhile is sent after it.
-          onCheckedChange={(on) => {
-            // The threshold shown goes with it (a slider save still waiting is this one).
-            cancelSliderSave();
-            send({ ruleEnabled: on, minMatch });
-          }}
-        />
+        <span className="flex items-center gap-1.5">
+          <Switch
+            checked={ruleEnabled}
+            label={`Save new jobs of at least ${minMatch}% match to Saved Jobs`}
+            // Never disabled while saving, which would take the focus away: a change made meanwhile is sent after it.
+            onCheckedChange={(on) => {
+              // The threshold shown goes with it (a slider save still waiting is this one).
+              cancelSliderSave();
+              send({ ruleEnabled: on, minMatch });
+            }}
+          />
+          <HelpTip label="Auto-save new jobs">Saves new matching jobs only; it never prepares them or uses AI.</HelpTip>
+        </span>
         <div className="flex flex-col gap-2 sm:max-w-md">
-          <span aria-hidden="true" className="text-sm leading-5 font-medium text-foreground">
-            Minimum match
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="text-sm leading-5 font-medium text-foreground">
+              Minimum match
+            </span>
+            <HelpTip label="Minimum match">Your best resume&apos;s match with a new job, 0 to 100%.</HelpTip>
           </span>
           <div className="flex items-center gap-4">
             <Slider
@@ -224,14 +225,15 @@ export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
               className="text-right"
             />
           </div>
-          <p id={hintId} className="text-[13px] leading-5 text-muted-foreground">
-            From 0 to 100%. Changing it while the rule is on weighs the new jobs again from when the rule was turned on.
-          </p>
+          <span id={hintId} hidden>
+            From 0 to 100%.
+          </span>
         </div>
         {minMatch < LOW_MATCH && (
-          <Notice tone="warning" title="That minimum is low">
-            At {minMatch}%, the rule saves jobs that barely match your resume.
-          </Notice>
+          <span className="inline-flex items-center gap-1" data-low-minimum="">
+            <Badge tone="warning">That minimum is low</Badge>
+            <HelpTip label="That minimum is low">At {minMatch}%, it saves jobs that barely match.</HelpTip>
+          </span>
         )}
       </div>
       </div>

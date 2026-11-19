@@ -344,7 +344,7 @@ export async function startPrepare(
         resume_id: null,
         created_at: now,
         // v2.0 FIX-B (BEH-6): set when the work is taken up (the runner, the first MCP save); a reusable kit is queued
-        // with no AI and never counts toward PREPARE_PER_HOUR.
+        // with no AI and never counts toward the Prepares an hour (FREE_/PAID_PREPARE_PER_HOUR).
         started_at: null,
         finished_at: null,
         updated_at: now,

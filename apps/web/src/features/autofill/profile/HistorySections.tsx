@@ -19,7 +19,7 @@ import {
   SelectField,
   TextareaField,
   TextField,
-  hintOf,
+  useFieldNote,
   newEntryId,
 } from './fields';
 import { useProfileForm, type ProfileForm } from './form';
@@ -96,10 +96,12 @@ function GpaFields({ base, gpa }: { base: string; gpa: AutofillEducation['gpa'] 
   const form = useProfileForm();
   const key = `${base}.gpa`;
   const number = (text: string) => (text.trim() === '' || Number.isNaN(Number(text)) ? null : Number(text));
+  const noted = useFieldNote(form, key, null);
   return (
     <div className="grid grid-cols-2 gap-5">
-      <Field label="GPA" error={form.error(`${key}.value`)} hint={hintOf(form, key, null)}>
+      <Field id={noted.id} label="GPA" error={form.error(`${key}.value`)}>
         <Input
+          aria-describedby={noted.describedBy}
           type="number"
           inputMode="decimal"
           step="any"
@@ -113,6 +115,7 @@ function GpaFields({ base, gpa }: { base: string; gpa: AutofillEducation['gpa'] 
             form.set(key, value === null ? null : { value, scale: gpa?.scale ?? 4 });
           }}
         />
+        {noted.noteLine}
       </Field>
       <Field label="Out of" error={form.error(`${key}.scale`)} hint={gpa ? undefined : 'Enter the GPA first.'}>
         <Input
@@ -149,7 +152,7 @@ function EducationCard({ entry, position, count }: { entry: AutofillEducation; p
           label="School"
           required
           maxLength={200}
-          hint="Its full official name, such as The University of Texas at Austin."
+          hint="Its full official name."
         />
         <ChipListField
           path={`${base}.institution.aliases`}
@@ -157,7 +160,7 @@ function EducationCard({ entry, position, count }: { entry: AutofillEducation; p
           placeholder="Type a name and press Enter"
           max={MAX_ALIASES}
           maxLength={200}
-          hint="Forms list schools in different ways; these help the extension find yours."
+          hint="Helps the extension find your school on forms."
         />
         <div className="grid gap-5 sm:grid-cols-2">
           <SelectField path={`${base}.degree.level`} label="Degree level" options={DEGREE_LEVEL_OPTIONS} />
@@ -230,7 +233,7 @@ export function ExperienceSection() {
   const form = useProfileForm();
   const list = form.state.draft.profile.experience;
   return (
-    <Section title="Experience" description="Most recent first. Forms that ask about each job get these.">
+    <Section title="Experience" description="Most recent first.">
       <div className="flex flex-col gap-4">
         {list.length === 0 && <p className="text-sm text-muted-foreground">No experience yet.</p>}
         {list.map((entry, position) => (
@@ -280,7 +283,7 @@ export function LanguagesSkillsSection() {
           ))}
           {form.isFromResume('profile.languages') && (
             <p className="text-[13px] leading-5">
-              <FromResumeHint />
+              <FromResumeHint path="profile.languages" />
             </p>
           )}
           <div>
@@ -310,7 +313,7 @@ export function CertificationsSection() {
   return (
     <Section
       title="Certifications"
-      description="For forms that ask which certifications you hold."
+      description="Certifications you hold."
     >
       <div className="flex flex-col gap-3" role="group" aria-label="Certifications">
         {certifications.map((row, index) => (
@@ -341,6 +344,12 @@ export function CertificationsSection() {
             />
           </div>
         ))}
+        {/* v32 FILL: certifications are filled from a resume too. */}
+        {form.isFromResume('profile.certifications') && (
+          <p className="text-[13px] leading-5">
+            <FromResumeHint path="profile.certifications" />
+          </p>
+        )}
         <div>
           <AddButton
             label="Add certification"

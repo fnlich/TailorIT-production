@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DatePickerPopover } from '@/components/ui/DatePickerPopover';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CalendarBlankIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
@@ -100,8 +101,11 @@ export function UserSheet({
                 {user.effectiveType === 'paid' && user.paidUntil ? `Paid until ${formatDate(user.paidUntil)}` : 'No Paid term'}
               </span>
             </div>
-            <p className="mt-2 text-[13px] leading-5 text-muted-foreground">
-              Free → Paid with no end date gets one term{term ? ` (${term})` : ''}. Free ends the term now.
+            <p className="mt-2 flex items-center gap-1.5 text-[13px] leading-5 text-muted-foreground">
+              Term
+              <HelpTip label="Term">
+                Free → Paid with no end date gets one term{term ? ` (${term})` : ''}; Free ends the term now.
+              </HelpTip>
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button
@@ -175,10 +179,13 @@ export function UserSheet({
   );
 }
 
-function SheetSection({ title, children }: { title: string; children: ReactNode }) {
+function SheetSection({ title, help, children }: { title: string; help?: ReactNode; children: ReactNode }) {
   return (
     <section aria-label={title}>
-      <h3 className="mb-3 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{title}</h3>
+      <div className="mb-3 flex items-center gap-1.5">
+        <h3 className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{title}</h3>
+        {help ? <HelpTip label={title}>{help}</HelpTip> : null}
+      </div>
       {children}
     </section>
   );
@@ -214,10 +221,7 @@ function BudgetSection({
     onCustom(parsed.data);
   };
   return (
-    <SheetSection title="Daily AI budget">
-      <p className="mb-3 text-[13px] leading-5 text-muted-foreground">
-        What TailorIT&apos;s AI may spend for this account each day, before its extra credit. The person never sees it.
-      </p>
+    <SheetSection title="Daily AI budget" help="What AI may spend for this account each day before extra credit; the person sees only a percent.">
       <RadioGroup<BudgetMode>
         aria-label="Daily AI budget"
         value={mode}

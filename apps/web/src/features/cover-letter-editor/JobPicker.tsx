@@ -111,7 +111,7 @@ export function JobPicker({
               {query.isFetching && items.length === 0
                 ? 'Searching...'
                 : query.isError
-                  ? 'Your tracked jobs could not be loaded.'
+                  ? "Your tracked jobs didn't load."
                   : items.length === 0
                     ? search
                       ? 'No tracked jobs match.'

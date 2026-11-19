@@ -1,10 +1,13 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 // Relative, not '@/': the web tests draw these views.
 import { BuyCreditDialog } from '../../components/limits/BuyCreditDialog';
+import type { AiUseInput } from '../../components/limits/aiUse';
 import { SubscribeDialog } from '../../components/limits/SubscribeDialog';
-import { UsageMeter } from '../../components/limits/UsageMeter';
+import { AiUseMeter, UsageMeter } from '../../components/limits/UsageMeter';
+import { fetchHeaderSummary, HEADER_QUERY_KEY } from '../../components/shell/header/api';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { CheckIcon, LockSimpleIcon } from '../../components/ui/icons';
@@ -18,17 +21,21 @@ import { Section, SettingRow } from './parts';
 // v2.0: Settings › Account, the first section of /settings (docs/design/v2.0/08-ui.md, "Settings › Account"): the
 // account type and its end, today's auto-applies (UsageMeter), the resumes against the plan's limit, AI job search,
 // the extra-credit balance with Buy extra credit, and Subscribe for a Free account. Subscribe and Buy credit open the
-// shared dialogs ("Please contact the admin…" and the admin's email). Never the daily AI budget or anything about the
-// server.
+// shared dialogs ("Please contact the admin…" and the admin's email). Never the daily AI budget's amounts or anything
+// about the server. v32 COPY (E7): today's AI use is a row as its share only ("40%"), read from the top bar's summary
+// (GET /api/me/header, already loaded for the header's chip).
 
 export function AccountSection({ className }: { className?: string }) {
   const account = useAccount();
+  // The top bar's own query (same key: no second request while it is fresh; the bar keeps it current).
+  const header = useQuery({ queryKey: HEADER_QUERY_KEY, queryFn: ({ signal }) => fetchHeaderSummary(signal), staleTime: 60_000 });
   const [open, setOpen] = useState<'subscribe' | 'credit' | null>(null);
   return (
     <Section title={ACCOUNT_COPY.title} description={ACCOUNT_COPY.description} id="account" className={className}>
       {account.data ? (
         <AccountDetails
           view={accountView(account.data)}
+          aiUse={header.data?.ai}
           onSubscribe={() => setOpen('subscribe')}
           onBuyCredit={() => setOpen('credit')}
         />
@@ -42,7 +49,7 @@ export function AccountSection({ className }: { className?: string }) {
             </Button>
           }
         >
-          {userMessage(account.error, 'Please try again in a moment.')}
+          {userMessage(account.error, 'Try again in a moment.')}
         </Notice>
       ) : (
         <AccountSkeleton />
@@ -56,10 +63,13 @@ export function AccountSection({ className }: { className?: string }) {
 /** The rows (drawn statically by the tests). */
 export function AccountDetails({
   view,
+  aiUse,
   onSubscribe,
   onBuyCredit,
 }: {
   view: AccountView;
+  /** Today's AI use as the top bar's summary gives it (the share, or the amounts): only the share is drawn. */
+  aiUse?: AiUseInput;
   onSubscribe: () => void;
   onBuyCredit: () => void;
 }) {
@@ -84,6 +94,11 @@ export function AccountDetails({
           <span>{ACCOUNT_COPY.unlimited}</span>
         )}
       </SettingRow>
+      {aiUse && (
+        <SettingRow label={ACCOUNT_COPY.aiUse}>
+          <AiUseMeter ai={aiUse} showLabel={false} layout="inline" label={ACCOUNT_COPY.aiUse} className="w-64 max-w-full" />
+        </SettingRow>
+      )}
       <SettingRow label={ACCOUNT_COPY.resumes}>
         {view.resumes.kind === 'meter' ? (
           <UsageMeter

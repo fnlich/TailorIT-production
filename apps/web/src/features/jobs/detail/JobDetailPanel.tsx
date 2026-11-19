@@ -4,24 +4,25 @@ import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { EMPLOYMENT_TYPE_LABEL, appliedChipLabel, formatMediumDate, liveChip, type JobDetail } from '@tailorit/shared';
 import { clsx } from 'clsx';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
 import {
   ArrowSquareOutIcon,
   BookmarkSimpleIcon,
+  BriefcaseIcon,
   CaretDownIcon,
   CaretUpIcon,
   CheckCircleIcon,
   ClockIcon,
   EyeIcon,
   EyeSlashIcon,
-  XIcon,
+  WarningCircleIcon,
 } from '@/components/ui/icons';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/Menu';
-import { Notice } from '@/components/ui/Notice';
 import { Skeleton, SkeletonText } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -32,7 +33,7 @@ import { useNow } from '@/lib/useNow';
 import { CompanyLogo } from '../CompanyLogo';
 import { useHideCompany, useHideJob, useJobDetail, useJobInsights, useMarkApplied, useSaveToggle } from '../hooks';
 import { ArrowLeftIcon, ExportIcon, FlagIcon } from '../icons';
-import { jobLevelsOf } from '../format';
+import { cardCompanyFacts, jobLevelsOf } from '../format';
 import { jobShareUrl } from '../url';
 import { AboutJob } from './AboutJob';
 import { AddedFromChip } from './AddedFrom';
@@ -45,53 +46,93 @@ import { HeldNotice } from './held/HeldNotice'; // v30 X1-WEB
 import { DetailCredit } from '../credits/JobCredit'; // v30 S4
 import { VerificationNotice } from '../verification/VerificationNotice'; // v31 JOBSWEB
 
-/** v31 FIX-JOBS: the drawer's place in the feed and its Previous / Next (null at either end, or for a job the feed lacks). */
+/** v31 FIX-JOBS: the job's place in the list and its Previous / Next (null at either end, or for a job the list lacks). */
 export interface DrawerNav {
-  /** "Job 3 of 133": the job's place in the loaded feed and the feed's count in words; null when it is not in the feed. */
+  /** "Job 3 of 133": the job's place in the loaded list and the list's count in words; null when it is not in the list. */
   position: { index: number; total: string } | null;
   onPrevious: (() => void) | null;
   onNext: (() => void) | null;
 }
 
+/**
+ * v32 JOBS2 (E3): where the detail is drawn. `pane`: beside the list (from 1024 px), always there, its title an h2 of
+ * the page. `sheet`: full screen over the list (below 1024 px), a modal dialog named by the job's title, with Back.
+ */
+export type DetailVariant = 'pane' | 'sheet';
+
 export interface JobDetailPanelProps {
   jobId: number;
+  variant: DetailVariant;
   nav: DrawerNav;
-  /** Closes the drawer (×, the phone's back arrow, "Back to jobs" for a job that is gone). */
+  /**
+   * The sheet: closes it (the back arrow, "Back to jobs" for a job that is gone). The pane: back to the job's row in
+   * the list (Escape inside the pane, the "Back to the job list" link a keyboard reaches first).
+   */
   onClose: () => void;
-  /** Called after jobs left the list (this one, or its company's): the page closes the drawer, focus on the next row. */
+  /** A job that no longer exists: "Back to jobs" (the sheet closes; the pane goes back to the list's first job). */
+  onGone?: () => void;
+  /** Called after jobs left the list (this one, or its company's): the page shows the next one. */
   onJobsHidden: (hidden: { jobId?: number; companyId?: number }) => void;
   /** The row's quick Apply: open the posting (and "Applied to this job?") once the job is read. */
   applyIntent?: boolean;
   onApplyIntentHandled?: () => void;
+  /** The pane: the job's title takes focus once it is shown (a row opened with the keyboard, the next job after a hide). */
+  focusTitle?: boolean;
+  onTitleFocused?: () => void;
 }
 
-/** The jumps of the section bar: Your match (with Tailor for this job), About the role, the company. */
+/**
+ * The jumps of the section bar: Your match (the line under the job's facts), About the role (with Tailor for this job
+ * after it), the company.
+ */
 const SECTIONS: ReadonlyArray<{ id: string; label: PublicMessageKey }> = [
   { id: 'job-match', label: 'LABEL_JOB_NAV_MATCH' },
   { id: 'job-role', label: 'LABEL_JOB_NAV_ROLE' },
   { id: 'job-company', label: 'LABEL_JOB_NAV_COMPANY' },
 ];
 
-/** The drawer's padding at the sides (20 px, 28 px from 640 px). */
+/** The detail's padding at the sides (20 px, 28 px from 640 px). */
 const GUTTER = 'px-5 sm:px-7';
 
+/** The words of the way back to the list (the sheet's back arrow, the pane's skip link). */
+const BACK_TO_LIST = 'Back to the job list';
+
 /**
- * The drawer's top bar: on a phone the back arrow (the drawer is the whole window), then Previous / Next with the job's
- * place in the feed (said when it changes), the job's tools (hide, share, report: the job's body puts them in
- * `toolsRef`'s slot) and, from 640 px, Close. It stays mounted while Previous / Next change the job, so the button
- * pressed keeps focus.
+ * The detail's top bar: the sheet's back arrow (the sheet is the whole window), Previous / Next with the job's place in
+ * the list (said when it changes), and the job's tools (hide, share, report: the job's body puts them in `toolsRef`'s
+ * slot). The pane has no arrow: a keyboard's first stop in it is a "Back to the job list" link, shown on focus. It stays
+ * mounted while Previous / Next change the job, so the button pressed keeps focus.
  */
-function DrawerBar({ nav, onClose, toolsRef }: { nav: DrawerNav; onClose: () => void; toolsRef: (element: HTMLDivElement | null) => void }) {
+function DetailBar({
+  variant,
+  nav,
+  onClose,
+  toolsRef,
+}: {
+  variant: DetailVariant;
+  nav: DrawerNav;
+  onClose: () => void;
+  toolsRef: (element: HTMLDivElement | null) => void;
+}) {
   const { t } = usePublicConstants();
   return (
-    <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3 sm:px-5" data-drawer-bar="">
-      <IconButton
-        label="Back to the job list"
-        icon={<ArrowLeftIcon size={18} weight="bold" />}
-        onClick={onClose}
-        tooltip={false}
-        className="-ml-1 sm:hidden"
-      />
+    <div className="relative flex h-14 shrink-0 items-center gap-1 border-b border-border px-3 sm:px-5" data-drawer-bar="">
+      {variant === 'sheet' ? (
+        <IconButton label={BACK_TO_LIST} icon={<ArrowLeftIcon size={18} weight="bold" />} onClick={onClose} tooltip={false} className="-ml-1" data-detail-back="" />
+      ) : (
+        <button
+          type="button"
+          onClick={onClose}
+          className={clsx(
+            'absolute top-2 left-3 z-10 inline-flex h-10 items-center gap-1.5 rounded-control bg-surface px-3 text-sm font-medium text-foreground shadow-popover',
+            'not-focus-visible:sr-only',
+          )}
+          data-detail-back=""
+        >
+          <ArrowLeftIcon size={16} weight="bold" aria-hidden="true" />
+          {BACK_TO_LIST}
+        </button>
+      )}
       {nav.position && (
         <div className="flex min-w-0 items-center gap-0.5" data-drawer-nav="">
           <IconButton
@@ -114,8 +155,6 @@ function DrawerBar({ nav, onClose, toolsRef }: { nav: DrawerNav; onClose: () => 
         </div>
       )}
       <div ref={toolsRef} className="ml-auto flex shrink-0 items-center gap-0.5" data-drawer-tools="" />
-      <span aria-hidden="true" className="mx-1.5 h-6 w-px bg-border max-sm:hidden" />
-      <IconButton label="Close" icon={<XIcon size={18} />} onClick={onClose} tooltip={false} className="max-sm:hidden" data-drawer-close="" />
     </div>
   );
 }
@@ -141,24 +180,74 @@ function DetailSkeleton() {
   );
 }
 
+/** The pane's look before any job is shown (the list is loading): the bar and the job's skeleton. */
+export function DetailPaneSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" aria-hidden="true" data-detail-skeleton="">
+      <div className="h-14 shrink-0 border-b border-border" />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <DetailSkeleton />
+      </div>
+    </div>
+  );
+}
+
+/** The job's title: the sheet's dialog title (its name), or an h2 of the page in the pane. Both take focus by script. */
+function DetailTitle({
+  variant,
+  titleRef,
+  className,
+  children,
+}: {
+  variant: DetailVariant;
+  titleRef?: RefObject<HTMLHeadingElement | null>;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (variant === 'sheet') {
+    return (
+      <BaseDialog.Title ref={titleRef} tabIndex={-1} className={className} data-drawer-title="">
+        {children}
+      </BaseDialog.Title>
+    );
+  }
+  return (
+    <h2 ref={titleRef} tabIndex={-1} className={className} data-drawer-title="">
+      {children}
+    </h2>
+  );
+}
+
 /**
- * v31 FIX-JOBS: the drawer's content (the region "Job details"): its bar, then the job, scrolling on its own between
- * the bar and the actions. The job reads top down in TailorIT's sections: the header (company, the title as the
- * drawer's h2, its tags), the notices (held, only you, hidden), the spec sheet of facts, a sticky bar of jumps (Match,
- * Role, Company: the one that is in view is marked), Your match, Tailor for this job, About the role and About
- * {company}. The actions sit in a bar under the top bar: Mark as applied (or the Applied date, a link to the
- * tracker), Save, Apply.
+ * The job's detail (the region "Job details"): its bar, then the job, scrolling on its own under the bar and the
+ * actions. v32 FIX-UX (UXREQ-1, coordinator: the role in the first screen): the job reads top down as the header
+ * (company with its industry and size, the title, its tags and states: held, only you, hidden), a compact card of
+ * facts, Your match on one line (its keywords on demand), a sticky bar of jumps (Match, Role, Company: the one in view
+ * is marked), About the role, Tailor for this job and About {company}. The actions sit under the bar: Mark as applied
+ * (or the Applied date, a link to the tracker), Save, Apply.
  */
-export function JobDetailPanel({ jobId, nav, onClose, onJobsHidden, applyIntent = false, onApplyIntentHandled }: JobDetailPanelProps) {
+export function JobDetailPanel({
+  jobId,
+  variant,
+  nav,
+  onClose,
+  onGone,
+  onJobsHidden,
+  applyIntent = false,
+  onApplyIntentHandled,
+  focusTitle = false,
+  onTitleFocused,
+}: JobDetailPanelProps) {
   const { t } = usePublicConstants();
   const detail = useJobDetail(jobId);
   const [toolsSlot, setToolsSlot] = useState<HTMLDivElement | null>(null);
+  const regionRef = useRef<HTMLDivElement>(null);
 
   let content: ReactNode;
   if (detail.isPending) {
     content = (
       <>
-        <BaseDialog.Title className="sr-only">Job details</BaseDialog.Title>
+        {variant === 'sheet' && <BaseDialog.Title className="sr-only">Job details</BaseDialog.Title>}
         <div className="min-h-0 flex-1 overflow-y-auto">
           <DetailSkeleton />
         </div>
@@ -166,36 +255,28 @@ export function JobDetailPanel({ jobId, nav, onClose, onJobsHidden, applyIntent 
     );
   } else if (detail.isError) {
     const gone = isApiError(detail.error) && detail.error.code === 'not_found';
+    const title = gone ? t('MSG_JOB_GONE') : 'This job could not be opened';
     content = (
       <>
-        <BaseDialog.Title className="sr-only">{gone ? t('MSG_JOB_GONE') : 'This job could not be opened'}</BaseDialog.Title>
+        {variant === 'sheet' && <BaseDialog.Title className="sr-only">{title}</BaseDialog.Title>}
         <div className={clsx('min-h-0 flex-1 overflow-y-auto py-6', GUTTER)}>
-          {gone ? (
-            // Trying again cannot bring back a job that is gone.
-            <Notice
-              tone="info"
-              title={t('MSG_JOB_GONE')}
-              action={
-                <Button variant="outline" size="sm" onClick={onClose}>
+          {/* v32 JOBS2 (E4): the pane's state, not a banner; trying again cannot bring back a job that is gone. */}
+          <EmptyState
+            icon={gone ? <BriefcaseIcon size={22} /> : <WarningCircleIcon size={22} />}
+            title={title}
+            description={gone ? t('MSG_JOB_GONE_DETAIL') : userMessage(detail.error)}
+            action={
+              gone ? (
+                <Button variant="outline" size="sm" onClick={onGone ?? onClose}>
                   Back to jobs
                 </Button>
-              }
-            >
-              {t('MSG_JOB_GONE_DETAIL')}
-            </Notice>
-          ) : (
-            <Notice
-              tone="error"
-              title="This job could not be opened"
-              action={
+              ) : (
                 <Button variant="outline" size="sm" onClick={() => void detail.refetch()}>
                   Try again
                 </Button>
-              }
-            >
-              {userMessage(detail.error)}
-            </Notice>
-          )}
+              )
+            }
+          />
         </div>
       </>
     );
@@ -204,23 +285,38 @@ export function JobDetailPanel({ jobId, nav, onClose, onJobsHidden, applyIntent 
       <JobDetailBody
         key={detail.data.id}
         job={detail.data}
+        variant={variant}
         toolsSlot={toolsSlot}
         onJobsHidden={onJobsHidden}
         applyIntent={applyIntent}
         onApplyIntentHandled={onApplyIntentHandled}
+        focusTitle={focusTitle}
+        onTitleFocused={onTitleFocused}
       />
     );
   }
 
+  // The pane: Escape inside it (not in a menu or a dialog of its own, which are drawn elsewhere) goes back to the row;
+  // on a control whose tooltip is open (a "?", a tool's name) it closes that tooltip only.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (variant !== 'pane' || event.key !== 'Escape' || event.defaultPrevented) return;
+    if (!(event.target instanceof Element) || !regionRef.current?.contains(event.target)) return;
+    if (event.target.closest('[data-popup-open]')) return;
+    event.preventDefault();
+    onClose();
+  };
+
   return (
     <div
+      ref={regionRef}
       className="flex min-h-0 flex-1 flex-col"
       aria-label="Job details"
       role="region"
       aria-busy={detail.isFetching || undefined}
-      data-job-detail=""
+      onKeyDown={onKeyDown}
+      data-job-detail={variant}
     >
-      <DrawerBar nav={nav} onClose={onClose} toolsRef={setToolsSlot} />
+      <DetailBar variant={variant} nav={nav} onClose={onClose} toolsRef={setToolsSlot} />
       {content}
     </div>
   );
@@ -248,7 +344,10 @@ function Tag({
   return tooltip ? <Tooltip content={tooltip}>{tag}</Tooltip> : tag;
 }
 
-/** The section in view: the last one whose top has passed under the jump bar (the last one at the very bottom). */
+/**
+ * The section in view: the last one whose top has passed under the jump bar (the first one at the very top, the last
+ * one at the very bottom).
+ */
 function useSectionInView(scrollRef: RefObject<HTMLDivElement | null>, navRef: RefObject<HTMLElement | null>) {
   const [active, setActive] = useState(SECTIONS[0]!.id);
   useEffect(() => {
@@ -262,7 +361,9 @@ function useSectionInView(scrollRef: RefObject<HTMLDivElement | null>, navRef: R
         const element = container.querySelector(`#${section.id}`);
         if (element && element.getBoundingClientRect().top <= line) current = section.id;
       }
-      setActive(atBottom ? SECTIONS[SECTIONS.length - 1]!.id : current);
+      // v32 FIX-UX: at the top the job's header is in view (Your match sits in it), even with the role's start below it.
+      const atTop = container.scrollTop < 8;
+      setActive(atTop ? SECTIONS[0]!.id : atBottom ? SECTIONS[SECTIONS.length - 1]!.id : current);
     };
     onScroll();
     container.addEventListener('scroll', onScroll, { passive: true });
@@ -273,17 +374,23 @@ function useSectionInView(scrollRef: RefObject<HTMLDivElement | null>, navRef: R
 
 function JobDetailBody({
   job,
+  variant,
   toolsSlot,
   onJobsHidden,
   applyIntent,
   onApplyIntentHandled,
+  focusTitle,
+  onTitleFocused,
 }: {
   job: JobDetail;
-  /** The drawer bar's slot for the job's tools. */
+  variant: DetailVariant;
+  /** The bar's slot for the job's tools. */
   toolsSlot: HTMLDivElement | null;
   onJobsHidden: JobDetailPanelProps['onJobsHidden'];
   applyIntent: boolean;
   onApplyIntentHandled?: () => void;
+  focusTitle: boolean;
+  onTitleFocused?: () => void;
 }) {
   const toast = useToast();
   const now = useNow();
@@ -306,21 +413,32 @@ function JobDetailBody({
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [section, setSection] = useSectionInView(scrollRef, navRef);
 
-  // The drawer opened before the job was read (focus went to the drawer itself): the title takes it now. A job
-  // reached with Previous / Next leaves focus on the button pressed.
+  // The sheet opened before the job was read (focus went to the sheet itself): the title takes it now. The pane's title
+  // takes it when the page asks (a row opened with the keyboard). A job reached with Previous / Next leaves focus on the
+  // button pressed.
   useEffect(() => {
     const title = titleRef.current;
+    if (!title) return;
+    if (variant === 'pane') {
+      if (!focusTitle) return;
+      title.focus({ preventScroll: true });
+      onTitleFocused?.();
+      return;
+    }
     const active = document.activeElement;
-    if (!title || (active && active !== document.body && active !== title.closest('[data-job-drawer]'))) return;
+    if (active && active !== document.body && active !== title.closest('[data-job-drawer]')) return;
     title.focus({ preventScroll: true });
+    // Only the first job shown asks: the effect runs once per job (the body is keyed by it).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { saved, appliedOn, applicationId, hidden, companyHidden } = job.userState;
   const chip = liveChip({ active: job.active, postedAt: job.postedAt, updatedAt: job.updatedAt }, now, t);
+  const companyFacts = cardCompanyFacts(job.company);
   const levels = jobLevelsOf(job.experienceLevels, analysis);
 
   // Your match scores the resume linked to the job's application while the job is tracked (saved, or applied), else
-  // the default resume. Saving, un-saving or applying, here or from the feed, can change which: read it again.
+  // the default resume. Saving, un-saving or applying, here or from the list, can change which: read it again.
   const trackedState = `${applicationId ?? ''}|${saved}|${appliedOn ?? ''}`;
   const scoredFor = useRef(trackedState);
   const refetchInsights = insights.refetch;
@@ -369,7 +487,7 @@ function JobDetailBody({
       {
         onSuccess: () => {
           if (fromDialog) setApplyOpen(false);
-          toast.success('Marked as applied', 'We added it to your Job Tracker.');
+          toast.success('Marked as applied', 'Added to your Job Tracker.');
         },
         onError: (error) => {
           if (!fromDialog) toast.error('The job could not be marked as applied', userMessage(error));
@@ -382,11 +500,14 @@ function JobDetailBody({
     const url = jobShareUrl(window.location.origin, job.id);
     try {
       await navigator.clipboard.writeText(url);
-      toast.success('Link copied', 'Anyone signed in to TailorIT can open this job with it.');
+      toast.success('Link copied', 'Anyone signed in to TailorIT can open it.');
     } catch {
       toast.info('Copy this link', url);
     }
   };
+
+  const unhide = () =>
+    hidden ? hideJob.mutate({ jobId: job.id, hidden: false }) : hideCompany.mutate({ companyId: job.company.id, hidden: false });
 
   const hide = (kind: 'job' | 'company') => {
     const undo = () =>
@@ -397,7 +518,7 @@ function JobDetailBody({
       toast.toast({
         type: 'info',
         title: kind === 'job' ? 'Job hidden' : `Jobs from ${job.company.name} hidden`,
-        description: kind === 'job' ? "You won't see it in your search results." : "You won't see their jobs in your search results.",
+        description: "It won't show in your search.",
         action: { label: 'Undo', onClick: undo },
       });
       onJobsHidden(kind === 'job' ? { jobId: job.id } : { companyId: job.company.id });
@@ -495,9 +616,9 @@ function JobDetailBody({
       {actions}
 
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" data-drawer-scroll="">
-        <div className={clsx('pt-6 pb-6', GUTTER)} data-detail-header="">
+        <div id="job-match" className={clsx('pt-4 pb-4', GUTTER)} data-detail-header="">
           <div className="flex items-center gap-3">
-            <CompanyLogo name={job.company.name} url={job.company.logoUrl} size={40} />
+            <CompanyLogo name={job.company.name} url={job.company.logoUrl} size={36} />
             <div className="min-w-0">
               {/* v30 WEB-JOBS: the company's name opens its page (/companies/:id). */}
               <p className="truncate text-sm leading-5 font-semibold text-foreground">
@@ -509,20 +630,26 @@ function JobDetailBody({
                   {job.company.name}
                 </Link>
               </p>
-              {job.company.tagline && <p className="truncate text-[13px] leading-5 text-muted-foreground">{job.company.tagline}</p>}
+              {/* v32 FIX-UX: the company's industry and size (the list's rows leave them to the pane), else its line. */}
+              {companyFacts ? (
+                <p className="truncate text-[13px] leading-5 text-muted-foreground" data-card-company-facts="">
+                  {companyFacts}
+                </p>
+              ) : (
+                job.company.tagline && <p className="truncate text-[13px] leading-5 text-muted-foreground">{job.company.tagline}</p>
+              )}
             </div>
           </div>
 
-          <BaseDialog.Title
-            ref={titleRef}
-            tabIndex={-1}
-            className="mt-4 font-display text-[22px] leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none sm:text-2xl sm:leading-[30px]"
-            data-drawer-title=""
+          <DetailTitle
+            variant={variant}
+            titleRef={titleRef}
+            className="mt-3 font-display text-[22px] leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none sm:text-2xl sm:leading-[30px]"
           >
             {job.title}
-          </BaseDialog.Title>
+          </DetailTitle>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-2.5 flex flex-wrap items-center gap-2" data-detail-tags="">
             {job.employmentType && (
               <Tag tone="tint" dataAttrs={{ 'data-job-type-tag': '' }}>
                 {EMPLOYMENT_TYPE_LABEL[job.employmentType]}
@@ -538,40 +665,33 @@ function JobDetailBody({
             </Tag>
             {/* A job added from its page (a LinkedIn job, a careers page): Apply opens the employer's link it was saved with. */}
             <AddedFromChip addedFrom={job.addedFrom} />
+            {/* v32 JOBS2 (E4): the job's states are chips with a "?" (no banners): held for an admin (v30 X1-WEB), only
+                you (v31 JOBSWEB, with Retry read), hidden (with its way back). */}
+            <HeldNotice held={job.held} />
+            <VerificationNotice jobId={job.id} verification={job.verification} />
+            {(hidden || companyHidden) && (
+              <span className="inline-flex flex-wrap items-center gap-1.5" data-hidden-state="">
+                <Badge tone="neutral" icon={<EyeSlashIcon size={12} weight="bold" aria-hidden="true" />}>
+                  {hidden ? 'You hid this job' : `You hid ${job.company.name}`}
+                </Badge>
+                <Button variant="outline" size="sm" icon={<EyeIcon size={14} />} onClick={unhide} className="h-7 px-2.5">
+                  {hidden ? 'Unhide' : 'Show its jobs'}
+                </Button>
+              </span>
+            )}
           </div>
           {/* v30 S4: the credit line its source asks for ("Source: Himalayas"). */}
           <DetailCredit credit={job.credit} className="mt-3" />
 
-          <div className="mt-5 flex flex-col gap-3 empty:hidden">
-            {/* v30 X1-WEB: the held line (14 §4.3): a job the person added waits for an admin's approval. */}
-            <HeldNotice held={job.held} />
-            {/* v31 JOBSWEB: the person's own job TailorIT could not read: only they see it; Retry read. */}
-            <VerificationNotice jobId={job.id} verification={job.verification} />
-            {(hidden || companyHidden) && (
-              <Notice
-                tone="info"
-                title={hidden ? 'You hid this job' : `You hid jobs from ${job.company.name}`}
-                action={
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    icon={<EyeIcon size={14} />}
-                    onClick={() =>
-                      hidden
-                        ? hideJob.mutate({ jobId: job.id, hidden: false })
-                        : hideCompany.mutate({ companyId: job.company.id, hidden: false })
-                    }
-                  >
-                    {hidden ? 'Unhide this job' : `Show jobs from ${job.company.name}`}
-                  </Button>
-                }
-              >
-                It won&apos;t appear in your search results.
-              </Notice>
-            )}
-          </div>
-
-          <FactsGrid job={job} levels={levels} levelMatch={match?.levelMatch} requiredYears={analysis?.requiredYears} className="mt-5" />
+          <FactsGrid job={job} levels={levels} levelMatch={match?.levelMatch} requiredYears={analysis?.requiredYears} className="mt-3" />
+          {/* A failed poll keeps what is shown; only a first load that fails shows the error. */}
+          <MatchSection
+            match={match}
+            pending={insights.isPending}
+            error={insights.data ? null : insights.error}
+            onRetry={() => void insights.refetch()}
+            className="mt-3"
+          />
         </div>
 
         <nav
@@ -600,24 +720,15 @@ function JobDetailBody({
           </ul>
         </nav>
 
-        <div className={clsx('flex flex-col gap-10 pt-7 pb-12', GUTTER)}>
-          <div id="job-match" className="flex flex-col gap-6">
-            {/* A failed poll keeps what is shown; only a first load that fails shows the error. */}
-            <MatchSection
-              match={match}
-              pending={insights.isPending}
-              error={insights.data ? null : insights.error}
-              onRetry={() => void insights.refetch()}
-            />
-            {showTailor && <TailorSection tailor={{ jobId: job.id, company: job.company.name, title: job.title }} />}
-          </div>
-          <div id="job-role">
+        <div className={clsx('flex flex-col gap-10 pt-6 pb-12', GUTTER)}>
+          <div id="job-role" className="flex flex-col gap-8">
             <AboutJob
               analysis={analysis}
               analysisPending={insights.isPending}
               analysisFailed={insights.isError && !insights.data}
               descriptionHtml={job.descriptionHtml}
             />
+            {showTailor && <TailorSection tailor={{ jobId: job.id, company: job.company.name, title: job.title }} />}
           </div>
           <div id="job-company" className="border-t border-divider-soft pt-8">
             {/* v30 E0-WEB: the job's id, for the section's "Report company information" */}

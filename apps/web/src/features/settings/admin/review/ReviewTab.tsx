@@ -37,7 +37,8 @@ export function ReviewTab() {
   return (
     <AdminResourceTab
       title="Review"
-      description="Closed links and new jobs reported from the extension, people's flags on postings, and links TailorIT couldn't read. Approving a closed link closes it as a source's own read would; approving a new job puts it in everyone's job search."
+      // v32 FIX-API (UXREQ-9): one sentence.
+      description="Jobs, links and flags that wait for an admin: approve, reject or read them again."
       actions={
         total !== null && (
           <p className="text-sm font-medium text-foreground" data-review-total="">

@@ -7,7 +7,7 @@ import type { OAuthPageError, OAuthRequestView } from '@tailorit/shared/oauth';
 export const CONSENT_COPY = {
   pageTitle: 'Connect an AI app',
   title: (client: string) => `${client} wants to use your TailorIT account`,
-  intro: 'If you allow it, it can work with your TailorIT account from inside that app.',
+  intro: 'If you allow it, it works with your account from inside that app.',
   can: 'It will be able to',
   canItems: [
     'Search jobs and save them to your Job Tracker',
@@ -24,11 +24,11 @@ export const CONSENT_COPY = {
   unverifiedLabel: 'Not verified by TailorIT',
   unverifiedTitle: 'TailorIT could not verify this app',
   unverified: (host: string) =>
-    `TailorIT knows Claude and ChatGPT by their own addresses, and this app is neither: its name is only what it says about itself. It sends you back to ${host}. Allow it only if you know that address and you started this connection yourself.`,
+    `Its name is only what it says about itself. It sends you back to ${host}. Allow it only if you started this.`,
   loopbackTitle: 'This app runs on your computer',
   loopback: (host: string) =>
-    `After you choose, TailorIT sends you to ${host}, a program on this computer. Any program can listen there, so allow it only if you just started this connection yourself.`,
-  disconnect: 'You can disconnect it at any time in Integrations.',
+    `You go next to ${host}, where any program on this computer can listen. Allow it only if you started this.`,
+  disconnect: 'Disconnect it any time in Integrations.',
   allow: 'Allow',
   cancel: 'Cancel',
   allowing: 'Allowing...',
@@ -41,23 +41,23 @@ export const CONSENT_COPY = {
 export const CONSENT_ERRORS: Record<OAuthPageError | 'missing', { title: string; body: string }> = {
   invalid_client: {
     title: 'TailorIT does not know this app',
-    body: 'The app that sent you here did not register with TailorIT, or its description could not be read. Go back to the app and connect TailorIT again.',
+    body: 'Go back to the app and connect TailorIT again.',
   },
   invalid_redirect: {
     title: 'This app asked to send you somewhere it did not register',
-    body: 'TailorIT stopped here to keep your account safe. Go back to the app and connect TailorIT again, or tell its makers.',
+    body: 'Stopped to keep your account safe. Connect again from the app.',
   },
   invalid_request: {
     title: 'This connection request is incomplete',
-    body: 'Part of it is missing. Start the connection again from your AI app.',
+    body: 'Start the connection again from your AI app.',
   },
   temporarily_unavailable: {
     title: 'TailorIT is busy',
-    body: 'Too many connection requests came in at once. Wait a minute, then connect TailorIT again from your AI app.',
+    body: 'Wait a minute, then connect again from your AI app.',
   },
   missing: {
     title: 'There is no connection request here',
-    body: 'Connect TailorIT from Claude, ChatGPT or another AI app, and it will bring you to this page.',
+    body: 'Connect TailorIT from your AI app to come here.',
   },
 };
 

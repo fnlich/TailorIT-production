@@ -1,9 +1,8 @@
 'use client';
 
 import type { ApplicationDetail } from '@tailorit/shared';
-import { Notice } from '@/components/ui/Notice';
+import { LoadError } from '@/components/ui/LoadError';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { userMessage } from '@/lib/api';
 import { useSubmittedAnswers } from '../data';
 import { SubmittedAnswersView } from './SubmittedAnswersView';
 
@@ -12,7 +11,8 @@ export function SubmittedAnswersTab({ application }: { application: ApplicationD
   const answers = useSubmittedAnswers(application.id, true);
   if (answers.isLoading) return <Skeleton className="h-48 w-full" rounded="surface" />;
   if (answers.isError || !answers.data) {
-    return <Notice tone="error">{userMessage(answers.error, "We couldn't load your submitted answers. Please try again.")}</Notice>;
+    // v32 FIX-UX (UXREQ-13): the kit's load error, its reason in view.
+    return <LoadError thing="Your submitted answers" error={answers.error} onRetry={() => void answers.refetch()} />;
   }
   return <SubmittedAnswersView data={answers.data} />;
 }

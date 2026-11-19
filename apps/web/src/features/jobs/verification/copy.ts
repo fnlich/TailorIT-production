@@ -6,14 +6,20 @@ import type { JobVerification } from '@tailorit/shared';
 //   MSG_JOB_HELD_TITLE), as the API also sends `held: true` for it.
 // - `private_unverified`: TailorIT could not read its link, so it is the person's own, its words from their browser:
 //   LABEL_JOB_FROM_BROWSER, with MSG_JOB_ONLY_YOU_UNTIL_VERIFIED, and Retry read (POST /api/jobs/:id/verify).
+// - v32 INT-1 (E6, ADMINAPP's `admin_approved`): a job everyone sees that TailorIT could not read, published by an
+//   admin as it was captured: LABEL_JOB_APPROVED_BY_ADMIN, its "?" MSG_JOB_APPROVED_BY_ADMIN.
 
-/** Which mark an item's job carries: its own (unverified), waiting for an admin, or none (everyone sees it). */
-export type VerificationMark = 'private' | 'held' | null;
+/**
+ * Which mark an item's job carries: its own (unverified), waiting for an admin, approved by an admin (everyone sees it,
+ * as it was added), or none (everyone sees it, as TailorIT read it).
+ */
+export type VerificationMark = 'private' | 'held' | 'approved' | null;
 
 /** The mark of a job or a tracker entry (`held` and `verification` are optional fields of their DTOs). */
 export function verificationMark(item: { held?: boolean; verification?: JobVerification }): VerificationMark {
   if (item.verification?.state === 'private_unverified') return 'private';
   if (item.held === true || item.verification?.state === 'waiting_admin') return 'held';
+  if (item.verification?.state === 'admin_approved') return 'approved';
   return null;
 }
 

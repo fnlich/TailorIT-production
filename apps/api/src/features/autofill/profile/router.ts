@@ -6,7 +6,8 @@ import {
   type AutofillProfileEnvelope,
   type AutofillSensitiveEnvelope,
 } from '@tailorit/shared/autofill';
-import { isResumeTemplateId, MINUTE_MS } from '@tailorit/shared';
+import { isResumeTemplateId, MINUTE_MS, ProfileSeedBodySchema } from '@tailorit/shared';
+import { sendAccepted } from '../../../ai/index';
 import { userOf } from '../../../core/auth/guards';
 import type { AppDeps, SessionUser } from '../../../core/context';
 import { parseInput } from '../../../core/http/validate';
@@ -17,6 +18,7 @@ import { allow, perAccountLimit } from '../auth';
 import { readAutofillProfile, readSensitiveAnswers, saveAutofillProfile } from './repository';
 import { flaggedNoteLines, noteWithoutSensitive } from './note-flags';
 import { readEmail, seedAutofillProfile } from './seed';
+import { startUploadReading } from './upload-reading';
 
 // The autofill profile (work package AF), mounted at /api/autofill:
 //   GET /profile            Settings or a token (profile:read) → AutofillProfileEnvelope, never the sensitive part
@@ -25,7 +27,10 @@ import { readEmail, seedAutofillProfile } from './seed';
 //                           "Autofill information") PutAutofillProfileBody → PutAutofillProfileResponse; the
 //                           sensitive part sent and answered only for a caller that may read it (the session, or a
 //                           token with profile:sensitive too)
-//   GET /profile/seed       Settings ?resumeId= → AutofillSeed ("Fill from my resume"; writes nothing)
+//   GET /profile/seed       Settings ?resumeId= → ProfileSeedView (the seed as it stands; writes nothing)
+//   POST /profile/seed      Settings (session + Origin) {resumeId?} → "Fill from my resume" (v32 FILL): the seed
+//                           (200), or 202 {taskId} while the AI reads an uploaded file (once per file), after which
+//                           the page asks GET /profile/seed
 // The extension asks for the sensitive part only when a form asks such a question. Neither part is ever logged: the
 // log names the account, the token and the revision only.
 
@@ -101,6 +106,24 @@ export function createAutofillProfileRouter(deps: AppDeps): Router {
     const user = userOf(req);
     const { resumeId } = parseInput(AutofillSeedQuerySchema, req.query, 'query');
     const seed = await seedAutofillProfile(deps, user, resumeId);
+    const from = seed.source ? `resume ${seed.source.resumeId}` : 'the account alone';
+    deps.log.debug(`[autofill] account ${user.id} seeded its autofill profile from ${from} (${seed.filled.length} fields)`);
+    res.json(seed);
+  });
+
+  // v32 FILL: "Fill from my resume". An upload not read yet starts its reading (202 { taskId }); without AI it is
+  // seeded at once from what its text shows, with the reason in a note. The log names the account and the resume only.
+  router.post('/profile/seed', allow('session'), seedLimit, async (req, res) => {
+    const user = userOf(req);
+    const { resumeId } = parseInput(ProfileSeedBodySchema, req.body ?? {});
+    const reading = await startUploadReading(deps, user, resumeId);
+    if (reading.kind === 'started') {
+      deps.log.debug(`[autofill] account ${user.id} is having resume ${reading.resumeId} read (task ${reading.taskId})`);
+      sendAccepted(res, { taskId: reading.taskId });
+      return;
+    }
+    const unread = reading.kind === 'refused' ? { code: reading.code, message: reading.message } : undefined;
+    const seed = await seedAutofillProfile(deps, user, resumeId, unread ? { unread } : {});
     const from = seed.source ? `resume ${seed.source.resumeId}` : 'the account alone';
     deps.log.debug(`[autofill] account ${user.id} seeded its autofill profile from ${from} (${seed.filled.length} fields)`);
     res.json(seed);

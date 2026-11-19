@@ -63,7 +63,7 @@ function PromptForm({
   };
 
   return (
-    <DialogContent title={t('LABEL_LETTER_AI_NOTES')} description={AI_PROMPT_HINT} size="lg">
+    <DialogContent title={t('LABEL_LETTER_AI_NOTES')} help={AI_PROMPT_HINT} size="lg">
       <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-2">
         <Textarea
           aria-label="AI prompt"

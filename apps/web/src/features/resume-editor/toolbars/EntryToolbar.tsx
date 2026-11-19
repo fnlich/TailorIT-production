@@ -10,6 +10,7 @@ import {
 } from '@tailorit/shared/resume';
 import { memo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { GearSixIcon, PlusIcon, SparkleIcon, TrashIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
@@ -177,8 +178,11 @@ function EntrySettings({ tools, commands }: { tools: EntryTools; commands: Toolb
 function RoleSkills({ tools, skills, commands }: { tools: EntryTools; skills: readonly string[]; commands: ToolbarCommands }) {
   return (
     <div className="flex flex-col gap-2 border-t border-border px-1 pt-3" role="group" aria-label="Skills used">
-      <p className="text-xs font-medium text-muted-foreground">Skills used</p>
-      <p className="text-[13px] leading-5 text-muted-foreground">Not printed. Each skill also joins your Technical skills.</p>
+      <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        Skills used
+        {/* v32 COPY (E5) */}
+        <HelpTip label="Skills used">Not printed; each skill also joins your Technical skills.</HelpTip>
+      </p>
       <ChipAddForm
         label="Add a skill used in this role"
         placeholder="e.g. Kubernetes"
@@ -224,21 +228,22 @@ function WriteWithAiPanel({
   };
   return (
     <div className="flex flex-col gap-3 p-1">
-      <SegmentedControl
-        aria-label="Write new bullets or improve the ones there"
-        size="sm"
-        value={chosen}
-        onValueChange={setTask}
-        items={[
-          { value: 'write', label: 'Write' },
-          { value: 'improve', label: 'Improve', disabled: suggested === 'write' },
-        ]}
-      />
-      <p className="text-[13px] leading-5 text-muted-foreground">
-        {chosen === 'improve'
-          ? 'Rewrites the bullets of this entry, keeping what they say.'
-          : 'Writes bullets for this entry from its title, dates and description.'}
-      </p>
+      <div className="flex items-center gap-1.5">
+        <SegmentedControl
+          aria-label="Write new bullets or improve the ones there"
+          size="sm"
+          value={chosen}
+          onValueChange={setTask}
+          items={[
+            { value: 'write', label: 'Write' },
+            { value: 'improve', label: 'Improve', disabled: suggested === 'write' },
+          ]}
+        />
+        {/* v32 COPY (E5): what the choice does, in a "?". */}
+        <HelpTip label={chosen === 'improve' ? 'Improve' : 'Write'}>
+          {chosen === 'improve' ? 'Rewrites the bullets, keeping what they say.' : 'Writes bullets from the title, dates and description.'}
+        </HelpTip>
+      </div>
       <Input
         aria-label="A note for the AI (optional)"
         placeholder="Optional: what to bring out"

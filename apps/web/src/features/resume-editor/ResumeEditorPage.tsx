@@ -49,7 +49,7 @@ function StoredResume({ id }: { id: string }) {
         <main className={clsx('mx-auto w-full max-w-xl pt-16', PAGE_GUTTER)}>
           <Notice
             tone={missing ? 'warning' : 'error'}
-            title={missing ? 'That resume was not found' : 'Could not load this resume'}
+            title={missing ? 'That resume was not found' : "This resume didn't load."}
             action={
               <Link href={RESUMES_TAB_HREF} className={buttonClasses({ variant: 'outline', size: 'sm' })}>
                 Back to Documents

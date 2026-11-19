@@ -18,6 +18,17 @@ export interface JobVerificationEvent {
    * (`robots_disallowed`) adds nothing.
    */
   reason?: string | null;
+  /**
+   * v32 ADMINAPP (E6): a `published` job TailorIT could not read that an admin published as it was captured: the body
+   * says so (MSG_NOTIFY_JOB_APPROVED_BODY) rather than that TailorIT read it. v32 FIX-API (REV-UXREQ UXREQ-9): and so
+   * does its title (MSG_NOTIFY_JOB_APPROVED_TITLE).
+   */
+  approvedByAdmin?: boolean;
+  /**
+   * v32 FIX-API (REV-SECBEH SB-1): a `published` job that is another adder's version of the person's own job, published
+   * by an admin: theirs stays as they added it (MSG_NOTIFY_JOB_PUBLIC_VERSION_*); the link opens the published one.
+   */
+  publicVersion?: boolean;
 }
 
 const KIND_OF = {
@@ -54,12 +65,22 @@ export async function notifyJobVerification(deps: NotifyDeps, event: JobVerifica
       return 'failed';
     }
   }
-  const title: MessageKey | undefined = !job && event.state === 'refused' ? 'MSG_NOTIFY_JOB_REFUSED_UNNAMED_TITLE' : undefined;
-  if (!job && !title) return 'skipped';
+  const published = event.state === 'published';
+  // v32 FIX-API: an admin's approval, and another adder's version published, say so in their title and body.
+  const words: { title?: MessageKey; body?: readonly MessageKey[] } =
+    published && event.publicVersion
+      ? { title: 'MSG_NOTIFY_JOB_PUBLIC_VERSION_TITLE', body: ['MSG_NOTIFY_JOB_PUBLIC_VERSION_BODY'] }
+      : published && event.approvedByAdmin
+        ? { title: 'MSG_NOTIFY_JOB_APPROVED_TITLE', body: ['MSG_NOTIFY_JOB_APPROVED_BODY'] } // v32 ADMINAPP
+        : {};
+  const unnamed: MessageKey | undefined = !job && event.state === 'refused' ? 'MSG_NOTIFY_JOB_REFUSED_UNNAMED_TITLE' : undefined;
+  if (!job && !unnamed) return 'skipped';
+  const title = unnamed ?? words.title;
   return notify(deps, event.userId, {
     kind,
     params: { title: job?.title ?? '', company: job?.company ?? '' },
     ...(title ? { title } : {}),
+    ...(words.body ? { body: words.body } : {}),
     bodyExtra: isSentence(event.reason) ? event.reason : null,
     // A refused job is not listed: nothing to open.
     link: job && event.state !== 'refused' ? `/jobs?jobId=${jobId}` : null,

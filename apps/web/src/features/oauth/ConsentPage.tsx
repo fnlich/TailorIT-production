@@ -7,6 +7,7 @@ import { OAUTH_PAGE_ERRORS, type OAuthPageError, type OAuthRequestView } from '@
 import { LimitNotice } from '@/components/limits/LimitNotice';
 import { LogoMark } from '@/components/shell/Logo';
 import { Button, buttonClasses } from '@/components/ui/Button';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { CheckIcon, ShieldCheckIcon, XIcon } from '@/components/ui/icons';
 import { LetterAvatar, lettersOf } from '@/components/ui/LetterAvatar';
 import { Notice } from '@/components/ui/Notice';
@@ -96,15 +97,19 @@ function RequestPanel({ requestId, view }: { requestId: string; view: OAuthReque
         <span className="h-px w-6 border-t-[1.5px] border-dashed border-border-strong" />
         <LetterAvatar letters={lettersOf(name)} size={40} tone="tint" />
       </div>
-      <h1
-        id="oauth-consent-title"
-        ref={heading}
-        tabIndex={-1}
-        className="mt-5 font-display text-xl leading-7 font-semibold break-words text-foreground outline-none"
-      >
-        {CONSENT_COPY.title(name)}
-      </h1>
-      <p className="mt-2 text-sm text-muted-foreground">{CONSENT_COPY.intro}</p>
+      <div className="mt-5 flex items-start gap-1.5">
+        <h1
+          id="oauth-consent-title"
+          ref={heading}
+          tabIndex={-1}
+          className="min-w-0 font-display text-xl leading-7 font-semibold break-words text-foreground outline-none"
+        >
+          {CONSENT_COPY.title(name)}
+        </h1>
+        <HelpTip label={CONSENT_COPY.pageTitle} className="mt-1">
+          {CONSENT_COPY.intro}
+        </HelpTip>
+      </div>
 
       <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-control bg-surface-low p-3 text-sm">
         <dt className="text-muted-foreground">{CONSENT_COPY.clientLabel}</dt>

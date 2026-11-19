@@ -61,11 +61,11 @@ export function AddCandidatesDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent title="Add boards" description="Boards for discovery to validate: each is read once, then becomes a source if it lists jobs." size="lg">
+      <DialogContent title="Add boards" help="Each is read once, then becomes a source if it lists jobs." size="lg">
         <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
           <Field
             label="Board addresses or names"
-            hint={`One per line: a board's or a posting's address (boards.greenhouse.io/acme, jobs.lever.co/acme/…), or a board's name. ${ADMIN_CANDIDATES_ADD_MAX.toLocaleString('en-US')} at a time.`}
+            hint={`One per line, a board's address or name, ${ADMIN_CANDIDATES_ADD_MAX.toLocaleString('en-US')} at a time.`}
             error={tooMany ? `Add ${ADMIN_CANDIDATES_ADD_MAX.toLocaleString('en-US')} boards at a time.` : undefined}
           >
             <Textarea rows={6} value={text} onChange={(event) => setText(event.target.value)} placeholder="https://boards.greenhouse.io/acme" />

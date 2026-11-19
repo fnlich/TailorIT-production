@@ -35,13 +35,14 @@ export function EmptyFieldsBar({ document, highlighted, onHighlightedChange, onH
     <div
       role="region"
       aria-label="Empty fields"
+      // v32 COPY (E4): a compact row on the page's surface (a warning icon, the count, its buttons), never a coloured banner.
       className={clsx(
-        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-warning/30 bg-warning-soft px-3.5 py-2.5 text-sm text-warning-ink',
+        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-border bg-surface px-3.5 py-2 text-sm text-foreground shadow-card',
         className,
       )}
     >
       {on ? <style>{emptyFieldsCss(fields.map((field) => field.path))}</style> : null}
-      <WarningCircleIcon size={18} weight="fill" className="shrink-0" />
+      <WarningCircleIcon size={18} weight="fill" className="shrink-0 text-warning" />
       <span className="min-w-0 flex-1 font-medium">Empty fields detected: {fields.length}</span>
       <Button size="sm" variant="outline" aria-pressed={on} onClick={() => setOn(!on)}>
         {on ? 'Stop highlighting' : 'Highlight'}

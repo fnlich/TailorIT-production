@@ -113,11 +113,26 @@ function FolderCard({ tile, href, now }: { tile: FolderTile; href: string; now: 
         </span>
       </div>
       <h3 className="mt-4 truncate text-[15px] leading-6 font-semibold text-foreground tabular-nums">
-        <Link href={href} scroll={false} className="after:absolute after:inset-0 after:rounded-[inherit] focus-visible:outline-none">
+        <Link
+          href={href}
+          scroll={false}
+          aria-describedby={`folder-hint-${tile.key}`}
+          className="after:absolute after:inset-0 after:rounded-[inherit] focus-visible:outline-none"
+        >
           {tile.name}
         </Link>
       </h3>
-      <p className="line-clamp-2 text-[13px] leading-5 text-muted-foreground">{tile.hint}</p>
+      {/* v32 COPY (E5): what a folder keeps describes its link (never a visible line); a day's tile keeps its day
+          ("Yesterday"), a value. */}
+      {tile.location.date ? (
+        <p id={`folder-hint-${tile.key}`} className="line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+          {tile.hint}
+        </p>
+      ) : (
+        <span id={`folder-hint-${tile.key}`} hidden>
+          {tile.hint}
+        </span>
+      )}
       <p
         className="mt-auto flex items-center justify-between gap-2 border-t border-divider-soft pt-2.5 text-[13px] leading-5 font-medium text-foreground"
         data-folder-meta=""
@@ -165,7 +180,9 @@ export function FolderTiles({
               >
                 {tile.name}
               </Link>
-              <span className="truncate text-[13px] leading-5 text-muted-foreground">{tile.hint}</span>
+              {tile.location.date ? (
+                <span className="truncate text-[13px] leading-5 text-muted-foreground">{tile.hint}</span>
+              ) : null}
             </span>
           </span>
         ),

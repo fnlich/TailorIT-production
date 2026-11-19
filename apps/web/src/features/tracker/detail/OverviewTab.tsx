@@ -115,9 +115,7 @@ function ReadView({ application, onEdit }: { application: ApplicationDetail; onE
         {application.descriptionHtml ? (
           <div className={PROSE} dangerouslySetInnerHTML={{ __html: application.descriptionHtml }} />
         ) : (
-          <p className="text-sm text-muted-foreground">
-            No job description yet. Add one to keep the posting at hand and to see your resume score.
-          </p>
+          <p className="text-sm text-muted-foreground">No job description yet.</p>
         )}
       </section>
     </div>

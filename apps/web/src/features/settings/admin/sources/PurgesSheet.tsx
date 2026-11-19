@@ -50,13 +50,13 @@ export function PurgesSheet({ open, onOpenChange }: { open: boolean; onOpenChang
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         title="Purges"
-        description="Sources purged when a contract ended, an employer opted out or the terms changed. Each purge runs in batches."
+        help="Sources purged when a contract ended, an employer opted out or the terms changed."
         icon={<TrashIcon size={20} />}
       >
         <div className="flex flex-col gap-4">
           <Select aria-label="Purge state" options={STATE_OPTIONS} value={state} onValueChange={setState} className="w-48" />
           {purges.error ? (
-            <Notice tone="error" title="The purges could not be loaded">
+            <Notice tone="error" title="The purges didn't load.">
               {userMessage(purges.error)}
             </Notice>
           ) : !purges.data ? (
@@ -65,7 +65,7 @@ export function PurgesSheet({ open, onOpenChange }: { open: boolean; onOpenChang
               <Skeleton className="h-16 w-full" />
             </div>
           ) : items.length === 0 ? (
-            <EmptyState size="sm" title="No purges" description="Purge a source from its menu on the Sources tab." />
+            <EmptyState size="sm" title="No purges" description="Purge a source from its menu on Sources." />
           ) : (
             <ul className="flex flex-col divide-y divide-divider-soft rounded-card border border-border" aria-label="Purges">
               {items.map((purge) => (

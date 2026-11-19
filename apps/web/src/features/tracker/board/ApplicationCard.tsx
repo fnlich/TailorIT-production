@@ -162,7 +162,8 @@ export function StageTime({ application, id, className }: { application: Applica
   if (!time) return null;
   return (
     <span id={id} title={time.long} data-stage-time="" className={clsx('inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground', className)}>
-      <ClockIcon size={13} aria-hidden="true" />
+      {/* v32 LAYOUT: a narrow board card (below 19 rem) leaves the clock out, so the next step keeps the room. */}
+      <ClockIcon size={13} aria-hidden="true" className="@max-[19rem]/card:hidden" />
       <span aria-hidden="true" className="num">
         {time.short}
       </span>
@@ -217,17 +218,18 @@ export function CardFace({
       </div>
       {/* v30 FIX-WEB (REQ-1): the credit its source asks for. */}
       <div className="relative z-10 empty:hidden">
-        <RowCredit credit={creditOf(application)} className="mt-1.5 pl-12" />
+        <RowCredit credit={creditOf(application)} className={clsx('mt-1.5', UNDER_TITLE)} />
       </div>
-      <div className="mt-2.5 flex min-h-8 items-center gap-1 pl-12">
-        <div id={footId} className="flex min-w-0 flex-1 items-center justify-between gap-2">
+      <div className={clsx('mt-2.5 flex min-h-8 items-center gap-1', UNDER_TITLE)}>
+        {/* v32 LAYOUT: a wide card (from 26 rem) keeps the time beside the next step, the actions at its end. */}
+        <div id={footId} className="flex min-w-0 flex-1 items-center justify-between gap-2 @min-[26rem]/card:justify-start @min-[26rem]/card:gap-3">
           <NextStepTag status={shown} />
           <StageTime application={application} />
         </div>
         {actions}
       </div>
       {(held || closed || showMarker) && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-12">
+        <div className={clsx('mt-2 flex flex-wrap items-center gap-1.5', UNDER_TITLE)}>
           {/* v31 JOBSWEB: "Waiting for approval", or "From your browser, not verified" for the person's own job. */}
           <VerificationBadge held={application.held} verification={application.verification} sentenceId={heldSentenceId} />
           <ClosedBadge closed={closed} sentenceId={closedSentenceId} />
@@ -238,8 +240,18 @@ export function CardFace({
   );
 }
 
-/** A card's shape (its colours and shadow are the caller's: one of each, so no two utilities of a property meet). */
-export const CARD_SURFACE = 'rounded-card border p-3.5';
+/**
+ * A card's shape (its colours and shadow are the caller's: one of each, so no two utilities of a property meet). v32
+ * LAYOUT (E9): a size container (`card`), so its face lays out by the card's width, which follows its lane's.
+ */
+export const CARD_SURFACE = '@container/card rounded-card border p-3.5';
+
+/**
+ * v32 LAYOUT (E9): what sits under the title (the credit, the foot, the marks) lines up with the title from a 21 rem
+ * card; a narrower card (lanes share the board's width, down to 18 rem) gives it the card's whole width, so the next
+ * step ("→ Prep the interview") is read in full beside the time in the stage and the actions.
+ */
+const UNDER_TITLE = '@min-[21rem]/card:pl-12';
 
 /**
  * v30 FIX-WEB (REV-UX UX-8): a board card's accessible name: its title and company, then the marks it shows in words

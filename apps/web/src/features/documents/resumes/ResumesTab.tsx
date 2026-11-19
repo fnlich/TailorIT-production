@@ -343,7 +343,7 @@ export function ResumesTab() {
           listQuery.isError ? (
             <Notice
               tone="error"
-              title="Could not load your resumes"
+              title="Your resumes didn't load."
               action={
                 <Button variant="outline" size="sm" loading={listQuery.isFetching} onClick={() => void listQuery.refetch()}>
                   Try again

@@ -55,7 +55,7 @@ export function SubmittedAnswersView({ data }: { data: SubmittedAnswersResponse 
           size="sm"
           icon={<PaperPlaneTiltIcon size={20} />}
           title="No answers stored for this application yet."
-          description="When you submit this application with the TailorIT extension, its questions and your answers appear here."
+          description="Shown once you apply with the extension."
         />
       </div>
     );

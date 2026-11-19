@@ -1,7 +1,8 @@
 'use client';
 
-import type { HeaderSummary, Notification } from '@tailorit/shared/notifications';
+import type { Notification } from '@tailorit/shared/notifications';
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import type { HeaderSummaryRead } from './api';
 import { allRead, markedRead } from './view';
 
 // v3.1 HEADER: the header's usage chip and bell on given data, with no request at all: the development kit (/dev/kit
@@ -9,7 +10,8 @@ import { allRead, markedRead } from './view';
 // given data in memory. Every page of the app reads the API instead (no provider: the slots' default).
 
 export interface HeaderPreviewData {
-  summary: HeaderSummary;
+  /** As GET /api/me/header answers (v32 SHELL: `ai.percent`, or the micros of a v3.1 API). */
+  summary: HeaderSummaryRead;
   /** Newest first, as GET /api/notifications answers. */
   notifications: Notification[];
   /** AI_USE_WARNING_PERCENT (the app reads the public constants). */

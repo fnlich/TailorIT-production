@@ -24,12 +24,12 @@ export function SiteRequestsSection() {
   return (
     <Section
       title="Sites you asked to support"
-      description="On a page the extension cannot fill yet, its side panel offers “Ask TailorIT to support this site”. Each site you asked about is listed here by its host name alone, never the page’s address."
+      description="Sites you asked for from the extension's side panel, by host name only."
     >
       {requests.isError ? (
         <Notice
           tone="error"
-          title="The sites you asked about could not be loaded"
+          title="The sites you asked about didn't load."
           action={
             <Button variant="outline" size="sm" onClick={() => void requests.refetch()}>
               Try again
@@ -47,7 +47,7 @@ export function SiteRequestsSection() {
         <EmptyState
           icon={<GlobeIcon size={24} />}
           title="No sites asked about yet"
-          description="When the extension cannot fill a job site, ask TailorIT to support it from the extension’s side panel."
+          description="Ask from the extension's side panel on a site it can't fill."
           variant="dashed"
           size="sm"
         />

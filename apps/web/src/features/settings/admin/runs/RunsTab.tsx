@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { ArrowsClockwiseIcon, CaretDownIcon, CaretRightIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -66,39 +67,32 @@ function RunsBar({ now, state }: { now: number; state: ReturnType<typeof useRuns
   const text = runsBarText(state.paused, now);
   return (
     <div className="mb-4" data-runs-state={state.paused ? 'paused' : 'running'}>
-      {state.paused ? (
-        <Notice
-          tone="warning"
-          title={text.title}
-          action={
-            <Button
-              ref={continueButton}
-              size="sm"
-              icon={<PlayIcon size={14} weight="fill" />}
-              loading={state.continueAll.isPending}
-              onClick={() => state.continueAll.mutate()}
-              data-runs-continue-all=""
-            >
-              Continue
-            </Button>
-          }
-        >
-          {text.description}
-        </Notice>
-      ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-card">
-          <div className="flex min-w-0 flex-1 basis-60 items-start gap-3 text-sm leading-5">
-            <span aria-hidden="true" className="mt-1.5 size-2.5 shrink-0 rounded-full bg-success" />
-            <div className="min-w-0">
-              <p className="font-semibold text-foreground">{text.title}</p>
-              <p className="text-[13px] text-muted-foreground">{text.description}</p>
-            </div>
-          </div>
+      {/* v32 COPY (E4/E5): one status bar for both states (a dot, the state, its "?"), never an amber banner. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-card">
+        <div className="flex min-w-0 flex-1 basis-60 items-center gap-3 text-sm leading-5">
+          <span aria-hidden="true" className={clsx('size-2.5 shrink-0 rounded-full', state.paused ? 'bg-warning' : 'bg-success')} />
+          <p className="flex min-w-0 items-center gap-1.5 font-semibold text-foreground">
+            {text.title}
+            <HelpTip label={text.title}>{text.description}</HelpTip>
+          </p>
+        </div>
+        {state.paused ? (
+          <Button
+            ref={continueButton}
+            size="sm"
+            icon={<PlayIcon size={14} weight="fill" />}
+            loading={state.continueAll.isPending}
+            onClick={() => state.continueAll.mutate()}
+            data-runs-continue-all=""
+          >
+            Continue
+          </Button>
+        ) : (
           <Button variant="outline" size="sm" icon={<PauseIcon size={14} weight="fill" />} onClick={() => setConfirming(true)} data-runs-pause-all="">
             Pause all
           </Button>
-        </div>
-      )}
+        )}
+      </div>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
@@ -358,7 +352,7 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
       }
       items={runs.data ? items : undefined}
       error={runs.error}
-      errorTitle="The runs could not be loaded"
+      errorTitle="Runs didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
           Try again
@@ -366,8 +360,8 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
       }
       empty={
         sourceId !== null || kinds.length > 0 || statuses.length > 0
-          ? { size: 'sm', title: 'No run matches', description: 'Try another source, kind or status.' }
-          : { size: 'sm', title: 'No runs yet', description: 'Run a source from the Sources tab, or import a file.' }
+          ? { size: 'sm', title: 'No run matches', description: 'Try other filters.' }
+          : { size: 'sm', title: 'No runs yet', description: 'Run a source from Sources, or import links.' }
       }
       tableLabel="Ingest runs"
       columns={columns}

@@ -3,6 +3,7 @@ import { constantsOf } from '../../core/constants/index';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries, DbTx } from '../../core/db/types';
 import { projectJobs } from './project-job';
+import { ROW_SOURCE_KINDS } from './types';
 
 // v30 S1-API: the daily unverified sweep (12-job-sourcing.md §8.3, 11-database.md §5.3, 14 §5.3 step 4). A job no
 // source has verified for JOB_UNVERIFIED_HIDE_DAYS leaves search but stays open (its source may be failing; people keep
@@ -22,11 +23,29 @@ import { projectJobs } from './project-job';
 // (the failing sources, the never-run ones: Add job's disabled boards, published page jobs), in batches of
 // UNVERIFIED_BATCH jobs. A source's next complete run brings its jobs back at once (clearUnverifiedOf, from the run's
 // finish); the sweep's first pass brings back any other job verified again (a re-check, a re-add).
+//
+// v32 FIX-API (REV-SECBEH SB-4, the coordinator's decision of 2026-11-18): a job an admin approved as captured
+// (job_admin_approvals: its words a person's, never TailorIT's read) has only its adder's `page` link, which the sweep
+// exempts. So an approval verifies its job for ADMIN_APPROVED_JOB_DAYS only: then the sweep's third pass takes the job
+// out of search (still open, in its trackers), and the first pass never brings it back, while no link of a source
+// TailorIT reads is live on it. Approved again (Admin › Review › Couldn't verify lists it again), it comes back; read
+// by TailorIT (the weekly re-read, jobs/add/approved.ts), it becomes a job like any other and its approval goes.
 
 /** Kinds whose links verify their jobs for good: imports, the demo seed, a person's own page job. */
 export const UNVERIFIED_EXEMPT_KINDS: readonly string[] = ['csv', 'json', 'seed', 'page'];
 /** Jobs one transaction of the sweep marks or clears. */
 export const UNVERIFIED_BATCH = 1000;
+
+/** v32 FIX-API (SB-4): the kinds whose links are no read of TailorIT's (a person's page, a row, the demo seed). */
+const UNREAD_KINDS = ['page', 'seed', ...ROW_SOURCE_KINDS].join(',');
+
+/**
+ * v32 FIX-API (SB-4): the SQL condition "job `j`'s admin approval ran out" (approved before @approvedCutoff) and no link
+ * of a source TailorIT reads is live on it (@unread: UNREAD_KINDS).
+ */
+const APPROVAL_RAN_OUT = `(EXISTS (SELECT 1 FROM job_admin_approvals aa WHERE aa.job_id = j.id AND aa.approved_at < CAST(@approvedCutoff AS timestamptz))
+  AND NOT EXISTS (SELECT 1 FROM job_source_links rl JOIN job_sources rs ON rs.id = rl.source_id
+                  WHERE rl.job_id = j.id AND rl.missing_since IS NULL AND NOT (rs.kind = ANY(string_to_array(@unread, ',')))))`;
 
 /** When the job `j` was last verified (see the top); NULL when never. Exempt links count as always. */
 const VERIFIED_AT = `GREATEST(
@@ -67,6 +86,11 @@ function cutoffOf(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'service
   return new Date(deps.now().getTime() - constantsOf(deps).get('JOB_UNVERIFIED_HIDE_DAYS') * 86_400_000).toISOString();
 }
 
+/** v32 FIX-API (SB-4): an approval made before it has run out. */
+function approvedCutoffOf(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>): string {
+  return new Date(deps.now().getTime() - constantsOf(deps).get('ADMIN_APPROVED_JOB_DAYS') * 86_400_000).toISOString();
+}
+
 /** The next batch of jobs to look at, by id after `after`. */
 type Batch = (db: DbQueries, after: number) => Promise<number[]>;
 
@@ -84,10 +108,13 @@ async function inBatches(deps: Pick<AppDeps, 'db'>, batch: Batch, write: (t: DbT
 
 /**
  * The daily sweep (see the top): first the unverified jobs verified again come back, then the open, shared, unheld jobs
- * of sources with no complete run in the window that nothing else verified leave search. Answers the jobs changed.
+ * of sources with no complete run in the window that nothing else verified leave search; v32 FIX-API (SB-4): then the
+ * jobs whose admin approval ran out. Answers the jobs changed.
  */
 export async function sweepUnverified(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>): Promise<number> {
   const cutoff = cutoffOf(deps);
+  const approvedCutoff = approvedCutoffOf(deps);
+  const unread = UNREAD_KINDS;
   const now = nowIso(deps);
   const exempt = UNVERIFIED_EXEMPT_KINDS.join(',');
   const back = await inBatches(
@@ -104,8 +131,9 @@ export async function sweepUnverified(deps: Pick<AppDeps, 'db' | 'config' | 'log
         `UPDATE jobs j SET unverified_since = NULL
          WHERE j.id = ANY(CAST(string_to_array(@ids, ',') AS bigint[])) AND j.unverified_since IS NOT NULL
            AND COALESCE(${VERIFIED_AT}, CAST('-infinity' AS timestamptz)) >= CAST(@cutoff AS timestamptz)
+           AND NOT ${APPROVAL_RAN_OUT}
          RETURNING j.id`,
-        { ids: ids.join(','), cutoff, exempt },
+        { ids: ids.join(','), cutoff, exempt, approvedCutoff, unread },
       );
       await projectJobs(
         t,
@@ -145,8 +173,38 @@ export async function sweepUnverified(deps: Pick<AppDeps, 'db' | 'config' | 'log
       return rows.length;
     },
   );
-  if (back || gone) deps.log.info(`[ingest] unverified sweep: ${gone} job(s) out of search, ${back} back in`);
-  return back + gone;
+  // v32 FIX-API (SB-4): the jobs whose admin approval ran out (few: approved by hand) leave search, still open.
+  const ranOut = await inBatches(
+    deps,
+    async (db, after) =>
+      (
+        await db.all<{ job_id: number }>(
+          `SELECT aa.job_id FROM job_admin_approvals aa
+           WHERE aa.approved_at < CAST(@approvedCutoff AS timestamptz) AND aa.job_id > @after ORDER BY aa.job_id LIMIT @limit`,
+          { approvedCutoff, after, limit: UNVERIFIED_BATCH },
+        )
+      ).map((row) => Number(row.job_id)),
+    async (t, ids) => {
+      const rows = await t.all<{ id: number }>(
+        `UPDATE jobs j SET unverified_since = CAST(@now AS timestamptz)
+         WHERE j.id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))
+           AND j.active AND j.held_since IS NULL AND j.owner_user_id IS NULL AND j.superseded_by IS NULL AND j.unverified_since IS NULL
+           AND ${APPROVAL_RAN_OUT}
+         RETURNING j.id`,
+        { ids: ids.join(','), now, approvedCutoff, unread },
+      );
+      await projectJobs(
+        t,
+        rows.map((row) => row.id),
+      );
+      return rows.length;
+    },
+  );
+  if (back || gone || ranOut) {
+    const approvals = ranOut > 0 ? ` (${ranOut} admin approval(s) ran out)` : '';
+    deps.log.info(`[ingest] unverified sweep: ${gone + ranOut} job(s) out of search, ${back} back in${approvals}`);
+  }
+  return back + gone + ranOut;
 }
 
 /** The daily housekeeping's step (Feature.daily): `ingest.unverified`. */

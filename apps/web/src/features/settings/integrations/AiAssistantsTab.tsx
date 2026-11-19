@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { Field } from '@/components/ui/Field';
 import { CaretDownIcon, CheckCircleIcon, CopyIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -60,7 +61,7 @@ export function McpServerCard({ address }: { address: McpAddress }) {
   const toast = useToast();
   const copy = async (endpoint: string) => {
     if (await copyText(endpoint)) toast.success(CONNECT_COPY.copied);
-    else toast.info('Copy the address by hand', 'Your browser did not let TailorIT copy it.');
+    else toast.info('Copy the address by hand', "Your browser didn't allow copying.");
   };
   return (
     <IntegrationSection
@@ -200,16 +201,18 @@ export function ClientCard({
         <ClientMark kind={client.kind} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 id={nameId} className="text-[15px] leading-5 font-semibold text-foreground">
-              {client.name}
-            </h3>
+            <span className="flex items-center gap-1.5">
+              <h3 id={nameId} className="text-[15px] leading-5 font-semibold text-foreground">
+                {client.name}
+              </h3>
+              <HelpTip label={client.name}>{client.summary}</HelpTip>
+            </span>
             {connected && (
               <Badge tone="success" icon={<CheckCircleIcon size={12} weight="fill" aria-hidden />}>
                 {AI_COPY.connectedBadge}
               </Badge>
             )}
           </div>
-          <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{client.summary}</p>
         </div>
       </div>
       <div className="mt-auto flex flex-wrap justify-end gap-2">
@@ -259,16 +262,17 @@ function Advanced({
         >
           <span className="min-w-0 flex-1">
             <span className="block">{AI_COPY.advancedToggle}</span>
-            <span className="mt-0.5 block text-[13px] font-normal text-muted-foreground">
-              {AI_COPY.advancedHint}
-              {counted && ` · ${counted}`}
-            </span>
+            {counted && <span className="mt-0.5 block text-[13px] font-normal text-muted-foreground">{counted}</span>}
           </span>
           <CaretDownIcon size={18} aria-hidden className={clsx('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
         </button>
       </h2>
       <div id={panelId} role="region" aria-label={AI_COPY.tokensTitle} hidden={!open} className="border-t border-divider-soft px-5 pt-4 pb-5">
-        <p className="mb-5 text-[13px] leading-5 text-muted-foreground">{AI_COPY.tokensDescription}</p>
+        {/* v32 COPY (E5): who the tokens are for is the "?" beside the panel's name. */}
+        <p className="mb-4 flex items-center gap-1.5 text-sm leading-5 font-medium text-foreground">
+          {AI_COPY.tokensTitle}
+          <HelpTip label={AI_COPY.tokensTitle}>{AI_COPY.tokensDescription}</HelpTip>
+        </p>
         <PersonalTokens />
       </div>
     </Card>

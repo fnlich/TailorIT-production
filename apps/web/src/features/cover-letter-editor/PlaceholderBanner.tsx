@@ -9,14 +9,15 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
+import { HelpTip } from '@/components/ui/HelpTip';
 import { WarningCircleIcon } from '@/components/ui/icons';
 import { Textarea } from '@/components/ui/Input';
 import { usePublicConstants } from '@/lib/constants';
 
 /**
- * The "A few blanks left to fill" banner over the paper (v31 FIX-DOCS: MSG_LETTER_BLANKS_TITLE / _TEXT), in the warning notice's look (warning-soft, warning ink, a 3 px leading
- * bar): one chip per `{{TAG}}` still in the letter; a chip opens "Replace placeholder", which replaces every copy of
- * that tag.
+ * The "A few blanks left to fill" line over the paper (v31 FIX-DOCS: MSG_LETTER_BLANKS_TITLE / _TEXT): one chip per
+ * `{{TAG}}` still in the letter; a chip opens "Replace placeholder", which replaces every copy of that tag. v32 COPY
+ * (E4/E5): a compact row (a warning icon, the title, its sentence in a "?", the chips), never a coloured banner.
  */
 export function PlaceholderBanner({ names, onPick }: { names: readonly string[]; onPick: (name: string) => void }) {
   const { t } = usePublicConstants();
@@ -25,13 +26,15 @@ export function PlaceholderBanner({ names, onPick }: { names: readonly string[];
     <section
       aria-label="Unfilled placeholders"
       data-placeholder-banner=""
-      className="flex items-start gap-3 rounded-control border-l-[3px] border-warning bg-warning-soft px-4 py-3.5 text-warning-ink"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm leading-5"
     >
-      <WarningCircleIcon size={20} weight="fill" className="mt-0.5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm leading-5 font-semibold">{t('MSG_LETTER_BLANKS_TITLE')}</p>
-        <p className="text-[13px] leading-5">{t('MSG_LETTER_BLANKS_TEXT')}</p>
-        <ul className="mt-2.5 flex flex-wrap gap-2">
+      <span className="flex items-center gap-1.5">
+        <WarningCircleIcon size={18} weight="fill" className="shrink-0 text-warning" aria-hidden="true" />
+        <p className="font-semibold text-foreground">{t('MSG_LETTER_BLANKS_TITLE')}</p>
+        <HelpTip label={t('MSG_LETTER_BLANKS_TITLE')}>{t('MSG_LETTER_BLANKS_TEXT')}</HelpTip>
+      </span>
+      <div className="min-w-0">
+        <ul className="flex flex-wrap gap-2">
           {names.map((name) => (
             <li key={name}>
               <button
@@ -76,7 +79,7 @@ function ReplaceForm({ name, onClose, onApply }: { name: string; onClose: () => 
     onClose();
   };
   return (
-    <DialogContent title={REPLACE_PLACEHOLDER_TITLE} description={replacePlaceholderHint(name)} size="md">
+    <DialogContent title={REPLACE_PLACEHOLDER_TITLE} help={replacePlaceholderHint(name)} size="md">
       <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
         <Field label={definition?.label ?? name} hint={definition?.description}>
           <Textarea

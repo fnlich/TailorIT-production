@@ -18,6 +18,8 @@ export interface PaneProps {
   count: number | null;
   /** The controls under the title: the filter tabs, Filters, Select, Clear finished. */
   controls?: ReactNode;
+  /** v32 LAYOUT (E4): a small state beside the title (the "Out of date" mark of a refresh that failed). */
+  status?: ReactNode;
   /** Wide screens: the list scrolls inside the pane. Tabs (narrow screens): the page scrolls. */
   scroll: boolean;
   /** A bar stuck to the pane's bottom (the select mode's action bar: SelectBar). */
@@ -26,7 +28,7 @@ export interface PaneProps {
   className?: string;
 }
 
-export function Pane({ id, title, count, controls, scroll, footer, children, className }: PaneProps) {
+export function Pane({ id, title, count, controls, status, scroll, footer, children, className }: PaneProps) {
   return (
     <section
       aria-labelledby={id}
@@ -38,15 +40,18 @@ export function Pane({ id, title, count, controls, scroll, footer, children, cla
           !scroll && 'sticky top-topbar z-10',
         )}
       >
-        <div className="flex items-baseline gap-2">
-          <h2 id={id} className="text-heading font-semibold text-foreground">
-            {title}
-          </h2>
-          {count !== null && (
-            <span className="num text-sm text-muted-foreground" data-pane-count="">
-              {count}
-            </span>
-          )}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="flex items-baseline gap-2">
+            <h2 id={id} className="text-heading font-semibold text-foreground">
+              {title}
+            </h2>
+            {count !== null && (
+              <span className="num text-sm text-muted-foreground" data-pane-count="">
+                {count}
+              </span>
+            )}
+          </div>
+          {status}
         </div>
         {controls}
       </header>

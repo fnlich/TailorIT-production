@@ -11,7 +11,8 @@ import Link from 'next/link';
 import { useCallback, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
-import { ArrowSquareOutIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { ArrowSquareOutIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Sheet, SheetContent } from '@/components/ui/Sheet';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -120,7 +121,7 @@ export function CompanyEditor({
         {company.error && !data ? (
           <Notice
             tone="error"
-            title="The company could not be loaded"
+            title="The company didn't load."
             action={
               <Button variant="outline" size="sm" onClick={() => void company.refetch()}>
                 Try again
@@ -137,23 +138,27 @@ export function CompanyEditor({
           </div>
         ) : (
           <div className="flex flex-col gap-6" data-company-editor={data.id}>
+            {/* v32 COPY (E4): the company's states are chips with a "?", not banners. */}
             {data.mergedIntoId !== null && (
-              <Notice
-                tone="warning"
-                title={`Merged into company ${data.mergedIntoId}`}
-                action={
-                  <Button variant="outline" size="sm" onClick={() => onOpenCompany(data.mergedIntoId!)}>
-                    Open it
-                  </Button>
-                }
-              >
-                Its jobs and links follow that company.
-              </Notice>
+              <span className="flex flex-wrap items-center gap-2" data-company-merged={data.mergedIntoId}>
+                <span className="flex items-center gap-1">
+                  <Badge tone="warning" icon={<WarningCircleIcon size={12} weight="fill" aria-hidden="true" />}>
+                    {`Merged into company ${data.mergedIntoId}`}
+                  </Badge>
+                  <HelpTip label={`Merged into company ${data.mergedIntoId}`}>Its jobs and links follow that company.</HelpTip>
+                </span>
+                <Button variant="outline" size="sm" onClick={() => onOpenCompany(data.mergedIntoId!)}>
+                  Open it
+                </Button>
+              </span>
             )}
             {data.doNotFetch && (
-              <Notice tone="warning" title="Opted out">
-                No outside lookup reads this company; its domains are on the opt-out list.
-              </Notice>
+              <span className="flex items-center gap-1" data-company-opted-out="">
+                <Badge tone="warning" icon={<WarningCircleIcon size={12} weight="fill" aria-hidden="true" />}>
+                  Opted out
+                </Badge>
+                <HelpTip label="Opted out">No outside lookup reads this company; its domains are on the opt-out list.</HelpTip>
+              </span>
             )}
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4" aria-label="At a glance">
               <Glance label="Open jobs" value={data.counts.openJobs.toLocaleString('en-US')} />
@@ -290,7 +295,7 @@ function RelationsSection({ company, onOpenCompany }: { company: AdminCompany; o
 /** The keys that point at the company (company_aliases); a strong key points at this company only. */
 function AliasesSection({ company }: { company: AdminCompany }) {
   return (
-    <EditorSection title="Keys" description="What points at this company: boards, domains and registry ids are strong (one company each); names are weak (several companies may share one).">
+    <EditorSection title="Keys" description="Boards, domains and ids point at one company; names may be shared.">
       {company.aliases.length === 0 ? (
         <p className="text-sm text-muted-foreground">No keys yet.</p>
       ) : (
@@ -320,7 +325,7 @@ const SOURCE_STATUS_LABEL = { ok: 'Read', not_found: 'Not found', blocked: 'Bloc
 /** Every source's answer (company_sources): its kind, reference, licence, how it went and when. */
 function SourcesSection({ company }: { company: AdminCompany }) {
   return (
-    <EditorSection title="Sources" description="Each source's last answer for this company, with its licence. A field above names the source it came from.">
+    <EditorSection title="Sources" description="Each source's last answer for this company, with its licence.">
       {company.sources.length === 0 ? (
         <p className="text-sm text-muted-foreground">No source has been read yet.</p>
       ) : (

@@ -609,7 +609,9 @@ export async function addFromPage(
   // The resume the person chose in the extension, when it is theirs, is the entry's as it is made or brought back.
   const own = request.resumeId !== undefined && (await ownsResume(deps, userId, request.resumeId));
   await saveToTracker(deps, userId, target, own ? request.resumeId : undefined);
-  await reviewPageJob(deps, userId, target, page, via, unread);
+  // v32 FIX-API (REV-SECBEH SB-2): the note names the address the job was stored with (`stored`: the page's own when the
+  // employer's posting is gone, U11), never a dead employer link an approval would check in its place.
+  await reviewPageJob(deps, userId, target, stored, via, unread);
   const asked = {
     url: request.url,
     includePostingText: false,
