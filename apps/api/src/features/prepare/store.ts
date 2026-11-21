@@ -41,7 +41,23 @@ export interface PrepareRow {
   started_at: string | null;
   finished_at: string | null;
   updated_at: string;
+  // v33 SHARE-5 (PLAN F9; migration 0049): who started the Prepare (its payer: B on a profile A shared with them; the
+  // owner for their own) and the grant it runs under (null for the owner's own). Read rows always hold them; a row
+  // written without them is the owner's own (insertPrepare, and 0049's trigger).
+  started_by?: string;
+  grant_id?: string | null;
+  /**
+   * v33 SHARE-5 (the review's decision 7; migration 0051): the payer's own refusal in its own words, on a Prepare of a
+   * share their own limit stopped (reason `payer_limit`); shown to the payer alone (prepareErrorFor).
+   */
+  payer_error?: string | null;
 }
+
+/** v33 SHARE-5: who started a Prepare (its payer): `started_by`, else (a row built without it) its owner. */
+export const startedByOf = (row: Pick<PrepareRow, 'user_id' | 'started_by'>): string => row.started_by ?? row.user_id;
+
+/** v33 SHARE-5: whether someone the profile is shared with started this Prepare (not its owner). */
+export const isGranteeRow = (row: Pick<PrepareRow, 'user_id' | 'started_by'>): boolean => startedByOf(row) !== row.user_id;
 
 /** An application_drafts row: the kit. */
 export interface DraftRow {
@@ -130,12 +146,14 @@ export async function insertPrepare(db: DbQueries, row: PrepareRow): Promise<boo
   const inserted = await db.one<{ id: string }>(
     db.dialect.insertOrIgnore(
       `prepare_jobs(id, user_id, application_id, job_id, mode, letter_mode, letter_wanted, rebuild, state,
-         reason_code, error, queue_id, cost_micros, resume_mode, resume_id, created_at, started_at, finished_at, updated_at)
+         reason_code, error, queue_id, cost_micros, resume_mode, resume_id, created_at, started_at, finished_at, updated_at,
+         started_by, grant_id)
        VALUES (@id, @user_id, @application_id, @job_id, @mode, @letter_mode, @letter_wanted, @rebuild, @state,
          @reason_code, @error, @queue_id, @cost_micros, @resume_mode, @resume_id, @created_at, @started_at, @finished_at,
-         @updated_at)`,
+         @updated_at, @started_by, @grant_id)`,
     ) + ' RETURNING id',
-    { ...row },
+    // v33 SHARE-5: the payer columns written out (an own Prepare names its owner and no grant).
+    { ...row, started_by: startedByOf(row), grant_id: row.grant_id ?? null },
   );
   return inserted !== undefined;
 }
@@ -151,6 +169,7 @@ export type PrepareChanges = Partial<
     | 'resume_id'
     | 'started_at'
     | 'finished_at'
+    | 'payer_error' // v33 SHARE-5
   >
 >;
 
@@ -158,6 +177,7 @@ export async function updatePrepare(db: DbQueries, id: string, changes: PrepareC
   const columns = { ...changes };
   if (typeof columns.error === 'string') columns.error = columns.error.slice(0, MAX_ERROR);
   const keys = Object.keys(columns) as Array<keyof PrepareChanges>;
+  if (typeof columns.payer_error === 'string') columns.payer_error = columns.payer_error.slice(0, MAX_ERROR); // v33 SHARE-5
   const sets = [...keys.map((key) => `${key} = @${key}`), 'updated_at = @now'];
   await db.run(`UPDATE prepare_jobs SET ${sets.join(', ')} WHERE id = @id`, { ...columns, id, now });
 }
@@ -181,13 +201,17 @@ export async function waitingServerRows(db: DbQueries, userId: string): Promise<
   );
 }
 
-/** FREE_/PAID_PREPARE_PER_HOUR's count: the account's `server` Prepares started since `since`, and the oldest. */
-export async function serverStartsSince(db: DbQueries, userId: string, since: string): Promise<{ n: number; first: string | null }> {
+/**
+ * FREE_/PAID_PREPARE_PER_HOUR's count: the `server` Prepares `startedBy` started since `since`, and the oldest. v33
+ * SHARE-5: counted by who started them (started_by, idx_prepare_jobs_started_by), on every profile they work on (their
+ * own and the ones shared with them): the person is paced once, never once per profile.
+ */
+export async function serverStartsSince(db: DbQueries, startedBy: string, since: string): Promise<{ n: number; first: string | null }> {
   return (
     (await db.one<{ n: number; first: string | null }>(
       `SELECT count(*) AS n, min(started_at) AS first FROM prepare_jobs
-        WHERE user_id = ? AND mode = 'server' AND started_at IS NOT NULL AND started_at >= ?`,
-      [userId, since],
+        WHERE started_by = ? AND mode = 'server' AND started_at IS NOT NULL AND started_at >= ?`,
+      [startedBy, since],
     )) ?? { n: 0, first: null }
   );
 }
@@ -195,12 +219,15 @@ export async function serverStartsSince(db: DbQueries, userId: string, since: st
 /** Whether the row was taken up (under way). */
 export const isUnderWay = (row: Pick<PrepareRow, 'state'>) => UNDER_WAY.has(row.state);
 
-/** The account's `mcp` Prepares waiting for its own AI (waiting or building), oldest first. */
-export async function mcpActiveRows(db: DbQueries, userId: string): Promise<PrepareRow[]> {
+/**
+ * The account's `mcp` Prepares waiting for an own AI (waiting or building), oldest first. v33 SHARE-5: those `startedBy`
+ * started (the owner's own unless named): each person's AI finishes its own Prepares only.
+ */
+export async function mcpActiveRows(db: DbQueries, userId: string, startedBy: string = userId): Promise<PrepareRow[]> {
   return db.all<PrepareRow>(
-    `SELECT * FROM prepare_jobs WHERE user_id = ? AND mode = 'mcp' AND state IN ${ACTIVE_STATES_SQL}
+    `SELECT * FROM prepare_jobs WHERE user_id = ? AND started_by = ? AND mode = 'mcp' AND state IN ${ACTIVE_STATES_SQL}
         ORDER BY created_at, ${db.dialect.seq()}`,
-    [userId],
+    [userId, startedBy],
   );
 }
 
@@ -223,6 +250,66 @@ export async function mcpChoosingRows(db: DbQueries): Promise<string[]> {
 export async function staleMcpRows(db: DbQueries, before: string): Promise<PrepareRow[]> {
   return db.all<PrepareRow>(`SELECT * FROM prepare_jobs WHERE mode = 'mcp' AND state IN ${ACTIVE_STATES_SQL} AND created_at < ?`, [before]);
 }
+
+// v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §6): the Prepares someone a profile is shared with started there.
+
+/**
+ * The `mcp` Prepares someone a profile is shared with started there (grant_id set) that their own AI never took up
+ * (still `waiting`, no start time) and that were made before `before`: they expire after SHARING_MCP_STALE_HOURS.
+ */
+export async function staleGranteeMcpRows(db: DbQueries, before: string): Promise<PrepareRow[]> {
+  return db.all<PrepareRow>(
+    `SELECT * FROM prepare_jobs WHERE mode = 'mcp' AND grant_id IS NOT NULL AND state = 'waiting' AND started_at IS NULL
+        AND created_at < ?`,
+    [before],
+  );
+}
+
+/** How many Prepares of the grant are not over yet (SHARING_WAITING_PER_GRANT's count; idx_prepare_jobs_grant). */
+export async function activeGrantCount(db: DbQueries, grantId: string): Promise<number> {
+  const row = await db.one<{ n: number }>(
+    `SELECT count(*)::int AS n FROM prepare_jobs WHERE grant_id = ? AND state IN ${ACTIVE_STATES_SQL}`,
+    [grantId],
+  );
+  return row?.n ?? 0;
+}
+
+/** The grant's Prepares that are not over (`mode` given: of that mode only), oldest first: ending the grant cancels them. */
+export async function activeGrantRows(db: DbQueries, grantId: string, mode?: PrepareMode): Promise<PrepareRow[]> {
+  return db.all<PrepareRow>(
+    `SELECT * FROM prepare_jobs WHERE grant_id = ? AND state IN ${ACTIVE_STATES_SQL}${mode ? ' AND mode = ?' : ''}
+        ORDER BY created_at, ${db.dialect.seq()}`,
+    mode ? [grantId, mode] : [grantId],
+  );
+}
+
+/**
+ * Of the owner's `applicationIds`, the active Prepares someone the profile is shared with started that nothing took up
+ * yet (still `waiting`, no start time): the owner's own start cancels them (`owner_started`).
+ */
+export async function waitingGranteePrepares(db: DbQueries, userId: string, applicationIds: readonly string[]): Promise<PrepareRow[]> {
+  if (applicationIds.length === 0) return [];
+  return db.all<PrepareRow>(
+    `SELECT * FROM prepare_jobs WHERE user_id = ? AND state = 'waiting' AND started_at IS NULL AND started_by <> user_id
+        AND application_id IN (${db.dialect.list(applicationIds.length)})`,
+    [userId, ...applicationIds],
+  );
+}
+
+/**
+ * Ends a Prepare `cancelled` with `reason` only while it is still waiting and nothing took it up (the runner may take it
+ * at the same moment); answers the row as it was before, or null when something took it first. Run it in a transaction.
+ */
+export async function cancelIfWaiting(db: DbQueries, id: string, reason: string | null, now: string): Promise<PrepareRow | null> {
+  return (
+    (await db.one<PrepareRow>(
+      `UPDATE prepare_jobs SET state = 'cancelled', reason_code = @reason, finished_at = @now, updated_at = @now
+        WHERE id = @id AND state = 'waiting' AND started_at IS NULL RETURNING *`,
+      { id, reason, now },
+    )) ?? null
+  );
+}
+// end v33 SHARE-5
 
 // ----------------------------------------------------------------------------------------------------------- drafts
 

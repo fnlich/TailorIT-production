@@ -1,5 +1,6 @@
 import type { Feature } from '../../core/feature';
 import { pruneNotifications, startHourlyPass } from './housekeeping';
+import { HEADER_ACTING, NOTIFICATIONS_ACTING } from './acting'; // v33 SHARE-1
 import { createHeaderRouter, createNotificationsRouter } from './router';
 
 // v3.1 NOTIFY (docs/design/v3.1/24-notifications-usage.md; D8, D9): in-app notifications, their switches, and the
@@ -39,9 +40,9 @@ export { notifyPaidEnding } from './housekeeping';
 export const notificationsFeature: Feature = {
   name: 'notifications',
   routes: [
-    { path: '/api/notifications', router: createNotificationsRouter },
+    { path: '/api/notifications', router: createNotificationsRouter, acting: NOTIFICATIONS_ACTING /* v33 SHARE-1 */ },
     // After /api/me (features/me), whose router has no /header: GET /api/me/header falls through to this one.
-    { path: '/api/me/header', router: createHeaderRouter },
+    { path: '/api/me/header', router: createHeaderRouter, acting: HEADER_ACTING /* v33 SHARE-1 */ },
   ],
   daily: [pruneNotifications],
   // The hourly pass: Review's new items for the admins, extension connections that ran out.

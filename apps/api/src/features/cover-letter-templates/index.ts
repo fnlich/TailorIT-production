@@ -1,4 +1,5 @@
 import type { Feature } from '../../core/feature';
+import { COVER_LETTER_TEMPLATES_ACTING } from './acting'; // v33 SHARE-3
 import { createCoverLetterTemplatesRouter } from './router';
 import { seedSystemTemplates } from './seed';
 
@@ -10,5 +11,5 @@ export const coverLetterTemplatesFeature: Feature = {
     const written = await seedSystemTemplates(deps);
     if (written > 0) deps.log.info(`[cover-letter-templates] seeded ${written} starter template(s)`);
   },
-  routes: [{ path: '/api/cover-letter-templates', router: createCoverLetterTemplatesRouter }],
+  routes: [{ path: '/api/cover-letter-templates', router: createCoverLetterTemplatesRouter, acting: COVER_LETTER_TEMPLATES_ACTING /* v33 SHARE-3 */ }],
 };

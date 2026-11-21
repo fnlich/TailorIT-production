@@ -670,8 +670,8 @@ export const CONSTANTS = {
   STATE_PREPARED: stateLabel('State: prepared, not queued', 'Prepared, not queued'),
   STATE_WAITING_RESET: stateLabel('State: waiting for the reset', 'Waiting for daily reset'),
   STATE_MANUAL: stateLabel('State: apply manually', 'Apply manually'),
-  // v20 A30: a Saved entry with a live queue row shows Draft (the Tracker's derived status, and this marker); it
-  // replaces the marker Queued. One source: tracker/statuses.ts's displayStatusLabel reads it.
+  // v20 A30: a Saved entry with a live queue row shows Draft; it replaces the marker Queued. v33 TRACKER (F1): a mark
+  // only (the Tracker's card, row and detail badge, the Saved pane's marker and its filter tab), no longer a status.
   STATUS_DRAFT_LABEL: stateLabel('Status: draft', 'Draft'),
   // end v20 A30
   MARKER_PREPARING: stateLabel('Marker: preparing', 'Preparing'),
@@ -806,7 +806,7 @@ export const CONSTANTS = {
   MSG_TRACKER_ARCHIVED_LANE_EMPTY: message('Tracker: the empty Archived lane', 'Drag a card here to archive it.'),
   MSG_TRACKER_NEXT_STEP: message("Tracker: a card's next step", 'Next: {step}', ['step'] as const, LABEL_MAX),
   LABEL_TRACKER_STEP_SAVED: message('Tracker: the next step at Saved', 'apply', [] as const, LABEL_MAX),
-  LABEL_TRACKER_STEP_DRAFT: message('Tracker: the next step at Draft', 'check the draft', [] as const, LABEL_MAX),
+  // v33 TRACKER (F1): LABEL_TRACKER_STEP_DRAFT is gone with the Draft lane; a Draft entry's next step is Saved's.
   LABEL_TRACKER_STEP_APPLIED: message('Tracker: the next step at Applied', 'follow up', [] as const, LABEL_MAX),
   LABEL_TRACKER_STEP_SCREEN: message('Tracker: the next step at Screen', 'prep the call', [] as const, LABEL_MAX),
   LABEL_TRACKER_STEP_INTERVIEWING: message('Tracker: the next step at Interviewing', 'prep the interview', [] as const, LABEL_MAX),
@@ -2006,6 +2006,295 @@ export const CONSTANTS = {
   },
   // end v31 FIX-AUTH
   // end v31 OAUTH
+  // v33 SHARE-0: shared profiles (PLAN F9; SP v33 PLAN-sharing.md §2, §3, §5, §10, §11). A shares their profile with B
+  // (a grant, its key `p` + 11 characters); B works on it and pays for every TailorIT AI use B starts there. The limits
+  // and reserves below are read through core/auth/grants.ts's sharingSettings; the words through the shared contracts
+  // (packages/shared/src/sharing) and the notifications' words.
+  SHARING_ENABLED: {
+    kind: 'bool', default: true, adminEditable: true, public: true, group: 'accounts',
+    label: 'Shared profiles on',
+    help: 'Whether people may share their profile with another account; off, every shared profile stops at the next request.',
+  },
+  SHARING_GRANTS_PER_OWNER: {
+    kind: 'int', default: 5, adminEditable: true, public: true, group: 'accounts', min: 1, max: 50,
+    label: 'People one profile is shared with',
+    help: 'How many people one person may share their profile with (invites waiting count too).',
+  },
+  SHARING_PROFILES_PER_GRANTEE: {
+    kind: 'int', default: 10, adminEditable: true, public: true, group: 'accounts', min: 1, max: 25,
+    label: 'Shared profiles one person uses',
+    help: 'How many shared profiles one person may accept.',
+  },
+  SHARING_INVITES_PER_DAY: {
+    kind: 'int', default: 20, adminEditable: true, public: true, group: 'accounts', min: 1, max: 200,
+    label: 'Sharing invites per day',
+    help: 'How many sharing invites one person may send in 24 hours.',
+  },
+  SHARING_INVITE_DAYS: {
+    kind: 'int', default: 14, adminEditable: true, public: true, group: 'accounts', min: 1, max: 90,
+    label: 'Sharing invite lasts (days)',
+    help: 'Days a sharing invite waits to be accepted before it expires.',
+  },
+  SHARING_MCP_STALE_HOURS: {
+    kind: 'int', default: 24, adminEditable: true, public: false, group: 'accounts', min: 1, max: 168,
+    label: 'Shared profile: own-AI Prepare lasts (hours)',
+    help: "Hours a Prepare started by someone's own AI on a profile shared with them waits before it expires.",
+  },
+  SHARING_WAITING_PER_GRANT: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'accounts', min: 1, max: 1000,
+    label: 'Shared profile: waiting Prepares',
+    help: 'How many Prepares one person may have waiting on a profile shared with them.',
+  },
+  SHARING_RESUME_RESERVE: {
+    kind: 'int', default: 3, adminEditable: true, public: true, group: 'accounts', min: 0, max: 100,
+    label: "Shared profile: owner's resume places kept",
+    help: 'Resume places on a shared profile that only its owner may fill.',
+  },
+  SHARING_QUEUE_RESERVE: {
+    kind: 'int', default: 50, adminEditable: true, public: true, group: 'accounts', min: 0, max: 500,
+    label: "Shared profile: owner's queue places kept",
+    help: 'Auto-apply queue places on a shared profile that only its owner may fill.',
+  },
+  SHARING_ACTIVITY_KEEP_DAYS: {
+    kind: 'int', default: 90, adminEditable: true, public: false, group: 'retention', min: 7, max: 3650,
+    label: 'Keep sharing activity (days)',
+    help: 'Days the hourly counts of what was done on a shared profile are kept.',
+  },
+  // The permission grid (Settings › Sharing): each row's name and its "?".
+  LABEL_SHARING_SEE: message('Sharing: the See column', 'See', [] as const, LABEL_MAX),
+  LABEL_SHARING_CHANGE: message('Sharing: the Change column', 'Change', [] as const, LABEL_MAX),
+  LABEL_SHARING_ROW_TRACKER: message('Sharing: row Job Tracker', 'Job Tracker', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_TRACKER_TIP: message(
+    'Sharing: row Job Tracker, what it covers',
+    'Your applications and saved jobs; Change lets them save, add, move, note and archive jobs.',
+  ),
+  LABEL_SHARING_ROW_DOCUMENTS: message('Sharing: row Documents', 'Documents', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_DOCUMENTS_TIP: message(
+    'Sharing: row Documents, what it covers',
+    'Your resumes, letters and templates; Change lets them edit, upload and tailor, never your email or phone.',
+  ),
+  LABEL_SHARING_ROW_PREPARE: message('Sharing: row Prepare & queue', 'Prepare & queue', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_PREPARE_TIP: message(
+    'Sharing: row Prepare & queue, what it covers',
+    'Your Auto-apply panes, kits and filters; Change lets them prepare jobs for your queue.',
+  ),
+  LABEL_SHARING_ROW_QUEUE: message('Sharing: row Queue changes', 'Queue changes', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_QUEUE_TIP: message(
+    'Sharing: row Queue changes, what it covers',
+    'Lets them remove jobs from your queue, clear finished ones and mark jobs as applied.',
+  ),
+  LABEL_SHARING_ROW_APPLY: message('Sharing: row Apply without my OK', 'Apply without my OK', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_APPLY_TIP: message(
+    'Sharing: row Apply without my OK, what it covers',
+    'When off, the jobs they prepare wait for your OK before your extension applies to them.',
+  ),
+  LABEL_SHARING_ROW_AUTOFILL: message('Sharing: row Autofill info', 'Autofill info', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_AUTOFILL_TIP: message(
+    'Sharing: row Autofill info, what it covers',
+    'Your autofill profile and saved answers, never the sensitive ones; Change lets them edit them.',
+  ),
+  LABEL_SHARING_ROW_SETTINGS: message('Sharing: row Job settings', 'Job settings', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_SETTINGS_TIP: message(
+    'Sharing: row Job settings, what it covers',
+    'Your job preferences, Prepare settings, auto-apply rule and default resume.',
+  ),
+  LABEL_SHARING_ROW_SENSITIVE: message('Sharing: row Sensitive answers', 'Sensitive answers', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_SENSITIVE_TIP: message(
+    'Sharing: row Sensitive answers, what it covers',
+    'Your EEO, visa, disability, veteran and pay answers, and why eligibility filtered a job.',
+  ),
+  LABEL_SHARING_ROW_EXPORTS: message('Sharing: row Exports', 'Exports', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_EXPORTS_TIP: message(
+    'Sharing: row Exports, what it covers',
+    'Tracker CSV and resume ZIP downloads; single downloads come with Documents.',
+  ),
+  LABEL_SHARING_ROW_MCP: message('Sharing: row Their own AI', 'Their own AI', [] as const, LABEL_MAX),
+  MSG_SHARING_ROW_MCP_TIP: message(
+    'Sharing: row Their own AI, what it covers',
+    'Their AI app may read and prepare your profile, so your data reaches their AI provider.',
+  ),
+  MSG_SHARING_NEEDED_BY: message('Sharing: a box another box needs', 'Needed by {row}.', ['row'] as const),
+  LABEL_SHARING_PRESET_SEE_ONLY: message('Sharing: preset See only', 'See only', [] as const, LABEL_MAX),
+  LABEL_SHARING_PRESET_SEE_AND_PREPARE: message('Sharing: preset See and prepare', 'See and prepare', [] as const, LABEL_MAX),
+  LABEL_SHARING_PRESET_CUSTOM: message('Sharing: preset Custom', 'Custom', [] as const, LABEL_MAX),
+  // The refusals of a request that names a shared profile (error codes profile_ended, profile_not_shared,
+  // own_profile_only; validation_failed for a malformed one).
+  MSG_SHARING_PROFILE_ENDED: message(
+    'Sharing: the shared profile ended',
+    "That shared profile isn't available now, so you're back on yours.",
+  ),
+  MSG_SHARING_NOT_SHARED: message('Sharing: not shared with you', "The profile's owner hasn't shared this with you."),
+  MSG_SHARING_OWN_PROFILE_ONLY: message('Sharing: only on your own profile', 'Switch back to your profile to do this.'),
+  MSG_SHARING_BAD_PROFILE: message(
+    'Sharing: a profile that is not valid',
+    "That profile isn't valid. Choose it again from the account menu.",
+  ),
+  // The sharing routes' refusals and answers.
+  MSG_SHARING_OFF: message('Sharing: turned off', 'Sharing is turned off. Ask your TailorIT admin to turn it on.'),
+  MSG_SHARING_OWN_EMAIL: message(
+    'Sharing: your own address',
+    "That's your own email. Enter the email of the person you want to share with.",
+  ),
+  MSG_SHARING_ALREADY_SHARED: message(
+    'Sharing: already shared',
+    'You already share your profile with that email, or an invite to it is waiting.',
+  ),
+  MSG_SHARING_GRANTS_MAX: message(
+    'Sharing: too many people',
+    'You can share your profile with up to {max} {max|person|people}. Stop sharing with someone first.',
+    ['max'] as const,
+  ),
+  MSG_SHARING_PROFILES_MAX: message(
+    'Sharing: too many shared profiles',
+    'You can use up to {max} shared {max|profile|profiles}. Leave one in Settings › Sharing first.',
+    ['max'] as const,
+  ),
+  MSG_SHARING_INVITES_PER_DAY: message(
+    'Sharing: too many invites today',
+    'You can send up to {max} {max|invite|invites} a day. Try again tomorrow.',
+    ['max'] as const,
+  ),
+  MSG_SHARING_INVITE_GONE: message(
+    'Sharing: the invite is gone',
+    "That invite isn't available any more. Ask them to send it again.",
+  ),
+  MSG_SHARING_NOT_CLOSED: message(
+    'Sharing: boxes another box needs',
+    'Tick these boxes too, as the ones you ticked need them: {missing}.',
+    ['missing'] as const,
+  ),
+  MSG_SHARING_INVITE_SENT: message(
+    'Sharing: invite saved',
+    "Saved. They'll see your invite when they sign in to TailorIT with {email}.",
+    ['email'] as const,
+  ),
+  // The `sharing` notifications ({name}: the other person's name, else their email).
+  MSG_NOTIFY_SHARING_INVITED_TITLE: message(
+    'Notification: a profile shared with you (title)',
+    'New shared profile from {name}',
+    ['name'] as const,
+  ),
+  MSG_NOTIFY_SHARING_INVITED_BODY: message('Notification: a profile shared with you', 'Accept or decline it in Settings › Sharing.'),
+  MSG_NOTIFY_SHARING_CHANGED_TITLE: message(
+    'Notification: a shared profile changed (title)',
+    "Sharing changed on {name}'s profile",
+    ['name'] as const,
+  ),
+  MSG_NOTIFY_SHARING_CHANGED_BODY: message('Notification: a shared profile changed', 'Settings › Sharing shows what they share now.'),
+  MSG_NOTIFY_SHARING_ACCEPTED_TITLE: message(
+    'Notification: your shared profile accepted (title)',
+    'Sharing accepted: {name} can now use your profile',
+    ['name'] as const,
+  ),
+  MSG_NOTIFY_SHARING_ACCEPTED_BODY: message(
+    'Notification: your shared profile accepted',
+    'They can now work on your profile as you allowed.',
+  ),
+  MSG_NOTIFY_SHARING_DECLINED_TITLE: message(
+    'Notification: your shared profile declined (title)',
+    'Sharing declined by {name}',
+    ['name'] as const,
+  ),
+  MSG_NOTIFY_SHARING_DECLINED_BODY: message('Notification: your shared profile declined', 'Nothing of your profile is shared with them.'),
+  MSG_NOTIFY_SHARING_PREPARED_TITLE: message(
+    'Notification: jobs prepared on your profile (title)',
+    'Prepared by {name}: {count} {count|job|jobs} on your profile',
+    ['name', 'count'] as const,
+  ),
+  MSG_NOTIFY_SHARING_PREPARED_BODY: message('Notification: jobs prepared on your profile', 'See them on Auto-apply.'),
+  MSG_NOTIFY_SHARING_ENDED_TITLE: message('Notification: sharing ended (title)', 'Sharing with {name} ended', ['name'] as const),
+  MSG_NOTIFY_SHARING_ENDED_BODY: message('Notification: sharing ended', 'Settings › Sharing shows what is shared now.'),
+  // Why a Prepare on a shared profile stopped (prepare_jobs.reason_code; shared/prepare's PREPARE_SHARING_REASONS).
+  MSG_PREPARE_ACCESS_ENDED: message('Prepare: sharing ended', 'Sharing ended, so this stopped.'),
+  MSG_PREPARE_OWNER_STARTED: message(
+    "Prepare: the profile's owner prepares it",
+    "The profile's owner started preparing this job, so this one stopped.",
+  ),
+  MSG_PREPARE_PAYER_LIMIT: message(
+    "Prepare: the preparer's AI limit",
+    'This stopped: the person who prepared it reached their AI limit.',
+  ),
+  // end v33 SHARE-0
+  // v33 SHARE-2: the sharing routes' other refusals (features/sharing; @tailorit/shared/sharing SHARING_MESSAGES).
+  MSG_SHARING_END_DATE_PAST: message(
+    'Sharing: an end date that has passed',
+    'Choose an end date that is still ahead, or leave it empty.',
+  ),
+  MSG_SHARING_GRANT_GONE: message(
+    'Sharing: the share is gone',
+    "That share isn't there any more. Reload Settings › Sharing to see what is shared now.",
+  ),
+  MSG_SHARING_ACTIVITY_STALE: message(
+    'Sharing: the activity list is out of date',
+    'This activity list is out of date. Reload it to see the newest.',
+  ),
+  // end v33 SHARE-2
+  // v33 SHARE-3: money on shared profiles (PLAN F9 "Who pays"; SP v33 PLAN-sharing.md §5, §9 "Editors"). B pays for the
+  // AI B starts on A's profile; a refusal of B's own limit reads as these words to anyone but B.
+  MSG_AI_PAYER_LIMIT: message(
+    "AI: the starter's AI limit",
+    'This stopped: the person who started it reached their AI limit.',
+  ),
+  MSG_SHARING_RESUME_RESERVE: message(
+    "Shared profile: the owner's last resume places",
+    "This profile's last {reserve} resume {reserve|place is|places are} kept for its owner. Ask them to delete resumes they no longer need.",
+    ['reserve'] as const,
+  ),
+  MSG_RESUME_COPY_PAYER_LIMIT: message(
+    "Editable copies: the asker's AI limit",
+    'This copy waits: the person who asked for it reached their AI limit for today.',
+  ),
+  // The review: the reserve as the profile's owner reads it (their extension tailoring a job someone else prepared and
+  // pays for), and an upload made on someone else's profile whose contact details are not that person's.
+  MSG_SHARING_RESUME_RESERVE_OWNER: message(
+    "Shared profile: the owner's own last resume places",
+    'This stopped: your last {reserve} resume {reserve|place is|places are} kept for your own work. Make room in Documents, then try again.',
+    ['reserve'] as const,
+  ),
+  MSG_SHARING_UPLOAD_CONTACT: message(
+    "Shared profile: an upload with other contact details",
+    "This resume shows other contact details than {name}'s. Upload a resume with the email and phone in their profile.",
+    ['name'] as const,
+  ),
+  // A letter or template saved from an older version than the one stored (409 revision_conflict; the editors send the
+  // version they loaded): someone else, or another tab, saved it meanwhile.
+  MSG_LETTER_CHANGED: message(
+    'Cover letter: saved elsewhere meanwhile',
+    'This cover letter was saved somewhere else since you opened it. Reload it to see the latest version.',
+  ),
+  MSG_LETTER_TEMPLATE_CHANGED: message(
+    'Letter template: saved elsewhere meanwhile',
+    'This template was saved somewhere else since you opened it. Reload it to see the latest version.',
+  ),
+  MSG_LETTER_CHANGED_SHARED: message('Cover letter editor: changed by someone else (a shared profile)', 'Someone else changed this letter.'),
+  MSG_LETTER_TEMPLATE_CHANGED_SHARED: message(
+    'Template editor: changed by someone else (a shared profile)',
+    'Someone else changed this template.',
+  ),
+  // end v33 SHARE-3
+  // v33 SHARE-5: Prepare and the queue on a shared profile (PLAN F9; SP v33 PLAN-sharing.md §4, §6). B prepares jobs on
+  // A's profile within B's room there (A's last places are kept: SHARING_QUEUE_RESERVE, SHARING_RESUME_RESERVE; at most
+  // SHARING_WAITING_PER_GRANT waiting); the jobs B prepared wait for A's OK; an eligibility filter reason shows as one
+  // word to someone without the Sensitive answers permission.
+  FILTER_LABEL_ELIGIBILITY: filterLabel('Filter: eligibility (shared profile)', 'eligibility'),
+  MSG_PREPARE_WAITING_FULL: message(
+    'Prepare: too many waiting on a shared profile',
+    'You have {max} {max|job|jobs} waiting to be prepared on this profile, the most allowed. Try again when some are done.',
+    ['max'] as const,
+  ),
+  MSG_PREPARE_SHARED_QUEUE_FULL: message(
+    "Prepare: no queue room left on a shared profile",
+    "This profile's queue has no room left for jobs you prepare: its last {reserve} places are kept for its owner.",
+    ['reserve'] as const,
+  ),
+  STATE_AWAITING_YOUR_OK: stateLabel('State: waiting for your OK (a job someone you share with prepared)', 'Waiting for your OK'),
+  STATE_AWAITING_OWNER_OK: message(
+    "State: waiting for the profile owner's OK",
+    "Waiting for {name}'s OK",
+    ['name'] as const,
+    LABEL_MAX,
+  ),
+  // end v33 SHARE-5
   // v31 LINK: every job comes from its link (docs/design/v3.1/21-jobs-from-links.md): the add pipeline's switches and
   // limits, and the words of its states and reasons.
   ADD_JOB_PAGE_READ: {
@@ -2193,10 +2482,6 @@ export const CONSTANTS = {
   LABEL_JOB_NEXT: message('Job: next', 'Next job', [] as const, LABEL_MAX),
   MSG_JOB_POSITION: message('Job: place in the list', 'Job {index} of {total}', ['index', 'total'] as const),
   LABEL_JOB_MARK_APPLIED: message('Job: mark as applied', 'Mark as applied', [] as const, LABEL_MAX),
-  LABEL_JOB_NAV_MATCH: message('Job: jump to the match', 'Match', [] as const, LABEL_MAX),
-  LABEL_JOB_NAV_ROLE: message('Job: jump to the role', 'Role', [] as const, LABEL_MAX),
-  LABEL_JOB_NAV_COMPANY: message('Job: jump to the company', 'Company', [] as const, LABEL_MAX),
-  LABEL_JOB_YOUR_MATCH: message('Job: your match', 'Your match', [] as const, LABEL_MAX),
   MSG_JOB_KEYWORDS_FOUND: message('Job: keywords in the resume', '{matched} of {total} {total|keyword|keywords} {matched|is|are} in your resume.', ['matched', 'total'] as const),
   LABEL_JOB_KEYWORDS_HAVE: message('Job: keywords the resume has', 'In your resume', [] as const, LABEL_MAX),
   LABEL_JOB_KEYWORDS_MISSING: message('Job: keywords the resume lacks', 'Not in your resume yet', [] as const, LABEL_MAX),
@@ -2207,17 +2492,41 @@ export const CONSTANTS = {
   MSG_JOB_TAILOR_LEAD: message('Job: tailor section text', 'A copy of your resume made for this job; yours stays as it is.'),
   // v31 INT-3: also the Tracker's Documents tab (LABEL_TRACKER_TAILOR went: one constant holds the words).
   LABEL_JOB_TAILOR_BUTTON: message('Job and application: the tailor button', 'Tailor a resume', [] as const, LABEL_MAX),
-  LABEL_JOB_ABOUT_ROLE: message('Job: about the role', 'About the role', [] as const, LABEL_MAX),
+  // v33 JOBDETAIL (F2): the owner's words for the job's left column (REQUEST.md).
+  LABEL_JOB_ABOUT_ROLE: message('Job: about the job', 'About the job', [] as const, LABEL_MAX),
   LABEL_JOB_ROLE_DUTIES: message("Job: the role's duties", "What you'd do", [] as const, LABEL_MAX),
   LABEL_JOB_ROLE_ASKS: message("Job: the role's requirements", 'What they ask for', [] as const, LABEL_MAX),
   LABEL_JOB_ROLE_NICE: message("Job: the role's extras", 'Nice to have', [] as const, LABEL_MAX),
   LABEL_JOB_ROLE_ALSO: message('Job: other words the posting names', 'Also mentioned', [] as const, LABEL_MAX),
-  LABEL_JOB_POSTING_SHOW: message('Job: show the full posting', 'Read the full posting', [] as const, LABEL_MAX),
-  LABEL_JOB_POSTING_HIDE: message('Job: hide the full posting', 'Hide the full posting', [] as const, LABEL_MAX),
   MSG_JOB_NO_SUMMARY: message('Job: no summary yet', 'TailorIT has no summary of this posting yet.'),
   LABEL_JOB_ABOUT_COMPANY: message('Job: about the company', 'About {company}', ['company'] as const, LABEL_MAX),
   MSG_JOB_SUMMARY_FAILED: message('Job: summary failed', 'No summary: here is the posting as written.'),
   // end v31 FIX-JOBS
+  // v33 JOBDETAIL (F2, the owner's "see job details at once"): the job's details in two columns. Left: About the job
+  // (Summary | Full posting), then the company. Right: Requirements at a glance (each row's verdict computed on the
+  // server: the person's numbers never reach the browser), Skills (what the resume has, highlighted), the Tailor card
+  // (LABEL_JOB_DETAIL_TAILOR) and Benefits. The header's line under the title says when TailorIT last checked the posting was live.
+  LABEL_JOB_CHECKED_LIVE: message('Job: checked live', 'Checked live {when}', ['when'] as const, LABEL_MAX),
+  LABEL_JOB_GLANCE: message('Job: requirements at a glance', 'Requirements at a glance', [] as const, LABEL_MAX),
+  MSG_JOB_GLANCE_TIP: message('Job: requirements at a glance, what it is', 'What the posting asks for, checked against your profile.'),
+  LABEL_JOB_GLANCE_EXPERIENCE: message('Job glance: experience', 'Experience', [] as const, LABEL_MAX),
+  LABEL_JOB_GLANCE_EDUCATION: message('Job glance: education', 'Education', [] as const, LABEL_MAX),
+  LABEL_JOB_GLANCE_CERTIFICATIONS: message('Job glance: licences and certifications', 'Licences & certifications', [] as const, LABEL_MAX),
+  LABEL_JOB_GLANCE_NOT_STATED: message('Job glance: the posting does not say', 'Not stated', [] as const, LABEL_MAX),
+  LABEL_JOB_GLANCE_EQUIVALENT: message('Job glance: equivalent experience accepted', 'or equivalent experience', [] as const, LABEL_MAX),
+  LABEL_JOB_GLANCE_HAVE_IT: message('Job glance: a licence you have', 'You have it', [] as const, LABEL_MAX),
+  MSG_JOB_GLANCE_MEETS: message('Job glance: meets', 'Your profile meets this.'),
+  MSG_JOB_GLANCE_BELOW: message('Job glance: below', 'This asks for more than your profile shows.'),
+  MSG_JOB_GLANCE_UNKNOWN: message('Job glance: unknown', 'Add this to your Autofill profile to check it.'),
+  LABEL_JOB_SKILLS: message('Job: skills', 'Skills', [] as const, LABEL_MAX),
+  MSG_JOB_SKILLS_HIGHLIGHT: message('Job: skills, which are highlighted', 'Skills from your resume are highlighted', [] as const, LABEL_MAX),
+  LABEL_JOB_BENEFITS: message('Job: benefits', 'Benefits', [] as const, LABEL_MAX),
+  LABEL_JOB_SUMMARY: message('Job: about the job, the summary', 'Summary', [] as const, LABEL_MAX),
+  LABEL_JOB_FULL_POSTING: message('Job: about the job, the full posting', 'Full posting', [] as const, LABEL_MAX),
+  // v33 INT-A (the coordinator's decision): the job details' Tailor button reads the owner's own words, "Tailor my
+  // resume" (the v3.3 request names it). The dialog it opens and the Tracker's Documents tab keep LABEL_JOB_TAILOR_BUTTON.
+  LABEL_JOB_DETAIL_TAILOR: message("Job details: the tailor button (the owner's words)", 'Tailor my resume', [] as const, LABEL_MAX),
+  // end v33 JOBDETAIL
   // v32 ADMINAPP (E6, the owner's "admin should be able to approve manually"): an admin publishes a job TailorIT could
   // not read, as it was captured (Admin › Review › Couldn't verify, a v3.0 page review); at most this many an hour each.
   ADMIN_APPROVALS_PER_HOUR: {
@@ -2234,6 +2543,26 @@ export const CONSTANTS = {
   // v32 JOBS2 (E5): Your match's "?" (what the section measures).
   MSG_JOB_MATCH_TIP: message('Job: your match, what it is', "How many of the posting's keywords your resume has."),
   // end v32 JOBS2
+  // v33 ROLES (F4): the person's field. A resume's Field (the "what TailorIT read" panel and the editor), Settings ›
+  // Account's "Your field", the Jobs page's My field chip.
+  LABEL_RESUME_FIELD: message('Resume: field (label)', 'Field', [] as const, LABEL_MAX),
+  MSG_RESUME_FIELD_TIP: message(
+    'Resume: field, what it does',
+    'The kind of work this resume is for: TailorIT tailors it and writes for it in that field.',
+  ),
+  LABEL_RESUME_FIELD_DETECT: message('Resume: field, detect automatically (choice)', 'Detect automatically', [] as const, LABEL_MAX),
+  MSG_RESUME_FIELD_DETECTED: message('Resume: field, what TailorIT detected', 'Detected: {field}', ['field'] as const),
+  MSG_RESUME_FIELD_SAVE_FAILED: message('Resume: field not saved', "Your field wasn't saved. Choose it again to retry."),
+  LABEL_ACCOUNT_YOUR_FIELD: message('Account: your field (label)', 'Your field', [] as const, LABEL_MAX),
+  MSG_ACCOUNT_YOUR_FIELD: message('Account: your field', '{field} (from your default resume)', ['field'] as const),
+  MSG_ACCOUNT_FIELD_NONE: message('Account: no field yet', 'Add a resume and TailorIT works out your field from it.'),
+  MSG_ACCOUNT_FIELD_TIP: message(
+    'Account: your field, what it does',
+    "Change it on your default resume's Field; tailoring and the Jobs page's My field follow it.",
+  ),
+  LABEL_JOBS_MY_FIELD: message('Jobs: my field (chip)', 'My field', [] as const, LABEL_MAX),
+  MSG_JOBS_MY_FIELD_TIP: message('Jobs: my field, what it shows', 'Jobs in your field, {field}, from your default resume.', ['field'] as const),
+  // end v33 ROLES
   // v32 INT-1 (E6 with E3): the mark of a job an admin published as it was captured (JobVerification admin_approved),
   // on the Jobs list and detail and the Tracker's card and detail, its "?" one sentence.
   LABEL_JOB_APPROVED_BY_ADMIN: message('Job: approved by an admin (mark)', 'Approved by an admin', [] as const, LABEL_MAX),

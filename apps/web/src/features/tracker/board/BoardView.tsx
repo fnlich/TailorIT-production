@@ -25,12 +25,10 @@ import {
   STATUS_INFO,
   hideColumn,
   isApplicationStatus,
-  isDraftStatus,
   type ApplicationStatus,
   type ApplicationSummary,
   type BoardColumn,
   type ColumnPrefs,
-  type DisplayStatus,
 } from '@tailorit/shared';
 import { useReducedMotion } from '@/components/queue';
 import { PAGE_GUTTER } from '@/components/shell/layout';
@@ -43,14 +41,13 @@ import { ArchiveIcon, EyeSlashIcon } from '@/components/ui/icons';
 import { usePublicConstants } from '@/lib/constants';
 import { STAGE_TOKEN } from '../chart/FlowChart';
 import { laneEmptyText } from '../stage';
+import type { LoadMoreItem } from '../profiles/scope';
 import { NO_MATCH_COLUMN_TEXT } from '../state';
-import { DisplayStatusIcon } from '../status';
+import { StatusIcon } from '../status';
 import { ApplicationCard, CARD_SURFACE, CardFace, type CardHandlers } from './ApplicationCard';
 import { StageSwitcher, type SwitcherLane } from './StageSwitcher';
 
-const COLUMN_ID = (status: DisplayStatus) => `column-${status}`;
-/** v20 A30: the Draft column's empty words (a card gets there through Prepare & Queue, never by a drop). */
-export const DRAFT_EMPTY_TEXT = 'Prepare & Queue saved jobs on the Auto-apply page.';
+const COLUMN_ID = (status: ApplicationStatus) => `column-${status}`;
 /** The optional Archived lane ("Lanes shown" lists it after the statuses). */
 const ARCHIVED_ID = 'column-archived';
 
@@ -90,7 +87,7 @@ function statusOf(id: string | number | undefined): ApplicationStatus | null {
  * An empty lane's stitched box over pattern paper: "Nothing here yet" and what to do, or "Drop to move it here" under a
  * dragged card (denim border, denim wash). v31 FIX-DOCS: the constants' words. v32 FIX-UX (UXREQ-8, the coordinator:
  * next steps stay visible): what to do is a line under the title (it was the "?" beside it), with its link where the
- * step is on another page (Saved: Find jobs; Draft: Go to Auto-apply); a lane a search or filter emptied says so as its
+ * step is on another page (Saved: Find jobs); a lane a search or filter emptied says so as its
  * title ("None match your search or filters.").
  */
 function EmptyColumn({
@@ -133,13 +130,25 @@ function EmptyColumn({
 }
 
 /** Where an empty lane's next step happens, when it is on another page. */
-function laneLink(status: DisplayStatus): { href: string; label: string } | null {
-  if (isDraftStatus(status)) return { href: '/auto-apply', label: 'Go to Auto-apply' };
+function laneLink(status: ApplicationStatus): { href: string; label: string } | null {
   if (status === STATUS.saved) return { href: '/jobs', label: 'Find jobs' };
   return null;
 }
 
-function LoadMore({ onLoad, loading }: { onLoad: () => void; loading: boolean }) {
+function LoadMore({
+  onLoad,
+  loading,
+  label = 'Load more applications',
+  ariaLabel,
+  profile,
+}: {
+  onLoad: () => void;
+  loading: boolean;
+  /** v33 SHARE-9: one profile's "Load more" in the All profiles view ("Load more from Ana"). */
+  label?: string;
+  ariaLabel?: string;
+  profile?: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   // Infinite scroll inside the column: loading starts when the button scrolls into view.
   useEffect(() => {
@@ -153,17 +162,16 @@ function LoadMore({ onLoad, loading }: { onLoad: () => void; loading: boolean })
   }, [onLoad, loading]);
   return (
     <div ref={ref} className="flex justify-center py-1">
-      <Button variant="ghost" size="sm" onClick={onLoad} loading={loading}>
-        Load more applications
+      <Button variant="ghost" size="sm" onClick={onLoad} loading={loading} aria-label={ariaLabel} data-load-more-profile={profile}>
+        {label}
       </Button>
     </div>
   );
 }
 
-/** The token of a lane's top edge: the chart's stage colour (Draft a denim tint, Archived the strong border). */
-function laneToken(status: DisplayStatus | 'archived'): string {
+/** The token of a lane's top edge: the chart's stage colour (Archived the strong border). */
+function laneToken(status: ApplicationStatus | 'archived'): string {
   if (status === 'archived') return '--color-border-strong';
-  if (isDraftStatus(status)) return '--color-primary-200';
   return STAGE_TOKEN[status];
 }
 
@@ -212,8 +220,6 @@ function Column({
   column,
   prefs,
   onPrefsChange,
-  onHideDraft,
-  draftLabel,
   activeFrom,
   renderCard,
   onLoadMore,
@@ -221,17 +227,15 @@ function Column({
   filtered,
   laneId,
   canHide,
+  more,
 }: {
   column: BoardColumn;
   prefs: ColumnPrefs;
   onPrefsChange: (prefs: ColumnPrefs) => void;
-  onHideDraft: () => void;
-  /** Draft's words (the constant STATUS_DRAFT_LABEL). */
-  draftLabel: string;
   /** The column the dragged card comes from (no highlight over its own column). */
   activeFrom: Source | null;
   renderCard: (application: ApplicationSummary) => ReactNode;
-  onLoadMore: (status: DisplayStatus) => void;
+  onLoadMore: (status: ApplicationStatus) => void;
   loadingMore: boolean;
   /** A search or filter narrows the board. */
   filtered: boolean;
@@ -239,13 +243,13 @@ function Column({
   laneId: string;
   /** v32 LAYOUT (E11): other lanes are shown, so this one can be hidden. */
   canHide: boolean;
+  /** v33 SHARE-9: the lane's "Load more" per profile (the All profiles view), in place of its own cursor's. */
+  more?: readonly LoadMoreItem[] | null;
 }) {
   const { status } = column;
-  const draft = isDraftStatus(status);
-  const label = draft ? draftLabel : STATUS_INFO[status].label;
-  // v20 A30: Draft is derived (a Saved entry in the queue), so nothing is dropped into it.
-  const { setNodeRef, isOver } = useDroppable({ id: COLUMN_ID(status), data: { status }, disabled: draft });
-  const dropping = !draft && isOver && activeFrom !== null && activeFrom !== status;
+  const label = STATUS_INFO[status].label;
+  const { setNodeRef, isOver } = useDroppable({ id: COLUMN_ID(status), data: { status } });
+  const dropping = isOver && activeFrom !== null && activeFrom !== status;
   const loadMore = useCallback(() => onLoadMore(status), [onLoadMore, status]);
   const { t } = usePublicConstants();
   return (
@@ -257,10 +261,10 @@ function Column({
       style={{ boxShadow: `inset 0 3px 0 var(${laneToken(status)})` }}
     >
       <LaneHeader
-        icon={<DisplayStatusIcon status={status} size={14} />}
+        icon={<StatusIcon status={status} size={14} />}
         label={label}
         count={column.total}
-        onHide={canHide ? () => (isDraftStatus(status) ? onHideDraft() : onPrefsChange(hideColumn(prefs, status))) : null}
+        onHide={canHide ? () => onPrefsChange(hideColumn(prefs, status)) : null}
       />
       <div
         ref={setNodeRef}
@@ -271,7 +275,7 @@ function Column({
       >
         {column.items.length === 0 ? (
           <EmptyColumn
-            next={isDraftStatus(status) ? DRAFT_EMPTY_TEXT : laneEmptyText(status, t)}
+            next={laneEmptyText(status, t)}
             link={laneLink(status)}
             filtered={filtered}
             dropping={dropping}
@@ -279,7 +283,11 @@ function Column({
         ) : (
           column.items.map(renderCard)
         )}
-        {column.nextCursor && <LoadMore onLoad={loadMore} loading={loadingMore} />}
+        {more
+          ? more.map((item) => (
+              <LoadMore key={item.id} onLoad={item.onLoad} loading={item.loading} label={item.label} ariaLabel={item.ariaLabel} profile={item.id} />
+            ))
+          : column.nextCursor && <LoadMore onLoad={loadMore} loading={loadingMore} />}
       </div>
     </section>
   );
@@ -293,6 +301,8 @@ export interface ArchivedColumnModel {
   loadingMore: boolean;
   onLoadMore: () => void;
   onHide: () => void;
+  /** v33 SHARE-9: one "Load more" per profile (the All profiles view), in place of `hasMore`'s one. */
+  more?: readonly LoadMoreItem[];
 }
 
 /** The Archived column: archived cards (restore by dragging them out), and a drop target that archives. */
@@ -338,7 +348,11 @@ function ArchivedColumn({
         ) : (
           items.map(renderCard)
         )}
-        {model.hasMore && <LoadMore onLoad={model.onLoadMore} loading={model.loadingMore} />}
+        {model.more
+          ? model.more.map((item) => (
+              <LoadMore key={item.id} onLoad={item.onLoad} loading={item.loading} label={item.label} ariaLabel={item.ariaLabel} profile={item.id} />
+            ))
+          : model.hasMore && <LoadMore onLoad={model.onLoadMore} loading={model.loadingMore} />}
       </div>
     </section>
   );
@@ -346,20 +360,16 @@ function ArchivedColumn({
 
 export interface BoardViewProps {
   columns: BoardColumn[] | null;
-  /** The columns to show, in order (boardColumnsShown: Draft between Saved and Applied). */
-  visible: readonly DisplayStatus[];
+  /** The columns to show, in status order (visibleColumns; v33 TRACKER: the stored statuses only, no Draft lane). */
+  visible: readonly ApplicationStatus[];
   prefs: ColumnPrefs;
   onPrefsChange: (prefs: ColumnPrefs) => void;
-  /** v20 A30: the Draft column's eye. */
-  onHideDraft: () => void;
-  /** Draft's words (the constant STATUS_DRAFT_LABEL). */
-  draftLabel: string;
   handlers: CardHandlers;
   openId: string | null;
   selectMode: boolean;
   selected: ReadonlySet<string>;
-  onLoadMore: (status: DisplayStatus) => void;
-  loadingMore: DisplayStatus | null;
+  onLoadMore: (status: ApplicationStatus) => void;
+  loadingMore: ApplicationStatus | null;
   /** A card was dropped on another column. */
   onDrop: (application: ApplicationSummary, to: ApplicationStatus) => void;
   /** The Archived column, when it is shown. */
@@ -371,6 +381,8 @@ export interface BoardViewProps {
   refreshing: boolean;
   /** A search or filter narrows the board: empty columns say so, and a board with no match at all says it once. */
   filtered: boolean;
+  /** v33 SHARE-9: a lane's "Load more" per profile (the All profiles view: each profile keeps its own cursor). */
+  laneMore?: (status: ApplicationStatus) => readonly LoadMoreItem[] | null;
 }
 
 /**
@@ -382,8 +394,6 @@ export function BoardView({
   visible,
   prefs,
   onPrefsChange,
-  onHideDraft,
-  draftLabel,
   handlers,
   openId,
   selectMode,
@@ -396,6 +406,7 @@ export function BoardView({
   onRestoreDrop,
   refreshing,
   filtered,
+  laneMore,
 }: BoardViewProps) {
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
@@ -410,7 +421,7 @@ export function BoardView({
   const { t } = usePublicConstants();
   const reduced = useReducedMotion();
   const laneIds = useId();
-  const laneId = (key: DisplayStatus | 'archived') => `${laneIds}-lane-${key}`;
+  const laneId = (key: ApplicationStatus | 'archived') => `${laneIds}-lane-${key}`;
   // v32 LAYOUT (E9): the board's scroll box (state, so following it starts whenever it mounts: after a "no match"
   // board too), and the lane at its start (the phone's stage switcher marks it).
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
@@ -486,9 +497,9 @@ export function BoardView({
   const switcherLanes: SwitcherLane[] = [
     ...visible.map((status) => ({
       id: laneId(status),
-      label: isDraftStatus(status) ? draftLabel : STATUS_INFO[status].label,
+      label: STATUS_INFO[status].label,
       count: byStatus.get(status)?.total ?? 0,
-      icon: <DisplayStatusIcon status={status} size={14} />,
+      icon: <StatusIcon status={status} size={14} />,
     })),
     ...(archived ? [{ id: laneId('archived'), label: 'Archived', count: archived.total, icon: <ArchiveIcon size={14} /> }] : []),
   ];
@@ -555,7 +566,7 @@ export function BoardView({
           )}
         >
           {columns === null
-            ? visible.map((status) => <ColumnSkeleton key={status} status={status} draftLabel={draftLabel} />)
+            ? visible.map((status) => <ColumnSkeleton key={status} status={status} />)
             : visible.map((status) => {
                 const column = byStatus.get(status) ?? { status, total: 0, items: [] };
                 return (
@@ -564,8 +575,6 @@ export function BoardView({
                     column={column}
                     prefs={prefs}
                     onPrefsChange={onPrefsChange}
-                    onHideDraft={onHideDraft}
-                    draftLabel={draftLabel}
                     activeFrom={activeFrom}
                     renderCard={renderCard}
                     onLoadMore={onLoadMore}
@@ -573,6 +582,7 @@ export function BoardView({
                     filtered={filtered}
                     laneId={laneId(status)}
                     canHide={canHideLane}
+                    more={laneMore?.(status) ?? null}
                   />
                 );
               })}
@@ -590,17 +600,7 @@ export function BoardView({
           <div aria-hidden="true" data-board-end="" className="w-0 shrink-0 sm:w-3 lg:w-4" />
         </div>
       </div>
-      <DragOverlay dropAnimation={null}>
-        {active ? (
-          // The overlay box has the dragged card's size (dnd-kit), whatever its lane's width.
-          <div className={clsx(CARD_SURFACE, 'relative w-full rotate-[1.5deg] cursor-grabbing border-primary bg-surface shadow-popover')}>
-            <CardFace
-              application={active}
-              title={<p className="line-clamp-2 text-[15px] leading-5 font-semibold break-words text-foreground">{active.title}</p>}
-            />
-          </div>
-        ) : null}
-      </DragOverlay>
+      <DragOverlay dropAnimation={null}>{active ? <DraggedCard application={active} handlers={handlers} /> : null}</DragOverlay>
       {refreshing && (
         <span className="sr-only" role="status">
           <Spinner label="Updating the board" />
@@ -610,14 +610,30 @@ export function BoardView({
   );
 }
 
-function ColumnSkeleton({ status, draftLabel }: { status: DisplayStatus; draftLabel: string }) {
+/**
+ * The card under the pointer while it is dragged (dnd-kit's overlay; its box has the dragged card's size, whatever its
+ * lane's width). v33 SHARE-9 fix (review): in the All profiles view it keeps its profile's badge.
+ */
+export function DraggedCard({ application, handlers }: { application: ApplicationSummary; handlers: Pick<CardHandlers, 'profileOf'> }) {
+  return (
+    <div className={clsx(CARD_SURFACE, 'relative w-full rotate-[1.5deg] cursor-grabbing border-primary bg-surface shadow-popover')}>
+      <CardFace
+        application={application}
+        title={<p className="line-clamp-2 text-[15px] leading-5 font-semibold break-words text-foreground">{application.title}</p>}
+        profile={handlers.profileOf?.(application) ?? null}
+      />
+    </div>
+  );
+}
+
+function ColumnSkeleton({ status }: { status: ApplicationStatus }) {
   return (
     <section aria-hidden="true" className={LANE} style={{ boxShadow: `inset 0 3px 0 var(${laneToken(status)})` }}>
       <header className="flex h-12 shrink-0 items-center gap-2 pr-1.5 pl-3 max-sm:hidden">
         <span className="flex size-6 items-center justify-center rounded-tag border border-border bg-surface text-muted-foreground">
-          <DisplayStatusIcon status={status} size={14} />
+          <StatusIcon status={status} size={14} />
         </span>
-        <span className="text-sm font-semibold text-foreground">{isDraftStatus(status) ? draftLabel : STATUS_INFO[status].label}</span>
+        <span className="text-sm font-semibold text-foreground">{STATUS_INFO[status].label}</span>
       </header>
       <div className="flex flex-col gap-2.5 px-2">
         {[0, 1].map((index) => (

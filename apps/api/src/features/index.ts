@@ -7,7 +7,6 @@ import { adminUsersFeature } from './admin-users/index';
 import { aiTasksFeature } from './ai-tasks/index';
 import { adminAiFeature } from './admin-ai/index';
 import { resumesFeature } from './resumes/index';
-import { resumeTemplatesFeature } from './resume-templates/index';
 import { skillsFeature } from './skills/index';
 import { coverLettersFeature } from './cover-letters/index';
 import { coverLetterTemplatesFeature } from './cover-letter-templates/index';
@@ -44,6 +43,8 @@ import { discoveryFeature } from './ingest/discovery/index'; // v30 S2
 import { notificationsFeature } from './notifications/index'; // v31 NOTIFY
 import { oauthFeature } from './oauth/index'; // v31 OAUTH
 import { jobLinksFeature } from './jobs/add/index'; // v31 LINK
+import { rolesFeature } from './roles/index'; // v33 ROLES
+import { sharingFeature } from './sharing/index'; // v33 SHARE-2
 
 /**
  * Every feature of the API, in setup order: services are created in this order (AI before the features that queue
@@ -62,7 +63,7 @@ export const FEATURES: Feature[] = [
   aiTasksFeature,
   adminAiFeature,
   resumesFeature,
-  resumeTemplatesFeature,
+  // v33 LEGACY: the retired templates' feature (resume-templates) is gone with its 26 Handlebars templates.
   skillsFeature,
   coverLettersFeature,
   coverLetterTemplatesFeature,
@@ -72,6 +73,7 @@ export const FEATURES: Feature[] = [
   ingestFeature,
   jobsFeature,
   jobLinksFeature, // v31 LINK: every job comes from its link (POST /api/jobs/add, the link queue, Retry read)
+  rolesFeature, // v33 ROLES: GET /api/roles (the person's field) and the one-time re-categorization of stored jobs
   // v30 SCH: the companies (E0-API: profiles, resolveCompany, Admin › Companies, /companies/:id) and the extension's
   // reviews (X1-API: closed reports, held new jobs, Admin › Review), after the jobs they describe.
   companiesFeature,
@@ -96,6 +98,7 @@ export const FEATURES: Feature[] = [
   // v1.5 M: the MCP server for Prepare with the person's own AI (after tailoring, whose code steps it runs).
   mcpFeature,
   oauthFeature, // v31 OAUTH: the OAuth 2.1 server Claude and ChatGPT connect to the MCP server through
+  sharingFeature, // v33 SHARE-2: shared profiles (/api/sharing: grants, invites, activity, overview; the hourly sweep)
   // v30 ST0: features only a development install has (dev-only/index.ts), last.
   notificationsFeature, // v31 NOTIFY: notifications and the header's summary (after every feature that writes them)
   dbMaintenanceFeature, // v30 D5L (before the dev-only seam, which stays last)

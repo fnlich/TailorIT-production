@@ -25,8 +25,7 @@
     "refdata:match": "node scripts/run-api-script.mjs refdata:match",
     "refdata:coverage": "node scripts/run-api-script.mjs refdata:coverage",
     "doctor": "node scripts/doctor.mjs",
-    "setup:browser": "node scripts/install-browser.mjs",
-    "resumes:upgrade": "node scripts/run-api-script.mjs resumes:upgrade"
+    "setup:browser": "node scripts/install-browser.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

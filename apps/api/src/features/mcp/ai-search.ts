@@ -2,7 +2,7 @@ import type { JobsQuery } from '@tailorit/shared';
 import { assertFeature } from '../../core/accounts/entitlements';
 import { aiUnavailableError } from '../../core/accounts/refusals';
 import { constantsOf } from '../../core/constants/service';
-import type { AppDeps } from '../../core/context';
+import type { SaveContext } from './save'; // v33 SHARE-8
 import { validationFailed } from '../../core/http/errors';
 import { assertServerAi } from '../../core/seams';
 import { searchJobs, type SearchArgs } from './tools-jobs';
@@ -50,23 +50,26 @@ export function searchArgsOf(query: JobsQuery): { args: SearchArgs; notApplied: 
 }
 
 export async function aiSearchJobs(
-  deps: AppDeps,
-  userId: string,
+  ctx: Pick<SaveContext, 'deps' | 'userId' | 'profile' | 'sets'>,
   input: { text: string; limit?: number },
 ): Promise<Record<string, unknown>> {
-  await assertFeature(deps, userId, 'ai_job_search');
+  // v33 SHARE-8 (SHARE-3's edit 7): the caller pays and their plan decides, on every profile (payerOfGrant(grant,
+  // 'mcp') on another person's: B's budget, B's Paid feature; A's spend stays 0). The search reads the profile's flags.
+  const { deps, userId } = ctx;
+  const payer = ctx.profile.payer;
+  await assertFeature(deps, payer, 'ai_job_search');
   const text = input.text.trim();
   const max = constantsOf(deps).get('AI_SEARCH_TEXT_MAX_CHARS');
   if (!text) throw validationFailed('text: say what jobs the person is looking for.');
   // v2.0 FIX-C (REQ-3): MSG_TEXT_TOO_LONG, after the field's name as before ("text: use at most 500 characters.").
   if ([...text].length > max) throw validationFailed(`text: ${lowerFirst(constantsOf(deps).message('MSG_TEXT_TOO_LONG', { max }))}`);
-  await assertServerAi(deps, userId);
+  await assertServerAi(deps, payer);
   const service = deps.services.aiSearch;
   if (!service) throw aiUnavailableError(deps);
-  const { taskId } = await service.start(userId, text);
+  const { taskId } = await service.start(userId, text, payer);
   const result = await service.result(userId, taskId, AI_SEARCH_WAIT_MS);
   const { args, notApplied } = searchArgsOf(result.query);
-  const answer = await searchJobs(deps, userId, { ...args, ...(input.limit !== undefined ? { limit: input.limit } : {}) });
+  const answer = await searchJobs(deps, userId, { ...args, ...(input.limit !== undefined ? { limit: input.limit } : {}) }, ctx.sets);
   deps.log.debug(`[mcp] account ${userId}: ai_search_jobs searched`);
   return {
     ...answer,

@@ -45,15 +45,12 @@ export function editedShort(item: Pick<ResumeSummary, 'lastEditedAt' | 'updatedA
   return editedText(item, now).replace(/^Edited /, '');
 }
 
-/** The template a resume is drawn with, by name: the API's own word, else the template list's. '' for an upload. */
-export function templateNameOf(
-  item: Pick<ResumeSummary, 'kind' | 'templateId' | 'templateName'>,
-  templates: ReadonlyArray<{ id: string; name: string }>,
-): string {
-  if (item.kind === 'uploaded') return '';
-  if (item.templateName) return item.templateName;
-  const wanted = item.templateId || 'default';
-  return (templates.find((template) => template.id === wanted) ?? templates.find((template) => template.id === 'default'))?.name ?? '';
+/**
+ * The template a resume is drawn with, by name: the API's word ('' for an upload). v33 LEGACY: the API names every built
+ * resume's editor template (an older one's too), so the retired templates' list is no longer read.
+ */
+export function templateNameOf(item: Pick<ResumeSummary, 'kind' | 'templateName'>): string {
+  return item.kind === 'uploaded' ? '' : (item.templateName ?? '');
 }
 
 /** The card's line: "Edited 6 hours ago · Modern Two-Column" (the template left off for an upload). */
@@ -169,11 +166,19 @@ export type ResumeMenuKey =
   | 'copy'
   | 'delete';
 
-export function menuKeysFor(item: Pick<ResumeSummary, 'kind'>): ResumeMenuKey[] {
-  return item.kind === 'built'
-    ? ['edit', 'preview', 'rename', 'duplicate', 'default', 'pdf', 'docx', 'json', 'delete']
-    : ['edit', 'view', 'details', 'rename', 'duplicate', 'default', 'file', 'copy', 'delete']; // v1.5 W: 'edit'
+export function menuKeysFor(item: Pick<ResumeSummary, 'kind'>, canEdit = true, canDelete = canEdit): ResumeMenuKey[] {
+  const keys: ResumeMenuKey[] =
+    item.kind === 'built'
+      ? ['edit', 'preview', 'rename', 'duplicate', 'default', 'pdf', 'docx', 'json', 'delete']
+      : ['edit', 'view', 'details', 'rename', 'duplicate', 'default', 'file', 'copy', 'delete']; // v1.5 W: 'edit'
+  // v33 FIX-1: on a profile shared without Documents' Change, only what reads (open, preview, details, downloads).
+  if (!canEdit) return keys.filter((key) => READ_ONLY_MENU_KEYS.has(key));
+  // v33 FIX-2: Delete only where the person may delete (their own profile: sharing/access tabDeletes).
+  return canDelete ? keys : keys.filter((key) => key !== 'delete');
 }
+
+/** v33 FIX-1: the menu items that only read a resume (offered on a profile shared without Documents' Change). */
+export const READ_ONLY_MENU_KEYS: ReadonlySet<ResumeMenuKey> = new Set<ResumeMenuKey>(['preview', 'view', 'details', 'pdf', 'docx', 'json', 'file']);
 
 /** The upload dialog's title: what the person typed, else the file's own name without its extension. */
 export function uploadTitle(typed: string, fileName: string): string {

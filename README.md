@@ -10,6 +10,11 @@ TailorIT is a self-hosted job-search workspace:
   notes.
 - **Documents**: resumes (uploaded files kept as they are, and an on-page resume editor with print-ready templates),
   cover letters and cover letter templates, with PDF and Word downloads.
+- **Every kind of job**: jobs in 36 categories and 26 fields; each resume's field (detected, or chosen) sets the words
+  of tailoring, the job's reading, letters and autofill answers.
+- **Shared profiles**: a person shares their profile with another account (Settings › Sharing, a box per area), which
+  sees and prepares on it, pays for its own AI, and works on every profile at once (also through its own AI app); the
+  jobs it prepares wait for the owner's OK.
 - **Admin**: job sources and their schedule, companies, reviews of the extension's reports, users, AI health and
   usage, constants and announcements.
 
@@ -59,7 +64,6 @@ address (a six-digit email code, or Google).
 | `npm run db:partitions` | Runs the database's daily partition housekeeping once. |
 | `npm run ingest:worker` | The ingest worker alone (`npm start` starts it; run only one). |
 | `npm run refdata:build -- --from <folder>` | Loads hand-downloaded company open data (Wikidata, SEC, GLEIF); `refdata:match` and `refdata:coverage` match again and report. |
-| `npm run resumes:upgrade` | Upgrades stored resumes to the current resume format. |
 | `npm run setup:browser` | Downloads Chrome for PDF export when no installed Chrome or Edge can be used. |
 | `npm run typecheck`, `npm run lint` | Checks the code. |
 
@@ -74,10 +78,9 @@ id).
 ```
 apps/web/            the web app: Next.js 16, React 19, Tailwind 4
 apps/api/            the API: Express 4 and PostgreSQL 18; src/features/<feature>/ (one folder per feature),
-                     src/ai/ (the claude CLI and its prompts), migrations-pg/ (the schema), static/ (templates, fonts,
-                     skills)
+                     src/ai/ (the claude CLI and its prompts), migrations-pg/ (the schema), static/ (letter templates,
+                     fonts, skills)
 packages/shared/     the contracts and rules both apps use
-packages/render/     the resume render engine (PDF, preview, Word)
 packages/resume-templates/   the resume templates, drawn the same in the editor and the PDF
 scripts/             the launchers: dev, start, doctor, setup:browser, db-backup and the .env loader
 ```

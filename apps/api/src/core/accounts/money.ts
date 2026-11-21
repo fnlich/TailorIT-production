@@ -3,6 +3,7 @@ import { dayKeyAt } from '../constants/day';
 import type { AppDeps } from '../context';
 import { notFound, validationFailed } from '../http/errors';
 import { entitlementsOf } from './entitlements';
+import type { PersonPayer } from './payer'; // v33 INT-1
 import { notifyChargeCrossings } from '../../features/notifications/emitters'; // v31 NOTIFY
 
 // v2.0: server-AI money (docs/design/v2.0/03-ai-usage.md, "Spend order and overshoot"; 04-accounts-limits.md). The only
@@ -124,7 +125,9 @@ export interface AiBudgetState {
   exhausted: boolean;
 }
 
-export async function aiBudgetState(deps: Deps, userId: string, at: Date = deps.now()): Promise<AiBudgetState> {
+export async function aiBudgetState(deps: Deps, who: PersonPayer, at: Date = deps.now()): Promise<AiBudgetState> {
+  // v33 SHARE-3: the payer's budget and credit (B's on A's profile).
+  const userId = who.id;
   const dayKey = dayKeyAt(deps, at);
   const budgetMicros = await aiDailyBudgetMicros(deps, userId);
   const { dailySpentMicros } = await spendToday(deps, userId, dayKey);

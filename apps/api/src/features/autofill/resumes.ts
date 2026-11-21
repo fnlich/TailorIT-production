@@ -1,4 +1,4 @@
-import { resumeDownloadFileName, resumeExportFileName } from '@tailorit/shared';
+import { resumeDownloadFileName } from '@tailorit/shared';
 import {
   AUTOFILL_RESUME_MAX_BYTES,
   type AutofillFileKind,
@@ -46,10 +46,8 @@ export function attachableResume(deps: AppDeps, row: ResumeListRow, defaultId: s
     createdAt: row.created_at,
   };
   if (row.kind === 'built') {
-    // exportBuiltResume's names: the person's name for a resume of the on-page editor, the label for an older one.
-    const fileName = summary.onPageEditor
-      ? resumeDownloadFileName({ name: summary.nameOnResume }, 'pdf')
-      : resumeExportFileName(summary.label, 'pdf');
+    // exportBuiltResume's name: the person's name (v33 LEGACY: an older resume prints as the editor shows it, too).
+    const fileName = resumeDownloadFileName({ name: summary.nameOnResume }, 'pdf');
     return { ...item, fileKind: 'pdf', fileName };
   }
   const kind = row.file_id && row.file_mime ? kindOfMime(row.file_mime) : null;

@@ -24,13 +24,16 @@ import {
   letterParagraphs,
   letterText,
   revisionRound,
+  tailorFitOf,
   withProfileFiguresKept,
   type RevisionIssues,
+  type TailorFit,
 } from '../tailor/pipeline';
 import { postingHashOf } from '../tailor/store';
 import type { Profile, TailoredContent } from '../tailor/types';
 import { chosenContent, chosenResume } from './chosen';
-import { heldAnalysis, mcpJobOf, sourceProfile, type McpJob, type SourceProfile } from './job';
+import { heldAnalysis, mcpJobOf, personFitOf, sourceProfile, type McpJob, type SourceProfile } from './job';
+import { referenceFor } from '../tailor/skills/reference';
 import { assertResumeEditable, assertRoomForResumes } from './limits';
 import {
   finishedView,
@@ -48,6 +51,8 @@ import { normalizeLetter } from './normalize/letter';
 import { isRecord, refuse } from './normalize/refuse';
 import { isWholeResume, normalizeResume, normalizeRevisionEdits, REVISION_SHAPE, type DroppedRole } from './normalize/resume';
 import type { McpPrepare, PrepareAdapter } from './prepare';
+import { profilesPreparing, type McpCallerInfo, type McpProfile } from './profiles'; // v33 SHARE-8
+import type { SetScope } from './result-sets'; // v33 SHARE-8
 import { answerShape, openQuestions } from './questions';
 import { contentProblem, CONTENT_REFUSALS, holdsTripwire, type ContentProblem } from './screen';
 import { mcpSettings } from './settings';
@@ -107,10 +112,32 @@ export const RESUME_CHOSEN =
 
 export interface SaveContext {
   deps: AppDeps;
+  /**
+   * v33 SHARE-8: whose data the call reads and writes: the profile's owner (= profile.userId; the caller on "me"). The
+   * caller's own (settings, custom instructions, the rules pointer, own-AI saves' limits, reports) is `caller.id`.
+   */
   userId: string;
   prepare: PrepareAdapter;
   /** v2.0 P5: the token the request came with (the instructions' read pointer); null in a direct call. */
   tokenId?: string | null;
+  // v33 SHARE-8 (PLAN-sharing.md §7: SaveContext split into the caller and the profile; features/mcp/profiles.ts)
+  caller: McpCallerInfo;
+  profile: McpProfile;
+  /** The profile the answers' next calls name ("me" or its key) once the caller has another profile; null: none. */
+  hint: string | null;
+  /** The result sets' owner: the caller on this profile (result-sets.ts). */
+  sets: SetScope;
+  /** Every tripwire of the caller's grants (live or ended): a save holding one is refused, on any profile. */
+  canaries: readonly string[];
+  // end v33 SHARE-8
+}
+
+/** v33 SHARE-8: the job's tripwire and the caller's grants' (every save's content screen). */
+export const tripwiresOf = (ctx: Pick<SaveContext, 'canaries'>, ...more: readonly string[]): string[] => [...new Set([...more, ...ctx.canaries])];
+
+/** v33 SHARE-8: refused as `canary` when `value` holds a tripwire of the caller's grants (a save on any profile). */
+export function refuseGrantTripwire(ctx: Pick<SaveContext, 'canaries'>, value: unknown): void {
+  if (ctx.canaries.length > 0 && holdsTripwire(stringsOf(value), ctx.canaries)) throw refuseContent('canary');
 }
 
 /** v2.0 P5: the job's active Prepare of the person's AI; refused (conflict) when there is none. */
@@ -120,9 +147,9 @@ export async function requireMcpPrepare(ctx: SaveContext, job: McpJob): Promise<
   return prepare;
 }
 
-/** The mode a call's next steps are worded for: the call's own, else the account's setting. */
+/** The mode a call's next steps are worded for: the call's own, else the account's setting. v33 SHARE-8: the caller's. */
 export const modeOf = async (ctx: SaveContext, mode?: McpPromptMode): Promise<McpPromptMode> =>
-  mode ?? (await mcpSettings(ctx.deps, ctx.userId)).promptMode;
+  mode ?? (await mcpSettings(ctx.deps, ctx.caller.id)).promptMode;
 
 /** The ATS report as the save answers it: the scores and what is missing, never the resume's words. */
 export function atsSummary(report: AtsReport, scoreBefore: number) {
@@ -180,6 +207,7 @@ export async function saveAnalysis(
   const job = await mcpJobOf(deps, userId, jobId);
   await requireMcpPrepare(ctx, job);
   if (!readableForAi(job.posting)) throw new AppError('validation_failed', TOO_LITTLE_POSTING);
+  refuseGrantTripwire(ctx, [input.analysis, input.missing]); // v33 SHARE-8
   const work = await workFor(deps, userId, jobId);
   const postingHash = postingHashOf(job.posting);
   let raw: RawAnalysis;
@@ -194,7 +222,7 @@ export async function saveAnalysis(
     if (!first) throw new AppError('validation_failed', NO_FIRST_PASS);
     raw = withMissedKeywords(first, sent);
   }
-  const analysis = toJobAnalysis(raw, job.posting);
+  const analysis = toJobAnalysis(raw, job.posting, referenceFor(job.family)); // v33 PROMPTS: the job family's library
   const keywords = analysis.atsKeywords ?? [];
   if (keywords.length === 0) throw new AppError('validation_failed', NO_KEYWORDS_KEPT);
   await keepAnalysis(deps, userId, jobId, postingHash, raw);
@@ -208,7 +236,7 @@ export async function saveAnalysis(
     ...(how === 'own-prompt'
       ? { keywords: keywords.map((k) => [k.term, k.type, k.kind, k.priority ?? 'strong']) }
       : {}),
-    next: input.analysis !== undefined ? nextAfterAnalysis(jobId, how) : nextTailor(jobId, how),
+    next: input.analysis !== undefined ? nextAfterAnalysis(jobId, how, ctx.hint) : nextTailor(jobId, how, ctx.hint),
   };
 }
 
@@ -240,13 +268,14 @@ export function draftOfResume(
   field: 'resume' | 'revision',
   profile: Profile,
   analysis: Parameters<typeof draftFromAnswer>[2],
-  canary: string,
+  canary: string | readonly string[], // v33 SHARE-8: the job's tripwire and the caller's grants'
+  fit: TailorFit = tailorFitOf(),
 ): { draft: TailoredContent; dropped: DroppedRole[] } {
   const problem = contentProblem(stringsOf(value), canary);
   if (problem) throw refuseContent(problem);
   const { resume, dropped } = normalizeResume(value, profile, field);
   if (!isUsableDraft(resume, profile)) throw new AppError('validation_failed', NOT_A_RESUME);
-  return { draft: draftFromAnswer(resume, profile, analysis), dropped };
+  return { draft: draftFromAnswer(resume, profile, analysis, fit), dropped };
 }
 
 export async function saveResume(
@@ -268,11 +297,14 @@ export async function saveResume(
   // of the resume it made (the save that made it may have brought the count to the limit; the job must still queue).
   const replaceable = await replaceableResume(ctx, job.applicationId, work);
   if (replaceable) await assertResumeEditable(deps, userId, { prepareId: prepare.id, resumeId: replaceable });
-  else await assertRoomForResumes(deps, userId, 1);
+  else await assertRoomForResumes(deps, userId, 1, ctx.profile.payer); // v33 SHARE-8: B never takes A's last places
   const { analysis } = held;
   const source = await sourceProfile(deps, userId);
   const { profile } = source;
-  const settings = await mcpSettings(deps, userId);
+  const settings = await mcpSettings(deps, ctx.caller.id); // v33 SHARE-8: the caller's revision rounds
+  const canaries = tripwiresOf(ctx, work.canary); // v33 SHARE-8
+  // v33 PROMPTS (F5): written for the person's field (else the job's): its numbers and its skill library.
+  const fit = personFitOf(source, job);
 
   let draft: TailoredContent;
   let round: number;
@@ -281,25 +313,25 @@ export async function saveResume(
     if (!work.draft) throw new AppError('validation_failed', NO_DRAFT_TO_REVISE);
     if (!isRecord(input.revision)) throw refuse('revision', REVISION_SHAPE, input.revision);
     if (isWholeResume(input.revision)) {
-      ({ draft, dropped } = draftOfResume(input.revision, 'revision', profile, analysis, work.canary));
+      ({ draft, dropped } = draftOfResume(input.revision, 'revision', profile, analysis, canaries, fit));
     } else {
-      const problem = contentProblem(stringsOf(input.revision), work.canary);
+      const problem = contentProblem(stringsOf(input.revision), canaries);
       if (problem) throw refuseContent(problem);
       const edits = normalizeRevisionEdits(input.revision, work.draft);
-      draft = draftWithRevision(work.draft, { ...edits.revision });
+      draft = draftWithRevision(work.draft, { ...edits.revision }, fit);
       dropped = edits.dropped;
     }
     round = work.saves + 1;
   } else {
-    ({ draft, dropped } = draftOfResume(input.resume, 'resume', profile, analysis, work.canary));
+    ({ draft, dropped } = draftOfResume(input.resume, 'resume', profile, analysis, canaries, fit));
     round = 1;
   }
-  const problem = contentProblem(stringsOf(draft), work.canary);
+  const problem = contentProblem(stringsOf(draft), canaries);
   if (problem) throw refuseContent(problem);
 
-  const check = revisionRound(draft, analysis, profile, round, settings.reviseRounds);
-  const finished = withProfileFiguresKept(finishedDraft(draft, analysis, profile), profile);
-  const document = tailoredDocument(source.editor, finished, { templateId: source.templateId, profile });
+  const check = revisionRound(draft, analysis, profile, round, settings.reviseRounds, fit);
+  const finished = withProfileFiguresKept(finishedDraft(draft, analysis, profile, fit), profile);
+  const document = tailoredDocument(source.editor, finished, { templateId: source.templateId, profile, skills: fit.skills });
   if (!keptFacts(normalizeResumeDocument({ ...source.editor, templateId: source.templateId }), document)) {
     throw new AppError('internal', FACTS_CHANGED);
   }
@@ -314,7 +346,7 @@ export async function saveResume(
         resumeId = previous;
       } else {
         resumeId = (
-          await ctx.prepare.saveResume(deps, userId, job.applicationId, { document, sourceResumeId: source.resumeId, title })
+          await ctx.prepare.saveResume(deps, userId, job.applicationId, { document, sourceResumeId: source.resumeId, title }, ctx.caller.id)
         ).resumeId;
       }
       const stored = await t.one<{ document_revision: number }>('SELECT document_revision FROM resumes WHERE id = ?', [resumeId]);
@@ -324,8 +356,8 @@ export async function saveResume(
     { label: 'mcp saveResume' },
   );
 
-  const report = buildAtsReport(finished, analysis, profile);
-  const scoreBefore = buildAtsReport(sourceAsTailored(source), analysis, profile).score;
+  const report = buildAtsReport(finished, analysis, profile, fit.numbers);
+  const scoreBefore = buildAtsReport(sourceAsTailored(source), analysis, profile, fit.numbers).score;
   const how = await modeOf(ctx, mode);
   // While a revision is required the kit is not done: a later save queues the job.
   const finishedNow = check.revise ? { queued: false, queueFull: false } : await finishIfDone(ctx, job);
@@ -341,7 +373,7 @@ export async function saveResume(
     issues: issuesView(check.issues),
     ...(dropped.length > 0 ? { dropped } : {}),
     ...finishedView(finishedNow),
-    next: check.revise ? nextRevision(jobId, round, settings.reviseRounds, how) : await nextAfterSave(ctx, job, how, finishedNow),
+    next: check.revise ? nextRevision(jobId, round, settings.reviseRounds, how, ctx.hint) : await nextAfterSave(ctx, job, how, finishedNow),
   };
 }
 
@@ -380,7 +412,7 @@ export async function saveCoverLetter(
   const job = await mcpJobOf(deps, userId, jobId);
   const prepare = await requireMcpPrepare(ctx, job);
   const work = await workFor(deps, userId, jobId);
-  const sentProblem = contentProblem(stringsOf([input.paragraphs, input.letter]), work.canary);
+  const sentProblem = contentProblem(stringsOf([input.paragraphs, input.letter]), tripwiresOf(ctx, work.canary)); // v33 SHARE-8
   if (sentProblem) throw refuseContent(sentProblem);
   const normalized = normalizeLetter(input);
   // v2.0 P5, A29: the letter is the chosen resume's (the tailored one, the default or the most similar).
@@ -415,7 +447,7 @@ export async function saveCoverLetter(
         });
         letterId = previous.id;
       } else {
-        letterId = (await ctx.prepare.saveLetter(deps, userId, job.applicationId, { paragraphs })).coverLetterId;
+        letterId = (await ctx.prepare.saveLetter(deps, userId, job.applicationId, { paragraphs }, ctx.caller.id)).coverLetterId;
       }
       const row = await letters.getRow(letterId, userId);
       await keepLetter(deps, userId, jobId, { id: letterId, updatedAt: row?.updated_at ?? nowIso(deps) });
@@ -521,7 +553,7 @@ export async function saveAnswers(
   const job = await mcpJobOf(deps, userId, jobId);
   await requireMcpPrepare(ctx, job);
   const work = await workFor(deps, userId, jobId);
-  const canaries = [...new Set([work.canary, ...(options.canaries ?? [])])];
+  const canaries = tripwiresOf(ctx, work.canary, ...(options.canaries ?? [])); // v33 SHARE-8: and the caller's grants'
   const open = openQuestions(await ctx.prepare.questions(deps, userId, job.applicationId));
   const byId = new Map(open.map((question) => [question.id, question]));
   const kept: Array<{ questionId: number; answer: AutofillSubmittedAnswerValue }> = [];
@@ -543,7 +575,7 @@ export async function saveAnswers(
     if (reason || !answer) refused.push({ questionId, reason: reason ?? 'does_not_fit' });
     else kept.push({ questionId, answer });
   }
-  const result = await ctx.prepare.saveAnswers(deps, userId, job.applicationId, kept);
+  const result = await ctx.prepare.saveAnswers(deps, userId, job.applicationId, kept, ctx.caller.id);
   const refusedThere = new Set(result.refused.map((item) => item.questionId));
   const ready = new Set(kept.filter((item) => !refusedThere.has(item.questionId)).map((item) => item.questionId));
   const allRefused = [...refused, ...result.refused];
@@ -570,6 +602,13 @@ export async function saveAnswersForJobs(
   jobs: ReadonlyArray<{ jobId: number; answers: readonly SentAnswer[] }>,
   mode?: McpPromptMode,
 ) {
+  // v33 SHARE-8 (PLAN-sharing.md §7): one batch covers one profile. A job the caller's AI prepares on another profile
+  // (and not on this one) refuses the whole call before anything is kept.
+  const elsewhere = await profilesPreparing(ctx.deps, ctx.caller.id, jobs.map((job) => job.jobId));
+  for (const { jobId } of jobs) {
+    const owners = elsewhere.get(jobId);
+    if (owners && owners.size > 0 && !owners.has(ctx.userId)) throw new AppError('validation_failed', batchOtherProfile(jobId));
+  }
   const canaries: string[] = [];
   for (const { jobId } of jobs) {
     try {
@@ -604,3 +643,8 @@ async function nextJobAfter(ctx: SaveContext, results: ReadonlyArray<{ jobId: nu
   const open = results.find((result) => result.next && !result.next.startsWith('This job is done'));
   return open?.next ?? (await nextJob(ctx, results.at(-1)!.jobId));
 }
+
+/** v33 SHARE-8: a prepare_save_answers batch holding a job of another profile. */
+export const batchOtherProfile = (jobId: number) =>
+  `A prepare_save_answers call covers one profile: job ${jobId} is prepared on another profile. Nothing was saved: save ` +
+  'each profile\'s answers in a call of its own, with its "profile".';

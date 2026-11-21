@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { userMessage } from '@/lib/api';
 import { HeaderNotifications, HeaderUsage } from './header/slots';
+import { ProfileChip } from './profile/ProfileChip';
 import { PAGE_GUTTER } from './layout';
 import { LogoMark, Wordmark } from './Logo';
 
@@ -231,6 +232,8 @@ export function EditorBar({
           </div>
         )}
         <div className="flex shrink-0 items-center gap-1" data-editor-header-slots="">
+          {/* v33 SHARE-4: whose profile this document is, where it matters most (an edit lands on that profile). */}
+          <ProfileChip />
           <HeaderUsage extraFrom={crowded ? '2xl' : 'xl'} />
           <HeaderNotifications />
         </div>

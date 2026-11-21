@@ -12,7 +12,7 @@ import {
   type UnverifiedLinkDetail,
 } from '@tailorit/shared';
 import { adminRouter, PositiveId } from '../../../core/admin/index';
-import { requireUser, userOf } from '../../../core/auth/guards';
+import { actorOf, requireUser, userOf } from '../../../core/auth/guards'; // v33 SHARE-6: actorOf
 import { constantsOf } from '../../../core/constants/service';
 import type { AppDeps } from '../../../core/context';
 import { notFound } from '../../../core/http/errors';
@@ -70,10 +70,13 @@ export function createJobLinksRouter(deps: AppDeps): Router {
   const inFlight = newInFlight();
   router.use(requireUser);
 
+  // v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"; SHARE-3's exact edit 5): on a shared profile the job and its entry
+  // are the owner's (userOf), the add is one of the actor's own an hour (actorOf), and the link's later notices go to
+  // the actor (addJobByLink's `actor`).
   router.post('/add', async (req, res) => {
     const user = userOf(req);
     const body = parseInput(AddJobBodySchema, req.body, 'job');
-    takeAddSlot(deps, user.id);
+    takeAddSlot(deps, actorOf(req).id);
     const outcome = await addJobByLink(deps, {
       url: body.url,
       userId: user.id,
@@ -81,6 +84,7 @@ export function createJobLinksRouter(deps: AppDeps): Router {
       details: body.details ?? null,
       save: true,
       inFlight,
+      ...(req.acting ? { actor: { id: actorOf(req).id, grantId: req.acting.grantId } } : {}), // v33 SHARE-6
     });
     res.status(outcome.created ? 201 : 200).json(addJobResultOf(deps, outcome));
   });
@@ -89,8 +93,10 @@ export function createJobLinksRouter(deps: AppDeps): Router {
     const user = userOf(req);
     const id = JobIdParam.safeParse(req.params.id);
     if (!id.success) throw notFound('That job');
-    takeAddSlot(deps, user.id);
-    const outcome = await verifyJob(deps, id.data, { id: user.id, admin: user.role === 'admin' });
+    takeAddSlot(deps, actorOf(req).id); // v33 SHARE-6: the actor's hour
+    // v33 SHARE-6: the job is the profile's owner's to retry (userOf: role `user` on a shared profile, so no admin power);
+    // the one who asked (actorOf) sees the answer, the link's adder hears it otherwise.
+    const outcome = await verifyJob(deps, id.data, { id: user.id, admin: user.role === 'admin' }, actorOf(req).id);
     res.json(addJobResultOf(deps, outcome, true));
   });
 

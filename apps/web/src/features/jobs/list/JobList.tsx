@@ -161,6 +161,8 @@ export interface ResultsBarProps {
   /** No resume to measure the jobs against (the bar offers to add one). */
   needsResume: boolean;
   onQueryChange: (patch: Partial<JobsQuery>) => void;
+  /** v33 FIX-1: jobs may be saved here (false on a profile shared without the Job Tracker's Change: no Select, Save all). */
+  canSave?: boolean;
 }
 
 /**
@@ -168,7 +170,7 @@ export interface ResultsBarProps {
  * under the top bar while the page scrolls: "Found N jobs", the resume hint when there is none to measure, then Select,
  * Save all and the sort; the selection's bar while jobs are chosen. The count never cuts (UX-4): the bar wraps instead.
  */
-export function ResultsBar({ query, list, selection, needsResume: noResume, onQueryChange }: ResultsBarProps) {
+export function ResultsBar({ query, list, selection, needsResume: noResume, onQueryChange, canSave = true }: ResultsBarProps) {
   const constants = usePublicConstants();
   const items = useMemo(() => listedJobs(list), [list]);
   const total = list.data?.pages[0]?.total ?? 0;
@@ -188,8 +190,8 @@ export function ResultsBar({ query, list, selection, needsResume: noResume, onQu
             {noResume && <AddResumeChip />}
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-x-0.5">
-            <SelectButton disabled={!list.data || items.length === 0} onClick={selection.onStart} />
-            <SaveAllButton query={query} list={list} />
+            {canSave && <SelectButton disabled={!list.data || items.length === 0} onClick={selection.onStart} />}
+            {canSave && <SaveAllButton query={query} list={list} />}
             <SortMenu
               sort={query.sort}
               onChange={(sort) => onQueryChange({ sort })}
@@ -228,6 +230,8 @@ export interface JobListProps {
   /** The rows' quick Apply, while the list fills the page (see JobCard). */
   onApply?: (jobId: number) => void;
   onToggleSave: (job: JobListItem) => void;
+  /** v33 FIX-1: the rows' Save is on (off on a profile shared without the Job Tracker's Change). */
+  canSave?: boolean;
   onClearAll: () => void;
   companyNames: ReadonlyMap<string, string>;
   selection: JobSelection;
@@ -250,6 +254,7 @@ export function JobList({
   onSelect,
   onApply,
   onToggleSave,
+  canSave = true,
   onClearAll,
   companyNames,
   selection,
@@ -326,6 +331,7 @@ export function JobList({
                 onSelect={onSelect}
                 onApply={onApply}
                 onToggleSave={onToggleSave}
+                canSave={canSave}
                 selectable={selection.active}
                 checked={selection.active && selection.selected.has(job.id)}
                 onToggleChecked={selection.onToggle}

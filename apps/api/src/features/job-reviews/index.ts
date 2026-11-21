@@ -2,6 +2,7 @@ import type { AppDeps } from '../../core/context';
 import type { Feature } from '../../core/feature';
 import { JOB_REVIEWS_DAILY } from './housekeeping';
 import { RECHECK_PASS_EVERY_MS, runAutoSweep, runRecheckPass } from './rechecks';
+import { JOB_REVIEWS_ACTING } from './acting'; // v33 SHARE-6
 import { createReviewFlagsRouter, createReviewRouter } from './router';
 import { runsPaused } from '../ingest/pause-state'; // v31 RUNS
 
@@ -48,8 +49,8 @@ export const jobReviewsFeature: Feature = {
   name: 'job-reviews',
   routes: [
     // The paths X1-WEB's Admin › Review calls (its review/api.ts REVIEW_ROUTES).
-    { path: '/api/admin/reviews', router: createReviewRouter },
-    { path: '/api/admin/flags', router: createReviewFlagsRouter },
+    { path: '/api/admin/reviews', router: createReviewRouter, acting: JOB_REVIEWS_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/flags', router: createReviewFlagsRouter, acting: JOB_REVIEWS_ACTING /* v33 SHARE-6 */ },
   ],
   daily: JOB_REVIEWS_DAILY,
   worker: startReviewWorker,

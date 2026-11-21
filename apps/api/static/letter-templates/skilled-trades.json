@@ -1,0 +1,21 @@
+{
+  "systemKey": "skilled-trades",
+  "position": 10,
+  "name": "Skilled Trades",
+  "fontFamily": "Roboto",
+  "families": ["trades-facilities", "manufacturing", "logistics-transportation", "protective-services"],
+  "aiPrompt": "Name the equipment, sites and safety practices from my resume that this job asks for, and the licences or certifications my resume lists. Keep it short and practical.",
+  "blocks": [
+    { "tag": "h2", "text": "{{USER_FULL_NAME}}" },
+    "{{CONTACT_LINE}}",
+    "{{TODAY_DATE}}",
+    "{{SALUTATION}}",
+    "I am applying for the {{JOB_TITLE}} position at {{COMPANY_NAME}}. I take pride in work done safely, done right and done on time.",
+    "{{ROLE_FIT}}",
+    "{{SKILL_HIGHLIGHT}}",
+    "{{COMPANY_APPEAL}}",
+    "I would be glad to talk about the work and to show what I can do on the job.",
+    "{{SIGN_OFF}}",
+    "{{USER_FULL_NAME}}"
+  ]
+}

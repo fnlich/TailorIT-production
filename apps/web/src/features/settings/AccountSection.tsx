@@ -13,8 +13,12 @@ import { Button } from '../../components/ui/Button';
 import { CheckIcon, LockSimpleIcon } from '../../components/ui/icons';
 import { Notice } from '../../components/ui/Notice';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { HelpTip } from '../../components/ui/HelpTip';
 import { useAccount } from '../../lib/account';
 import { userMessage } from '../../lib/api';
+import { usePublicConstants } from '../../lib/constants';
+import { roleFamilyLabel } from '@tailorit/shared/roles';
+import { useMyField } from '../roles/hooks'; // v33 ROLES
 import { ACCOUNT_COPY, accountView, type AccountView } from './account';
 import { Section, SettingRow } from './parts';
 
@@ -30,12 +34,24 @@ export function AccountSection({ className }: { className?: string }) {
   // The top bar's own query (same key: no second request while it is fresh; the bar keeps it current).
   const header = useQuery({ queryKey: HEADER_QUERY_KEY, queryFn: ({ signal }) => fetchHeaderSummary(signal), staleTime: 60_000 });
   const [open, setOpen] = useState<'subscribe' | 'credit' | null>(null);
+  // v33 ROLES (F4): "Your field", the default resume's.
+  const { t } = usePublicConstants();
+  const myField = useMyField().data;
+  const field = myField
+    ? {
+        familyId: myField.familyId as string,
+        label: t('LABEL_ACCOUNT_YOUR_FIELD'),
+        tip: t('MSG_ACCOUNT_FIELD_TIP'),
+        text: myField.source === 'none' ? t('MSG_ACCOUNT_FIELD_NONE') : t('MSG_ACCOUNT_YOUR_FIELD', { field: roleFamilyLabel(myField.familyId) }),
+      }
+    : null;
   return (
     <Section title={ACCOUNT_COPY.title} description={ACCOUNT_COPY.description} id="account" className={className}>
       {account.data ? (
         <AccountDetails
           view={accountView(account.data)}
           aiUse={header.data?.ai}
+          field={field}
           onSubscribe={() => setOpen('subscribe')}
           onBuyCredit={() => setOpen('credit')}
         />
@@ -64,12 +80,15 @@ export function AccountSection({ className }: { className?: string }) {
 export function AccountDetails({
   view,
   aiUse,
+  field,
   onSubscribe,
   onBuyCredit,
 }: {
   view: AccountView;
   /** Today's AI use as the top bar's summary gives it (the share, or the amounts): only the share is drawn. */
   aiUse?: AiUseInput;
+  /** v33 ROLES: "Your field" in words (the default resume's), with its "?"; no row while unknown. */
+  field?: { familyId: string; label: string; tip: string; text: string } | null;
   onSubscribe: () => void;
   onBuyCredit: () => void;
 }) {
@@ -112,6 +131,18 @@ export function AccountDetails({
           <span>{ACCOUNT_COPY.unlimited}</span>
         )}
       </SettingRow>
+      {field ? (
+        <SettingRow
+          label={
+            <span className="inline-flex items-center gap-1">
+              {field.label}
+              <HelpTip label={field.label}>{field.tip}</HelpTip>
+            </span>
+          }
+        >
+          <span data-your-field={field.familyId}>{field.text}</span>
+        </SettingRow>
+      ) : null}
       <SettingRow label={ACCOUNT_COPY.aiSearch}>
         {view.aiJobSearch === 'included' ? (
           <span className="inline-flex items-center gap-1.5">

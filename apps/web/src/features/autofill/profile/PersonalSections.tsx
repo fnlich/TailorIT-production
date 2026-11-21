@@ -3,11 +3,12 @@
 import { AutofillProfileSchema } from '@tailorit/shared/autofill';
 import { TrashIcon } from '@/components/ui/icons';
 import { IconButton } from '@/components/ui/IconButton';
+import { useProfile } from '@/components/shell/profile/useProfile';
 import { useAuth } from '@/lib/auth';
 import { COUNTRY_OPTIONS, PHONE_DEVICE_TYPE_OPTIONS, regionOptions, withCurrent } from '../options';
 import { Section } from '../Section';
 import { AddButton, FromResumeHint, SelectField, TextField } from './fields';
-import { useProfileForm } from './form';
+import { ReadOnlyFields, useProfileForm } from './form';
 
 /** Another link a form may ask for ("Dribbble", "Google Scholar"): the contract keeps ten. */
 const MAX_OTHER_LINKS = 10;
@@ -108,52 +109,66 @@ export function NameSection() {
   );
 }
 
+/** v33 SHARE-7: the Contact card's "?" on a shared profile (v33 INT-1, SHARE-6 edit 7: the whole contact block). */
+export const CONTACT_LOCKED_TIP = 'How employers reach them; only they change these details.';
+/** v33 INT-1 (SHARE-6 edit 7): the Links card's "?" on a shared profile. */
+export const LINKS_LOCKED_TIP = 'Their links; only they change these.';
+
 export function ContactSection() {
   const form = useProfileForm();
   const { account } = useAuth();
+  // v33 SHARE-4: on a profile shared with the person, an empty email means its owner's sign-in address (never the
+  // signed-in person's): applications go out as the profile's owner.
+  const shared = useProfile();
+  const fallbackAddress = shared.acting ? (shared.profile?.email ?? null) : (account?.email ?? null);
   const email = form.text('profile.contact.email');
   // Sign-in takes some addresses the rule refuses ("jane&co@example.com"): applications get no email from those.
-  const signInAddress = account?.email && EMAIL_RULE.safeParse(account.email).success ? account.email : null;
+  const signInAddress = fallbackAddress && EMAIL_RULE.safeParse(fallbackAddress).success ? fallbackAddress : null;
   return (
-    <Section title="Contact" description="How employers reach you.">
+    <Section title="Contact" description={shared.acting ? CONTACT_LOCKED_TIP : 'How employers reach you.'}>
       <div className="flex flex-col gap-5">
-        <TextField
-          path="profile.contact.email"
-          label="Email"
-          required
-          type="email"
-          maxLength={254}
-          autoComplete="email"
-          hint={!email.trim() && signInAddress ? `If empty, applications use ${signInAddress}.` : undefined}
-        />
-        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_140px]">
+        {/* v33 SHARE-7 (PLAN-sharing.md §3, §4 "Where applications go"): on a shared profile the contact block stays
+            the owner's: shown, never changed (a save keeps the stored one). v33 INT-1 (SHARE-6 edit 7): the address
+            too, as the server keeps the whole block. */}
+        <ReadOnlyFields readOnly={shared.acting}>
           <TextField
-            path="profile.contact.phone.number"
-            label="Phone"
-            type="tel"
-            maxLength={30}
-            placeholder="+1 512 555 0100"
-            autoComplete="tel"
+            path="profile.contact.email"
+            label="Email"
+            required
+            type="email"
+            maxLength={254}
+            autoComplete="email"
+            hint={!email.trim() && signInAddress ? `If empty, applications use ${signInAddress}.` : undefined}
           />
-          <CountryField path="profile.contact.phone.country" label="Phone country" />
-          <TextField path="profile.contact.phone.extension" label="Phone extension" inputMode="numeric" maxLength={8} />
-          <SelectField
-            path="profile.contact.phone.type"
-            label="Phone type"
-            options={PHONE_DEVICE_TYPE_OPTIONS}
-            emptyLabel="Not said"
-            placeholder="Phone type"
-            hint="Mobile, home or work."
-          />
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <TextField path="profile.contact.address.line1" label="Address line 1" maxLength={200} autoComplete="address-line1" />
-          <TextField path="profile.contact.address.line2" label="Address line 2" maxLength={200} autoComplete="address-line2" />
-          <TextField path="profile.contact.address.city" label="City" maxLength={100} autoComplete="address-level2" />
-          <RegionField path="profile.contact.address.region" countryPath="profile.contact.address.country" />
-          <TextField path="profile.contact.address.postalCode" label="Postal code" maxLength={20} autoComplete="postal-code" />
-          <CountryField path="profile.contact.address.country" />
-        </div>
+          <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_140px]">
+            <TextField
+              path="profile.contact.phone.number"
+              label="Phone"
+              type="tel"
+              maxLength={30}
+              placeholder="+1 512 555 0100"
+              autoComplete="tel"
+            />
+            <CountryField path="profile.contact.phone.country" label="Phone country" />
+            <TextField path="profile.contact.phone.extension" label="Phone extension" inputMode="numeric" maxLength={8} />
+            <SelectField
+              path="profile.contact.phone.type"
+              label="Phone type"
+              options={PHONE_DEVICE_TYPE_OPTIONS}
+              emptyLabel="Not said"
+              placeholder="Phone type"
+              hint="Mobile, home or work."
+            />
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <TextField path="profile.contact.address.line1" label="Address line 1" maxLength={200} autoComplete="address-line1" />
+            <TextField path="profile.contact.address.line2" label="Address line 2" maxLength={200} autoComplete="address-line2" />
+            <TextField path="profile.contact.address.city" label="City" maxLength={100} autoComplete="address-level2" />
+            <RegionField path="profile.contact.address.region" countryPath="profile.contact.address.country" />
+            <TextField path="profile.contact.address.postalCode" label="Postal code" maxLength={20} autoComplete="postal-code" />
+            <CountryField path="profile.contact.address.country" />
+          </div>
+        </ReadOnlyFields>
       </div>
     </Section>
   );
@@ -161,6 +176,9 @@ export function ContactSection() {
 
 export function LinksSection() {
   const form = useProfileForm();
+  // v33 INT-1 (SHARE-6 edit 7): on a profile shared with the person the links stay the owner's (the server keeps them):
+  // shown, never changed, and no link is added or removed.
+  const shared = useProfile();
   const others = form.state.draft.profile.links.other;
   const changeOthers = (clears: string | null, next: (list: typeof others) => typeof others) =>
     form.dispatch({
@@ -172,52 +190,58 @@ export function LinksSection() {
       },
     });
   return (
-    <Section title="Links" description="Full addresses, starting with https://">
+    <Section title="Links" description={shared.acting ? LINKS_LOCKED_TIP : 'Full addresses, starting with https://'}>
       <div className="flex flex-col gap-5">
-        <div className="grid gap-5 sm:grid-cols-2">
-          <LinkField path="profile.links.linkedin" label="LinkedIn" placeholder="https://www.linkedin.com/in/your-name" />
-          <LinkField path="profile.links.github" label="GitHub" placeholder="https://github.com/your-name" />
-          <LinkField path="profile.links.portfolio" label="Portfolio" />
-          <LinkField path="profile.links.website" label="Website" />
-          <LinkField
-            path="profile.links.x"
-            label="X (Twitter)"
-            placeholder="https://x.com/your_name"
-            hint="The address, or your @handle."
-          />
-          <LinkField
-            path="profile.links.telegram"
-            label="Telegram"
-            placeholder="https://t.me/your_name"
-            hint="The address, or your @username."
-          />
-        </div>
-        {others.length > 0 && (
-          <div className="flex flex-col gap-3">
-            {others.map((link, index) => (
-              <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] items-start gap-3">
-                <TextField path={`profile.links.other.${index}.label`} label="Label" maxLength={60} placeholder="Dribbble" />
-                <LinkField path={`profile.links.other.${index}.url`} label="Address" />
-                <IconButton
-                  label={`Remove ${link.label || 'this link'}`}
-                  tooltip="Remove"
-                  icon={<TrashIcon size={16} />}
-                  className="mt-6.5"
-                  disabled={form.busy}
-                  onClick={() => changeOthers('profile.links.other', (list) => list.filter((_, other) => other !== index))}
-                />
-              </div>
-            ))}
+        <ReadOnlyFields readOnly={shared.acting}>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <LinkField path="profile.links.linkedin" label="LinkedIn" placeholder="https://www.linkedin.com/in/your-name" />
+            <LinkField path="profile.links.github" label="GitHub" placeholder="https://github.com/your-name" />
+            <LinkField path="profile.links.portfolio" label="Portfolio" />
+            <LinkField path="profile.links.website" label="Website" />
+            <LinkField
+              path="profile.links.x"
+              label="X (Twitter)"
+              placeholder="https://x.com/your_name"
+              hint="The address, or your @handle."
+            />
+            <LinkField
+              path="profile.links.telegram"
+              label="Telegram"
+              placeholder="https://t.me/your_name"
+              hint="The address, or your @username."
+            />
+          </div>
+          {others.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {others.map((link, index) => (
+                <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] items-start gap-3">
+                  <TextField path={`profile.links.other.${index}.label`} label="Label" maxLength={60} placeholder="Dribbble" />
+                  <LinkField path={`profile.links.other.${index}.url`} label="Address" />
+                  {!shared.acting && (
+                    <IconButton
+                      label={`Remove ${link.label || 'this link'}`}
+                      tooltip="Remove"
+                      icon={<TrashIcon size={16} />}
+                      className="mt-6.5"
+                      disabled={form.busy}
+                      onClick={() => changeOthers('profile.links.other', (list) => list.filter((_, other) => other !== index))}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </ReadOnlyFields>
+        {form.isFromResume('profile.links.other') && <FromResumeHint path="profile.links.other" />}
+        {!shared.acting && (
+          <div>
+            <AddButton
+              label="Add another link"
+              full={others.length >= MAX_OTHER_LINKS}
+              onAdd={() => changeOthers(null, (list) => [...list, { label: '', url: '' }])}
+            />
           </div>
         )}
-        {form.isFromResume('profile.links.other') && <FromResumeHint path="profile.links.other" />}
-        <div>
-          <AddButton
-            label="Add another link"
-            full={others.length >= MAX_OTHER_LINKS}
-            onAdd={() => changeOthers(null, (list) => [...list, { label: '', url: '' }])}
-          />
-        </div>
       </div>
     </Section>
   );

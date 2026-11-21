@@ -1,4 +1,5 @@
 import { createBackgroundGate } from '../../../ai/background';
+import { serverCost } from '../../../core/accounts/payer'; // v33 SHARE-3
 import { constantsOf } from '../../../core/constants/service';
 import type { AppDeps } from '../../../core/context';
 import { summaryBudgetLeft } from './budget';
@@ -90,7 +91,9 @@ export async function runSummaryBatch(deps: RunnerDeps): Promise<SummaryBatchRes
   if (companyIds.length === 0) return none('empty');
   let taskId: string | null = null;
   try {
-    ({ taskId } = await companySummaryTask.enqueue(deps, { userId: null, input: { companyIds, lease }, priority: 'background' }));
+    // v33 SHARE-3 (PLAN F9 "Who pays"): platform spend, charged to no one (a `server` kind; COMPANY_AI_DAILY_BUDGET_USD).
+    const chargeTo = serverCost('company summaries');
+    ({ taskId } = await companySummaryTask.enqueue(deps, { userId: null, input: { companyIds, lease }, priority: 'background', chargeTo }));
   } catch (error) {
     deps.log.warn('[companies] the AI queue refused a batch of company summaries; it is tried again later', error);
     await failBatch(deps, companyIds, lease, error instanceof Error ? error.message : String(error));

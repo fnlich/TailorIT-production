@@ -1,6 +1,6 @@
-import { Router, type Request } from 'express';
-import { AutofillFormsKnownRequestSchema, type ExtensionScope } from '@tailorit/shared/autofill';
-import { userOf } from '../../../core/auth/guards';
+import { Router } from 'express';
+import { AutofillFormsKnownRequestSchema } from '@tailorit/shared/autofill';
+import { holds, userOf } from '../../../core/auth/guards'; // v33 SHARE-6: holds
 import type { AppDeps } from '../../../core/context';
 import { parseInput } from '../../../core/http/validate';
 import { allow, perAccountLimit } from '../auth';
@@ -17,11 +17,6 @@ import { MINUTE_MS } from '@tailorit/shared';
 // debug line names the account and counts; never the address, the job, a question or an answer.
 // POST /submissions is jobs-router.ts's, beside /applied, whose limits and posting reads it shares.
 
-/** Whether the caller may read what `scope` guards: the session always, a token when its connection holds it. */
-function holds(req: Request, scope: ExtensionScope): boolean {
-  return req.authVia !== 'token' || req.extensionToken?.scopes.includes(scope) === true;
-}
-
 export function createAutofillFormsRouter(deps: AppDeps): Router {
   const router = Router();
   const knownLimit = perAccountLimit('autofill-forms-known', 60, MINUTE_MS);
@@ -29,7 +24,9 @@ export function createAutofillFormsRouter(deps: AppDeps): Router {
   router.post('/forms/known', allow('either', 'jobs:lookup'), knownLimit, async (req, res) => {
     const userId = userOf(req).id;
     const request = parseInput(AutofillFormsKnownRequestSchema, req.body ?? {}, 'request');
-    const reach = { answers: holds(req, 'profile:read'), sensitive: holds(req, 'profile:sensitive') };
+    // v33 SHARE-6 (holds(), PLAN-sharing §4 "Helpers"): the session (the route is `never` on a shared profile), or a token
+    // whose connection holds the scope.
+    const reach = { answers: holds(req, 'autofill:view', 'profile:read'), sensitive: holds(req, 'sensitive:view', 'profile:sensitive') };
     const body = await knownForm(deps, userId, request, reach, greenhouseReadsOf(deps));
     const same = body.answers.filter((answer) => answer.match === 'sameJob').length;
     deps.log.debug(

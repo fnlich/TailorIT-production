@@ -25,6 +25,8 @@ import { PanelGroup, ToolIcon, ToolPopover, ToolSeparator, ToolText, ToolbarShel
 import { ChipAddForm } from './skillLibrary';
 import type { EntryTools } from './tools';
 import type { ToolbarCommands } from './useToolbarCommands';
+import { useEditorField } from '../../roles/EditorField'; // v33 ROLES
+import type { RoleFamilyId } from '@tailorit/shared/roles'; // v33 INT-1
 
 // The bar above the selected entry: + Entry, Move up and down, Write with AI (Experience, Projects, Volunteering),
 // Settings (the entry's field toggles, "Apply to all in this section", and a role's "Skills used") and Delete. The
@@ -43,7 +45,8 @@ export interface EntryToolbarProps {
   commands: ToolbarCommands;
   ai: EntryBulletsAi;
   /** Asks Write with AI for this entry. */
-  onAsk(task: BulletsTask, note: string): void;
+  /** v33 INT-1: `roleFamily`, the resume's field as the editor shows it (null until known). */
+  onAsk(task: BulletsTask, note: string, roleFamily: RoleFamilyId | null): void;
   /** Counts Backspace in an empty field of the entry: each points at Settings. */
   settingsHint?: number;
   onEscape(): void;
@@ -174,18 +177,19 @@ function EntrySettings({ tools, commands }: { tools: EntryTools; commands: Toolb
   );
 }
 
-/** A role's "Skills used": not printed; each skill added also joins Technical skills. */
+/** A role's "Skills used": not printed; each skill added also joins Technical skills (Skills outside the technical fields). */
 function RoleSkills({ tools, skills, commands }: { tools: EntryTools; skills: readonly string[]; commands: ToolbarCommands }) {
+  const { copy } = useEditorField(); // v33 ROLES
   return (
     <div className="flex flex-col gap-2 border-t border-border px-1 pt-3" role="group" aria-label="Skills used">
       <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
         Skills used
         {/* v32 COPY (E5) */}
-        <HelpTip label="Skills used">Not printed; each skill also joins your Technical skills.</HelpTip>
+        <HelpTip label="Skills used">{copy.roleSkillsHelp}</HelpTip>
       </p>
       <ChipAddForm
         label="Add a skill used in this role"
-        placeholder="e.g. Kubernetes"
+        placeholder={copy.examples.roleSkill}
         suggest
         onAdd={(text) => commands.addRoleSkill(tools, text)}
       />
@@ -212,7 +216,8 @@ function WriteWithAiPanel({
   tools: EntryTools;
   document: ResumeDocument;
   ai: EntryBulletsAi;
-  onAsk(task: BulletsTask, note: string): void;
+  /** v33 INT-1: `roleFamily`, the resume's field as the editor shows it (null until known). */
+  onAsk(task: BulletsTask, note: string, roleFamily: RoleFamilyId | null): void;
 }) {
   const suggested = entryBulletsTask(document, tools.path);
   const [task, setTask] = useState<BulletsTask>(suggested);
@@ -222,9 +227,10 @@ function WriteWithAiPanel({
   const entry = valueAt(document, tools.path);
   const blocker = tools.ai && entry && typeof entry === 'object' ? bulletsBlocker(tools.ai, entry) : null;
   const chosen = suggested === 'write' ? 'write' : task;
+  const { familyId } = useEditorField(); // v33 INT-1: Write with AI writes in the resume's field
   const ask = () => {
     if (busy || blocker) return;
-    onAsk(chosen, note);
+    onAsk(chosen, note, familyId);
   };
   return (
     <div className="flex flex-col gap-3 p-1">

@@ -15,6 +15,12 @@ import type { AppDeps } from '../context';
 import { AppError, notFound, validationFailed } from '../http/errors';
 import { refuse } from '../http/refuse';
 import { creditBalance } from './money';
+import type { PersonPayer } from './payer'; // v33 SHARE-3
+
+// v33 SHARE-3 (PLAN F9 "Who pays"; SP v33 PLAN-sharing.md §5): the person whose plan, budget, credit and hourly limits
+// apply is the payer: B for the work B starts on A's profile (a Free B gets Free limits on a Paid A's), the person
+// themself otherwise. v33 INT-1: the checks below take only a person's Payer (payerOf(req), payerOfGrant, payerOfRow,
+// a listed ownPayer); the v3.2 form (the person's id) is gone, and a server cost (no plan) does not compile.
 
 // v2.0: the account type and its entitlements (docs/design/v2.0/04-accounts-limits.md). This module is the only code
 // that writes users.account_type, users.paid_until and user_limit_overrides: the admin routes call changeEntitlement
@@ -84,10 +90,10 @@ const GONE: AccountRow = { account_type: 'free', paid_until: null };
  */
 export async function hourlyLimitOf(
   deps: Deps,
-  userId: string,
+  who: PersonPayer, // v33 SHARE-3: the payer's plan (B's on A's profile)
   limit: 'tailorsPerHour' | 'preparesPerHour',
 ): Promise<Limit> {
-  return entitlementsFrom(deps, (await accountRow(deps, userId)) ?? GONE, undefined)[limit];
+  return entitlementsFrom(deps, (await accountRow(deps, who.id)) ?? GONE, undefined)[limit];
 }
 // end v32 FIX-PLAN
 
@@ -142,8 +148,9 @@ export function assertFeatureOf(deps: Deps, entitlements: Entitlements, feature:
  * the Subscribe button. v20 FIX-A (REQ-3): MCP's own words are MSG_MCP_OFF, followed for a Free account by
  * MSG_SUBSCRIBE_CONTACT (both plans have MCP by default; an admin may turn it off for either).
  */
-export async function assertFeature(deps: Deps, userId: string, feature: AccountFeature): Promise<void> {
-  assertFeatureOf(deps, await entitlementsOf(deps, userId), feature);
+export async function assertFeature(deps: Deps, who: PersonPayer, feature: AccountFeature): Promise<void> {
+  // v33 SHARE-3: the payer's plan (B's on A's profile: a Free B is refused a Paid feature there too).
+  assertFeatureOf(deps, await entitlementsOf(deps, who.id), feature);
 }
 
 // ---------------------------------------------------------------------------------------------- changeEntitlement

@@ -1,5 +1,6 @@
 import { isLoopbackAddress, type OAuthConsentAnswer, type OAuthConsentBody, type OAuthRequestView } from '@tailorit/shared/oauth';
 import { assertFeature } from '../../core/accounts/entitlements';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 INT-1
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { refuse } from '../../core/http/refuse';
@@ -62,12 +63,18 @@ export async function requestView(deps: Deps, requestId: string, browserSecret: 
 }
 
 /** POST /api/oauth/consent. */
-export async function decide(deps: Deps, userId: string, body: OAuthConsentBody, browserSecret: string | null): Promise<OAuthConsentAnswer> {
+export async function decide(
+  deps: Deps,
+  payer: PersonPayer, // v33 INT-1: the signed-in person's plan (payerOf: the route is `never` while acting)
+  body: OAuthConsentBody,
+  browserSecret: string | null,
+): Promise<OAuthConsentAnswer> {
+  const userId = payer.id;
   if (!browserSecret) throw gone(deps);
   const issuer = oauthAddresses(deps.config).issuer;
   if (body.decision === 'allow') {
     // The plan's MCP access first: a refusal leaves the request open (the person may still Cancel).
-    await assertFeature(deps, userId, 'mcp');
+    await assertFeature(deps, payer, 'mcp');
   }
   const code = newOAuthSecret();
   const answer = await deps.db.tx(

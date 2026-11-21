@@ -9,12 +9,13 @@ import {
 } from '@tailorit/shared';
 import { entitlementsOf, resumeLimitError } from '../../core/accounts/index';
 import { aiBudgetState } from '../../core/accounts/money';
+import { liveGrantById } from '../../core/auth/grants'; // v33 INT-1
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { refuse } from '../../core/http/refuse';
 import { toPrepareEntries } from '../auto-apply/saved';
 import { resumeCount } from '../resumes/counters';
-import type { PrepareServiceImpl } from './service';
+import { keptFromOf, liveQueueJobs, type PrepareServiceImpl, type StartOptions } from './service'; // v33 INT-1: keptFromOf, liveQueueJobs
 import { resumeModeOf } from './settings';
 
 // v31 AUTO (decision D10): Prepare All, the Auto-apply page's button beside Filters and Select, and the filters
@@ -34,6 +35,19 @@ import { resumeModeOf } from './settings';
 // that runs out while the runner works ends the remaining Prepares failed with its message, as for any Prepare.
 //   GET  /api/prepare/all → PrepareAllPlan (the confirm's count and AI budget note; verdicts recorded, nothing starts)
 //   POST /api/prepare/all → PrepareAllResponse
+// v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §5, §6): on a profile shared with them, B's Prepare All is B's: the AI
+// budget shown and charged is B's (the payer), and the caps keep the owner's last SHARING_QUEUE_RESERVE queue places and
+// SHARING_RESUME_RESERVE resume places (B's room there is that much smaller).
+
+/** v33 SHARE-5: who runs Prepare All (StartOptions: the payer and what the answer shows). */
+export type PrepareAllOptions = StartOptions;
+
+/** v33 SHARE-5: the owner's places a Prepare All by someone else keeps (0 for the owner's own). */
+function reservesOf(deps: AppDeps, userId: string, options: PrepareAllOptions): { queue: number; resumes: number } {
+  if (options.payer.id === userId) return { queue: 0, resumes: 0 };
+  const constants = constantsOf(deps);
+  return { queue: constants.get('SHARING_QUEUE_RESERVE'), resumes: constants.get('SHARING_RESUME_RESERVE') };
+}
 
 /** The most To prepare entries one Prepare All reads (newest first): a technical bound, far above any person's list. */
 export const PREPARE_ALL_READ_MAX = 5000;
@@ -47,6 +61,8 @@ interface Choice {
   /** The caps that bound it, for the refusals. */
   queueLimit: number;
   resumes: { limit: number; free: boolean } | null;
+  /** v33 SHARE-5: the owner's places kept from someone else's Prepare All. */
+  reserves: { queue: number; resumes: number };
 }
 
 /**
@@ -55,8 +71,14 @@ interface Choice {
  * then the other passing entries (saved while the confirm was open) as if taken, so the counts and what the caps hold
  * for another press are said of the whole list, while no entry the person was not asked about starts.
  */
-async function choose(deps: AppDeps, userId: string, confirmed?: ReadonlySet<string>): Promise<Choice> {
+async function choose(
+  deps: AppDeps,
+  userId: string,
+  confirmed: ReadonlySet<string> | undefined,
+  options: PrepareAllOptions, // v33 SHARE-5
+): Promise<Choice> {
   const constants = constantsOf(deps);
+  const reserves = reservesOf(deps, userId, options);
   const entries = await toPrepareEntries(deps, userId, PREPARE_ALL_READ_MAX);
   // The saved filters' verdicts, computed now (no AI) and recorded, so the Saved pane's labels agree with the count. A
   // job the service has no verdict for passes, as in startPrepare; a pending Custom verdict passes too (the runner's
@@ -68,23 +90,29 @@ async function choose(deps: AppDeps, userId: string, confirmed?: ReadonlySet<str
       : []
     ).map((check) => [check.applicationId, check]),
   );
-  const passing = entries.filter((entry) => {
+  const filtered = entries.filter((entry) => {
     const check = checks.get(entry.applicationId);
     return !check || (check.verdict.verdict !== 'fail' && check.custom !== 'fail');
   });
+  // v33 INT-1 (SHARE-5's open item): someone the profile is shared with, without Queue changes, never prepares over a
+  // finished queue row they did not prepare there (startPrepare skips it `already_queued`): those jobs are not counted
+  // or taken, so the plan's count is what starts.
+  const keptFrom = options.payer.grantId ? keptFromOf(await liveGrantById(deps, options.payer.grantId), options.payer.id) : null;
+  const kept = keptFrom ? await liveQueueJobs(deps, userId, filtered.map((entry) => entry.jobId), keptFrom) : null;
+  const passing = kept ? filtered.filter((entry) => !kept.has(entry.jobId)) : filtered;
 
   const batch = constants.get('PREPARE_BATCH_MAX');
   const queueLimit = constants.get('QUEUE_SIZE_MAX');
   const queued = await deps.db.all<{ job_id: number }>('SELECT job_id FROM autofill_agent_queue WHERE user_id = ?', [userId]);
   const hasRow = new Set(queued.map((row) => row.job_id));
-  let queueRoom = queueLimit - queued.length;
+  let queueRoom = queueLimit - reserves.queue - queued.length; // v33 SHARE-5: the owner's last places kept
   let resumes: Choice['resumes'] = null;
   let resumeRoom: number | null = null;
   if ((await resumeModeOf(deps, userId)) === 'tailor') {
     const entitlements = await entitlementsOf(deps, userId);
     if (entitlements.resumes !== null) {
       resumes = { limit: entitlements.resumes, free: entitlements.type === 'free' };
-      resumeRoom = Math.max(0, entitlements.resumes - (await resumeCount(deps.db, userId)));
+      resumeRoom = Math.max(0, entitlements.resumes - reserves.resumes - (await resumeCount(deps.db, userId))); // v33 SHARE-5
     }
   }
 
@@ -122,20 +150,25 @@ async function choose(deps: AppDeps, userId: string, confirmed?: ReadonlySet<str
           message: constants.message(PREPARE_ALL_HELD_MESSAGES[stop], {
             count: left,
             max: batch,
-            limit: stop === 'queue' ? queueLimit : (resumes?.limit ?? 0),
+            limit: stop === 'queue' ? queueLimit - reserves.queue : Math.max(0, (resumes?.limit ?? 0) - reserves.resumes),
           }),
         }
       : undefined;
-  return { toPrepare: entries.length, passing: passing.length, taking, ...(held ? { held } : {}), queueLimit, resumes };
+  return { toPrepare: entries.length, passing: passing.length, taking, ...(held ? { held } : {}), queueLimit, resumes, reserves };
 }
 
 /**
  * GET /api/prepare/all: what Prepare All would take now, with today's AI budget (nothing starts). v32 ADMINAPP (E7): a
- * person sees the day's use as a share only (`ai.percent`); the amounts are sent to an admin alone (`admin`).
+ * person sees the day's use as a share only (`ai.percent`); the amounts are sent to an admin alone (`admin`). v33
+ * SHARE-5: the budget is the payer's (B's on a profile shared with them; `admin` is the signed-in person's role).
  */
-export async function prepareAllPlan(deps: AppDeps, userId: string, options: { admin?: boolean } = {}): Promise<PrepareAllPlan> {
-  const choice = await choose(deps, userId);
-  const budget = await aiBudgetState(deps, userId);
+export async function prepareAllPlan(
+  deps: AppDeps,
+  userId: string,
+  options: { admin?: boolean } & PrepareAllOptions,
+): Promise<PrepareAllPlan> {
+  const choice = await choose(deps, userId, undefined, options);
+  const budget = await aiBudgetState(deps, options.payer); // v33 SHARE-5: the payer's budget (v33 INT-C: the Payer, SHARE-3's)
   const budgetMicros = budget.budgetMicros === UNLIMITED ? null : budget.budgetMicros;
   return {
     toPrepare: choice.toPrepare,
@@ -161,17 +194,26 @@ export async function prepareAll(
   userId: string,
   service: Pick<PrepareServiceImpl, 'startPrepare'>,
   confirmed: readonly string[],
+  options: PrepareAllOptions, // v33 SHARE-5: the payer required (the review's decision 4)
 ): Promise<PrepareAllResponse> {
-  const choice = await choose(deps, userId, new Set(confirmed));
+  const choice = await choose(deps, userId, new Set(confirmed), options);
   const counts = { toPrepare: choice.toPrepare, passing: choice.passing, ...(choice.held ? { held: choice.held } : {}) };
   if (choice.taking.length === 0) {
-    if (choice.held?.reason === 'queue') throw refuse(deps, 'conflict', 'MSG_PREPARE_QUEUE_FULL', { limit: choice.queueLimit });
+    // v33 SHARE-5: on a profile shared with them, the refusal says the owner's last places are kept.
+    if (choice.held?.reason === 'queue') {
+      throw choice.reserves.queue > 0
+        ? refuse(deps, 'conflict', 'MSG_PREPARE_SHARED_QUEUE_FULL', { reserve: choice.reserves.queue })
+        : refuse(deps, 'conflict', 'MSG_PREPARE_QUEUE_FULL', { limit: choice.queueLimit });
+    }
     if (choice.held?.reason === 'resumes' && choice.resumes) {
+      if (choice.reserves.resumes > 0) {
+        throw refuse(deps, 'resume_limit_reached', 'MSG_SHARING_RESUME_RESERVE', { reserve: choice.reserves.resumes }); // v33 INT-C: one rule
+      }
       throw resumeLimitError(deps, choice.resumes.limit, { free: choice.resumes.free });
     }
     return { results: [], ...counts };
   }
-  const answer = await service.startPrepare(userId, { applicationIds: choice.taking, rebuild: false }, 'server');
+  const answer = await service.startPrepare(userId, { applicationIds: choice.taking, rebuild: false }, 'server', options);
   const outcomes = answer.results.reduce<Record<string, number>>((all, result) => {
     all[result.outcome] = (all[result.outcome] ?? 0) + 1;
     return all;

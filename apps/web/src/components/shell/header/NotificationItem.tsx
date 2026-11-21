@@ -1,13 +1,16 @@
 'use client';
 
 import type { Notification, NotificationTone } from '@tailorit/shared/notifications';
+import { PROFILE_SELF, type ProfileChoice } from '@tailorit/shared/sharing';
 import { clsx } from 'clsx';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 // Relative, not '@/': the web tests draw these views.
 import { relativeTime } from '../../../lib/format';
+import { choiceOfKey, linkProfileOf, switchProfile, withoutAs } from '../../../lib/profile';
 import { IconButton } from '../../ui/IconButton';
 import { CheckCircleIcon, CheckIcon, InfoIcon, WarningCircleIcon, XCircleIcon } from '../../ui/icons';
+import { useDocumentProfile } from '../profile/useProfile';
 import { BELL_COPY, GROUP_LABEL } from './copy';
 import { safeLink, TONE_MARK } from './view';
 
@@ -44,10 +47,22 @@ export interface NotificationItemProps {
   className?: string;
 }
 
+/**
+ * v33 SHARE-4 (PLAN-sharing.md §9 "The bell"): where a notification's link goes from a tab on `current`. A link names
+ * its profile with ?as= (one without it is the recipient's own); the address shown never carries it. `switch`: the link
+ * is another profile's, so the tab switches (the editors' saves first, then a new document on that page: a fresh cache).
+ */
+export function notificationTarget(link: string, current: ProfileChoice): { href: string; profile: ProfileChoice; switch: boolean } {
+  const profile = linkProfileOf(link) ?? PROFILE_SELF;
+  return { href: withoutAs(link), profile, switch: profile !== current };
+}
+
 /** One row (an `<li>`): the title is the row's link when the notification has one. */
 export function NotificationItem({ item, now, onOpen, onMarkRead, variant = 'bell', className }: NotificationItemProps) {
   const unread = item.readAt === null;
   const link = safeLink(item.link);
+  const current = choiceOfKey(useDocumentProfile());
+  const target = link ? notificationTarget(link, current) : null;
   const title = (
     <>
       {unread && <span className="sr-only">{BELL_COPY.unread}: </span>}
@@ -68,10 +83,17 @@ export function NotificationItem({ item, now, onOpen, onMarkRead, variant = 'bel
     >
       <ToneMark tone={item.tone} />
       <div className="min-w-0 flex-1">
-        {link ? (
+        {target ? (
           <Link
-            href={link}
-            onClick={() => onOpen(item)}
+            href={target.href}
+            data-notification-profile={target.switch ? target.profile : undefined}
+            onClick={(event) => {
+              onOpen(item);
+              if (!target.switch) return;
+              // Another profile's: the tab switches to it and opens the page there (a new document).
+              event.preventDefault();
+              void switchProfile(target.profile, { to: target.href });
+            }}
             // The whole row opens it (the ::after covers the row); the mark button sits above it.
             className={clsx(titleClass, 'rounded-tag after:absolute after:inset-0 after:content-[""] hover:underline')}
           >

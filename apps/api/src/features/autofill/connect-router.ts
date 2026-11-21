@@ -3,7 +3,8 @@ import { IdParam, MINUTE_MS } from '@tailorit/shared';
 import { AutofillConnectBodySchema, AutofillRedeemBodySchema, normalizeConnectCode } from '@tailorit/shared/autofill';
 import { serverAiRefusal } from '../../ai/gate';
 import { revokeExtensionToken } from '../../core/auth/extension-tokens';
-import { userOf } from '../../core/auth/guards';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 INT-1
+import { payerOf, userOf } from '../../core/auth/guards'; // v33 INT-1: payerOf
 import type { AppDeps } from '../../core/context';
 import { asyncHandler, notFound } from '../../core/http/errors';
 import { extensionOriginOnly } from '../../core/http/middleware';
@@ -51,10 +52,10 @@ function warmAiStatus(deps: AppDeps): void {
  * server's capacity block (both false): the answer never tells the server's state apart from the person's, as the AI
  * routes' vague MSG_AI_UNAVAILABLE does not.
  */
-async function aiAvailable(deps: AppDeps, userId: string): Promise<boolean> {
+async function aiAvailable(deps: AppDeps, payer: PersonPayer): Promise<boolean> {
   const ai = deps.services.ai;
   if (!ai) return false;
-  if ((await serverAiRefusal(deps, userId)) !== null) return false;
+  if ((await serverAiRefusal(deps, payer)) !== null) return false; // v33 INT-1: the token's owner (payerOf)
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), AI_STATUS_WAIT_MS);
@@ -105,7 +106,7 @@ export function createAutofillConnectRouter(deps: AppDeps): Router {
     allow('token'),
     sessionLimit,
     asyncHandler(async (req, res) => {
-      res.json(await sessionView(deps, userOf(req), req.extensionToken!.id, await aiAvailable(deps, userOf(req).id)));
+      res.json(await sessionView(deps, userOf(req), req.extensionToken!.id, await aiAvailable(deps, payerOf(req))));
     }),
   );
 

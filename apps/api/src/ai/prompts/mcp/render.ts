@@ -1,3 +1,4 @@
+import type { RoleFamilyId } from '@tailorit/shared';
 import type { PromptModule } from '../../runPrompt';
 import { POSTING_TEXT_RULE } from '../tailor/posting-text-rule';
 import { renderPromptParts, type PromptValues, type TailorPromptText } from '../tailor/render';
@@ -15,6 +16,11 @@ import { renderPromptParts, type PromptValues, type TailorPromptText } from '../
 export interface StepPromptInput {
   jobId: number;
   values: PromptValues;
+  /**
+   * v33 PROMPTS (F5): the role family the step is written for (the job's for analyze and review, the person's for the
+   * rest; missing: technical, tailor_builder0's words). Its slots go in before the step's own adaptations.
+   */
+  family?: RoleFamilyId | null;
 }
 
 /** One prompt's text: the fixed instructions (and the posting rule when it quotes the posting), then the data. */

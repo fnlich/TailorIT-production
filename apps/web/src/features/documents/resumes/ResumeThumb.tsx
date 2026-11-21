@@ -3,43 +3,46 @@
 import { PAGE_SIZES, type ResumeDocument, type ResumeSummary } from '@tailorit/shared/resume';
 import { THUMBNAIL_SLOTS } from '@tailorit/resume-templates';
 import { useEffect, useRef, useState } from 'react';
-import { DocumentThumb, PageThumb, ThumbLoading, ThumbState, thumbKey, type ThumbPage } from '../core';
+import { profileUrl } from '../../../lib/profile'; // v33 FIX-2: the upload's image names the tab's profile
+import { DocumentThumb, PageThumb, ThumbLoading, ThumbState, thumbKey } from '../core';
 import { fetchThumbnail } from '../../resume-editor/api';
 import { ResumeCanvas } from '../../resume-editor/pages/ResumeCanvas';
 
 /*
  * A resume's first page, fetched once it is near the screen and kept per version (the documents layer's cache, keyed
- * `resume:id:updatedAt`): a built resume's page is HTML drawn by the server (framed with every sandbox flag off), an
- * upload's is the PNG made when it was stored.
+ * `resume:id:updatedAt`): a built resume's page is drawn here from its document with the editor's templates (an older
+ * resume as the editor opens it; v33 LEGACY: the server no longer draws one as HTML), an upload's is the PNG made when
+ * it was stored.
  */
-
-async function loadBuiltPage(id: string): Promise<ThumbPage> {
-  const answer = await fetchThumbnail(id, 'built');
-  if (answer.kind !== 'html') throw new Error('No preview');
-  return { html: answer.html, page: answer.page ?? undefined };
-}
 
 /** Upload image addresses already worked out (module state: survives tab and view switches, not a reload). */
 const imageUrls = new Map<string, string>();
 const imageRequests = new Map<string, Promise<string>>();
 
-function resolveImage(key: string, id: string): Promise<string> {
+/**
+ * An upload's image address, worked out once per version (exported for the tests). v33 FIX-2 (final review, sharing 2):
+ * the server's address goes through profileUrl(), since the browser loads it itself (no profile header): on a shared
+ * profile it names the profile (?profile=), else the image would be asked for on the person's own and not be found.
+ * A switch of profile is a new document, so the kept address never names another profile.
+ */
+export function resolveImage(key: string, id: string): Promise<string> {
   const kept = imageUrls.get(key);
   if (kept) return Promise.resolve(kept);
   const pending = imageRequests.get(key);
   if (pending) return pending;
-  const request = fetchThumbnail(id, 'uploaded')
+  const request = fetchThumbnail(id)
     .then((answer) => {
       if (answer.kind !== 'image') throw new Error('No preview');
-      imageUrls.set(key, answer.url);
-      return answer.url;
+      const url = profileUrl(answer.url);
+      imageUrls.set(key, url);
+      return url;
     })
     .finally(() => imageRequests.delete(key));
   imageRequests.set(key, request);
   return request;
 }
 
-/** On-page editor resumes' documents already fetched (module state, like the upload images). */
+/** Built resumes' documents already fetched (module state, like the upload images). */
 const documents = new Map<string, ResumeDocument>();
 const documentRequests = new Map<string, Promise<ResumeDocument>>();
 
@@ -48,7 +51,7 @@ function resolveDocument(key: string, id: string): Promise<ResumeDocument> {
   if (kept) return Promise.resolve(kept);
   const pending = documentRequests.get(key);
   if (pending) return pending;
-  const request = fetchThumbnail(id, 'built')
+  const request = fetchThumbnail(id)
     .then((answer) => {
       if (answer.kind !== 'document') throw new Error('No preview');
       documents.set(key, answer.document);
@@ -63,17 +66,16 @@ export function ResumeThumb({
   resume,
   title,
 }: {
-  resume: Pick<ResumeSummary, 'id' | 'kind' | 'updatedAt' | 'onPageEditor'>;
+  resume: Pick<ResumeSummary, 'id' | 'kind' | 'updatedAt'>;
   /** For the frame or image; the card carries the name a reader hears. */
   title: string;
 }) {
   if (resume.kind === 'uploaded') return <UploadThumb id={resume.id} updatedAt={resume.updatedAt} title={title} />;
-  if (resume.onPageEditor) return <EditorThumb id={resume.id} updatedAt={resume.updatedAt} title={title} />;
-  return <DocumentThumb cacheKey={thumbKey('resume', resume.id, resume.updatedAt)} load={() => loadBuiltPage(resume.id)} title={title} />;
+  return <EditorThumb id={resume.id} updatedAt={resume.updatedAt} title={title} />;
 }
 
 /**
- * An on-page editor resume's first page, drawn here with its template (the server has no layout to measure it with):
+ * A built resume's first page, drawn here with its template (the server has no layout to measure it with):
  * its document is fetched once the card is near the screen, then drawn as Preview draws it and clipped to page 1.
  */
 function EditorThumb({ id, updatedAt, title }: { id: string; updatedAt: string; title: string }) {

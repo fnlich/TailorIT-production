@@ -2,7 +2,6 @@
 
 import { RobotIcon } from '@phosphor-icons/react/Robot';
 import { useState } from 'react';
-import { DISPLAY_STATUS_DRAFT } from '@tailorit/shared';
 import { DayPicker, type Matcher } from 'react-day-picker';
 import 'react-day-picker/style.css';
 import {
@@ -47,7 +46,7 @@ import { usePublicConstants } from '@/lib/constants';
 import { LIMIT_COPY } from '@/components/limits/copy';
 import { useNow } from '@/lib/useNow';
 import { activeFilterCount, hasFilters, toggleStatus, DEFAULT_FILTERS, type FilterState } from '../state';
-import { DisplayStatusIcon, StatusIcon } from '../status';
+import { StatusIcon } from '../status';
 
 const JOB_TYPES: Array<{ value: EmploymentType; label: string }> = [
   { value: 'internship', label: 'Internship' },
@@ -115,10 +114,25 @@ function LaneCount({ count }: { count: number }) {
   );
 }
 
-/** v32 LAYOUT (E11): how many lanes the board shows (the stages ticked, Draft and Archived). */
-export function lanesShownCount(columns: readonly ColumnChoice[], draft: { visible: boolean }, archived: { visible: boolean }): number {
-  return columns.filter((column) => column.visible).length + (draft.visible ? 1 : 0) + (archived.visible ? 1 : 0);
+/** v32 LAYOUT (E11): how many lanes the board shows (the stages ticked and Archived; v33 TRACKER: no Draft lane). */
+export function lanesShownCount(columns: readonly ColumnChoice[], archived: { visible: boolean }): number {
+  return columns.filter((column) => column.visible).length + (archived.visible ? 1 : 0);
 }
+
+/** v33 SHARE-9: the tracker's actions the ⋮ offers (OptionsMenu's `actions`). */
+export interface TrackerActions {
+  select: boolean;
+  prepare: boolean;
+  import: boolean;
+  export: boolean;
+  buildResumes: boolean;
+  archiveAll: boolean;
+}
+
+/** Every action (the person's own Job Tracker). */
+export const ALL_ACTIONS: TrackerActions = { select: true, prepare: true, import: true, export: true, buildResumes: true, archiveAll: true };
+/** None (the All profiles view: per-card actions only). */
+export const NO_ACTIONS: TrackerActions = { select: false, prepare: false, import: false, export: false, buildResumes: false, archiveAll: false };
 
 export function OptionsMenu({
   view,
@@ -131,14 +145,13 @@ export function OptionsMenu({
   onArchivedToggle,
   onManage,
   onPrepare,
-  draftColumn,
-  onDraftToggle,
   onImport,
   onExport,
   onBuildResumes,
   buildingResumes,
   resumesLocked = false,
   onArchiveAll,
+  actions = ALL_ACTIONS,
 }: {
   view: TrackerView;
   filters: FilterState;
@@ -152,9 +165,6 @@ export function OptionsMenu({
   onManage: () => void;
   /** v2.0: "Prepare & Queue jobs": choose Saved entries to Prepare & Queue (Select applications' selection). */
   onPrepare: () => void;
-  /** v20 A30: the Draft lane (between Saved and Applied in Lanes shown), with Draft's words. */
-  draftColumn: { count: number; visible: boolean; label: string };
-  onDraftToggle: (visible: boolean) => void;
   onImport: () => void;
   onExport: () => void;
   /** "Build resumes (zip)": every active Saved application's resume in one zip. */
@@ -164,6 +174,12 @@ export function OptionsMenu({
   /** v2.0 fix (SEC-6): a Free account: the entry shows a lock and opens the Paid feature's dialog. */
   resumesLocked?: boolean;
   onArchiveAll: () => void;
+  /**
+   * v33 SHARE-9: which of the tracker's actions the ⋮ offers: none in the All profiles view (per-card actions only); on
+   * a shared profile only what its owner lets the person do (Change for Select, Import and Archive all; Prepare for
+   * Prepare & Queue; Exports for the CSV and the zip). The ⋮ is left out when it would offer nothing.
+   */
+  actions?: TrackerActions;
 }) {
   const [open, setOpen] = useState(false);
   const now = useNow();
@@ -173,7 +189,8 @@ export function OptionsMenu({
   const showFilters = view !== 'chart';
   const { t } = usePublicConstants();
   const filterLabel = t('LABEL_TRACKER_FILTER');
-  const lanesShown = lanesShownCount(columns, draftColumn, archivedColumn);
+  const lanesShown = lanesShownCount(columns, archivedColumn);
+  const anyAction = Object.values(actions).some(Boolean);
   // v32 LAYOUT (E11): the board keeps at least one lane, so the last one ticked cannot be unticked.
   const lastLane = (visible: boolean) => visible && lanesShown <= 1;
 
@@ -315,95 +332,96 @@ export function OptionsMenu({
           </MenuContent>
         </Menu>
       )}
-      <Menu>
-        <MenuTrigger
-          render={
-            <IconButton
-              label={t('LABEL_TRACKER_MORE')}
-              variant="outline"
-              icon={<DotsThreeVerticalIcon size={18} weight="bold" />}
-              data-tracker-actions=""
-            />
-          }
-        />
-        <MenuContent align="end" width="w-60" aria-label={t('LABEL_TRACKER_MORE')}>
-        {view === 'board' && (
-          <>
-            <MenuGroup label="Board">
-              <MenuSub label={`${t('LABEL_TRACKER_LANES')} (${lanesShown})`}>
-                <MenuSubContent width="w-60">
-                  {columns.flatMap((column) => {
-                    const item = (
+      {(view === 'board' || anyAction) && (
+        <Menu>
+          <MenuTrigger
+            render={
+              <IconButton
+                label={t('LABEL_TRACKER_MORE')}
+                variant="outline"
+                icon={<DotsThreeVerticalIcon size={18} weight="bold" />}
+                data-tracker-actions=""
+              />
+            }
+          />
+          <MenuContent align="end" width="w-60" aria-label={t('LABEL_TRACKER_MORE')}>
+            {view === 'board' && (
+              <>
+                <MenuGroup label="Board">
+                  <MenuSub label={`${t('LABEL_TRACKER_LANES')} (${lanesShown})`}>
+                    <MenuSubContent width="w-60">
+                      {columns.map((column) => (
+                        <MenuCheckboxItem
+                          key={column.status}
+                          checked={column.visible}
+                          disabled={lastLane(column.visible)}
+                          icon={<StatusIcon status={column.status} size={16} />}
+                          onCheckedChange={(on) => onColumnToggle(column.status, on)}
+                        >
+                          {STATUS_INFO[column.status].label}
+                          <LaneCount count={column.count} />
+                        </MenuCheckboxItem>
+                      ))}
                       <MenuCheckboxItem
-                        key={column.status}
-                        checked={column.visible}
-                        disabled={lastLane(column.visible)}
-                        icon={<StatusIcon status={column.status} size={16} />}
-                        onCheckedChange={(on) => onColumnToggle(column.status, on)}
+                        checked={archivedColumn.visible}
+                        disabled={lastLane(archivedColumn.visible)}
+                        icon={<ArchiveIcon size={16} />}
+                        onCheckedChange={onArchivedToggle}
                       >
-                        {STATUS_INFO[column.status].label}
-                        <LaneCount count={column.count} />
+                        Archived
+                        <LaneCount count={archivedColumn.count} />
                       </MenuCheckboxItem>
-                    );
-                    if (column.status !== 1) return [item];
-                    // v20 A30: Draft right after Saved, as on the board.
-                    return [
-                      item,
-                      <MenuCheckboxItem
-                        key={DISPLAY_STATUS_DRAFT}
-                        checked={draftColumn.visible}
-                        disabled={lastLane(draftColumn.visible)}
-                        icon={<DisplayStatusIcon status={DISPLAY_STATUS_DRAFT} size={16} />}
-                        onCheckedChange={onDraftToggle}
-                      >
-                        {draftColumn.label}
-                        <LaneCount count={draftColumn.count} />
-                      </MenuCheckboxItem>,
-                    ];
-                  })}
-                  <MenuCheckboxItem
-                    checked={archivedColumn.visible}
-                    disabled={lastLane(archivedColumn.visible)}
-                    icon={<ArchiveIcon size={16} />}
-                    onCheckedChange={onArchivedToggle}
+                    </MenuSubContent>
+                  </MenuSub>
+                </MenuGroup>
+                {anyAction && <MenuSeparator />}
+              </>
+            )}
+            {anyAction && (
+              <MenuGroup label="Actions">
+                {actions.select && (
+                  <MenuItem icon={<CheckCircleIcon size={16} />} onClick={onManage}>
+                    {t('LABEL_TRACKER_SELECT')}
+                  </MenuItem>
+                )}
+                {actions.prepare && (
+                  <MenuItem icon={<RobotIcon size={16} />} onClick={onPrepare}>
+                    Prepare &amp; Queue jobs
+                  </MenuItem>
+                )}
+                {actions.import && (
+                  <MenuItem icon={<DownloadSimpleIcon size={16} />} onClick={onImport}>
+                    {t('LABEL_TRACKER_IMPORT')}
+                  </MenuItem>
+                )}
+                {actions.export && (
+                  <MenuItem icon={<UploadSimpleIcon size={16} />} onClick={onExport}>
+                    {t('LABEL_TRACKER_EXPORT')}
+                  </MenuItem>
+                )}
+                {actions.buildResumes && (
+                  <MenuItem
+                    icon={resumesLocked ? <LockSimpleIcon size={16} data-lock-icon="" /> : <FileZipIcon size={16} />}
+                    disabled={buildingResumes}
+                    onClick={onBuildResumes}
                   >
-                    Archived
-                    <LaneCount count={archivedColumn.count} />
-                  </MenuCheckboxItem>
-                </MenuSubContent>
-              </MenuSub>
-            </MenuGroup>
-            <MenuSeparator />
-          </>
-        )}
-        <MenuGroup label="Actions">
-          <MenuItem icon={<CheckCircleIcon size={16} />} onClick={onManage}>
-            {t('LABEL_TRACKER_SELECT')}
-          </MenuItem>
-          <MenuItem icon={<RobotIcon size={16} />} onClick={onPrepare}>
-            Prepare &amp; Queue jobs
-          </MenuItem>
-          <MenuItem icon={<DownloadSimpleIcon size={16} />} onClick={onImport}>
-            {t('LABEL_TRACKER_IMPORT')}
-          </MenuItem>
-          <MenuItem icon={<UploadSimpleIcon size={16} />} onClick={onExport}>
-            {t('LABEL_TRACKER_EXPORT')}
-          </MenuItem>
-          <MenuItem
-            icon={resumesLocked ? <LockSimpleIcon size={16} data-lock-icon="" /> : <FileZipIcon size={16} />}
-            disabled={buildingResumes}
-            onClick={onBuildResumes}
-          >
-            {buildingResumes ? 'Building resumes...' : 'Build resumes (zip)'}
-            {resumesLocked && <span className="sr-only"> ({LIMIT_COPY.paidOnly})</span>}
-          </MenuItem>
-          <MenuSeparator />
-          <MenuItem icon={<ArchiveIcon size={16} />} onClick={onArchiveAll}>
-            Archive all applications
-          </MenuItem>
-        </MenuGroup>
-        </MenuContent>
-      </Menu>
+                    {buildingResumes ? 'Building resumes...' : 'Build resumes (zip)'}
+                    {resumesLocked && <span className="sr-only"> ({LIMIT_COPY.paidOnly})</span>}
+                  </MenuItem>
+                )}
+                {actions.archiveAll && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem icon={<ArchiveIcon size={16} />} onClick={onArchiveAll}>
+                      Archive all applications
+                    </MenuItem>
+                  </>
+                )}
+              </MenuGroup>
+            )}
+          </MenuContent>
+        </Menu>
+      )}
     </>
   );
 }

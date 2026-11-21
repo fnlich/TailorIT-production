@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import type { RoleFamilyId } from '@tailorit/shared';
 import { POSTING_TEXT_RULE } from './posting-text-rule';
 
 // v30 ST2: tailor_builder0's prompt rendering, moved unchanged from features/tailor/prompts/parts.ts and index.ts
@@ -75,7 +76,8 @@ export function adapt(original: string, id: string, changes: ReadonlyArray<reado
   let text = original;
   for (const [from, to] of changes) {
     if (!text.includes(from)) throw new Error(`The ${id} prompt no longer holds: ${from}`);
-    text = text.replace(from, to);
+    // v33 PROMPTS: the words go in as they are ("$18k" is no replacement pattern).
+    text = text.replace(from, () => to);
   }
   return text;
 }
@@ -86,26 +88,35 @@ export const STARTS_WITH_BRACE = 'Your reply starts with { and has nothing befor
 export const BETWEEN_MARKERS =
   'Your reply is the object between the markers the instructions give, with nothing before or after them';
 
-/** What a tailoring prompt module is called with: its rendered values, and a note added to the message (a retry). */
+/**
+ * What a tailoring prompt module is called with: its rendered values, and a note added to the message (a retry).
+ * v33 PROMPTS (F5): and the role family the prompt is written for (missing: the technical family, tailor_builder0's
+ * words): the job's for the analysis and the review, the person's for the resume, the revision and the letters.
+ */
 export interface TailorPromptInput {
   values: PromptValues;
   note?: string;
+  family?: RoleFamilyId | null;
 }
+
+/** v33 PROMPTS: a prompt's text for a family (each module's memoised `<name>PromptFor`). */
+export type TailorPromptFor = (family?: RoleFamilyId | null) => TailorPromptText;
 
 /**
  * A prompt module's kind and parts (ai/runPrompt.ts) from one of tailor_builder0's prompts: the system part, then the
  * posting rule when the prompt quotes posting text; the message part, then the note. runPrompt adds the JSON sentinels
- * (buildSystemText). definePrompt takes them with the module's catalogue facts and its output schema.
+ * (buildSystemText). definePrompt takes them with the module's catalogue facts and its output schema. v33 PROMPTS: the
+ * text is the input's family's (`promptFor`).
  */
-export function tailorPromptParts(prompt: TailorPromptText, options: { quotesPosting: boolean }) {
+export function tailorPromptParts(promptFor: TailorPromptFor, options: { quotesPosting: boolean }) {
   return {
     kind: 'tailor' as const,
     system: (input: TailorPromptInput) => {
-      const { instructions } = renderPromptParts(prompt, input.values);
+      const { instructions } = renderPromptParts(promptFor(input.family), input.values);
       return options.quotesPosting ? `${instructions}\n\n${POSTING_TEXT_RULE}` : instructions;
     },
     user: (input: TailorPromptInput) => {
-      const { input: message } = renderPromptParts(prompt, input.values);
+      const { input: message } = renderPromptParts(promptFor(input.family), input.values);
       return input.note ? `${message}\n\n${input.note}` : message;
     },
   };

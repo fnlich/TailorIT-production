@@ -1,78 +1,44 @@
 import {
-  DISPLAY_STATUS_DRAFT,
   STATUS,
-  displayStatusOf,
   formatMediumDate,
-  visibleColumns,
+  isDraftEntry,
   type ApplicationSummary,
   type ApplyRecord,
   type ApplyVia,
-  type BoardColumn,
-  type ColumnMode,
-  type ColumnPrefs,
-  type DisplayStatus,
 } from '@tailorit/shared';
+import type { SavedJobItem } from '@tailorit/shared/prepare';
+import type { MessageRenderer } from '@/components/limits/limits';
+import { savedMarker, type MarkerView } from '../auto-apply/copy';
 
-// v20 A30: the Tracker's Draft, the derived status of a Saved entry whose job has a live queue row (prepared, its kit
-// frozen, waiting or being applied): a Draft column between Saved and Applied on the board, Draft in the list and the
-// detail. Pure, so it is unit-tested. Draft's words are the constant STATUS_DRAFT_LABEL (usePublicConstants().t).
+// v20 A30: the Tracker's Draft, a Saved entry whose job has a live queue row (prepared, its kit frozen, waiting or being
+// applied). v33 TRACKER (F1, the owner: "Draft lane in Job tracker is useless. remove this lane. If the job in saved
+// lane is drafted, just mark only as `Draft`"): no Draft lane; the entry stays in Saved with a Draft badge on its card,
+// its row and its detail. Pure, so it is unit-tested. Draft's words are the constant STATUS_DRAFT_LABEL
+// (usePublicConstants().t).
 
-/** localStorage key of the Draft column's mode (the stored statuses' modes are in COLUMN_PREFS_STORAGE_KEY). */
-export const DRAFT_COLUMN_STORAGE_KEY = 'tailorit.tracker.draftColumn';
-/** Shown by default, as Saved and Applied are: hideable with its eye, or in Lanes shown. */
-export const DRAFT_COLUMN_DEFAULT: ColumnMode = 'forced';
+/** The pre-v3.3 browser key of the Draft lane's mode: cleared once (useTrackerLanes), never read. */
+export const LEGACY_DRAFT_COLUMN_STORAGE_KEY = 'tailorit.tracker.draftColumn';
 
-export function readDraftColumnMode(raw: string | null): ColumnMode {
-  return raw === 'forced' || raw === 'default' || raw === 'hidden' ? raw : DRAFT_COLUMN_DEFAULT;
-}
-
-/** The status a card or a row shows: Draft for a Saved entry in the queue. */
-export const shownStatusOf = (application: Pick<ApplicationSummary, 'currentStatus' | 'queued'>): DisplayStatus =>
-  displayStatusOf({ status: application.currentStatus, queued: application.queued });
-
-/**
- * The board's columns with Draft between Saved and Applied. A server that answers a 'draft' column is taken as it is;
- * one that does not yet (an older API) has its Saved column split by each card's `queued` (only the cards loaded, so
- * the counts are those of the page).
- */
-export function withDraftColumn(columns: readonly BoardColumn[]): BoardColumn[] {
-  if (columns.some((column) => column.status === DISPLAY_STATUS_DRAFT)) return [...columns];
-  const saved = columns.find((column) => column.status === STATUS.saved);
-  if (!saved) return [...columns];
-  const drafts = saved.items.filter((item) => item.queued === true);
-  const rest = saved.items.filter((item) => item.queued !== true);
-  const out: BoardColumn[] = [];
-  for (const column of columns) {
-    if (column.status !== STATUS.saved) {
-      out.push(column);
-      continue;
-    }
-    out.push({ ...column, items: rest, total: Math.max(0, column.total - drafts.length) });
-    out.push({ status: DISPLAY_STATUS_DRAFT, total: drafts.length, items: drafts });
-  }
-  return out;
-}
+/** Whether a card or a row carries the Draft mark: a Saved, active entry whose job is in the auto-apply queue. */
+export const isDraft = (application: Pick<ApplicationSummary, 'currentStatus' | 'queued' | 'archivedAt'>): boolean =>
+  isDraftEntry({ status: application.currentStatus, queued: application.queued, archivedAt: application.archivedAt });
 
 /**
- * The columns the board shows, in order: the stored statuses as visibleColumns gives them, with Draft right after
- * Saved (first, when Saved is hidden) while its mode shows it: forced always, default while it holds a card.
+ * The marker a card, a row (and the detail, by isDraft) shows: Draft for a Saved entry in the queue (A30; v33 TRACKER,
+ * F1: its only sign, the entry stays in Saved), else the Saved pane's marker of a Saved entry (Prepared, Preparing,
+ * Filtered: …; `saved`, from GET /api/auto-apply/saved). The pane's own `queued` marker is never drawn: the entry's
+ * `queued` decides Draft, so the two reads never show it twice or disagree.
  */
-export function boardColumnsShown(
-  prefs: ColumnPrefs | null | undefined,
-  draftMode: ColumnMode,
-  totals: Readonly<Partial<Record<number | string, number>>>,
-): DisplayStatus[] {
-  const stored: DisplayStatus[] = visibleColumns(prefs, totals);
-  const showDraft = draftMode === 'forced' || (draftMode === 'default' && (totals[DISPLAY_STATUS_DRAFT] ?? 0) > 0);
-  if (!showDraft) return stored;
-  const savedAt = stored.indexOf(STATUS.saved);
-  const at = savedAt === -1 ? 0 : savedAt + 1;
-  return [...stored.slice(0, at), DISPLAY_STATUS_DRAFT, ...stored.slice(at)];
+export function trackerMarker(
+  application: Pick<ApplicationSummary, 'currentStatus' | 'queued' | 'archivedAt'>,
+  saved: Pick<SavedJobItem, 'marker' | 'label' | 'reasons'> | undefined,
+  t: MessageRenderer,
+): MarkerView | null {
+  if (isDraft(application)) return { tone: 'success', icon: 'check', label: t('STATUS_DRAFT_LABEL') };
+  if (application.currentStatus !== STATUS.saved || application.archivedAt) return null;
+  if (!saved || saved.marker === 'queued') return null;
+  return savedMarker(saved, t);
 }
-
-/** The column a board card is in now (Draft cards are Saved ones in the queue). */
-export const columnOf = (application: Pick<ApplicationSummary, 'currentStatus' | 'queued'>): DisplayStatus =>
-  shownStatusOf(application);
 
 /**
  * Why a Tracker entry cannot be chosen for Prepare & Queue, or null when it can: one added by hand has no job, one past
@@ -88,8 +54,8 @@ export function prepareBlockReason(
   return null;
 }
 
-/** The Draft entry's line in the detail's timeline ("In your auto-apply queue since Nov 13"). */
-export const DRAFT_TIMELINE_TEXT = 'In your auto-apply queue, with its prepared kit.';
+/** What the Draft mark means (the detail's "?" beside it), and when it goes. */
+export const DRAFT_MARK_TEXT = 'In your auto-apply queue with its prepared kit; it moves to Applied once applied to.';
 
 // "Applied with" (05: the apply records) ----------------------------------------------------------------------------
 

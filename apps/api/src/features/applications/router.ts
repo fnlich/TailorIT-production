@@ -24,7 +24,8 @@ import {
   type SubmittedAnswersResponse,
 } from '@tailorit/shared';
 import { z } from 'zod';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { actorOf, holds, isActing, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-9 fix: actorOf, isActing; SHARE-6: holds
+import { ownProfileOnly } from '../../core/auth/grants'; // v33 SHARE-9 fix
 import { todayIso, type AppDeps } from '../../core/context';
 import { notFound, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -219,6 +220,7 @@ export function createApplicationsRouter(deps: AppDeps): Router {
 
   router.post('/bulk', async (req, res) => {
     const body = parseInput(BulkApplicationsBodySchema, req.body, 'request');
+    if (body.action === 'delete' && isActing(req)) throw ownProfileOnly(); // v33 SHARE-9 fix: a grantee never deletes (F9)
     const affected = await bulkApplications(deps, userOf(req).id, body);
     if (body.action === 'unarchive' || (body.action === 'status' && body.status === STATUS.saved)) wakeMatcher();
     res.json({ affected });
@@ -241,7 +243,9 @@ export function createApplicationsRouter(deps: AppDeps): Router {
   router.post('/', async (req, res) => {
     const user = userOf(req);
     // v31 LINK: an entry added with a posting's link is the job TailorIT reads from it, when it can (jobs/add/tracker.ts).
-    const asked = await trackerEntryOfLink(deps, user.id, parseInput(CreateApplicationBodySchema, req.body, 'application'));
+    // v33 SHARE-9 fix (SHARE-3's edit 5): the link's read takes an add from the hour of whoever adds (B while acting).
+    const given = parseInput(CreateApplicationBodySchema, req.body, 'application');
+    const asked = await trackerEntryOfLink(deps, user.id, given, actorOf(req).id, req.acting?.grantId ?? null); // v33 SHARE-6: the grant
     // A page job an upgrade closed is saved as the shared job it gave way to (audit D4).
     const current = asked.jobId === undefined ? null : await currentJobId(deps, user.id, asked.jobId);
     if (asked.jobId !== undefined && current === null) throw notFound('That job');
@@ -293,10 +297,16 @@ export function createApplicationsRouter(deps: AppDeps): Router {
     res.json(body);
   });
 
-  // v30 DB-JOBS (11 §5.8): exactly what one record was sent with (the live documents, or their snapshots).
+  // v30 DB-JOBS (11 §5.8): exactly what one record was sent with (the live documents, or their snapshots). v33 SHARE-6
+  // (PLAN-sharing §4 "Sensitive facts"; SHARE-9's edit 1): on a shared profile (the Job Tracker's See) the answers it
+  // keeps leave out every sensitive one without Sensitive answers' See, and the resume and the letter it was sent with
+  // are Documents': null without Documents' See.
   router.get('/:id/apply-records/:recordId/documents', async (req, res) => {
     const recordId = parseInput(RecordIdParam, req.params.recordId, 'link');
-    const body: ApplyRecordDocuments = await recordDocuments(deps, userOf(req).id, idOf(req), recordId);
+    const body: ApplyRecordDocuments = await recordDocuments(deps, userOf(req).id, idOf(req), recordId, {
+      sensitive: holds(req, 'sensitive:view'),
+      documents: holds(req, 'documents:view'),
+    });
     res.json(body);
   });
 
@@ -332,14 +342,19 @@ export function createApplicationsRouter(deps: AppDeps): Router {
   });
 
   // v1.3 A: the answers the person submitted through the extension (autofill/forms/), read-only, the owner's alone.
+  // v33 SHARE-6 (PLAN-sharing §4 "Sensitive facts"; SHARE-9's edit 1): on a shared profile (the Job Tracker's See) every
+  // self-identification, legal or pay answer is left out without Sensitive answers' See (isSensitiveAnswerRow: by its
+  // question first, so two people's answers to such a question are left out alike). When they were sent is the
+  // submission's, whatever is shown.
   router.get('/:id/submitted-answers', async (req, res) => {
     const user = userOf(req);
     const id = idOf(req);
     await loadOwnedRow(deps.db, user.id, id);
     const rows = await submittedRows(deps.db, user.id, id);
+    const shown = holds(req, 'sensitive:view') ? rows : rows.filter((row) => !row.sensitive); // v33 SHARE-6
     const body: SubmittedAnswersResponse = {
       submittedAt: rows.reduce<string | null>((latest, row) => (latest === null || row.submittedAt > latest ? row.submittedAt : latest), null),
-      items: rows.map(({ questionId, label, section, step, required, kind, answer }) => ({
+      items: shown.map(({ questionId, label, section, step, required, kind, answer }) => ({
         questionId,
         label,
         section,

@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { ResumeCopiesPause, ResumeCopiesResponse, ResumeCopyState } from '@tailorit/shared';
 import { AI_UNAVAILABLE_TEXT } from '../../../ai/errors';
+import type { Payer } from '../../../core/accounts/payer'; // v33 SHARE-3
 import { nowIso, type AppDeps } from '../../../core/context';
 import { AppError } from '../../../core/http/errors';
+import { backlogPayerColumns } from '../backlog-payer'; // v33 SHARE-3
 import { assertRoomForResumes, requireResume, toSummary } from '../repository';
 import { readableForImport, UNREADABLE_TEXT } from '../upload';
 import type { CopyLineWait } from './backlog';
@@ -12,6 +14,10 @@ import type { CopyLineWait } from './backlog';
 // The copy line (./backlog.ts) starts and settles the copies; the buttons of the tab's copy notices (Stop the rest,
 // Try again, Dismiss) act here. A row only points at its upload: the upload is never changed, and deleting it takes
 // its row with it (a copy already made stays a resume). Every statement is scoped by the account.
+// v33 SHARE-3 (PLAN F9 "Who pays"; SP v33 PLAN-sharing.md §5 "Resume backlogs"): a row names who pays for its copy
+// (charge_user_id, grant_id: B for a copy B asked for on A's profile, NULL the owner). Asking (with the upload), taking a
+// row over ("Make editable copy") and Try again each set it from the request, and B's copies never take A's last
+// resume places (SHARING_RESUME_RESERVE). The view's pause is the viewer's own: their AI usage, never someone else's.
 
 /**
  * Why a copy was not made: 'unreadable' and 'gone' (the upload was deleted) cannot be tried again; the others can.
@@ -50,11 +56,12 @@ async function refusalOf(
   deps: AppDeps,
   userId: string,
   text: string | null,
+  payer?: Payer,
 ): Promise<{ code: CopyErrorCode; message: string } | null> {
   if (!readableForImport(text)) return { code: 'unreadable', message: UNREADABLE_TEXT };
   try {
-    // The new upload is counted already: this is the room for its copy.
-    await assertRoomForResumes(deps, userId, 1);
+    // The new upload is counted already: this is the room for its copy (v33 SHARE-3: B's never takes A's last places).
+    await assertRoomForResumes(deps, userId, 1, payer);
   } catch (error) {
     if (error instanceof AppError && isNoRoom(error)) return { code: 'no_room', message: error.message };
     throw error;
@@ -74,17 +81,19 @@ export async function requestBatchCopy(
   userId: string,
   uploadId: string,
   choice: { batchId: string; templateId: string | null },
+  payer?: Payer, // v33 SHARE-3: who asked (B on A's profile pays for the copy)
 ): Promise<boolean> {
   try {
     await deps.db.atomic(
       async (t) => {
         const upload = await requireResume(deps, userId, uploadId);
-        const refusal = await refusalOf(deps, userId, upload.extracted_text);
+        const refusal = await refusalOf(deps, userId, upload.extracted_text, payer);
         const now = nowIso(deps);
+        const paid = backlogPayerColumns(payer); // v33 SHARE-3
         await t.run(
           `INSERT INTO resume_copy_backlog(id, user_id, source_resume_id, batch_id, label, template_id, state,
-             next_attempt_at, error_code, error_message, created_at, finished_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             next_attempt_at, error_code, error_message, created_at, finished_at, updated_at, charge_user_id, grant_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             randomUUID(),
             userId,
@@ -99,6 +108,8 @@ export async function requestBatchCopy(
             now,
             refusal ? now : null,
             now,
+            paid.charge_user_id,
+            paid.grant_id,
           ],
         );
       },
@@ -134,13 +145,15 @@ export async function adoptCopyTask(
   userId: string,
   uploadId: string,
   taskId: string,
+  payer?: Payer, // v33 SHARE-3: who started the task now pays for the row
 ): Promise<void> {
   const now = nowIso(deps);
+  const paid = backlogPayerColumns(payer);
   await deps.db.run(
     `UPDATE resume_copy_backlog SET state = 'making', task_id = ?, started_at = ?, retries = 0, error_code = NULL,
-         error_message = NULL, finished_at = NULL, updated_at = ?
+         error_message = NULL, finished_at = NULL, updated_at = ?, charge_user_id = ?, grant_id = ?
        WHERE user_id = ? AND source_resume_id = ? AND state IN ('waiting', 'failed', 'stopped')`,
-    [taskId, now, now, userId, uploadId],
+    [taskId, now, now, paid.charge_user_id, paid.grant_id, userId, uploadId],
   );
 }
 
@@ -158,7 +171,7 @@ interface CopyRow {
  * GET /api/resumes/copies: the account's copies in the order they were asked for (one per upload, so at most the
  * resume limit's), and why those in line wait (v2.0: the person's own pause, `usage`, among them).
  */
-export async function listCopies(deps: AppDeps, userId: string): Promise<ResumeCopiesResponse> {
+export async function listCopies(deps: AppDeps, userId: string, viewerPayerId: string = userId): Promise<ResumeCopiesResponse> {
   // The insert order (`seq`, v3.0 PG-E: SQLite's rowid) breaks a tie of created_at, the order they were asked in.
   const rows = await deps.db.all<CopyRow>(
     `SELECT id, batch_id, label, state, resume_id, error_code, error_message FROM resume_copy_backlog
@@ -177,18 +190,25 @@ export async function listCopies(deps: AppDeps, userId: string): Promise<ResumeC
       retryable: row.state === 'stopped' || (row.state === 'failed' && !NOT_RETRYABLE.has(row.error_code ?? '')),
     })),
     // No line at all is AI off; the line's own null means the copies do not wait. A person sees personPause of it.
-    paused: personPause(line ? await line.waitReason(userId) : { reason: 'off', until: null }),
+    // v33 SHARE-3: the viewer's own pause (their AI usage: B's on A's profile), never the profile owner's.
+    paused: personPause(line ? await line.waitReason(viewerPayerId) : { reason: 'off', until: null }),
   };
 }
 
-/** Stop the rest: the batch's copies still waiting are stopped (one being made finishes). Returns how many. */
-export async function stopCopies(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, batchId: string): Promise<number> {
+/**
+ * Stop the rest: the batch's copies still waiting are stopped (one being made finishes). Returns how many. v33 SHARE-3
+ * (review; PLAN-sharing §4: only work charged to B is B's to cancel): on a profile shared with them (`payer` under a
+ * grant), B stops only the copies B pays for under that grant; the owner's own (and anyone else's) wait on.
+ */
+export async function stopCopies(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, batchId: string, payer?: Payer): Promise<number> {
   const now = nowIso(deps);
-  const result = await deps.db.run(
-    `UPDATE resume_copy_backlog SET state = 'stopped', finished_at = ?, updated_at = ?
-       WHERE user_id = ? AND batch_id = ? AND state = 'waiting'`,
-    [now, now, userId, batchId],
-  );
+  const paid = backlogPayerColumns(payer);
+  const stop = `UPDATE resume_copy_backlog SET state = 'stopped', finished_at = ?, updated_at = ?
+       WHERE user_id = ? AND batch_id = ? AND state = 'waiting'`;
+  const result =
+    paid.grant_id === null
+      ? await deps.db.run(stop, [now, now, userId, batchId])
+      : await deps.db.run(`${stop} AND charge_user_id = ? AND grant_id = ?`, [now, now, userId, batchId, paid.charge_user_id, paid.grant_id]);
   return result.changes;
 }
 
@@ -196,14 +216,16 @@ export async function stopCopies(deps: Pick<AppDeps, 'db' | 'now'>, userId: stri
  * Try again: the batch's stopped copies, and those that failed for a reason that can pass (NOT_RETRYABLE aside), wait
  * in line again from the start. Returns how many.
  */
-export async function retryCopies(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, batchId: string): Promise<number> {
+export async function retryCopies(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, batchId: string, payer?: Payer): Promise<number> {
   const now = nowIso(deps);
+  // v33 SHARE-3: Try again sets who pays from the request (B's Try again on A's profile is B's; A's is A's own).
+  const paid = backlogPayerColumns(payer);
   const result = await deps.db.run(
     `UPDATE resume_copy_backlog SET state = 'waiting', task_id = NULL, retries = 0, error_code = NULL,
-         error_message = NULL, finished_at = NULL, next_attempt_at = ?, updated_at = ?
+         error_message = NULL, finished_at = NULL, next_attempt_at = ?, updated_at = ?, charge_user_id = ?, grant_id = ?
        WHERE user_id = ? AND batch_id = ?
          AND (state = 'stopped' OR (state = 'failed' AND coalesce(error_code, '') NOT IN ('unreadable', 'gone')))`,
-    [now, now, userId, batchId],
+    [now, now, paid.charge_user_id, paid.grant_id, userId, batchId],
   );
   return result.changes;
 }

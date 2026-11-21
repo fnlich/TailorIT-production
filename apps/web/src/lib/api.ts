@@ -1,6 +1,8 @@
 // v20 FIX-A (SEC-5): from the core module, not the package's root (which pulls in the whole constants table).
 import { ApiErrorBodySchema, ERROR_CODES, type ErrorCode } from '@tailorit/shared/core';
+import { PROFILE_HEADER, PROFILE_STATE_HEADER, type ProfileChoice } from '@tailorit/shared/sharing';
 import type { ZodType } from 'zod';
+import { profileAnswer, profileKeyFor } from './profile';
 
 /*
  * The browser only talks to its own origin: Next rewrites /api/* to the Express API (next.config.ts), so the
@@ -104,6 +106,23 @@ export interface ApiRequestInit extends Omit<RequestInit, 'body'> {
   query?: Record<string, QueryValue>;
   /** Validates (and strips) the JSON answer. A mismatch is reported as an `internal` ApiError. */
   schema?: ZodType;
+  /**
+   * v33 SHARE-4: the profile this one request works on, for the views that show every profile at once ("me": the
+   * person's own; a key: that shared profile). Left out, the request names the document's profile (lib/profile.ts).
+   */
+  profile?: ProfileChoice;
+}
+
+/** v33 SHARE-4: the refusals of a request on a shared profile, which the shell explains (lib/profile.ts). */
+const PROFILE_REFUSALS: ReadonlySet<string> = new Set(['profile_ended', 'profile_not_shared', 'own_profile_only']);
+
+/**
+ * v33 SHARE-4: whether `value` is a shared profile's refusal (the profile ended, not shared with you, only on your own
+ * profile). The shell already says so (one alert for a write; the move back to the person's own profile when it
+ * ended), so a caller shows no toast of its own for it.
+ */
+export function isProfileRefusal(value: unknown): value is ApiError {
+  return value instanceof ApiError && PROFILE_REFUSALS.has(value.code);
 }
 
 const STATUS_CODE: Record<number, ErrorCode> = {
@@ -200,9 +219,13 @@ function toApiError(response: Response, data: unknown, path: string): ApiError {
 /**
  * Calls the API at `path` (e.g. "/api/auth/me") and returns its JSON answer. Throws ApiError for any failure;
  * an aborted request rethrows the AbortError untouched so React Query can tell it apart.
+ *
+ * v33 SHARE-4: every request names the document's profile (or `init.profile`) in the profile header, never to
+ * /api/auth/* and never on the person's own profile; keepalive saves at unload included. What the answer says of that
+ * profile (ended, refused) goes to lib/profile.ts once, here.
  */
 export async function apiFetch<T = unknown>(path: string, init: ApiRequestInit = {}): Promise<T> {
-  const { body, query, schema, headers: rawHeaders, ...rest } = init;
+  const { body, query, schema, headers: rawHeaders, profile, ...rest } = init;
   const headers = new Headers(rawHeaders);
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
 
@@ -224,6 +247,10 @@ export async function apiFetch<T = unknown>(path: string, init: ApiRequestInit =
 
   const url = buildUrl(path, query);
   const pathname = url.split('?')[0] ?? url;
+  // v33 SHARE-4: exactly the profile the page loaded with (or the call's own); a caller's header never overrides it.
+  const sentKey = profileKeyFor(pathname, profile);
+  headers.delete(PROFILE_HEADER);
+  if (sentKey) headers.set(PROFILE_HEADER, sentKey);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -237,7 +264,12 @@ export async function apiFetch<T = unknown>(path: string, init: ApiRequestInit =
     throw new ApiError({ status: 0, code: 'internal', message: UNREACHABLE_MESSAGE, path: pathname });
   }
 
-  if (response.status === 204 || response.status === 205) return undefined as T;
+  const method = (rest.method ?? 'GET').toUpperCase();
+  const stateHeader = response.headers.get(PROFILE_STATE_HEADER);
+  if (response.status === 204 || response.status === 205) {
+    profileAnswer({ sentKey, path: pathname, method, stateHeader });
+    return undefined as T;
+  }
 
   const text = await response.text();
   let data: unknown;
@@ -249,7 +281,12 @@ export async function apiFetch<T = unknown>(path: string, init: ApiRequestInit =
     }
   }
 
-  if (!response.ok) throw toApiError(response, data, pathname);
+  if (!response.ok) {
+    const error = toApiError(response, data, pathname);
+    profileAnswer({ sentKey, path: pathname, method, stateHeader, code: error.code, message: error.message });
+    throw error;
+  }
+  profileAnswer({ sentKey, path: pathname, method, stateHeader });
 
   if (schema) {
     const checked = schema.safeParse(data);

@@ -13,6 +13,7 @@ import {
   type ResumeAnalysisSource,
   type ResumeAnalysisSubject,
   type ResumeAnalysisView,
+  type RoleFamilyId,
   type SkillLists,
 } from '@tailorit/shared';
 import type { AppDeps } from '../../../core/context';
@@ -20,6 +21,7 @@ import { AppError } from '../../../core/http/errors';
 import { getSkillLibrary } from '../../../core/skills-vocabulary';
 import { storedDocumentOf } from '../evidence';
 import { readableForImport } from '../upload';
+import { readingFamilyOf, storedFamilyOf } from './field'; // v33 ROLES
 
 // What TailorIT read from each resume (resume_analyses) and each upload's place in line for Claude's reading
 // (resume_analysis_backlog). Work package WP3.
@@ -109,6 +111,8 @@ export interface AnalysisRow {
   model: string | null;
   prompt_hash: string | null;
   created_at: string;
+  /** v33 ROLES: the field this reading shows (null on a reading stored before v3.3). */
+  role_family?: string | null;
 }
 
 interface BacklogInfo {
@@ -120,19 +124,20 @@ interface BacklogInfo {
   task_status: string | null;
 }
 
+// v33 ROLES: role_family, the field the reading shows (./field.ts), is written with every reading.
 const COLUMNS =
   'resume_id, source, version, content_hash, hard_skills, soft_skills, keywords, experience, years_stated, ' +
-  'years_stated_basis, person_name, model, prompt_hash, created_at';
+  'years_stated_basis, person_name, model, prompt_hash, created_at, role_family';
 const VALUES =
   '@resumeId, @source, @version, @contentHash, @hardSkills, @softSkills, @keywords, @experience, @yearsStated, ' +
-  '@yearsStatedBasis, @personName, @model, @promptHash, @createdAt';
+  '@yearsStatedBasis, @personName, @model, @promptHash, @createdAt, @roleFamily';
 // An unchanged (content_hash, version) leaves the 0301 match trigger alone; a changed one marks the owner's choices due.
 const ON_CONFLICT =
   'ON CONFLICT(resume_id, source) DO UPDATE SET version = excluded.version, content_hash = excluded.content_hash, ' +
   'hard_skills = excluded.hard_skills, soft_skills = excluded.soft_skills, keywords = excluded.keywords, ' +
   'experience = excluded.experience, years_stated = excluded.years_stated, ' +
   'years_stated_basis = excluded.years_stated_basis, person_name = excluded.person_name, model = excluded.model, ' +
-  'prompt_hash = excluded.prompt_hash, created_at = excluded.created_at';
+  'prompt_hash = excluded.prompt_hash, created_at = excluded.created_at, role_family = excluded.role_family';
 
 /** A stored reading as data, or null when the row does not read as one (it is then read again). */
 export function dataOfRow(row: AnalysisRow): ResumeAnalysisData | null {
@@ -177,8 +182,16 @@ function rowValues(input: {
     model: input.model,
     promptHash: input.promptHash,
     createdAt: input.createdAt,
+    roleFamily: readingFamilyOf(data), // v33 ROLES
   };
 }
+
+// v33 ROLES
+/** The field a stored reading shows: its column, or (a reading stored before v3.3) worked out from its data. */
+function familyOfRow(row: AnalysisRow | undefined, data: ResumeAnalysisData): RoleFamilyId {
+  return storedFamilyOf(row?.role_family) ?? readingFamilyOf(data);
+}
+// end v33 ROLES
 
 // ------------------------------------------------------------------------------------------- failed readings
 
@@ -332,7 +345,10 @@ const UPSERT_BACKLOG_ROW = `INSERT INTO resume_analysis_backlog(resume_id, user_
        VALUES (?, ?, ?, ?, ?, 0, NULL, ?, NULL, ?, ?, ?)
        ON CONFLICT(resume_id) DO UPDATE SET content_hash = excluded.content_hash, version = excluded.version,
          state = excluded.state, attempts = 0, task_id = NULL, next_attempt_at = excluded.next_attempt_at,
-         last_error = excluded.last_error, updated_at = excluded.updated_at`;
+         last_error = excluded.last_error, updated_at = excluded.updated_at,
+         charge_user_id = NULL, grant_id = NULL`; // v33 SHARE-3: a row read again (another version) is the owner's
+// v33 SHARE-3 (PLAN-sharing §5 "Resume backlogs"): the upload B made on A's profile is read at B's cost (the route sets
+// the new row's payer: setUploadReadingPayer, backlog-payer.ts); a row that starts over later is the owner's own.
 
 /** Why the upload's row is 'skipped' (null: it waits for Claude), from its text, the ask and its row before. */
 function skipReason(target: ResumeAnalysisTarget, options: RefreshOptions, existing: BacklogRowState | undefined): string | null {
@@ -460,6 +476,8 @@ export interface StoredResumeAnalysis {
   aiWaiting: boolean;
   /** Claude's reading did not work (after its attempts); the rules' reading stands. */
   aiFailed: boolean;
+  /** v33 ROLES: the field the reading shows (Claude's reading's when it is merged in), detected without AI. */
+  roleFamily: RoleFamilyId;
 }
 
 interface ReadingRows {
@@ -497,6 +515,7 @@ function assemble(
     refining: backlog?.state === 'queued' && running,
     aiWaiting: workerOn && backlog?.state === 'waiting',
     aiFailed: backlog?.state === 'failed',
+    roleFamily: aiCurrent ? familyOfRow(aiRow, aiCurrent) : familyOfRow(detRow, deterministic), // v33 ROLES
   };
 }
 
@@ -627,6 +646,7 @@ function staleAnalysis(kind: 'built' | 'uploaded', resumeId: string, rows: Readi
     refining: false,
     aiWaiting: false,
     aiFailed: rows.backlog?.state === 'failed',
+    roleFamily: familyOfRow(detRow, data), // v33 ROLES
   };
 }
 

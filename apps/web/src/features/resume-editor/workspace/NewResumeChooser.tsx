@@ -14,7 +14,10 @@ import {
   RESUME_TEMPLATES,
   type ResumeTemplateId,
 } from '@tailorit/shared';
-import { SAMPLE_RESUME, THUMBNAIL_SLOTS } from '@tailorit/resume-templates';
+import { SAMPLE_RESUME, THUMBNAIL_SLOTS, sampleResumeFor } from '@tailorit/resume-templates';
+import { GENERAL_FAMILY_ID, roleArchetypeOf, suggestedTemplatesFor, templatesInFieldOrder, type RoleArchetype } from '@tailorit/shared/roles';
+import { Badge } from '@/components/ui/Badge';
+import { useMyField } from '../../roles/hooks'; // v33 ROLES
 import { EditorBar } from '@/components/shell/EditorBar';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button, buttonClasses } from '@/components/ui/Button';
@@ -32,14 +35,27 @@ import { useResumeLimitGate } from '../../documents/resumes/resumeLimit'; // v20
 import { StatusLine } from '../../documents/core/StatusLine';
 
 // The first step of a new resume (Enhancv's template picker): the ten templates, the newest first, each showing the
-// sample person as it would print, its name and what it is for. Picking one opens a blank page on it. "Import existing
+// sample person as it would print, its name and what it is for. v33 ROLES: with a field known (the person's, from
+// their default resume), the templates suggested for it come first, marked, drawn with a sample person of that kind of
+// work. Picking one opens a blank page on it. "Import existing
 // resume" starts from a resume instead: a PDF the AI reads into a new resume on the default template, or a JSON file
 // downloaded from TailorIT (one resume opens; several are listed with the resumes).
 
-function TemplateCard({ templateId }: { templateId: ResumeTemplateId }) {
+function TemplateCard({
+  templateId,
+  archetype,
+  suggested,
+}: {
+  templateId: ResumeTemplateId;
+  archetype: RoleArchetype | null;
+  suggested: boolean;
+}) {
   const spec = RESUME_TEMPLATES[templateId];
   // The sample drawn on this template: its layout re-seeded for the template's columns, its design the template's own.
-  const document = useMemo(() => normalizeResumeDocument({ templateId }, SAMPLE_RESUME), [templateId]);
+  const document = useMemo(
+    () => normalizeResumeDocument({ templateId }, archetype ? sampleResumeFor(archetype) : SAMPLE_RESUME),
+    [templateId, archetype],
+  );
   const page = PAGE_SIZES.letter;
   const descriptionId = useId();
   return (
@@ -61,7 +77,10 @@ function TemplateCard({ templateId }: { templateId: ResumeTemplateId }) {
         </div>
       </div>
       <div>
-        <p className="text-[15px] font-semibold text-foreground">{spec.name}</p>
+        <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold text-foreground">
+          {spec.name}
+          {suggested ? <Badge tone="neutral">Suggested</Badge> : null}
+        </p>
         {/* v32 COPY (E5): what the design is for describes the card; the card shows the page and its name. */}
         <span id={descriptionId} hidden>
           {spec.description}
@@ -155,6 +174,11 @@ function useImportMenu() {
 export function NewResumeChooser() {
   const { menu, notices } = useImportMenu();
   const resumeGate = useResumeLimitGate(); // v20 P8: at the Free resume limit a new resume cannot be saved
+  // v33 ROLES: the person's field (general: no field known, the ten in their own order).
+  const myField = useMyField().data?.familyId;
+  const familyId = myField && myField !== GENERAL_FAMILY_ID ? myField : null;
+  const archetype = familyId ? roleArchetypeOf(familyId) : null;
+  const suggested = suggestedTemplatesFor(familyId);
   return (
     <>
       <EditorBar name="New resume" documentsHref={RESUMES_TAB_HREF} />
@@ -171,8 +195,8 @@ export function NewResumeChooser() {
         )}
         {notices}
         <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
-          {RESUME_TEMPLATE_IDS.map((templateId) => (
-            <TemplateCard key={templateId} templateId={templateId} />
+          {templatesInFieldOrder(RESUME_TEMPLATE_IDS, familyId).map((templateId) => (
+            <TemplateCard key={templateId} templateId={templateId} archetype={archetype} suggested={suggested.includes(templateId)} />
           ))}
         </div>
       </main>

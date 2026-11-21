@@ -13,9 +13,7 @@ import { XCircleIcon } from '@phosphor-icons/react/XCircle';
 import {
   APPLICATION_STATUSES,
   STATUS_INFO,
-  isDraftStatus,
   type ApplicationStatus,
-  type DisplayStatus,
   type StatusIcon as StatusIconName,
 } from '@tailorit/shared';
 import type { SelectOption } from '@/components/ui/Select';
@@ -39,10 +37,9 @@ export function StatusIcon({ status, ...props }: { status: ApplicationStatus } &
   return <Glyph {...props} />;
 }
 
-/** v20 A30: a shown status's glyph: Draft's clipboard (its kit is prepared), else the stored status's. */
-export function DisplayStatusIcon({ status, ...props }: { status: DisplayStatus } & IconProps) {
-  if (isDraftStatus(status)) return <ClipboardTextIcon {...props} />;
-  return <StatusIcon status={status} {...props} />;
+/** v20 A30: Draft's glyph, a clipboard (its kit is prepared). v33 TRACKER: the Draft mark's, no longer a status's. */
+export function DraftIcon(props: IconProps) {
+  return <ClipboardTextIcon {...props} />;
 }
 
 /** Every status as a select option with its icon, in the statuses' order. */

@@ -1,11 +1,12 @@
 import { Router, type ErrorRequestHandler, type RequestHandler } from 'express';
 import { IdParam, MINUTE_MS, HOUR_MS } from '@tailorit/shared';
 import { AutofillCoverLetterRequestSchema, type AutofillCoverLetterStatus } from '@tailorit/shared/autofill';
-import { userOf } from '../../core/auth/guards';
+import { actorOf, userOf } from '../../core/auth/guards'; // v33 SHARE-6: actorOf
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { AppError, asyncHandler, notFound, sendError } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
+import { autofillPayerOf } from './ai/payer'; // v33 SHARE-6
 import { allow, perAccountLimit } from './auth';
 import { coverLetterFileOf, coverLetterFor, coverLetterStateOf, coverLetterTextOf, type LetterOutcome } from './cover-letters';
 import { sendAttachedFile } from './resumes-router';
@@ -94,7 +95,9 @@ export function createAutofillCoverLettersRouter(deps: AppDeps): Router {
     const userId = userOf(req).id;
     const request = parseInput(AutofillCoverLetterRequestSchema, req.body ?? {}, 'request');
     const started = performance.now();
-    const { answer, outcome } = await coverLetterFor(deps, userId, request);
+    // v33 SHARE-6 (SHARE-3's exact edit 4): a letter written now pays like the extension's AI help (autofillPayerOf).
+    const payment = { payer: () => autofillPayerOf(deps, req, request.resumeId ?? null), askerId: actorOf(req).id };
+    const { answer, outcome } = await coverLetterFor(deps, userId, request, payment);
     const job = request.jobId === undefined ? 'a posting TailorIT does not have' : 'a TailorIT job';
     deps.log.debug(
       `[autofill] cover letter for account ${userId}: ${job}, ${OUTCOMES[outcome]}, ${answer.state}, ` +

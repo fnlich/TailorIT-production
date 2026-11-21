@@ -3,6 +3,7 @@
   "position": 3,
   "name": "Software Engineering",
   "fontFamily": "Roboto",
+  "families": ["technical", "data-analytics", "qa-testing", "it-support"],
   "aiPrompt": "Name the languages, frameworks and systems from my resume that this job asks for. Prefer measurable outcomes such as latency, reliability or scale when my resume states them, and keep the language plain.",
   "blocks": [
     { "tag": "h2", "text": "{{USER_FULL_NAME}}" },

@@ -35,6 +35,8 @@ export interface JobCardProps {
   match: JobRowMatch | null | undefined;
   onSelect: (jobId: number, how: OpenHow) => void;
   onToggleSave: (job: JobListItem) => void;
+  /** v33 FIX-1: Save is on (off, still showing Saved, on a profile shared without the Job Tracker's Change). */
+  canSave?: boolean;
   /**
    * v31 FIX-JOBS: the row's quick Apply (opens the job and its posting). v32 JOBS2: only while the list fills the page
    * (below 1024 px, from 640 px): beside the list, the job's own Apply is one look away.
@@ -129,6 +131,7 @@ export const JobCard = memo(function JobCard({
   onSelect,
   onToggleSave,
   onApply,
+  canSave = true,
   selectable = false,
   checked = false,
   onToggleChecked,
@@ -244,6 +247,7 @@ export const JobCard = memo(function JobCard({
                 type="button"
                 aria-label={saveLabel}
                 aria-pressed={job.saved}
+                disabled={!canSave}
                 onClick={() => onToggleSave(job)}
                 className={clsx(
                   'inline-flex size-8 shrink-0 items-center justify-center rounded-control transition-[background-color,color] duration-150',

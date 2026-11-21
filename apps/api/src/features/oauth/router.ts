@@ -1,7 +1,7 @@
 import { Router, type Request, type RequestHandler } from 'express';
 import { IdParam, MINUTE_MS } from '@tailorit/shared';
 import { OAuthConsentBodySchema } from '@tailorit/shared/oauth';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { payerOf, rateKeyOf, requireUser, userOf } from '../../core/auth/guards'; // v33 INT-1: payerOf
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { forbidden, notFound } from '../../core/http/errors';
@@ -41,7 +41,7 @@ export function createOAuthRouter(deps: AppDeps): Router {
     keyedRateLimit({
       windowMs: MINUTE_MS,
       limit: () => constantsOf(deps).get('OAUTH_CALLS_PER_MINUTE'),
-      key: (req) => `oauth-web:${userOf(req).id}`,
+      key: (req) => `oauth-web:${rateKeyOf(req, MINUTE_MS)}`, // v33 SHARE-8
       message: (seconds) => `${constantsOf(deps).message('MSG_OAUTH_RATE_LIMIT')} ${waitSentence(seconds)}`,
     }),
   );
@@ -54,7 +54,7 @@ export function createOAuthRouter(deps: AppDeps): Router {
 
   router.post('/consent', async (req, res) => {
     const body = parseInput(OAuthConsentBodySchema, req.body ?? {}, 'answer');
-    res.json(await decide(deps, userOf(req).id, body, browserSecretOf(req)));
+    res.json(await decide(deps, payerOf(req), body, browserSecretOf(req))); // v33 INT-1: the person's own plan
   });
 
   router.get('/grants', async (req, res) => {

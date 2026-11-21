@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
   effectiveTemplateId,
+  HOUR_MS, // v33 SHARE-5
   isActivePrepareState,
-  isEditorDocument,
   normalizeResumeDocument,
   PREPARE_SKIP_MESSAGES,
   type FilterReason,
@@ -25,12 +25,16 @@ import { nowIso, type AppDeps } from '../../core/context';
 import { conflict, notFound, validationFailed } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse';
 import { assertServerAi } from '../../ai/gate';
-import { upgradeLegacyDocument } from '../../core/resume-upgrade';
+import { editorDocumentOf } from '../../core/skills/index'; // v33 LEGACY
+import { assertGrantLive, grantHolds, lockedLiveGrant, profileEnded, profileNotShared, type LiveGrant } from '../../core/auth/grants'; // v33 SHARE-5
+import { payerOfRow, type PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-5 (payerOfRow: v33 INT-C)
+import { AppError } from '../../core/http/errors'; // v33 SHARE-5
+import { notifyPrepareBatch } from '../notifications/emitters'; // v33 SHARE-5
+import type { EndGrantScope } from '../sharing/end-grant'; // v33 SHARE-5
 import { readAutofillProfile } from '../autofill/profile/repository';
 import { letterProfile, visibleTemplate } from '../cover-letters/context';
 import { createLetterRepository } from '../cover-letters/repository';
 import { resumeCount } from '../resumes/counters';
-import { getResumeEngine } from '../resumes/engine';
 import { getResumeEvidence } from '../resumes/evidence';
 import { assertRoomForResumes, insertResume } from '../resumes/repository';
 import { keptFacts } from '../tailor/mapping';
@@ -52,35 +56,45 @@ import {
   planNeedsAi,
   prepareJobView,
   provenanceOf,
+  reasonsFor, // v33 SHARE-5
   requireTarget,
   restoreDraft,
   valueScreen,
+  OWNER_VIEW, // v33 SHARE-5
   type FinishResult,
   type KitPlan,
+  type KitViewer, // v33 SHARE-5
 } from './kit';
 import { planQuestions, refusalOfValue, type PlannedQuestion, type ValueRefusal } from './questions';
 import { createPrepareRunner, type PrepareRunner } from './runner';
 import { letterModeOf, resumeModeOf } from './settings';
 import {
+  activeGrantCount, // v33 SHARE-5
+  activeGrantRows, // v33 SHARE-5
   activePrepareOf,
   answerRows,
+  cancelIfWaiting, // v33 SHARE-5
   draftOf,
   draftsOf,
   getPrepare,
   insertPrepare,
+  isGranteeRow, // v33 SHARE-5
   mcpActiveRows,
   mcpChoosingRows,
   prepareById,
+  staleGranteeMcpRows, // v33 SHARE-5
   staleMcpRows,
+  startedByOf, // v33 SHARE-5
   updateDraft,
   updatePrepare,
+  waitingGranteePrepares, // v33 SHARE-5
   withActivePrepare,
   writeAnswers,
   type DraftChanges,
   type DraftRow,
   type PrepareRow,
 } from './store';
-import type { PrepareService } from '../../core/seams';
+import type { PrepareService, PrepareStartOptions } from '../../core/seams';
 
 // Prepare & Queue (v2.0, docs/design/v2.0/05-prepare-flow.md; DECISIONS A29, A30): one Prepare of one saved job (a
 // Tracker entry at Saved with a job) at a time, its kit kept in the application's draft, the queue row inserted when
@@ -111,6 +125,8 @@ export const RESUME_FIRST =
 
 const MAX_ERROR = 2000;
 const LETTER_PARAGRAPHS = { min: 1, max: 6, length: 3000 } as const;
+/** v33 SHARE-5: how often the stale own-AI Prepares of shares are looked for (a technical interval). */
+const STALE_SWEEP_MS = HOUR_MS;
 /**
  * An MCP letter save outside LETTER_PARAGRAPHS (v30 INT-0, audit B10: its numbers from the caps, written once): "A cover
  * letter needs 1 to 6 paragraphs of at most 3,000 characters each." An MCP tool's input refusal (A18, MCP_INPUT).
@@ -175,43 +191,122 @@ function skipReason(deps: AppDeps, code: PrepareSkipCode): PrepareReason {
   return { code, label: key ? constantsOf(deps).message(key) : '' };
 }
 
-/** The account's jobs among `jobIds` whose queue row is live (queued or running): `already_queued`. */
-async function liveQueueJobs(deps: Pick<AppDeps, 'db'>, userId: string, jobIds: readonly number[]): Promise<Set<number>> {
+/**
+ * The account's jobs among `jobIds` whose queue row is live (queued or running): `already_queued`. v33 SHARE-5 (the
+ * SHARE-5 review's decision 8): with `keptFrom` (someone the profile is shared with, whose grant lacks Queue changes),
+ * also the jobs whose finished row they did not prepare under that grant: a new Prepare would replace (remove) it.
+ */
+export async function liveQueueJobs( // v33 INT-1: exported (Prepare All's plan leaves the same jobs out)
+  deps: Pick<AppDeps, 'db'>,
+  userId: string,
+  jobIds: readonly number[],
+  keptFrom: { preparedBy: string; grantId: string } | null = null,
+): Promise<Set<number>> {
   if (jobIds.length === 0) return new Set();
-  const rows = await deps.db.all<{ job_id: number }>(
-    `SELECT job_id FROM autofill_agent_queue WHERE user_id = ? AND state IN ('queued', 'running')
+  const rows = await deps.db.all<{ job_id: number; state: string; prepared_by: string; grant_id: string | null }>(
+    `SELECT job_id, state, prepared_by, grant_id FROM autofill_agent_queue WHERE user_id = ?
          AND job_id IN (${deps.db.dialect.list(jobIds.length)})`,
     [userId, ...jobIds],
   );
-  return new Set(rows.map((row) => row.job_id));
+  const theirs = (row: { prepared_by: string; grant_id: string | null }) =>
+    keptFrom !== null && row.prepared_by === keptFrom.preparedBy && row.grant_id === keptFrom.grantId;
+  return new Set(
+    rows.filter((row) => row.state === 'queued' || row.state === 'running' || (keptFrom !== null && !theirs(row))).map((row) => row.job_id),
+  );
+}
+
+/**
+ * v33 INT-1: `liveQueueJobs`'s `keptFrom` for a payer (SHARE-5's decision 8): who they are under which grant, when that
+ * grant lacks Queue changes (they never replace a finished queue row they did not prepare there); else null. The one
+ * source for startPrepare and Prepare All's plan.
+ */
+export function keptFromOf(grant: LiveGrant | null, payerId: string): { preparedBy: string; grantId: string } | null {
+  return grant && !grantHolds(grant, 'queue:edit') ? { preparedBy: payerId, grantId: grant.id } : null;
 }
 
 /**
  * Check 3, the resume storage, for a `tailor` Prepare (A29: the one mode that makes a resume): 403
  * resume_limit_reached when the account is at its plan's limit (`count >= limit`, so even a reusable kit waits), or
  * when the resumes it would make would not fit (`count + making > limit`); then the technical cap
- * (assertRoomForResumes).
+ * (assertRoomForResumes). v33 SHARE-5: a Prepare someone the profile is shared with starts (`payer` under a grant) keeps
+ * the owner's last resume places (SHARING_RESUME_RESERVE): the limit is that many lower, refused in words that say so.
+ * v33 INT-C (SHARE-5 review spec 12): one resume-reserve rule and message with SHARE-3's assertRoomForResumes
+ * (MSG_SHARING_RESUME_RESERVE; it also keeps the reserve on an unlimited plan, against RESUME_SAFETY_CAP).
  */
-async function assertResumeRoom(deps: AppDeps, userId: string, making: number): Promise<void> {
+async function assertResumeRoom(deps: AppDeps, userId: string, making: number, payer: PersonPayer): Promise<void> {
+  const reserve = payer.grantId ? constantsOf(deps).get('SHARING_RESUME_RESERVE') : 0;
   const entitlements = await entitlementsOf(deps, userId);
   const limit = entitlements.resumes;
   if (limit !== null) {
     const n = await resumeCount(deps.db, userId); // v30 DB-JOBS (D1d): the stored count the resume limit reads
+    if (reserve > 0 && (n >= limit - reserve || n + making > limit - reserve)) {
+      throw refuse(deps, 'resume_limit_reached', 'MSG_SHARING_RESUME_RESERVE', { reserve });
+    }
     if (n >= limit || n + making > limit) throw resumeLimitError(deps, limit, { free: entitlements.type === 'free' });
   }
-  if (making > 0) await assertRoomForResumes(deps, userId, making);
+  if (making > 0) await assertRoomForResumes(deps, userId, making, payer);
 }
 
-/** The queue room: the account's rows plus the passing jobs with no row yet, against QUEUE_SIZE_MAX (409). */
-async function assertQueueRoom(deps: AppDeps, userId: string, jobIds: readonly number[]): Promise<void> {
+/**
+ * The queue room: the account's rows plus the passing jobs with no row yet, against QUEUE_SIZE_MAX (409). v33 SHARE-5:
+ * `reserve` (someone the profile is shared with starts it) keeps the owner's last places (SHARING_QUEUE_RESERVE).
+ */
+async function assertQueueRoom(deps: AppDeps, userId: string, jobIds: readonly number[], reserve = 0): Promise<void> {
   if (jobIds.length === 0) return;
   const constants = constantsOf(deps);
   const limit = constants.get('QUEUE_SIZE_MAX');
   const rows = await deps.db.all<{ job_id: number }>('SELECT job_id FROM autofill_agent_queue WHERE user_id = ?', [userId]);
   const held = new Set(rows.map((row) => row.job_id));
   const adding = new Set(jobIds.filter((jobId) => !held.has(jobId))).size;
-  if (adding > 0 && rows.length + adding > limit) throw refuse(deps, 'conflict', 'MSG_PREPARE_QUEUE_FULL', { limit });
+  if (adding > 0 && rows.length + adding > limit - reserve) {
+    throw reserve > 0
+      ? refuse(deps, 'conflict', 'MSG_PREPARE_SHARED_QUEUE_FULL', { reserve })
+      : refuse(deps, 'conflict', 'MSG_PREPARE_QUEUE_FULL', { limit });
+  }
 }
+
+// v33 SHARE-5 (PLAN F9 "Prepare and the queue"; SP v33 PLAN-sharing.md §5, §6) --------------------------------------
+// A Prepare remembers who started it (prepare_jobs.started_by) and, when that is not the profile's owner, the grant it
+// runs under (grant_id): B starts Prepares on a profile A shared with them (`prepare:run`; `mcp` too for B's own AI),
+// B pays (B's AI gate, B's Prepares an hour), within B's room there: never A's last SHARING_QUEUE_RESERVE queue places
+// nor A's last SHARING_RESUME_RESERVE resume places, at most SHARING_WAITING_PER_GRANT Prepares not over yet. A's own
+// start of a job whose Prepare B started and nothing took up yet cancels B's (`owner_started`): A is never told
+// `active` for a job they want now. The runner re-checks the grant at every step (runner.ts).
+
+/**
+ * Who starts a Prepare and what its answer may show (core/seams.ts PrepareStartOptions). The SHARE-5 review's decision
+ * 4: `payer` is required everywhere (the route's payerOf, MCP's caller), so no start defaults to the owner paying for
+ * and approving someone else's work.
+ */
+export type StartOptions = PrepareStartOptions;
+
+/** The permissions a start of `mode` needs under a grant (`mcp` too for the person's own AI's Prepares). */
+const startPerms = (mode: PrepareMode) => (mode === 'mcp' ? (['prepare:run', 'mcp'] as const) : ('prepare:run' as const));
+
+/** A grantee start's grant check: the grant is live and lets them prepare (`mcp` too for their own AI's Prepares). */
+async function assertMayPrepare(deps: AppDeps, userId: string, payer: PersonPayer, mode: PrepareMode): Promise<LiveGrant> {
+  if (!payer.grantId) throw profileEnded();
+  const grant = await assertGrantLive(deps, payer.grantId, startPerms(mode));
+  if (grant.owner.id !== userId || grant.granteeId !== payer.id) throw profileEnded();
+  return grant;
+}
+
+/**
+ * The owner's own start takes over a job whose Prepare someone else started and nothing took up yet (in startPrepare's
+ * write, just before the owner's insert, so a start refused as a whole cancels nothing): that one ends `cancelled`,
+ * `owner_started` (its kit's open parts going back; its batch told as any ended one). False when the runner took it up
+ * first: the owner's insert then answers `active`. Run it in a transaction.
+ */
+async function preemptFor(deps: AppDeps, found: PrepareRow, now: string): Promise<boolean> {
+  const row = await cancelIfWaiting(deps.db, found.id, 'owner_started', now);
+  if (!row) return false;
+  const draft = await draftOf(deps.db, row.user_id, row.application_id);
+  if (draft?.prepare_id === row.id) await restoreDraft(deps, draft, now);
+  await notifyPrepareBatch(deps, row);
+  deps.log.debug(`[prepare] account ${row.user_id}: a waiting Prepare of a share (${row.id}) cancelled: owner_started`);
+  return true;
+}
+// end v33 SHARE-5
 
 /** What startPrepare hands on once its transaction committed. */
 export interface StartHooks {
@@ -241,6 +336,7 @@ export async function startPrepare(
   request: PrepareStartRequest,
   mode: PrepareMode,
   hooks: StartHooks = NO_HOOKS,
+  options: StartOptions, // v33 SHARE-5: required (the review's decision 4)
 ): Promise<PrepareStartResponse> {
   const constants = constantsOf(deps);
   const max = constants.get('PREPARE_BATCH_MAX');
@@ -252,17 +348,28 @@ export async function startPrepare(
   const results = new Map<string, Result>();
   const skip = (applicationId: string, code: PrepareSkipCode) =>
     results.set(applicationId, { applicationId, outcome: 'skipped', reason: skipReason(deps, code) });
+  // v33 SHARE-5: who starts it and pays (the owner unless a payer of a share is named), and what the answer shows.
+  const viewer = options.viewer ?? OWNER_VIEW;
+  const payerId = options.payer.id;
+  const grantee = payerId !== userId;
+  const grant = grantee ? await assertMayPrepare(deps, userId, options.payer, mode) : null;
+  const grantId = grant?.id ?? null;
+  // v33 SHARE-5 (decision 8): without Queue changes, B never replaces a finished queue row B did not prepare there.
+  const keptFrom = keptFromOf(grant, payerId); // v33 INT-1: one source with Prepare All's plan
+  // v33 SHARE-5: the owner's own start takes over the jobs whose Prepare a share started and nothing took up yet
+  // (preemptFor, in the write below): they are not `active` to the owner.
+  const preempt = new Map(grantee ? [] : (await waitingGranteePrepares(deps.db, userId, ids)).map((row) => [row.application_id, row]));
 
   // 1. The entries.
   const entries = await entriesOf(deps, userId, ids);
   const active = await withActivePrepare(deps.db, ids);
-  const live = await liveQueueJobs(deps, userId, [...entries.values()].flatMap((row) => (row.job_id === null ? [] : [row.job_id])));
+  const live = await liveQueueJobs(deps, userId, [...entries.values()].flatMap((row) => (row.job_id === null ? [] : [row.job_id])), keptFrom);
   const kept: Array<{ applicationId: string; jobId: number }> = [];
   for (const applicationId of ids) {
     const row = entries.get(applicationId);
     if (!row) skip(applicationId, 'not_found');
     else if (entryProblem(row)) skip(applicationId, entryProblem(row)!);
-    else if (active.has(applicationId)) skip(applicationId, 'active');
+    else if (active.has(applicationId) && !preempt.has(applicationId)) skip(applicationId, 'active'); // v33 SHARE-5
     else if (live.has(row.job_id!)) skip(applicationId, 'already_queued');
     else kept.push({ applicationId, jobId: row.job_id! });
   }
@@ -277,7 +384,8 @@ export async function startPrepare(
   const passingEntries: Array<{ applicationId: string; jobId: number; customPending: boolean }> = [];
   for (const entry of kept) {
     const check = checks.get(entry.applicationId);
-    const first = check?.verdict.verdict === 'fail' ? check.verdict.reasons[0] : undefined;
+    // v33 SHARE-5: the reason as the viewer sees it (an eligibility reason as one word without sensitive:view).
+    const first = check?.verdict.verdict === 'fail' ? reasonsFor(viewer, check.verdict.reasons)[0] : undefined;
     if (first || check?.custom === 'fail') {
       const reason = filterReasonOf(deps, first ?? { code: 'custom' satisfies FilterReason });
       results.set(entry.applicationId, { applicationId: entry.applicationId, outcome: 'filtered', reason });
@@ -306,17 +414,20 @@ export async function startPrepare(
     const message = constants.message('MSG_PREPARE_NO_RESUME');
     throw refuse(deps, 'validation_failed', 'MSG_PREPARE_NO_RESUME', undefined, { fields: { resume: message } });
   }
-  // 4. Check 2, the AI usage: the server path, and only when some part of some job needs the AI.
+  // 4. Check 2, the AI usage: the server path, and only when some part of some job needs the AI. v33 SHARE-5: the
+  // payer's (B's budget on a profile shared with them; v33 INT-C: the gate takes the Payer, SHARE-3's).
   if (mode === 'server' && toPrepare.some((item) => planNeedsAi(item.plan, resumeMode, item.customPending))) {
     if (!deps.services.ai || (resumeMode === 'tailor' && !deps.services.tailor)) throw aiUnavailableError(deps);
-    await assertServerAi(deps, userId);
+    await assertServerAi(deps, options.payer);
   }
+  // v33 SHARE-5: the owner's last places are kept from a share (the reserves; the resume one is assertResumeRoom's).
+  const queueReserve = grantee ? constants.get('SHARING_QUEUE_RESERVE') : 0;
   // 5. Check 3, the resume storage: only the `tailor` mode makes a resume (A29).
   if (resumeMode === 'tailor' && passing.length > 0) {
-    await assertResumeRoom(deps, userId, toPrepare.filter((item) => !item.plan.resumeFits).length);
+    await assertResumeRoom(deps, userId, toPrepare.filter((item) => !item.plan.resumeFits).length, options.payer);
   }
   // 6. The queue room.
-  await assertQueueRoom(deps, userId, passing.map((item) => item.jobId));
+  await assertQueueRoom(deps, userId, passing.map((item) => item.jobId), queueReserve);
 
   // 7. Write, in one IMMEDIATE transaction. The checks above ran outside it, so two starts of one application at once
   // may both pass them: idx_prepare_jobs_active lets one insert, and the other answers `active` (insertPrepare's
@@ -324,7 +435,19 @@ export async function startPrepare(
   const now = nowIso(deps);
   const later: string[] = [];
   let started = 0;
-  await deps.db.tx(async () => {
+  await deps.db.tx(async (t) => {
+    // v33 SHARE-5 (the SHARE-5 review's decision 5): on a share, its grant is read again locked (FOR NO KEY UPDATE)
+    // before anything is written: a share that ended meanwhile refuses the whole start, a second start of the same share
+    // waits here, and at most SHARING_WAITING_PER_GRANT of its Prepares are not over (counted under the lock).
+    if (grantId !== null) {
+      const locked = await lockedLiveGrant(deps, t, grantId, 'update');
+      if (!locked) throw profileEnded();
+      if (!grantHolds(locked, startPerms(mode))) throw profileNotShared();
+      const cap = constants.get('SHARING_WAITING_PER_GRANT');
+      if (toPrepare.length > 0 && (await activeGrantCount(t, grantId)) + toPrepare.length > cap) {
+        throw refuse(deps, 'conflict', 'MSG_PREPARE_WAITING_FULL', { max: cap });
+      }
+    }
     for (const item of passing) {
       const row: PrepareRow = {
         id: randomUUID(),
@@ -348,7 +471,12 @@ export async function startPrepare(
         started_at: null,
         finished_at: null,
         updated_at: now,
+        started_by: payerId, // v33 SHARE-5
+        grant_id: grantId,
       };
+      // v33 SHARE-5: a share's waiting Prepare of the job ends `owner_started` first.
+      const theirs = preempt.get(item.applicationId);
+      if (theirs) await preemptFor(deps, theirs, now);
       // idx_prepare_jobs_active: a concurrent request made one first.
       if (!(await insertPrepare(deps.db, row))) {
         skip(item.applicationId, 'active');
@@ -371,7 +499,8 @@ export async function startPrepare(
   }, {});
   deps.log.debug(
     `[prepare] account ${userId} Prepare & Queue (${mode}, ${resumeMode}, letters ${letterMode}` +
-      `${request.rebuild ? ', rebuild' : ''}): ${Object.entries(counts).map(([outcome, n]) => `${n} ${outcome}`).join(', ')}`,
+      `${request.rebuild ? ', rebuild' : ''}${grantee ? `, started by account ${payerId} on a share` : ''}): ` +
+      Object.entries(counts).map(([outcome, n]) => `${n} ${outcome}`).join(', '),
   );
   return { results: ids.map((applicationId) => results.get(applicationId)!) };
 }
@@ -458,12 +587,23 @@ export async function chooseSimilarResumes(deps: AppDeps, prepareIds: readonly s
  * what they were; `abort` cancels the AI task a server Prepare is waiting for (its cost so far is charged), and the
  * runner stops at its next step. A Prepare that is over is answered as it is. 404 for another account's.
  */
-export async function cancelPrepare(deps: AppDeps, userId: string, prepareId: string, abort: (prepareId: string) => void): Promise<PrepareJob> {
+export async function cancelPrepare(
+  deps: AppDeps,
+  userId: string,
+  prepareId: string,
+  abort: (prepareId: string) => void,
+  options: CancelOptions = {}, // v33 SHARE-5
+): Promise<PrepareJob> {
   const now = nowIso(deps);
   let cancelled = false;
   const row = await deps.db.tx(async () => {
     const found = await getPrepare(deps.db, userId, prepareId);
     if (!found) throw notFound('That Prepare');
+    // v33 SHARE-5 (PLAN-sharing.md §3: Change of Prepare & queue cancels "Prepares B started"): someone the profile is
+    // shared with cancels only the Prepares they started there.
+    if (options.actorId !== undefined && options.actorId !== userId && startedByOf(found) !== options.actorId) {
+      throw profileNotShared();
+    }
     if (!isActivePrepareState(found.state)) return found;
     await endPrepare(deps, found, 'cancelled', now);
     cancelled = true;
@@ -473,18 +613,39 @@ export async function cancelPrepare(deps: AppDeps, userId: string, prepareId: st
     abort(prepareId);
     deps.log.debug(`[prepare] account ${userId} cancelled Prepare ${prepareId}`);
   }
-  return prepareJobView(deps, row);
+  return prepareJobView(deps, row, options.viewer);
+}
+
+/** v33 SHARE-5: who cancels (the signed-in person: B on a profile shared with them) and what the answer may show. */
+export interface CancelOptions {
+  /** The person who asks; someone other than the owner may cancel only the Prepares they started. */
+  actorId?: string;
+  viewer?: KitViewer;
+}
+
+/**
+ * v33 SHARE-5: whose own AI an MCP save or finish is for. Each person's AI writes only the kits of the MCP Prepares they
+ * started (prepare_jobs.started_by; the owner's own when absent), and only while their share still lets them.
+ */
+export interface McpSaveOptions {
+  startedBy?: string;
 }
 
 /**
  * After an MCP save: the application's active `mcp` Prepare finishes (step f) when its kit has no part left to make:
  * queued (insertPreparedRow, in this transaction), prepared (the queue is full), failed or cancelled. Null when there
- * is no such Prepare, or a part is still to make.
+ * is no such Prepare, or a part is still to make. v33 SHARE-5: only a Prepare `options.startedBy` started (McpSaveOptions).
  */
-export async function finishIfComplete(deps: AppDeps, userId: string, applicationId: string): Promise<FinishResult | null> {
+export async function finishIfComplete(
+  deps: AppDeps,
+  userId: string,
+  applicationId: string,
+  options: McpSaveOptions = {},
+): Promise<FinishResult | null> {
   return deps.db.atomic(async () => {
     const row = await activePrepareOf(deps.db, applicationId);
     if (!row || row.user_id !== userId || row.mode !== 'mcp') return null;
+    if (startedByOf(row) !== (options.startedBy ?? userId)) return null; // v33 SHARE-5
     const draft = await draftOf(deps.db, userId, applicationId);
     if (!draft || draft.prepare_id !== row.id) return null;
     return finishKit(deps, row, draft, nowIso(deps));
@@ -507,12 +668,85 @@ export async function cancelStaleMcpPrepares(deps: Pick<AppDeps, 'db' | 'config'
   });
 }
 
+/**
+ * v33 SHARE-5 (PLAN-sharing.md §6 "Fairness for the owner"): the `mcp` Prepares someone a profile is shared with started
+ * there that their own AI never took up within SHARING_MCP_STALE_HOURS are cancelled (not after PREPARE_MCP_STALE_DAYS),
+ * so a share's abandoned conversation never holds the owner's jobs. The prepare feature runs it every hour and in the
+ * daily housekeeping. Answers how many.
+ */
+export async function cancelStaleGranteeMcpPrepares(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>): Promise<number> {
+  const hours = constantsOf(deps).get('SHARING_MCP_STALE_HOURS');
+  const before = new Date(deps.now().getTime() - hours * HOUR_MS).toISOString();
+  const now = nowIso(deps);
+  let cancelled = 0;
+  for (const found of await staleGranteeMcpRows(deps.db, before)) {
+    await deps.db.tx(async () => {
+      const row = await cancelIfWaiting(deps.db, found.id, null, now);
+      if (!row) return;
+      const draft = await draftOf(deps.db, row.user_id, row.application_id);
+      if (draft?.prepare_id === row.id) await restoreDraft(deps, draft, now);
+      await notifyPrepareBatch(deps, row);
+      cancelled += 1;
+    });
+  }
+  if (cancelled > 0) deps.log.info(`[prepare] ${cancelled} Prepare(s) of a share left waiting for an own AI were cancelled`);
+  return cancelled;
+}
+
+/**
+ * v33 SHARE-5: endGrant's `prepares` step (features/sharing/end-grant.ts; registered by the prepare feature): every
+ * Prepare of the grant that is not over ends `cancelled`, `access_ended` (its kit's open parts going back, its batch told),
+ * and the AI task a server one waits for is cancelled (its cost so far stays its payer's). Scoped to the work a removed
+ * permission allowed: `prepare:run` (every one), `mcp` (the own AI's). Safe to run twice. Answers how many.
+ */
+export async function cancelGrantPrepares(
+  deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
+  grantId: string,
+  only: { mode?: PrepareMode } = {},
+  abort: (prepareId: string) => void = () => undefined,
+): Promise<number> {
+  const ended: string[] = [];
+  for (const found of await activeGrantRows(deps.db, grantId, only.mode)) {
+    await deps.db.tx(async () => {
+      const row = await prepareById(deps.db, found.id);
+      if (!row || !isActivePrepareState(row.state) || row.grant_id !== grantId) return;
+      const now = nowIso(deps);
+      await endPrepare(deps, row, 'cancelled', now, { reason: 'access_ended' });
+      await notifyPrepareBatch(deps, row);
+      ended.push(row.id);
+    });
+  }
+  for (const id of ended) abort(id);
+  return ended.length;
+}
+
 // ------------------------------------------------------------------------------- the person's own AI (MCP saves)
 
-/** The application's active `mcp` Prepare, or 409: an MCP save writes only the kit of one (A30). */
-async function requireMcpPrepare(deps: AppDeps, userId: string, applicationId: string): Promise<PrepareRow> {
+/**
+ * The application's active `mcp` Prepare, or 409: an MCP save writes only the kit of one (A30). v33 SHARE-5: one
+ * `options.startedBy` started (the owner's own unless named: McpSaveOptions); one someone the profile is shared with
+ * started needs their share to still let them (`prepare:run` and `mcp`): else it ends `cancelled`, `access_ended`, and
+ * the save is refused (profile_ended, profile_not_shared).
+ */
+async function requireMcpPrepare(deps: AppDeps, userId: string, applicationId: string, options: McpSaveOptions = {}): Promise<PrepareRow> {
   const row = await activePrepareOf(deps.db, applicationId);
   if (!row || row.user_id !== userId || row.mode !== 'mcp') throw conflict(NOT_PREPARING);
+  if (startedByOf(row) !== (options.startedBy ?? userId)) throw conflict(NOT_PREPARING); // v33 SHARE-5
+  if (isGranteeRow(row)) {
+    try {
+      await assertGrantLive(deps, row.grant_id, ['prepare:run', 'mcp']);
+    } catch (error) {
+      if (error instanceof AppError) {
+        await deps.db.tx(async () => {
+          const fresh = await prepareById(deps.db, row.id);
+          if (!fresh || !isActivePrepareState(fresh.state)) return;
+          await endPrepare(deps, fresh, 'cancelled', nowIso(deps), { reason: 'access_ended' });
+          await notifyPrepareBatch(deps, fresh);
+        });
+      }
+      throw error;
+    }
+  }
   return row;
 }
 
@@ -550,10 +784,13 @@ export interface McpPrepareItem {
   draft: PrepareDraft | null;
 }
 
-/** For MCP prepare_queue: the account's `mcp` Prepares waiting for its own AI, oldest first. */
-export async function mcpPrepares(deps: AppDeps, userId: string): Promise<McpPrepareItem[]> {
+/**
+ * For MCP prepare_queue: the account's `mcp` Prepares waiting for its own AI, oldest first. v33 SHARE-5: those
+ * `options.startedBy` started (the owner's own unless named): a person's AI lists the Prepares it may finish.
+ */
+export async function mcpPrepares(deps: AppDeps, userId: string, options: McpSaveOptions = {}): Promise<McpPrepareItem[]> {
   const items: McpPrepareItem[] = [];
-  for (const row of await mcpActiveRows(deps.db, userId)) {
+  for (const row of await mcpActiveRows(deps.db, userId, options.startedBy ?? userId)) {
     const app = await deps.db.one<{ title: string; company_name: string }>('SELECT title, company_name FROM applications WHERE id = ?', [
       row.application_id,
     ]);
@@ -587,17 +824,14 @@ export async function saveDraftResume(
   applicationId: string,
   input: { document: ResumeDocument; sourceResumeId: string; title?: string },
   _by: PrepareMode = 'mcp',
+  options: McpSaveOptions = {}, // v33 SHARE-5
 ): Promise<{ resumeId: string }> {
   const target = await requireTarget(deps, userId, applicationId);
-  const prepare = await requireMcpPrepare(deps, userId, applicationId);
+  const prepare = await requireMcpPrepare(deps, userId, applicationId, options);
   if (prepare.resume_mode !== 'tailor') throw conflict(MODE_KEEPS_RESUME);
   const { document: stored } = await sourceDocument(deps, userId, input.sourceResumeId);
-  const engine = getResumeEngine(deps);
   // An older document (no templateId) on the on-page editor first, as tailoring reads it; the same for both sides.
-  const upgraded = async (doc: ResumeDocument) =>
-    isEditorDocument(doc)
-      ? doc
-      : upgradeLegacyDocument(doc, { templates: engine.templates, skills: await engine.skillsFor(userId), into: effectiveTemplateId(doc) });
+  const upgraded = (doc: ResumeDocument) => editorDocumentOf(deps, userId, doc, effectiveTemplateId(doc)); // v33 LEGACY
   const source = await upgraded(stored);
   const document = normalizeResumeDocument(await upgraded(normalizeResumeDocument(input.document)));
   if (!keptFacts(normalizeResumeDocument({ ...source, templateId: document.templateId }), document)) {
@@ -607,7 +841,10 @@ export async function saveDraftResume(
   const now = nowIso(deps);
   const resumeId = await deps.db.atomic(async () => {
     // A resume saved for a kit is a tailored one (made_by 'tailor'): Documents lists it in the Tailored folder.
-    const id = await insertResume(deps, userId, { kind: 'built', title, document, sourceResumeId: input.sourceResumeId, madeBy: 'tailor' });
+    // v33 INT-C (SHARE-3 review R1): the Prepare's payer, so B's MCP Prepare on A's profile never takes A's last resume
+    // places (insertResume checks the reserve again behind the person's lock).
+    const payer = payerOfRow(prepare);
+    const id = await insertResume(deps, userId, { kind: 'built', title, document, sourceResumeId: input.sourceResumeId, madeBy: 'tailor', payer });
     const draft = await kitDraftFor(deps, prepare, now);
     const planned = planQuestions(await knownQuestions(deps, target.jobId), await valueScreen(deps, userId));
     const remake = (status: DraftRow['letter_status']) => status === 'ready' || status === 'not_ready' || status === 'failed';
@@ -651,9 +888,10 @@ export async function saveDraftLetter(
   applicationId: string,
   input: { paragraphs: readonly string[] },
   _by: PrepareMode = 'mcp',
+  options: McpSaveOptions = {}, // v33 SHARE-5
 ): Promise<{ coverLetterId: string }> {
   const target = await requireTarget(deps, userId, applicationId);
-  const prepare = await requireMcpPrepare(deps, userId, applicationId);
+  const prepare = await requireMcpPrepare(deps, userId, applicationId, options);
   const paragraphs = input.paragraphs.map((text) => text.trim()).filter(Boolean);
   if (
     paragraphs.length < LETTER_PARAGRAPHS.min ||
@@ -714,9 +952,10 @@ export async function saveDraftAnswers(
   applicationId: string,
   answers: ReadonlyArray<{ questionId: number; answer: AutofillSubmittedAnswerValue | null }>,
   by: PrepareMode = 'mcp',
+  options: McpSaveOptions = {}, // v33 SHARE-5
 ): Promise<SavedAnswers> {
   const target = await requireTarget(deps, userId, applicationId);
-  const prepare = await requireMcpPrepare(deps, userId, applicationId);
+  const prepare = await requireMcpPrepare(deps, userId, applicationId, options);
   const planned = planQuestions(await knownQuestions(deps, target.jobId), await valueScreen(deps, userId));
   const byId = new Map(planned.map((item) => [item.question.id, item]));
   const refused: SavedAnswers['refused'] = [];
@@ -770,9 +1009,10 @@ export async function markDraft(
   userId: string,
   applicationId: string,
   mark: { part: 'resume' | 'letter' | 'answers' | 'all'; status: 'failed' | 'skipped'; error?: string },
+  options: McpSaveOptions = {}, // v33 SHARE-5
 ): Promise<PrepareDraft> {
   const target = await requireTarget(deps, userId, applicationId);
-  const prepare = await requireMcpPrepare(deps, userId, applicationId);
+  const prepare = await requireMcpPrepare(deps, userId, applicationId, options);
   const now = nowIso(deps);
   await deps.db.atomic(async () => {
     const draft = await kitDraftFor(deps, prepare, now);
@@ -803,11 +1043,16 @@ export async function markDraft(
  * prepareServiceOf answers it with its own members.
  */
 export interface PrepareServiceImpl extends PrepareService {
-  startPrepare(userId: string, request: PrepareStartRequest, mode: PrepareMode): Promise<PrepareStartResponse>;
-  cancel(userId: string, prepareId: string): Promise<PrepareJob>;
-  finishIfComplete(userId: string, applicationId: string): Promise<FinishResult | null>;
+  /** v33 SHARE-5: `options` names who starts it and pays (a share's payer) and what the answer shows (StartOptions). */
+  startPrepare(userId: string, request: PrepareStartRequest, mode: PrepareMode, options: StartOptions): Promise<PrepareStartResponse>;
+  /** v33 SHARE-5: `options` names who asks (CancelOptions): on a share, only the Prepares they started. */
+  cancel(userId: string, prepareId: string, options?: CancelOptions): Promise<PrepareJob>;
+  /** v33 SHARE-5: `options.startedBy`: the Prepare's starter (McpSaveOptions; the owner's own unless named). */
+  finishIfComplete(userId: string, applicationId: string, options?: McpSaveOptions): Promise<FinishResult | null>;
   /** Wakes the server runner (after a start, a cancel, or a constant change). */
   kick(): void;
+  /** v33 SHARE-5: endGrant's `prepares` step for these deps (cancelGrantPrepares, the runner told). */
+  endGrantPrepares(grantId: string, only?: { mode?: PrepareMode }): Promise<number>;
   readonly runner: PrepareRunner;
   /** What a start hands on once its transaction committed. */
   readonly hooks: StartHooks;
@@ -832,20 +1077,35 @@ export function createPrepareService(deps: AppDeps): PrepareServiceImpl {
   return {
     runner,
     hooks,
-    startPrepare: (userId, request, mode) => startPrepare(deps, userId, request, mode, hooks),
-    async cancel(userId, prepareId) {
-      const view = await cancelPrepare(deps, userId, prepareId, (id) => runner.abort(id));
+    startPrepare: (userId, request, mode, options) => startPrepare(deps, userId, request, mode, hooks, options),
+    async cancel(userId, prepareId, options) {
+      const view = await cancelPrepare(deps, userId, prepareId, (id) => runner.abort(id), options);
       runner.kick();
       return view;
     },
-    finishIfComplete: (userId, applicationId) => finishIfComplete(deps, userId, applicationId),
+    finishIfComplete: (userId, applicationId, options) => finishIfComplete(deps, userId, applicationId, options),
     kick: () => runner.kick(),
+    async endGrantPrepares(grantId, only) {
+      const n = await cancelGrantPrepares(deps, grantId, only, (id) => runner.abort(id));
+      if (n > 0) runner.kick();
+      return n;
+    },
     async start() {
       const stop = runner.start();
       // v2.0 FIX-B (BEH-10): an MCP `similar` Prepare whose resume choice a restart cut short is chosen again.
       const cut = await mcpChoosingRows(deps.db);
       if (cut.length > 0) hooks.chooseLater(cut);
-      return stop;
+      // v33 SHARE-5: a share's abandoned own-AI Prepares expire within the hour after SHARING_MCP_STALE_HOURS.
+      const sweep = () =>
+        void cancelStaleGranteeMcpPrepares(deps).catch((error: unknown) =>
+          deps.log.warn('[prepare] the stale Prepares of shares could not be cancelled', error instanceof Error ? error.name : 'unknown'),
+        );
+      const timer = setInterval(sweep, STALE_SWEEP_MS);
+      timer.unref?.();
+      return () => {
+        clearInterval(timer);
+        stop();
+      };
     },
     async idle() {
       while (choosing.size > 0) await Promise.allSettled([...choosing]);
@@ -854,7 +1114,24 @@ export function createPrepareService(deps: AppDeps): PrepareServiceImpl {
   };
 }
 
-const registered = new WeakMap<AppDeps, PrepareServiceImpl>();
+const registered = new WeakMap<object, PrepareServiceImpl>();
+
+/**
+ * v33 SHARE-5: endGrant's `prepares` step (registered by the prepare feature; features/sharing/end-grant.ts): the grant's
+ * Prepares that are not over end `cancelled`, `access_ended`, their AI tasks cancelled through the runner of these deps.
+ * The whole grant's work (permissions null) or a removed box's: `prepare:run` (every Prepare), `mcp` alone (the own AI's).
+ */
+export async function endGrantPrepareStep(
+  deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
+  scope: Pick<EndGrantScope, 'grantId' | 'permissions'>,
+): Promise<number> {
+  const perms = scope.permissions;
+  const only: { mode?: PrepareMode } | null =
+    perms === null || perms.includes('prepare:run') ? {} : perms.includes('mcp') ? { mode: 'mcp' } : null;
+  if (!only) return 0;
+  const service = registered.get(deps);
+  return service ? service.endGrantPrepares(scope.grantId, only) : cancelGrantPrepares(deps, scope.grantId, only);
+}
 
 /** The feature's services hook: the service is deps.services.prepare, and prepareServiceOf's. */
 export function registerPrepareService(deps: AppDeps, service: PrepareServiceImpl): void {

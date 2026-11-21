@@ -1,6 +1,14 @@
+'use client';
+
 import { clsx } from 'clsx';
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { HelpTip } from './HelpTip';
+
+/**
+ * v33 SHARE-4: the shell's fallback eyebrow. A page's h1 that sets no eyebrow of its own shows this one (AuthGate gives
+ * "<name>'s profile" while the tab works on a shared profile, nothing otherwise).
+ */
+export const PageEyebrowContext = createContext<ReactNode>(undefined); // v33 SHARE-4: the shell's fallback eyebrow
 
 export interface PageHeaderProps {
   /** The page's title: one per page, an h1 unless `as` says otherwise. */
@@ -9,7 +17,7 @@ export interface PageHeaderProps {
   description?: ReactNode;
   /** Buttons at the right (the page's main action last, as a primary Button). Wraps under the title on a phone. */
   actions?: ReactNode;
-  /** A small spaced-capital line above the title (a group name: "Settings", "Admin"). */
+  /** A small spaced-capital line above the title (a group name: "Settings", "Admin"). Unset on a page's h1: PageEyebrowContext's. */
   eyebrow?: ReactNode;
   /** The heading's id, for a region's aria-labelledby. */
   id?: string;
@@ -25,11 +33,13 @@ export interface PageHeaderProps {
  * title says it; never twice).
  */
 export function PageHeader({ title, description, actions, eyebrow, id, as: Heading = 'h1', className }: PageHeaderProps) {
+  const fallback = useContext(PageEyebrowContext);
+  const shown = eyebrow ?? (Heading === 'h1' ? fallback : undefined);
   return (
     <div data-page-header={Heading === 'h1' ? '' : undefined} className={clsx('flex flex-wrap items-end justify-between gap-x-6 gap-y-3', className)}>
       <div className="min-w-0">
-        {eyebrow && (
-          <p className="mb-1 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{eyebrow}</p>
+        {shown && (
+          <p className="mb-1 text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">{shown}</p>
         )}
         <div className="flex min-w-0 items-center gap-2">
           <Heading id={id} className="page-title">

@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { SaveAllBodySchema, searchParamsToJobsQuery, HOUR_MS, type JobsQuery } from '@tailorit/shared';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { rateKeyOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-6: rateKeyOf
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { asyncHandler } from '../../core/http/errors';
@@ -31,7 +31,7 @@ export function createSaveAllRouter(deps: AppDeps): Router {
   const runLimit = keyedRateLimit({
     windowMs: HOUR_MS,
     limit: max,
-    key: (req) => `save-all:${userOf(req).id}`,
+    key: (req) => `save-all:${rateKeyOf(req, HOUR_MS)}`, // v33 SHARE-6: the actor's runs an hour, on any profile
     message: (retryAfterSeconds) =>
       constantsOf(deps).message('MSG_SAVE_ALL_PER_HOUR', { max: max(), minutes: Math.max(1, Math.ceil(retryAfterSeconds / 60)) }),
     // A run counts, finished or failed on our side; a refusal (a bad day, another run going, the limit) does not.

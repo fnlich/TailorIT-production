@@ -12,7 +12,9 @@ import { Sheet, SheetContent } from '@/components/ui/Sheet';
 import { BriefcaseIcon } from '@/components/ui/icons';
 import { ADD_JOB_COPY, linkInput } from '@/features/jobs/add/outcome';
 import { LinkSimpleIcon } from '@/features/jobs/icons';
-import { api, isApiError, userMessage } from '@/lib/api';
+import { PREFERENCES_QUERY_KEY, fetchPreferences } from '@/features/settings/api';
+import { useProfile } from '@/components/shell/profile';
+import { isApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { CompanyInput } from '../CompanyInput';
 import { localToday, trackerApi, useResumeOptions } from '../data';
@@ -40,17 +42,30 @@ export const ADD_APPLICATION_COPY = {
 
 /**
  * The job type an untouched field shows: Internship for someone who only looks for internships (Settings › Job
- * preferences), else Full-Time.
+ * preferences), else Full-Time (also when the preferences are not known: none read, or an answer of another shape).
+ */
+export function preferredJobTypeOf(preferences: unknown): EmploymentType {
+  const jobTypes = preferences && typeof preferences === 'object' ? (preferences as { jobTypes?: unknown }).jobTypes : undefined;
+  const types = Array.isArray(jobTypes) ? (jobTypes as unknown[]) : [];
+  return types.includes('internship') && !types.includes('full_time') ? 'internship' : 'full_time';
+}
+
+/**
+ * The preferred job type of the profile the entry is added to. v33 SHARE-9 (PLAN-sharing.md §9 "Permission-aware UI":
+ * the Add sheet treats the preferences as optional): on a shared profile whose owner did not share Job settings
+ * (`settings:view`) they are never asked for, and a read that fails or is refused leaves Full-Time; the sheet works the
+ * same either way. The Settings page's query and cache (one shape for both).
  */
 function usePreferredJobType(): EmploymentType {
+  const { can } = useProfile();
   const preferences = useQuery({
-    queryKey: ['me', 'preferences'],
-    queryFn: ({ signal }) => api.get<{ jobTypes?: unknown }>('/api/me/preferences', { signal }),
+    queryKey: PREFERENCES_QUERY_KEY,
+    queryFn: ({ signal }) => fetchPreferences(signal),
+    enabled: can('settings:view'),
     staleTime: 60_000,
     retry: false,
   });
-  const types = Array.isArray(preferences.data?.jobTypes) ? (preferences.data.jobTypes as unknown[]) : [];
-  return types.includes('internship') && !types.includes('full_time') ? 'internship' : 'full_time';
+  return preferredJobTypeOf(preferences.data);
 }
 
 const FIELD_NAMES = ['postingUrl', 'title', 'companyName', 'location', 'employmentType', 'status', 'resumeId'] as const;
@@ -91,7 +106,9 @@ function AddApplicationForm({
   onSavingChange: (saving: boolean) => void;
   onAdded: (application: ApplicationDetail, fromLink: boolean) => void;
 }) {
-  const resumes = useResumeOptions(true);
+  // v33 SHARE-9: the resumes of a shared profile only when its Documents are shared (the select offers None otherwise).
+  const { can } = useProfile();
+  const resumes = useResumeOptions(can('documents:view'));
   const { t } = usePublicConstants();
   const preferredType = usePreferredJobType();
   const [mode, setMode] = useState<AddMode>('link');

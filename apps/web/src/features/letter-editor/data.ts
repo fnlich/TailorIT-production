@@ -18,6 +18,7 @@ import {
 import { AiTaskAcceptedSchema } from '@tailorit/shared/ai';
 import type { ListResponse } from '@tailorit/shared/core';
 import { api, ApiError, UNREACHABLE_MESSAGE, type ApiRequestInit } from '@/lib/api';
+import { profileHeaders } from '@/lib/profile';
 import { fileNameFromDisposition } from './download';
 
 /*
@@ -125,7 +126,8 @@ export const templateExportPath = (id: string, format: 'pdf' | 'docx') =>
 export async function downloadFile(path: string, fallbackName: string): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(path, { credentials: 'same-origin', headers: { Accept: '*/*' } });
+    // v33 SHARE-4: the profile the page works on, as every API request names it (lib/profile.ts).
+    response = await fetch(path, { credentials: 'same-origin', headers: { Accept: '*/*', ...profileHeaders(path) } });
   } catch {
     throw new ApiError({ status: 0, code: 'internal', message: UNREACHABLE_MESSAGE, path });
   }

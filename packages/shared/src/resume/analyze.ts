@@ -16,7 +16,8 @@ import { printedDocument } from './printed';
 import {
   experienceSections,
   findDateRanges,
-  isRoleNoun,
+  isCoreRoleNoun, // v33 ROLES
+  isRoleHead, // v33 ROLES
   rangesOfEntries,
   rangesOfText,
   resumeHeadingOf,
@@ -138,7 +139,9 @@ function roleSegment(segment: string): string | null {
   if (resumeHeadingOf(text)) return null;
   let head = words.length - 1;
   while (head > 0 && TRAILING_LEVEL.test(words[head]!)) head -= 1;
-  if (!isRoleNoun(words[head]!.replace(/[^\p{L}'’-]/gu, '')) && !HEAD_OF.test(text)) return null;
+  // v33 ROLES: a technology ending in a role noun ("SQL Server", "Device Driver") is no title.
+  const strip = (word: string | undefined) => word?.replace(/[^\p{L}'’-]/gu, '');
+  if (!isRoleHead(strip(words[head])!, strip(words[head - 1])) && !HEAD_OF.test(text)) return null;
   return text.slice(0, MAX_TERM_LENGTH).trim();
 }
 
@@ -234,7 +237,8 @@ function personNameOf(text: string): string | null {
   let named = 0;
   for (const word of words) {
     if (NAME_PARTICLES.has(word) && word === word.toLowerCase()) continue;
-    if (!NAME_WORD.test(word) || isRoleNoun(word.replace(/\.$/, ''))) return null;
+    // v33 ROLES: v3.2's role nouns only; the ones v3.3 added are often surnames (Cook, Baker).
+    if (!NAME_WORD.test(word) || isCoreRoleNoun(word.replace(/\.$/, ''))) return null;
     named += 1;
   }
   // Two to four names; particles ("van der") do not count.

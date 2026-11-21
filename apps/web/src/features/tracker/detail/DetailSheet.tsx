@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useEffect, useState } from 'react';
 import { STATUS, type ApplicationDetail } from '@tailorit/shared';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { BACKDROP } from '@/components/ui/Dialog';
@@ -15,12 +16,17 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { ArchiveIcon, ArrowCounterClockwiseIcon, HeartIcon, PencilSimpleIcon, TrashIcon, XIcon } from '@/components/ui/icons';
+import { useProfile } from '@/components/shell/profile';
 import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { CompanyLogo } from '../CompanyLogo';
 import { invalidateApplications, trackerApi, trackerKeys, useApplication, useMoveStatus, useToggleFavorite } from '../data';
+import { isDraft } from '../draft';
+import { toastFailure } from '../failure';
+import { DraftIcon } from '../status';
 import { DocumentsTab } from './DocumentsTab';
+import { TrackerEditContext } from './editable';
 import { DraftTab } from './DraftTab';
 import { NotesPanel } from './NotesPanel';
 import { OverviewTab } from './OverviewTab';
@@ -73,6 +79,12 @@ function DetailBody({
   const [archiving, setArchiving] = useState(false);
   const favorite = useToggleFavorite();
   const move = useMoveStatus();
+  // v33 SHARE-9 (PLAN-sharing.md §9 "Permission-aware UI"): on a profile shared to see only, the detail shows the
+  // application and changes nothing (no Edit, heart, Archive, Delete or "Applied to this job?"; the panels read it).
+  const profile = useProfile();
+  const editable = profile.can('tracker:edit');
+  // v33 SHARE-9 fix (review; F9's Change box archives but never deletes): Delete only on the person's own profile.
+  const deletable = editable && !profile.acting;
 
   const canApply = application.currentStatus === STATUS.saved && Boolean(application.postingUrl);
 
@@ -89,7 +101,7 @@ function DetailBody({
       toast.success(saved.archivedAt ? 'Application archived' : 'Application restored');
       void invalidateApplications(client);
     } catch (error) {
-      toast.error(userMessage(error, "We couldn't update the application. Please try again."));
+      toastFailure(toast, error, "We couldn't update the application. Please try again.");
     } finally {
       setArchiving(false);
     }
@@ -103,7 +115,7 @@ function DetailBody({
   );
 
   return (
-    <>
+    <TrackerEditContext.Provider value={editable}>
       <header className="flex flex-wrap items-start gap-x-4 gap-y-3 border-b border-border px-4 py-4 sm:px-6 sm:py-5">
         <CompanyLogo name={application.companyName} logoUrl={application.logoUrl} size={64} />
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 self-center">
@@ -111,17 +123,28 @@ function DetailBody({
             <BaseDialog.Title className="min-w-0 text-xl leading-7 font-medium break-words text-foreground max-sm:line-clamp-2 sm:truncate">
               {application.title}
             </BaseDialog.Title>
-            <IconButton
-              label="Edit job posting"
-              size="sm"
-              icon={<PencilSimpleIcon size={16} />}
-              onClick={() => {
-                setTab('overview');
-                setEditing(true);
-              }}
-            />
+            {editable && (
+              <IconButton
+                label="Edit job posting"
+                size="sm"
+                icon={<PencilSimpleIcon size={16} />}
+                onClick={() => {
+                  setTab('overview');
+                  setEditing(true);
+                }}
+              />
+            )}
           </div>
-          <BaseDialog.Description className="truncate text-sm text-muted-foreground">{application.companyName}</BaseDialog.Description>
+          <div className="flex min-w-0 items-center gap-2">
+            <BaseDialog.Description className="min-w-0 truncate text-sm text-muted-foreground">{application.companyName}</BaseDialog.Description>
+            {/* v33 TRACKER (F1): the Draft mark under the title at every width and on every tab (on a phone the Stage
+                panel, which marks it too, is a tab of its own). */}
+            {isDraft(application) && (
+              <Badge tone="success" icon={<DraftIcon size={12} />} data-detail-header-draft="">
+                {t('STATUS_DRAFT_LABEL')}
+              </Badge>
+            )}
+          </div>
         </div>
         {/* Below lg the actions get their own line under the title, so the ✕ always stays on the title's line. */}
         <div className="order-last flex basis-full flex-wrap items-center gap-2 lg:order-none lg:basis-auto">
@@ -129,37 +152,43 @@ function DetailBody({
             <Button
               onClick={() => {
                 window.open(application.postingUrl, '_blank', 'noopener,noreferrer');
-                setAskApplied(true);
+                if (editable) setAskApplied(true);
               }}
             >
               Apply
             </Button>
           )}
-          <Button
-            variant="outline"
-            aria-pressed={application.favorite}
-            icon={
-              application.favorite ? (
-                <HeartIcon size={16} weight="fill" className="text-primary-ink" />
-              ) : (
-                <HeartIcon size={16} />
-              )
-            }
-            onClick={() => favorite.mutate({ id: application.id, favorite: !application.favorite })}
-          >
-            {application.favorite ? 'Remove from favorites' : 'Add to favorites'}
-          </Button>
-          <Button
-            variant="outline"
-            loading={archiving}
-            icon={application.archivedAt ? <ArrowCounterClockwiseIcon size={16} /> : <ArchiveIcon size={16} />}
-            onClick={() => void toggleArchive()}
-          >
-            {application.archivedAt ? 'Restore' : 'Archive'}
-          </Button>
-          <Button variant="destructive-outline" icon={<TrashIcon size={16} />} onClick={() => setConfirmDelete(true)}>
-            Delete
-          </Button>
+          {editable && (
+            <>
+              <Button
+                variant="outline"
+                aria-pressed={application.favorite}
+                icon={
+                  application.favorite ? (
+                    <HeartIcon size={16} weight="fill" className="text-primary-ink" />
+                  ) : (
+                    <HeartIcon size={16} />
+                  )
+                }
+                onClick={() => favorite.mutate({ id: application.id, favorite: !application.favorite })}
+              >
+                {application.favorite ? 'Remove from favorites' : 'Add to favorites'}
+              </Button>
+              <Button
+                variant="outline"
+                loading={archiving}
+                icon={application.archivedAt ? <ArrowCounterClockwiseIcon size={16} /> : <ArchiveIcon size={16} />}
+                onClick={() => void toggleArchive()}
+              >
+                {application.archivedAt ? 'Restore' : 'Archive'}
+              </Button>
+              {deletable && (
+                <Button variant="destructive-outline" icon={<TrashIcon size={16} />} onClick={() => setConfirmDelete(true)}>
+                  Delete
+                </Button>
+              )}
+            </>
+          )}
         </div>
         <BaseDialog.Close render={<IconButton label="Close" icon={<XIcon size={18} />} tooltip={false} />} />
       </header>
@@ -232,7 +261,7 @@ function DetailBody({
           await move.mutateAsync({ id: application.id, status: STATUS.applied, from: application.currentStatus });
         }}
       />
-    </>
+    </TrackerEditContext.Provider>
   );
 }
 

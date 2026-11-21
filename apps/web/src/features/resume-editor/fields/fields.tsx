@@ -4,6 +4,7 @@ import { clsx } from 'clsx';
 import { useLayoutEffect, useMemo, useRef, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { escapeInline, serializeInline } from '@tailorit/shared';
 import { LEVEL_DOTS, type LevelSlotProps, type PhotoSlotProps, type RichTextSlotProps, type Slots, type TextSlotProps } from '@tailorit/resume-templates';
+import { profileUrl } from '../../../lib/profile';
 import { isBulletPath, isDatePath, useFieldBridge } from './bridge';
 import { markupFromNodes, nodesFromRuns } from './richDom';
 
@@ -207,7 +208,7 @@ function EditablePhoto({ photoId, shape, className }: PhotoSlotProps) {
     <img
       className={clsx('rt-photo', className)}
       data-shape={shape}
-      src={`/api/resumes/photos/${encodeURIComponent(photoId)}`}
+      src={profileUrl(`/api/resumes/photos/${encodeURIComponent(photoId)}`)}
       alt="Your photo"
       role="button"
       tabIndex={0}

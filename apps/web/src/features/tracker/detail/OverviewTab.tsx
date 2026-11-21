@@ -31,6 +31,7 @@ import { VerificationNotice } from '@/features/jobs/verification/VerificationNot
 import { CompanyInput } from '../CompanyInput';
 import { invalidateApplications, trackerApi, trackerKeys } from '../data';
 import { PROSE, RichTextEditor } from '../RichTextEditor';
+import { useTrackerEditable } from './editable';
 
 const JOB_TYPES: Array<{ value: EmploymentType; label: string }> = [
   { value: 'internship', label: 'Internship' },
@@ -64,6 +65,7 @@ function Fact({ icon, label, children }: { icon: ReactNode; label: string; child
 }
 
 function ReadView({ application, onEdit }: { application: ApplicationDetail; onEdit: () => void }) {
+  const editable = useTrackerEditable();
   const { salary } = application;
   const range = formatSalaryRange(salary.min, salary.max, salary.currency, null);
   return (
@@ -108,9 +110,12 @@ function ReadView({ application, onEdit }: { application: ApplicationDetail; onE
           <h3 id="description-heading" className="text-base font-semibold text-foreground">
             Job Description
           </h3>
-          <Button variant="ghost" size="sm" icon={<PencilSimpleIcon size={14} />} onClick={onEdit}>
-            Edit
-          </Button>
+          {/* v33 SHARE-9: not on a profile shared to see only. */}
+          {editable && (
+            <Button variant="ghost" size="sm" icon={<PencilSimpleIcon size={14} />} onClick={onEdit}>
+              Edit
+            </Button>
+          )}
         </div>
         {application.descriptionHtml ? (
           <div className={PROSE} dangerouslySetInnerHTML={{ __html: application.descriptionHtml }} />
@@ -331,6 +336,8 @@ export function OverviewTab({
   editing: boolean;
   onEditingChange: (editing: boolean) => void;
 }) {
-  if (editing) return <EditForm application={application} onDone={() => onEditingChange(false)} />;
+  // v33 SHARE-9: a profile shared to see only never opens the form.
+  const editable = useTrackerEditable();
+  if (editing && editable) return <EditForm application={application} onDone={() => onEditingChange(false)} />;
   return <ReadView application={application} onEdit={() => onEditingChange(true)} />;
 }

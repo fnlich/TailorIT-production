@@ -51,7 +51,7 @@ The template is a letter of fixed text with placeholders written {{NAME}}. The a
 - A value that stands alone as a paragraph may hold several paragraphs separated by a blank line only when its description says so; otherwise write one paragraph.
 - Never write placeholders, brackets or notes of your own, and do not wrap values in quotes.
 
-${letterRulesPrompt.text()}${pageRule(input.job)}
+${letterRulesPrompt.text({ family: input.family })}${pageRule(input.job)}
 
 Answer with {"values": {"NAME": "text", ...}}, one entry for every placeholder listed under PLACEHOLDERS TO WRITE.`,
   context: (input) => letterContext(input),

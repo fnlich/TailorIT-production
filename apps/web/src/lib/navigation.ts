@@ -33,9 +33,22 @@ export function loginHref(currentPath?: string | null): string {
   return next ? `/login?next=${encodeURIComponent(next)}` : '/login';
 }
 
+/** Set once the tab leaves for the sign-in page on purpose (Log out). */
+let leavingForSignIn = false;
+
+/**
+ * Log out's full-page move to the sign-in page. While it loads, a query that refetches meanwhile and is told the
+ * session is gone must not send the tab elsewhere ("/login?next=<page>": the next person would land there).
+ */
+export function leaveForSignIn(): void {
+  if (typeof window === 'undefined') return;
+  leavingForSignIn = true;
+  window.location.assign(new URL('/login', window.location.origin).href);
+}
+
 /** Full-page move to the sign-in page, remembering where the person was. A no-op on the sign-in page itself. */
 export function redirectToLogin(): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined' || leavingForSignIn) return;
   const { pathname, search } = window.location;
   if (pathname === '/login' || pathname.startsWith('/login/')) return;
   // A full page load: the stale session's data must not survive in memory.

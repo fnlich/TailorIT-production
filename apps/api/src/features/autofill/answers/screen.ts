@@ -1,5 +1,6 @@
 import {
   AUTOFILL_UNSAVED_CATEGORIES,
+  AutofillSubmittedAnswerValueSchema, // v33 SHARE-6
   type AutofillFieldCategory,
   type AutofillSubmittedAnswerValue,
 } from '@tailorit/shared/autofill';
@@ -68,6 +69,26 @@ export function screenAnswer(body: ScreenedAnswer): AnswerScreen {
   const unsaved = body.category !== null && UNSAVED.has(body.category);
   if (unsaved || texts.some(isSensitiveQuestion) || isSensitiveAnswer(texts, body.answer)) return 'sensitive';
   return null;
+}
+
+/**
+ * v33 SHARE-6 (PLAN F9 "Sensitive answers"; SP v33 PLAN-sharing.md §4 "Sensitive facts and what can be inferred"):
+ * whether an answer a form was sent with (a submitted one, or one an apply record keeps) is left out for a reader without
+ * Sensitive answers' See. Its question decides first, whatever was answered (its category, its words, or a legal or
+ * self-identification question in other words: the screen with a yes-or-no answer, as Prepare's question plan probes
+ * it), so two people's answers to one such question are left out alike and nothing tells by its absence what one said;
+ * then the answer itself (an EEO answer under a question in plain words). `answer` is the stored value (parsed here).
+ */
+export function isSensitiveAnswerRow(row: {
+  category: AutofillFieldCategory | null;
+  questionKey: string;
+  questionLabel: string;
+  answer: unknown;
+}): boolean {
+  const asked = { category: row.category, questionKey: row.questionKey, questionLabel: row.questionLabel };
+  if (screenAnswer({ ...asked, answer: { kind: 'checked', checked: true } }) === 'sensitive') return true;
+  const parsed = AutofillSubmittedAnswerValueSchema.safeParse(row.answer);
+  return parsed.success && screenAnswer({ ...asked, answer: parsed.data }) === 'sensitive';
 }
 
 /** Why this answer may not be saved, as a sentence for the person; null when it may. */

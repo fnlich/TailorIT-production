@@ -2,16 +2,15 @@
 
 import type { JobAnalysisView } from '@tailorit/shared';
 import { clsx } from 'clsx';
-import { useId, useState } from 'react';
-import { Badge } from '@/components/ui/Badge';
+import { useState } from 'react';
 import { Chip } from '@/components/ui/Chip';
-import { CaretDownIcon, CaretUpIcon, FileTextIcon } from '@/components/ui/icons';
+import { HelpTip } from '@/components/ui/HelpTip';
+import { SegmentedControl, TabPanel } from '@/components/ui/SegmentedControl';
 import { SkeletonText } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
-import { HelpTip } from '@/components/ui/HelpTip';
+import { DetailCardTitle, detailCardClasses } from './DetailCard';
 import { jobFacetGroups, type JobFacetGroup } from './facets';
-import { SectionHeading } from './MatchSection';
 
 /** v31 FIX-JOBS: the summary's parts in TailorIT's order and words: the work first, then what the posting asks for. */
 const PARTS: ReadonlyArray<{ key: 'responsibilities' | 'requirements' | 'desired'; title: PublicMessageKey }> = [
@@ -37,15 +36,12 @@ const POSTING_HTML = clsx(
   '[&_table]:my-3 [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2',
 );
 
-/** v32 JOBS2: the chip of a role shown as its posting alone (no summary to read). */
-const FULL_POSTING = 'Full posting';
-
 /** A part's heading inside the role (an h4 under the section's h3). */
 const PART_TITLE = 'text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase';
 
 /**
  * "Also mentioned": the posting's soft skills, certifications and industries, one labelled row of chips per group that
- * has any (its hard skills are Your match's keywords).
+ * has any (its hard skills are the Skills card's).
  */
 function AlsoMentioned({ groups }: { groups: JobFacetGroup[] }) {
   const { t } = usePublicConstants();
@@ -99,12 +95,15 @@ function Summary({ analysis }: { analysis: JobAnalysisView }) {
   );
 }
 
+/** Which part of About the job shows. */
+type AboutView = 'summary' | 'posting';
+
 /**
- * v31 FIX-JOBS: "About the role". The analysis's summary (what you'd do, what they ask for, nice to have, also
- * mentioned), then the posting itself behind "Read the full posting" (a disclosure). With no summary (none yet, or
- * the analysis could not be loaded) the full posting shows at once, a "Full posting" chip by the title saying why (v32
- * JOBS2). A quiet "Refining…" shows while the AI analysis is being made; when it lands the summary changes in place
- * and an open posting stays open.
+ * v33 JOBDETAIL (F2): "About the job", a card with a Summary | Full posting switch at its title's right. Summary is the
+ * analysis's bullets (what you'd do, what they ask for, nice to have, also mentioned); Full posting is the posting's own
+ * HTML (sanitized by the API). It opens on the summary when there is one. With no summary (none yet, or the analysis
+ * could not be loaded) it shows the full posting, Summary off, and why behind a "?" (v32 JOBS2). A quiet "Refining…"
+ * shows while the AI analysis is made; when it lands the summary changes in place and a chosen part stays chosen.
  */
 export function AboutJob({
   analysis,
@@ -121,12 +120,15 @@ export function AboutJob({
   className?: string;
 }) {
   const { t } = usePublicConstants();
-  const postingId = useId();
-  const [open, setOpen] = useState(false);
+  const [chosen, setChosen] = useState<AboutView | null>(null);
   const hasSummary = analysis ? analysis.requirements.length + analysis.responsibilities.length + analysis.desired.length > 0 : false;
   const loading = !analysis && !analysisFailed && analysisPending;
-  // No summary to read: the posting itself is the role's text, with nothing to open.
+  // No summary to read: the posting itself is the job's text.
   const postingOnly = !loading && !hasSummary;
+  const view: AboutView = postingOnly ? 'posting' : (chosen ?? 'summary');
+  const title = t('LABEL_JOB_ABOUT_ROLE');
+  const summaryLabel = t('LABEL_JOB_SUMMARY');
+  const postingLabel = t('LABEL_JOB_FULL_POSTING');
 
   const posting = descriptionHtml ? (
     <div className={POSTING_HTML} dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
@@ -134,53 +136,53 @@ export function AboutJob({
     <p className="text-[15px] text-muted-foreground">This posting has no description.</p>
   );
 
+  const status = analysis?.refining ? (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+      <Spinner size={12} />
+      Refining…
+    </span>
+  ) : postingOnly ? (
+    // v32 JOBS2 (E4, E5): why there is no summary, behind a "?" by the title.
+    <span className="inline-flex items-center" data-no-summary="">
+      <HelpTip label={summaryLabel}>{analysisFailed && !analysis ? t('MSG_JOB_SUMMARY_FAILED') : t('MSG_JOB_NO_SUMMARY')}</HelpTip>
+    </span>
+  ) : null;
+
+  if (loading) {
+    return (
+      <section aria-labelledby="about-the-role" className={clsx(detailCardClasses(), className)} data-about-role="">
+        <DetailCardTitle id="about-the-role" title={title} />
+        <SkeletonText lines={6} className="mt-4" />
+      </section>
+    );
+  }
+
   return (
-    <section aria-labelledby="about-the-role" className={className} data-about-role="">
-      <SectionHeading
-        id="about-the-role"
-        icon={<FileTextIcon size={18} weight="bold" />}
-        aside={
-          analysis?.refining ? (
-            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
-              <Spinner size={12} />
-              Refining…
-            </span>
-          ) : postingOnly ? (
-            // v32 JOBS2 (E4, E5): no summary to read is a small chip with its reason behind the "?", not a line of text.
-            <span className="inline-flex items-center gap-1" data-no-summary="">
-              <Badge tone="neutral">{FULL_POSTING}</Badge>
-              <HelpTip label={FULL_POSTING}>{analysisFailed && !analysis ? t('MSG_JOB_SUMMARY_FAILED') : t('MSG_JOB_NO_SUMMARY')}</HelpTip>
-            </span>
-          ) : undefined
-        }
+    <section aria-labelledby="about-the-role" className={clsx(detailCardClasses(), className)} data-about-role="">
+      <SegmentedControl<AboutView>
+        items={[
+          { value: 'summary', label: summaryLabel, disabled: postingOnly },
+          { value: 'posting', label: postingLabel },
+        ]}
+        value={view}
+        onValueChange={setChosen}
+        aria-label={title}
+        size="sm"
+        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-4"
+        listClassName="col-start-2 row-start-1 max-sm:h-11"
       >
-        {t('LABEL_JOB_ABOUT_ROLE')}
-      </SectionHeading>
-      <div className="mt-4">
-        {loading ? (
-          <SkeletonText lines={6} />
-        ) : postingOnly ? (
+        <div className="col-start-1 row-start-1 min-w-0">
+          <DetailCardTitle id="about-the-role" title={title}>
+            {status}
+          </DetailCardTitle>
+        </div>
+        <TabPanel value="summary" className="col-span-2">
+          {hasSummary && analysis && <Summary analysis={analysis} />}
+        </TabPanel>
+        <TabPanel value="posting" className="col-span-2">
           <div data-full-posting="">{posting}</div>
-        ) : (
-          <>
-            <Summary analysis={analysis!} />
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-controls={postingId}
-              onClick={() => setOpen((value) => !value)}
-              className="mt-6 inline-flex h-9 items-center gap-1.5 rounded-control border border-border-strong bg-surface px-3 text-sm font-medium text-foreground shadow-control hover:border-control-hover hover:bg-surface-low"
-              data-posting-toggle=""
-            >
-              {open ? t('LABEL_JOB_POSTING_HIDE') : t('LABEL_JOB_POSTING_SHOW')}
-              {open ? <CaretUpIcon size={14} /> : <CaretDownIcon size={14} />}
-            </button>
-            <div id={postingId} hidden={!open} className="mt-4 border-l-2 border-tape pl-4" data-full-posting="">
-              {open && posting}
-            </div>
-          </>
-        )}
-      </div>
+        </TabPanel>
+      </SegmentedControl>
     </section>
   );
 }

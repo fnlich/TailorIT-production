@@ -13,6 +13,8 @@ import { nowIso, type AppDeps } from '../../core/context';
 import { notFound } from '../../core/http/errors';
 import { storedDocumentOf } from '../resumes/evidence';
 import { loadOwnedRow } from './store';
+import type { AutofillFieldCategory } from '@tailorit/shared/autofill'; // v33 SHARE-6
+import { isSensitiveAnswerRow } from '../autofill/answers/screen'; // v33 SHARE-6
 
 // v2.0 (docs/design/v2.0/05-prepare-flow.md, "The Saved Jobs list and the history"; DECISIONS A30): the application
 // history's "what was used". One application_apply_records row (0823) each time an application becomes Applied, naming
@@ -37,6 +39,9 @@ import { loadOwnedRow } from './store';
 //   in is pruned (DRAFT_ANSWERS_KEEP_DAYS_AFTER_APPLY). Submitted answers stay per application
 //   (application_form_answers); a second submission replacing them first freezes the earlier set into the earlier
 //   record's answers_used (migration 0011's trigger trg_form_answers_freeze).
+//   v33 SHARE-6 (the SHARE-6 review; migration 0052): each kept answer also carries its question's key and the answer's
+//   category (a submission's as the extension sent it; none for a prepared answer), which screen it for a reader without
+//   Sensitive answers' See exactly as the submitted answers are screened; they are never answered.
 
 /** How an application became Applied, and what the caller knows of what was used. */
 export interface ApplyContext {
@@ -66,8 +71,12 @@ interface EntryFacts {
   posting_hash: string | null;
 }
 
-/** The ready answers of a draft as the record keeps them: [{label, answer}] in the form's order (null for none). */
-const PREPARED_ANSWERS = `SELECT jsonb_agg(jsonb_build_object('label', q.label, 'answer', da.answer::jsonb)
+/**
+ * The ready answers of a draft as the record keeps them: [{label, questionKey, category, answer}] in the form's order
+ * (null for none). A draft's answer has no category (v33 SHARE-6: null, so its question's words screen it).
+ */
+const PREPARED_ANSWERS = `SELECT jsonb_agg(jsonb_build_object('label', q.label, 'questionKey', q.question_key,
+           'category', NULL::text, 'answer', da.answer::jsonb)
          ORDER BY q.step, q.position, q.id) AS used
        FROM application_draft_answers da JOIN job_form_questions q ON q.id = da.question_id
        WHERE da.draft_id = ? AND da.status = 'ready'`;
@@ -250,7 +259,11 @@ function refOf(document: Shown): ApplyRecordDocumentRef | null {
     : { id: document.id, title: document.title };
 }
 
-type KeptAnswer = { label: string; answer: unknown };
+/**
+ * One answer a record keeps, as stored: v3.0's {label, answer}; v33 SHARE-6 (migration 0052) adds its question's key and
+ * the answer's category (null: none known), read by keptIsSensitive and never answered.
+ */
+type KeptAnswer = { label: string; answer: unknown; questionKey?: string; category?: string | null };
 
 /** The answers a record keeps itself (answers_used), parsed; null when it keeps none. */
 function answersUsedOf(row: Pick<RecordRow, 'answers_used'>): KeptAnswer[] | null {
@@ -261,6 +274,38 @@ function answersUsedOf(row: Pick<RecordRow, 'answers_used'>): KeptAnswer[] | nul
   } catch {
     return null;
   }
+}
+
+/**
+ * v33 SHARE-6 (PLAN-sharing §4 "Sensitive facts"; SHARE-9's edit 1): what the reader of a record may see of it. On a
+ * shared profile: the kept answers without the sensitive ones unless `sensitive` (Sensitive answers' See), the resume and
+ * the letter only with `documents` (Documents' See). The person's own reads see everything (OWN_READER).
+ */
+export interface RecordReader {
+  sensitive: boolean;
+  documents: boolean;
+}
+
+const OWN_READER: RecordReader = { sensitive: true, documents: true };
+
+/**
+ * v33 SHARE-6 (the SHARE-6 review): whether a kept answer is left out for a reader without Sensitive answers' See, judged
+ * as the submitted answers are (isSensitiveAnswerRow: the category, the question's key and label, then the answer). A
+ * submission frozen before migration 0052 kept no category, and the extension may have known its question as sensitive
+ * by that alone (a label such as "Details"): such a row is left out (fail closed). A prepared answer never had one.
+ */
+function keptIsSensitive(kept: KeptAnswer, answers: ApplyRecordAnswers): boolean {
+  if (!kept || typeof kept !== 'object' || typeof kept.label !== 'string') return true;
+  if (!Object.hasOwn(kept, 'category') && answers === 'submitted') return true;
+  const category = typeof kept.category === 'string' ? (kept.category as AutofillFieldCategory) : null;
+  const questionKey = typeof kept.questionKey === 'string' && kept.questionKey !== '' ? kept.questionKey : kept.label;
+  return isSensitiveAnswerRow({ category, questionKey, questionLabel: kept.label, answer: kept.answer });
+}
+
+/** The kept answers as answered (the contract's {label, answer}), the sensitive ones left out unless `sensitive`. */
+function keptAsSeen(kept: readonly KeptAnswer[], answers: ApplyRecordAnswers, sensitive: boolean): ApplyRecordDocuments['answersUsed'] {
+  const shown = sensitive ? kept : kept.filter((answer) => !keptIsSensitive(answer, answers));
+  return shown.map((answer) => ({ label: answer.label, answer: answer.answer }));
 }
 
 /** GET /api/applications/:id/apply-records: the account's application's records, newest first (404: not theirs). */
@@ -416,6 +461,7 @@ export async function recordDocuments(
   userId: string,
   applicationId: string,
   recordId: number,
+  reader: RecordReader = OWN_READER, // v33 SHARE-6
 ): Promise<ApplyRecordDocuments> {
   await loadOwnedRow(deps.db, userId, applicationId);
   const row = await deps.db.one<RecordRow>(`${RECORD_SQL} WHERE r.id = ? AND r.application_id = ? AND r.user_id = ?`, [
@@ -424,12 +470,14 @@ export async function recordDocuments(
     userId,
   ]);
   if (!row) throw notFound('That apply record');
+  const kept = answersUsedOf(row);
   return {
     recordId: row.id,
-    resume: await sentResume(deps, userId, row),
-    coverLetter: await sentLetter(deps, userId, row),
+    // v33 SHARE-6: the resume and the letter are Documents' (none without its See on a shared profile).
+    resume: reader.documents ? await sentResume(deps, userId, row) : null,
+    coverLetter: reader.documents ? await sentLetter(deps, userId, row) : null,
     answers: row.answers,
-    answersUsed: answersUsedOf(row),
+    answersUsed: kept === null ? null : keptAsSeen(kept, row.answers, reader.sensitive), // v33 SHARE-6
     postingHash: row.posting_hash,
   };
 }

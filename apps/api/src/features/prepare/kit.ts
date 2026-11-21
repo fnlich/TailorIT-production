@@ -3,7 +3,11 @@ import {
   FILTER_REASON_LABELS,
   FILTER_REASONS,
   isActivePrepareState,
+  isPrepareSharingReason, // v33 SHARE-5
   letterDecision,
+  maskEligibility, // v33 SHARE-5
+  PREPARE_SHARING_REASON_MESSAGES, // v33 SHARE-5
+  type FilterReasonEntry, // v33 SHARE-5
   STATUS,
   type ApplicationDraftAnswer,
   type ApplicationDraftResponse,
@@ -37,7 +41,9 @@ import {
   answerRows,
   draftOf,
   insertDraft,
+  isGranteeRow, // v33 SHARE-5
   prepareThatChose,
+  startedByOf, // v33 SHARE-5
   updateDraft,
   updatePrepare,
   type DraftAnswerRow,
@@ -46,6 +52,50 @@ import {
 } from './store';
 import { sensitiveAnswerScreen } from '../autofill/profile/sensitive-screen';
 import { notifyPrepareBatch } from '../notifications/emitters'; // v31 NOTIFY
+import type { Request } from 'express'; // v33 SHARE-5
+import { grantHolds, lockedLiveGrant } from '../../core/auth/grants'; // v33 SHARE-5
+import { actorOf, holds } from '../../core/auth/guards'; // v33 SHARE-5
+
+// v33 SHARE-5 (PLAN F9 "Sensitive answers"; SP v33 PLAN-sharing.md §4 "Sensitive facts and what can be inferred"): what
+// a read shows to whom. A request that acts on a profile shared with the signed-in person (B) without the Sensitive
+// answers permission (`sensitive:view`) sees every filter reason that comes from an eligibility answer as one reason,
+// `eligibility`, with no value, and a question held back only because an option matches one of the owner's sensitive
+// answers as `not_ready` (never `profile`, which would tell that it matched). The owner, and B with the permission,
+// see everything as before. The routes pass `sensitive: holds(req, 'sensitive:view')`.
+/**
+ * What a read may show: `sensitive` false hides what the owner's eligibility answers would tell. `readerId` (the
+ * signed-in person; the review's decision 7): a Prepare their own limit stopped shows them its refusal in its own words
+ * (payer_error); anyone else reads the neutral `payer_limit` words.
+ */
+export interface KitViewer {
+  sensitive: boolean;
+  readerId?: string;
+}
+/** The owner on their own profile (and every caller from before v3.3): everything shows. */
+export const OWNER_VIEW: KitViewer = Object.freeze({ sensitive: true });
+
+/** A request's viewer: the Sensitive answers permission (always held on one's own profile), and who reads. */
+export const viewerOf = (req: Request): KitViewer => ({ sensitive: holds(req, 'sensitive:view'), readerId: actorOf(req).id });
+
+/**
+ * A Prepare's error as `viewer` reads it (the review's decision 7, PLAN-sharing.md §5): the payer's own refusal words
+ * (payer_error) to that payer alone, on a Prepare of a share their own limit stopped (`payer_limit`); `error` (neutral
+ * words there) to everyone else.
+ */
+export function prepareErrorFor(
+  viewer: KitViewer,
+  row: Pick<PrepareRow, 'user_id' | 'started_by' | 'reason_code' | 'error' | 'payer_error'>,
+): string | null {
+  const payer = startedByOf(row);
+  const theirs = viewer.readerId !== undefined && viewer.readerId === payer && payer !== row.user_id;
+  return theirs && row.reason_code === 'payer_limit' && row.payer_error ? row.payer_error : row.error;
+}
+
+/** The filter reasons as `viewer` sees them (maskEligibility without the Sensitive answers permission). */
+export function reasonsFor(viewer: KitViewer, reasons: readonly FilterReasonEntry[]): FilterReasonEntry[] {
+  return viewer.sensitive ? [...reasons] : maskEligibility(reasons);
+}
+// end v33 SHARE-5
 
 // What Prepare's two paths share (docs/design/v2.0/05-prepare-flow.md): the saved job a Prepare is for, its known
 // questions, the letter decision (A6), what of an earlier kit a new Prepare may keep (A29: the letter and the answers
@@ -393,17 +443,39 @@ export async function draftView(deps: Pick<AppDeps, 'db'>, userId: string, appli
   return row ? draftViewOf(deps, row, app.job_id) : null;
 }
 
-/** GET /api/applications/:id/draft: the kit and every known question of its job, each ready, not ready or profile. */
-export async function applicationDraft(deps: Pick<AppDeps, 'db'>, userId: string, applicationId: string): Promise<ApplicationDraftResponse> {
+/** v33 SHARE-5: a value screen that matches nothing (what a question's plan is without the owner's sensitive answers). */
+const NO_VALUE_SCREEN: ValueScreen = () => false;
+
+/**
+ * GET /api/applications/:id/draft: the kit and every known question of its job, each ready, not ready or profile. v33
+ * SHARE-5: for a `viewer` without the Sensitive answers permission, a question held back only because one of its
+ * options matches an owner's sensitive answer shows `not_ready` (KitViewer).
+ */
+export async function applicationDraft(
+  deps: Pick<AppDeps, 'db'>,
+  userId: string,
+  applicationId: string,
+  viewer: KitViewer = OWNER_VIEW,
+): Promise<ApplicationDraftResponse> {
   const app = await deps.db.one<{ job_id: number | null }>('SELECT job_id FROM applications WHERE id = ? AND user_id = ?', [applicationId, userId]);
   if (!app) throw notFound('That application');
   const row = await draftOf(deps.db, userId, applicationId);
-  const planned = app.job_id === null ? [] : planQuestions(await knownQuestions(deps, app.job_id), await valueScreen(deps, userId));
+  const questions = app.job_id === null ? [] : await knownQuestions(deps, app.job_id);
+  const planned = planQuestions(questions, await valueScreen(deps, userId));
+  // v33 SHARE-5: held back by the owner's answers alone (a `profile` plan that is not one without them).
+  const heldBack = new Set(
+    viewer.sensitive
+      ? []
+      : planQuestions(questions, NO_VALUE_SCREEN)
+          .filter((item, index) => item.state !== 'profile' && planned[index]?.state === 'profile')
+          .map((item) => item.question.id),
+  );
   const rows = new Map((row ? await answerRows(deps.db, row.id) : []).map((answer) => [answer.question_id, answer]));
   const answers: ApplicationDraftAnswer[] = planned.map((item) => {
     const kept = item.state === 'profile' ? undefined : rows.get(item.question.id);
     const value = kept?.status === 'ready' ? parsedValue(kept.answer) : null;
     const ready = value !== null && refusalOfValue(item, value) === null;
+    const profile = item.state === 'profile' && !heldBack.has(item.question.id); // v33 SHARE-5
     return {
       questionId: item.question.id,
       label: item.question.label,
@@ -411,7 +483,7 @@ export async function applicationDraft(deps: Pick<AppDeps, 'db'>, userId: string
       step: item.question.step,
       required: item.question.required,
       kind: item.question.kind,
-      state: item.state === 'profile' ? 'profile' : ready ? 'ready' : 'not_ready',
+      state: profile ? 'profile' : ready ? 'ready' : 'not_ready',
       answer: ready ? value : null,
       provenance: kept?.provenance ?? null,
     };
@@ -433,14 +505,49 @@ export function filterReasonOf(deps: Deps, entry: { code: FilterReason; value?: 
   return { code: entry.code, label: constants.message('MSG_FILTERED', { reason }) };
 }
 
-/** A stored reason code in words (a filter's, an interrupted or a left-Saved Prepare's). */
+/**
+ * A stored reason code in words (a filter's, an interrupted or a left-Saved Prepare's; v33 SHARE-5: a shared profile's
+ * `access_ended`, `owner_started`, `payer_limit`).
+ */
 export function reasonOf(deps: Deps, code: string | null): PrepareReason | null {
   if (code === null) return null;
   if ((FILTER_REASONS as readonly string[]).includes(code)) return filterReasonOf(deps, { code: code as FilterReason });
   const constants = constantsOf(deps);
   if (code === 'interrupted') return { code, label: constants.message('MSG_PREPARE_INTERRUPTED') };
   if (code === 'not_saved') return { code, label: constants.message('MSG_PREPARE_NOT_SAVED') };
+  // v33 SHARE-0's exact edit (SHARE-5): the sharing reasons in their words.
+  if (isPrepareSharingReason(code)) return { code, label: constants.message(PREPARE_SHARING_REASON_MESSAGES[code]) };
   return { code, label: code };
+}
+
+/**
+ * v33 SHARE-5: a filtered Prepare's stored reason code as `viewer` sees it (KitViewer). A Prepare keeps only its first
+ * reason's code, and that first one alone would tell an eligibility answer by its place (a citizenship fires before the
+ * salary, a clearance after it), so without the Sensitive answers permission the application's recorded verdict is read:
+ * when it holds the stored code, the viewer sees the first of its reasons masked (maskEligibility: the one
+ * `eligibility` at its fixed place). Otherwise the code alone: an eligibility one as `eligibility`, and a
+ * `qualification` whose value is unknown too (it tells nothing either way).
+ */
+export async function reasonCodeFor(
+  deps: Pick<AppDeps, 'db'>,
+  viewer: KitViewer,
+  row: Pick<PrepareRow, 'application_id' | 'reason_code'>,
+): Promise<string | null> {
+  const code = row.reason_code;
+  if (viewer.sensitive || code === null || !(FILTER_REASONS as readonly string[]).includes(code)) return code;
+  const stored = await deps.db.one<{ reasons: unknown }>('SELECT reasons FROM prepare_filter_results WHERE application_id = ?', [
+    row.application_id,
+  ]);
+  let entries: FilterReasonEntry[] = [];
+  try {
+    const parsed: unknown = typeof stored?.reasons === 'string' ? JSON.parse(stored.reasons) : (stored?.reasons ?? []);
+    entries = Array.isArray(parsed) ? (parsed as FilterReasonEntry[]).filter((entry) => typeof entry?.code === 'string') : [];
+  } catch {
+    entries = [];
+  }
+  if (entries.some((entry) => entry.code === code)) return maskEligibility(entries)[0]?.code ?? 'eligibility';
+  if (code === 'qualification') return 'eligibility';
+  return maskEligibility([{ code: code as FilterReason }])[0]?.code ?? code;
 }
 
 /** What an active server Prepare is doing (the Queue pane's "Preparing" line); null otherwise. */
@@ -455,8 +562,8 @@ export function stepOf(row: PrepareRow, draft: DraftRow | null): PrepareStep | n
   return 'resume';
 }
 
-/** A Prepare as the person sees it (never its cost). */
-export async function prepareJobView(deps: Deps, row: PrepareRow): Promise<PrepareJob> {
+/** A Prepare as the person sees it (never its cost). v33 SHARE-5: its reason as `viewer` sees it (KitViewer). */
+export async function prepareJobView(deps: Deps, row: PrepareRow, viewer: KitViewer = OWNER_VIEW): Promise<PrepareJob> {
   return {
     id: row.id,
     applicationId: row.application_id,
@@ -469,8 +576,8 @@ export async function prepareJobView(deps: Deps, row: PrepareRow): Promise<Prepa
     rebuild: deps.db.dialect.isTrue(row.rebuild),
     state: row.state,
     step: isActivePrepareState(row.state) ? stepOf(row, await draftOf(deps.db, row.user_id, row.application_id)) : null,
-    reason: reasonOf(deps, row.reason_code),
-    error: row.error,
+    reason: reasonOf(deps, await reasonCodeFor(deps, viewer, row)), // v33 SHARE-5
+    error: prepareErrorFor(viewer, row), // v33 SHARE-5 (decision 7)
     queueId: row.queue_id,
     createdAt: row.created_at,
     startedAt: row.started_at,
@@ -515,6 +622,21 @@ async function finishKitSteps(deps: AppDeps, row: PrepareRow, draft: DraftRow, n
     await updatePrepare(deps.db, row.id, { state: 'cancelled', reason_code: 'not_saved', finished_at: now }, now);
     return { prepareId: row.id, state: 'cancelled', queueId: null, queueFull: false };
   }
+  // v33 SHARE-5 (PLAN F9; PLAN-sharing.md §6): a Prepare someone the profile is shared with started is queued only while
+  // their share still lets them prepare (`prepare:run`, and `mcp` for their own AI's); else `cancelled`, `access_ended`.
+  // The grant is read locked (FOR SHARE) in the caller's transaction (the SHARE-5 review's decisions 2 and 4): a stop,
+  // a leave or a change of its boxes waits for this commit, and its endGrant then sees the row. insertPreparedRow holds
+  // the row for the owner's OK unless the grant has `apply`.
+  let byShare: { preparedBy: string; grantId: string } | null = null;
+  if (isGranteeRow(row)) {
+    const grant = await lockedLiveGrant(deps, deps.db, row.grant_id, 'share');
+    if (!grant || !grantHolds(grant, row.mode === 'mcp' ? ['prepare:run', 'mcp'] : 'prepare:run')) {
+      await updatePrepare(deps.db, row.id, { state: 'cancelled', reason_code: 'access_ended', finished_at: now }, now);
+      return { prepareId: row.id, state: 'cancelled', queueId: null, queueFull: false };
+    }
+    byShare = { preparedBy: startedByOf(row), grantId: grant.id };
+  }
+  // end v33 SHARE-5
   const constants = constantsOf(deps);
   const wanted = deps.db.dialect.isTrue(row.letter_wanted);
   const resumeReady = draft.resume_status === 'ready' && draft.resume_id !== null && await resumeExists(deps, row.user_id, draft.resume_id);
@@ -522,10 +644,14 @@ async function finishKitSteps(deps: AppDeps, row: PrepareRow, draft: DraftRow, n
     draft.letter_status === 'ready' &&
     draft.cover_letter_id !== null &&
     (await deps.db.one('SELECT 1 FROM cover_letters WHERE id = ? AND user_id = ?', [draft.cover_letter_id, row.user_id])) !== undefined;
-  const end = async (state: PrepareJobState, changes: { error?: string | null; queue_id?: string | null } = {}): Promise<FinishResult> => {
+  const end = async (
+    state: PrepareJobState,
+    changes: { error?: string | null; queue_id?: string | null } = {},
+    queueFull = state === 'prepared',
+  ): Promise<FinishResult> => {
     await updatePrepare(deps.db, row.id, { state, finished_at: now, ...changes }, now);
     await updateDraft(deps.db, draft.id, { built_at: now }, now);
-    return { prepareId: row.id, state, queueId: changes.queue_id ?? null, queueFull: state === 'prepared' };
+    return { prepareId: row.id, state, queueId: changes.queue_id ?? null, queueFull };
   };
   if (draft.resume_status === 'skipped' || (wanted && draft.letter_status === 'skipped')) return end('cancelled');
   if (row.job_id === null) return end('failed', { error: constants.message('MSG_PREPARE_NO_JOB') });
@@ -548,9 +674,16 @@ async function finishKitSteps(deps: AppDeps, row: PrepareRow, draft: DraftRow, n
     jobId: row.job_id,
     applicationId: row.application_id,
     prepareId: row.id,
+    ...(byShare ?? {}), // v33 SHARE-5
   });
+  // v33 SHARE-5 (decision 8): the owner's finished row of the job stays (no Queue changes): the kit is ready, not queued.
+  if (inserted === 'kept') return end('prepared', { error: constants.message('MSG_PREPARE_ALREADY_QUEUED') }, false);
   if (inserted === 'full') {
-    return end('prepared', { error: constants.message('MSG_PREPARE_QUEUE_FULL', { limit: constants.get('QUEUE_SIZE_MAX') }) });
+    // v33 SHARE-5: the owner's last places are kept from a job someone else prepared.
+    const error = byShare
+      ? constants.message('MSG_PREPARE_SHARED_QUEUE_FULL', { reserve: constants.get('SHARING_QUEUE_RESERVE') })
+      : constants.message('MSG_PREPARE_QUEUE_FULL', { limit: constants.get('QUEUE_SIZE_MAX') });
+    return end('prepared', { error });
   }
   return end('queued', { queue_id: inserted.queueId });
 }

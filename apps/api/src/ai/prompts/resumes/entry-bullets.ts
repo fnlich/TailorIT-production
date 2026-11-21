@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { BulletsTask } from '@tailorit/shared';
+import type { BulletsTask, RoleFamilyId } from '@tailorit/shared';
+import { familyVoice, wordsOf } from '../roles/variants';
 import { definePrompt } from '../types';
 
 // v30 ST1: moved word for word from features/resumes/ai/entryBullets.ts (which builds the input and cleans the
@@ -61,6 +62,34 @@ export interface BulletsPromptInput {
   /** THE TASK: entryBulletsTask's sentence. */
   task: string;
   note: string;
+  /**
+   * v33 PROMPTS (F5): the person's field (missing or technical: the rules above, word for word). Another field's rules
+   * (general's too) say how a person of that field describes their work, with its verbs, name its tools instead of
+   * technologies, and add its voice line (general has none).
+   */
+  family?: RoleFamilyId | null;
+}
+
+/** The technical family's verbs line, as SYSTEM writes it. */
+const TECHNICAL_VERBS =
+  'Verbs like built, wrote, shipped, cut, rewrote, fixed,\n  migrated, ran, owned, taught and launched are the kind wanted.';
+
+/**
+ * v33 PROMPTS: the system text in a field's words (the technical family's is SYSTEM): how a person of the field
+ * describes their work, its tools instead of technologies, and its voice line. v33 FIX-1: the verbs and the "never
+ * invent" list are the field's too (every field had kept "shipped" and "migrated"), and the general field gets the
+ * general pack's words (it had the engineer's), with no voice line.
+ */
+function systemFor(family?: RoleFamilyId | null): string {
+  const words = wordsOf(family);
+  if (!words) return SYSTEM;
+  const verbs = words.verbs.slice(0, 11);
+  const voice = familyVoice(family);
+  return SYSTEM.replace('the way an engineer describes their own work', () => `the way ${words.aPerson} describes their own work`)
+    .replace('percentage, date or technology.', () => 'percentage, date, tool or system.')
+    .replace(TECHNICAL_VERBS, () => `Verbs like ${verbs.slice(0, -1).join(', ')} and ${verbs[verbs.length - 1]} are the kind wanted.`)
+    .replace('- Name the technologies the entry lists', () => `- Name the ${words.toolWord} the entry lists`)
+    .replace('\n\nThe answer is', () => (voice ? `\n- ${voice}\n\nThe answer is` : '\n\nThe answer is'));
 }
 
 /**
@@ -87,7 +116,7 @@ export const entryBulletsPrompt = definePrompt<BulletsPromptInput, { bullets: st
   version: 1,
   description: "Writes (or improves) the achievement bullets of one resume entry from its own facts (Write with AI).",
   kind: 'entry_bullets',
-  system: () => SYSTEM,
+  system: (input) => systemFor(input.family),
   user: (input) =>
     [
       `THE PERSON:\n${JSON.stringify(input.person)}`,

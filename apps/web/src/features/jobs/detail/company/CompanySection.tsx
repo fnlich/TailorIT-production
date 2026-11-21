@@ -1,16 +1,17 @@
 'use client';
 
 import type { CompanyDetail } from '@tailorit/shared';
+import { clsx } from 'clsx';
 import Link from 'next/link';
 import { useState } from 'react';
-import { BuildingsIcon, CaretRightIcon } from '@/components/ui/icons';
+import { CaretRightIcon } from '@/components/ui/icons';
 import { companyFacts, companyLinks } from '@/features/companies/format';
 import { CompanyAbout, CompanyFactsGrid, CompanyLinksRow, ParentLine, SourcesLine } from '@/features/companies/parts';
 import { companyHref } from '@/features/companies/routes';
 import { usePublicConstants } from '@/lib/constants';
 import { CompanyLogo } from '../../CompanyLogo';
 import { FlagIcon } from '../../icons';
-import { SectionHeading } from '../MatchSection';
+import { DetailCardTitle, detailCardClasses } from '../DetailCard';
 import { CompanyReportDialog } from './CompanyReportDialog';
 
 /** The link to the company page: "See all 12 jobs at Acme" (or "See the 1 job at Acme"), else "See Acme's company page". */
@@ -22,7 +23,7 @@ export function allJobsLabel(company: Pick<CompanyDetail, 'name' | 'jobCount'>):
 }
 
 /**
- * The detail's company section (v31 FIX-JOBS: "About {company}"; the drawer's Company jump scrolls here): about the company, its links and whichever stats are
+ * The detail's company card (v31 FIX-JOBS: "About {company}"; v33 JOBDETAIL: under About the job): about the company, its links and whichever stats are
  * known. v30 E0-WEB (13-company-enrichment.md §6.3, §10; 00-overview §1): the name opens the company page
  * (/companies/:id, owner question 24); "Part of {parent}"; the description's origin ("Summary written by AI from …");
  * "Incorporated" when a registry gave the year; no "Total Funding" (no licensed source); the LinkedIn page only when an
@@ -44,11 +45,9 @@ export function CompanySection({ company, jobId, className, id }: { company: Com
   const href = companyHref(company.id);
 
   return (
-    <section id={id} aria-labelledby="about-the-company" className={className} data-company-section={company.id}>
-      {/* v31 FIX-JOBS: "About {company}", a drawer section's heading (an h3 under the job's h2). */}
-      <SectionHeading id="about-the-company" icon={<BuildingsIcon size={18} weight="bold" />}>
-        {t('LABEL_JOB_ABOUT_COMPANY', { company: company.name })}
-      </SectionHeading>
+    <section id={id} aria-labelledby="about-the-company" className={clsx(detailCardClasses(), className)} data-company-section={company.id}>
+      {/* v31 FIX-JOBS: "About {company}" (an h3 under the job's h2); v33 JOBDETAIL: a card of the job's details. */}
+      <DetailCardTitle id="about-the-company" title={t('LABEL_JOB_ABOUT_COMPANY', { company: company.name })} />
       <div className="mt-4 flex items-center gap-3">
         <CompanyLogo name={company.name} url={company.logoUrl} size={48} />
         <div className="min-w-0">

@@ -9,11 +9,14 @@ import {
   type AutofillSubmittedAnswerValue,
 } from '@tailorit/shared/autofill';
 import { isActivePrepareState, PREPARE_ANSWER_BATCH, HOUR_MS, UNLIMITED, type AiTaskView } from '@tailorit/shared';
-import { liveTasksOfPrepare } from '../../ai/queue';
+import { liveTasksOfPrepare, PAYER_LIMIT_CODES } from '../../ai/queue'; // v33 INT-C: PAYER_LIMIT_CODES
 import { hourlyLimitOf } from '../../core/accounts/entitlements';
+import { payerOfRow, type PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-5
+import { assertGrantLive, grantHolds, liveGrantsByIds } from '../../core/auth/grants'; // v33 SHARE-5
 import { constantsOf } from '../../core/constants/service';
 import { nowIso, type AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
+import { tailorOptionsFor } from './charge'; // v33 SHARE-5
 import { answerTaskInput } from '../autofill/ai/answer';
 import { autofillAnswerTask } from '../autofill/ai-tasks';
 import { greenhousePostingOf, greenhouseReadsOf, readGreenhouseQuestionsLater } from '../autofill/forms/greenhouse';
@@ -45,9 +48,11 @@ import { notifyPrepareBatch } from '../notifications/emitters'; // v31 NOTIFY
 import {
   answerRows,
   draftOf,
+  isGranteeRow, // v33 SHARE-5
   prepareById,
   serverActiveRows,
   serverStartsSince,
+  startedByOf, // v33 SHARE-5
   updateDraft,
   updatePrepare,
   waitingServerRows,
@@ -56,6 +61,78 @@ import {
   type DraftRow,
   type PrepareRow,
 } from './store';
+
+// v33 SHARE-5 (PLAN F9 "Prepare and the queue"; SP v33 PLAN-sharing.md §5, §6): Prepares on a shared profile. A Prepare
+// names who started it (started_by: its payer) and the grant it runs under (grant_id), and the runner keeps it fair:
+//   - one Prepare at a time per profile AND per payer (two in-flight sets; RUNNER_PARALLEL at most): B working on five
+//     profiles runs one Prepare at a time, as on their own;
+//   - within a profile, the owner's own rows first, then the payer that started a Prepare least recently (runnerOrder);
+//   - a row someone else started that meets ai_busy (its payer's two tasks of a kind in flight) is parked for
+//     BUSY_RETRY_MS, which frees both its slots; the pass takes it up again from its step;
+//   - at every step's boundary, next to leftSaved, and before every AI request, its grant is read again
+//     (assertGrantLive: `prepare:run`): a share that ended, lost the permission or whose account was disabled ends the
+//     Prepare `cancelled`, `access_ended`, and no AI work it would have paid for starts;
+//   - its AI steps are charged to its payer (chargeTo: payerOfRow), paced by the payer's Prepares an hour (hourWait(started_by)),
+//     and a refusal of the payer's (their budget, their plan) is stored as `payer_limit` in neutral words; its own words
+//     go to payer_error, which only the payer reads (kit.ts prepareErrorFor; the SHARE-5 review's decision 7).
+
+/** The order the runner takes one profile's waiting Prepares in, and the profiles in (a pure choice). */
+export interface RunnerCandidate {
+  id: string;
+  user_id: string;
+  started_by?: string;
+  state: PrepareRow['state'];
+  created_at: string;
+}
+
+/**
+ * The candidates of each profile in the order the runner takes them, and the profiles in the order they are looked at
+ * (by their first candidate's place in `rows`, which serverActiveRows orders: rows under way first, then oldest). Within
+ * a profile: rows under way first (a restart takes them up again), then the owner's own rows, then the rows of the payer
+ * whose last start is the oldest (`lastStart`: when each payer last had a Prepare taken up; never first), each payer's
+ * oldest first.
+ */
+export function runnerOrder<R extends RunnerCandidate>(rows: readonly R[], lastStart: (payerId: string) => number | undefined): R[][] {
+  const byProfile = new Map<string, R[]>();
+  for (const row of rows) {
+    const list = byProfile.get(row.user_id) ?? [];
+    list.push(row);
+    byProfile.set(row.user_id, list);
+  }
+  const rank = (row: R) => {
+    if (row.state !== 'waiting') return [0, 0] as const;
+    if (startedByOf(row) === row.user_id) return [1, 0] as const;
+    return [2, lastStart(startedByOf(row)) ?? -Infinity] as const;
+  };
+  return [...byProfile.values()].map((list) =>
+    list
+      .map((row, index) => ({ row, index, rank: rank(row) }))
+      .sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.index - b.index)
+      .map(({ row }) => row),
+  );
+}
+
+/** Why a step stopped short (thrown through the step's own catches to prepareOne). */
+class RunnerSignal extends Error {
+  constructor(readonly signal: 'parked' | 'ended') {
+    super(signal);
+  }
+}
+
+/** Rethrows a RunnerSignal (a step's own catch must never turn one into a failure). */
+function passSignal(error: unknown): void {
+  if (error instanceof RunnerSignal) throw error;
+}
+
+/**
+ * The refusals that are the payer's own (their budget, their hourly limits, their plan): a grantee row stores
+ * `payer_limit`. v33 INT-C: the AI queue's own list (SHARE-3's PAYER_LIMIT_CODES), so a Prepare and a task read alike.
+ */
+const PAYER_REFUSALS: ReadonlySet<string> = PAYER_LIMIT_CODES;
+
+/** The permissions a Prepare's work needs under its grant (the runner runs `server` Prepares only). */
+const RUN_PERMS = 'prepare:run' as const;
+// end v33 SHARE-5
 
 // The server path of Prepare & Queue (docs/design/v2.0/05-prepare-flow.md, "The runner"): TailorIT's AI prepares
 // each `server` Prepare, one at a time per account (accounts side by side, oldest row first, RUNNER_PARALLEL at
@@ -129,8 +206,15 @@ type Step = 'go' | 'ended';
 
 export function createPrepareRunner(deps: AppDeps): PrepareRunner {
   const { db } = deps;
-  /** The Prepare under way of each account. */
+  /** The Prepare under way of each profile (v33 SHARE-5: and, below, of each payer), by profile. */
   const inFlight = new Map<string, Promise<void>>();
+  /** v33 SHARE-5: the payers (started_by) with a Prepare under way: one at a time per person, on every profile. */
+  const payersInFlight = new Set<string>();
+  /** v33 SHARE-5: when each payer last had a Prepare taken up (ms; the fairness between payers on one profile). */
+  const lastStart = new Map<string, number>();
+  /** v33 SHARE-5: grantee rows parked on ai_busy, and their payers, until (ms, the process clock). */
+  const parkedRows = new Map<string, number>();
+  const parkedPayers = new Map<string, number>();
   /** The person's own AI task each Prepare waits for (abort cancels it). */
   const waitingOn = new Map<string, { taskId: string; userId: string }>();
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -150,17 +234,68 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
   const taskError = (view: AiTaskView, fallback: string) =>
     view.error && REFUSALS.has(view.error.code) ? view.error.message : fallback;
 
+  // v33 SHARE-5: a refusal that is the payer's own (their budget, their limits) on a Prepare someone the profile is
+  // shared with started is stored as `payer_limit` in neutral words (the owner sees the row and its kit too); the
+  // refusal's own words are kept for the payer alone (payer_error: the review's decision 7).
+  /** Whether `code` is a refusal of the payer's own on this row (marks it `payer_limit`, keeping `words` for the payer). */
+  async function payerLimited(row: PrepareRow, code: string | undefined, words: string): Promise<boolean> {
+    if (!code || !isGranteeRow(row) || !PAYER_REFUSALS.has(code)) return false;
+    await updatePrepare(db, row.id, { reason_code: 'payer_limit', payer_error: words }, now());
+    return true;
+  }
+  /** messageOf for a row (a payer's own refusal in neutral words). */
+  const rowMessageOf = async (row: PrepareRow, error: unknown) =>
+    (await payerLimited(row, error instanceof AppError ? error.code : undefined, messageOf(error))) ? message('MSG_PREPARE_PAYER_LIMIT') : messageOf(error);
+  /** taskError for a row (a payer's own refusal in neutral words). */
+  const rowTaskError = async (row: PrepareRow, view: AiTaskView, fallback: string) =>
+    (await payerLimited(row, view.error?.code, view.error?.message ?? fallback)) ? message('MSG_PREPARE_PAYER_LIMIT') : taskError(view, fallback);
+
   /**
-   * How long until the account may start another Prepare (0: now), by the plan's Prepares an hour at this moment (v32
-   * FIX-PLAN, E12: FREE_/PAID_PREPARE_PER_HOUR; a Paid term that ended is paced as Free). UNLIMITED: never waits.
+   * How long until the payer may start another Prepare (0: now), by the plan's Prepares an hour at this moment (v32
+   * FIX-PLAN, E12: FREE_/PAID_PREPARE_PER_HOUR; a Paid term that ended is paced as Free). UNLIMITED: never waits. v33
+   * SHARE-5: the payer's (started_by: B's plan and B's starts on every profile, counted once per person).
    */
-  async function hourWait(userId: string): Promise<number> {
-    const max = await hourlyLimitOf(deps, userId, 'preparesPerHour');
+  async function hourWait(payer: PersonPayer): Promise<number> {
+    const max = await hourlyLimitOf(deps, payer, 'preparesPerHour'); // v33 INT-1: the Payer
     if (max === UNLIMITED) return 0;
     const nowMs = deps.now().getTime();
-    const { n, first } = await serverStartsSince(db, userId, new Date(nowMs - HOUR_MS).toISOString());
+    const { n, first } = await serverStartsSince(db, payer.id, new Date(nowMs - HOUR_MS).toISOString());
     if (n < max) return 0;
     return Math.max(1000, (first ? Date.parse(first) : nowMs) + HOUR_MS - nowMs);
+  }
+
+  /**
+   * v33 SHARE-5: a Prepare someone the profile is shared with started whose share no longer lets them prepare (it ended,
+   * lost `prepare:run`, an account was disabled, sharing was turned off) ends `cancelled`, `access_ended`: true then.
+   * The owner's own Prepares never end so.
+   */
+  async function accessEnded(row: PrepareRow): Promise<boolean> {
+    if (!isGranteeRow(row)) return false;
+    try {
+      await assertGrantLive(deps, row.grant_id, RUN_PERMS);
+      return false;
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await end(row, 'cancelled', { reason: 'access_ended' });
+      return true;
+    }
+  }
+
+  /** v33 SHARE-5: before an AI request: the Prepare is still active and still allowed (else RunnerSignal 'ended'). */
+  async function stillAllowed(row: PrepareRow): Promise<void> {
+    const fresh = await stillActive(row.id);
+    if (!fresh || (await accessEnded(fresh))) throw new RunnerSignal('ended');
+  }
+
+  /** v33 SHARE-5: who pays for the row's AI (payerOfRow: B under the grant; a row that lost its grant: access ended). */
+  async function payerFor(row: PrepareRow): Promise<PersonPayer | null> {
+    try {
+      return payerOfRow(row, RUN_PERMS);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await end(row, 'cancelled', { reason: 'access_ended' });
+      return null;
+    }
   }
 
   // -------------------------------------------------------------------------------------------------- scheduling
@@ -191,31 +326,79 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     timer = null;
     if (stopping) return;
     let wakeIn: number | null = null;
+    const wake = (ms: number) => {
+      wakeIn = Math.min(wakeIn ?? ms, ms);
+    };
+    // v33 SHARE-5: one Prepare at a time per profile AND per payer; within a profile the owner's rows first, then the
+    // payer that started least recently (runnerOrder); `looked` per (profile, payer): a payer's first row only.
     const looked = new Set<string>();
-    for (const row of await serverActiveRows(db)) {
+    const rows = await serverActiveRows(db);
+    const grants = await liveGrantsByIds(deps, rows.filter(isGranteeRow).map((row) => row.grant_id));
+    const clock = Date.now();
+    for (const [id, until] of parkedRows) if (until <= clock) parkedRows.delete(id);
+    for (const [id, until] of parkedPayers) if (until <= clock) parkedPayers.delete(id);
+    for (const list of runnerOrder(rows, (payerId) => lastStart.get(payerId))) {
       if (inFlight.size >= RUNNER_PARALLEL) break;
-      // Each account's first row only (its row under way first): one Prepare at a time per account.
-      if (inFlight.has(row.user_id) || looked.has(row.user_id)) continue;
-      looked.add(row.user_id);
-      if (row.state === 'waiting') {
-        const wait = await hourWait(row.user_id);
-        if (wait > 0) {
-          wakeIn = Math.min(wakeIn ?? wait, wait);
+      for (const row of list) {
+        if (inFlight.has(row.user_id)) break;
+        const payerId = startedByOf(row);
+        const pair = `${row.user_id}>${payerId}`;
+        if (payersInFlight.has(payerId) || looked.has(pair)) continue;
+        looked.add(pair);
+        // A share that no longer lets them prepare ends their Prepare before it takes anything up.
+        if (isGranteeRow(row)) {
+          const grant = grants.get(row.grant_id ?? '');
+          if (!grant || !grantHolds(grant, RUN_PERMS)) {
+            await end(row, 'cancelled', { reason: 'access_ended' });
+            continue;
+          }
+        }
+        const parked = Math.max(parkedRows.get(row.id) ?? 0, parkedPayers.get(payerId) ?? 0);
+        if (parked > clock) {
+          wake(parked - clock);
           continue;
         }
+        if (row.state === 'waiting') {
+          // v33 INT-1: the row's Payer (payerFor ends a row that lost its grant, as prepareOne would).
+          const payer = await payerFor(row);
+          if (!payer) continue;
+          const wait = await hourWait(payer);
+          if (wait > 0) {
+            wake(wait);
+            continue;
+          }
+        }
+        lastStart.set(payerId, clock);
+        payersInFlight.add(payerId);
+        const running: Promise<void> = prepareOne(row)
+          .catch((error: unknown) => {
+            if (!(error instanceof RunnerSignal)) return failUnexpectedly(row, error);
+            if (error.signal === 'parked') park(row);
+          })
+          .finally(() => {
+            inFlight.delete(row.user_id);
+            payersInFlight.delete(payerId);
+            pump();
+          });
+        inFlight.set(row.user_id, running);
+        break;
       }
-      const running: Promise<void> = prepareOne(row)
-        .catch((error: unknown) => failUnexpectedly(row, error))
-        .finally(() => {
-          inFlight.delete(row.user_id);
-          pump();
-        });
-      inFlight.set(row.user_id, running);
     }
     if (wakeIn !== null) {
       timer = setTimeout(pump, Math.min(wakeIn, MAX_SLEEP_MS));
       timer.unref?.();
     }
+  }
+
+  /**
+   * v33 SHARE-5: a grantee row met ai_busy (its payer's two tasks of a kind in flight): it waits BUSY_RETRY_MS out of the
+   * runner (its profile's and its payer's slots free meanwhile), then the pass takes it up again from its step.
+   */
+  function park(row: PrepareRow): void {
+    const until = Date.now() + BUSY_RETRY_MS;
+    parkedRows.set(row.id, until);
+    parkedPayers.set(startedByOf(row), until);
+    deps.log.debug(`[prepare] Prepare ${row.id} waits for its payer's AI (parked ${BUSY_RETRY_MS} ms)`);
   }
 
   async function failUnexpectedly(row: PrepareRow, error: unknown): Promise<void> {
@@ -255,14 +438,21 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     }
   }
 
-  /** Runs `start`, asking again while the account's two tasks of the kind are in flight (ai_busy). */
-  async function whenFree<T>(start: () => T): Promise<T> {
+  /**
+   * Runs `start`, asking again while the account's two tasks of the kind are in flight (ai_busy). v33 SHARE-5: before
+   * every request the Prepare must still be active and allowed (stillAllowed: RunnerSignal 'ended'), so no AI work a
+   * share no longer allows starts; a grantee row's ai_busy parks it (RunnerSignal 'parked') instead of holding its slots.
+   */
+  async function whenFree<T>(row: PrepareRow, start: () => T): Promise<T> {
     for (let attempt = 0; ; attempt += 1) {
+      await stillAllowed(row);
       try {
         // v3.0 D2: awaited, so an async start's ai_busy is caught here too.
         return await start();
       } catch (error) {
-        if (!(error instanceof AppError) || error.code !== 'ai_busy' || attempt >= BUSY_RETRIES || stopping) throw error;
+        if (!(error instanceof AppError) || error.code !== 'ai_busy' || stopping) throw error;
+        if (isGranteeRow(row)) throw new RunnerSignal('parked');
+        if (attempt >= BUSY_RETRIES) throw error;
         await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS).unref?.());
       }
     }
@@ -303,23 +493,32 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     return true;
   }
 
+  /** v33 SHARE-5: a step's boundary: the entry left Saved, or the share no longer lets its starter prepare. */
+  const stopsHere = async (row: PrepareRow) => (await leftSaved(row)) || (await accessEnded(row));
+
   /** a. The Custom filter (P4's service; off without it). */
-  async function customStep(row: PrepareRow, jobId: number): Promise<Step> {
+  async function customStep(row: PrepareRow, jobId: number, payer: PersonPayer): Promise<Step> {
     const filters = deps.services.prepareFilters;
     if (!filters || !(await filters.customPrompt(row.user_id))) return 'go';
     const check = (await filters.evaluate(row.user_id, [row.application_id]))[0];
     let verdict = check?.custom ?? 'off';
     if (verdict === 'pending') {
       const batch = constants().get('CUSTOM_FILTER_BATCH');
+      // v33 SHARE-5: the batch takes the waiting jobs of the same payer only (they pay for it).
       const others = (await waitingServerRows(db, row.user_id)).flatMap((other) =>
-        other.id !== row.id && other.job_id !== null ? [other.job_id] : [],
+        other.id !== row.id && other.job_id !== null && startedByOf(other) === payer.id ? [other.job_id] : [],
       );
       const jobIds = [...new Set([jobId, ...others])].slice(0, batch);
       try {
-        verdict = (await filters.judgeOnServer(row.user_id, jobIds, row.id)).get(jobId) ?? 'pass';
+        await stillAllowed(row); // v33 SHARE-5
+        verdict = (await filters.judgeOnServer(row.user_id, jobIds, row.id, payer)).get(jobId) ?? 'pass';
       } catch (error) {
+        passSignal(error);
         if (stopping) return 'ended';
-        await end(row, 'failed', { error: messageOf(error) });
+        // v33 SHARE-5: a grantee row's ai_busy parks it.
+        if (error instanceof AppError && error.code === 'ai_busy' && isGranteeRow(row)) throw new RunnerSignal('parked');
+        const limited = await payerLimited(row, error instanceof AppError ? error.code : undefined, messageOf(error));
+        await end(row, 'failed', { error: limited ? message('MSG_PREPARE_PAYER_LIMIT') : messageOf(error) });
         return 'ended';
       }
     }
@@ -329,7 +528,7 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
   }
 
   /** b. The job read again (charged to the person), then the filters on the fresh facts. */
-  async function analysisStep(row: PrepareRow, jobId: number): Promise<Step> {
+  async function analysisStep(row: PrepareRow, jobId: number, payer: PersonPayer): Promise<Step> {
     const needed = await analysisNeeded(deps, jobId);
     const analyses = deps.services.jobAnalysis;
     if (needed && deps.services.ai && analyses?.forceAnalysis) {
@@ -337,13 +536,15 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
       await updatePrepare(db, row.id, { state: 'analyzing' }, now());
       // v2.0 (INT): P4's forceAnalysis (A7): a system-owned task charged to the person (chargeTo, 03-ai-usage.md), its
       // input naming the Prepare (`prepare.id`) so prepare_jobs.cost_micros adds it up; one already queued or running
-      // for the same text is joined, and then nobody pays twice.
+      // for the same text is joined, and then nobody pays twice. v33 SHARE-5: charged to the Prepare's payer.
       let taskId: string | null = null;
       try {
-        taskId = (await whenFree(() => force(jobId, row.user_id, { id: row.id })))?.taskId ?? null;
+        taskId = (await whenFree(row, () => force(jobId, payer, { id: row.id })))?.taskId ?? null; // v33 INT-C: the Payer (public work, no grant)
       } catch (error) {
+        passSignal(error);
         if (error instanceof AppError && REFUSALS.has(error.code)) {
-          await end(row, 'failed', { error: error.message });
+          const limited = await payerLimited(row, error.code, error.message); // v33 SHARE-5
+          await end(row, 'failed', { error: limited ? message('MSG_PREPARE_PAYER_LIMIT') : error.message });
           return 'ended';
         }
         // Paused, no background slot: the facts TailorIT has stand (unknown values pass).
@@ -353,7 +554,8 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
         const view = await finished(taskId);
         if (view === null) return 'ended';
         if (view !== 'late' && view.status === 'failed' && view.error && REFUSALS.has(view.error.code)) {
-          await end(row, 'failed', { error: view.error.message });
+          const limited = await payerLimited(row, view.error.code, view.error.message); // v33 SHARE-5
+          await end(row, 'failed', { error: limited ? message('MSG_PREPARE_PAYER_LIMIT') : view.error.message });
           return 'ended';
         }
       }
@@ -383,28 +585,30 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     row: PrepareRow,
     target: DraftTarget,
     letter: boolean,
+    payer: PersonPayer,
   ): Promise<{ ok: true; resumeId: string; coverLetterId: string | null } | { ok: false; message: string } | null> {
     const tailor = deps.services.tailor;
     if (!tailor) return { ok: false, message: message('MSG_AI_UNAVAILABLE') };
     let taskId: string;
     try {
       taskId = (
-        await whenFree(() =>
+        await whenFree(row, () =>
           tailor.start(
             row.user_id,
             { applicationId: target.applicationId, coverLetter: letter, force: deps.db.dialect.isTrue(row.rebuild) },
-            { prepare: { id: row.id } },
+            tailorOptionsFor(row.id, payer), // v33 SHARE-5: the Prepare's payer pays
           ),
         )
       ).taskId;
     } catch (error) {
-      return { ok: false, message: messageOf(error) };
+      passSignal(error);
+      return { ok: false, message: await rowMessageOf(row, error) };
     }
     const view = await ownTask(row.id, row.user_id, taskId);
     if (view === null) return null;
     if (view === 'late') return { ok: false, message: message('MSG_PREPARE_TOOK_TOO_LONG') };
     const result = view.status === 'succeeded' ? TailorResultSchema.safeParse(view.result) : null;
-    if (!result?.success) return { ok: false, message: taskError(view, message('MSG_PREPARE_RESUME_FAILED')) };
+    if (!result?.success) return { ok: false, message: await rowTaskError(row, view, message('MSG_PREPARE_RESUME_FAILED')) };
     return { ok: true, resumeId: result.data.resumeId, coverLetterId: result.data.coverLetterId };
   }
 
@@ -417,6 +621,7 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     row: PrepareRow,
     target: DraftTarget,
     resumeId: string,
+    payer: PersonPayer,
   ): Promise<{ ok: true; coverLetterId: string } | { ok: false; message: string } | null> {
     const ai = deps.services.ai;
     if (!ai) return { ok: false, message: message('MSG_AI_UNAVAILABLE') };
@@ -471,15 +676,14 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
       const task = template && templateHasContent(template.contentHtml) ? templateFillTask : coverLetterTask;
       // The Prepare's mark (P1: prepare_jobs.cost_micros adds up its tasks); the task's own parse leaves it out.
       const marked = { ...input, prepare: { id: row.id } };
+      // v33 SHARE-5: the Prepare's payer pays (v33 INT-1: named at the enqueue).
+      const options = task.enqueueOptions({ userId: row.user_id, input: marked, dedupeKey: `cover-letter:${letter.id}`, priority: priority(), chargeTo: payer });
       try {
-        taskId = (
-          await whenFree(() =>
-            ai.enqueue(task.enqueueOptions({ userId: row.user_id, input: marked, dedupeKey: `cover-letter:${letter.id}`, priority: priority() })),
-          )
-        ).taskId;
+        taskId = (await whenFree(row, () => ai.enqueue(options))).taskId;
       } catch (error) {
         await letters.remove(letter.id, row.user_id);
-        return { ok: false, message: messageOf(error) };
+        passSignal(error);
+        return { ok: false, message: await rowMessageOf(row, error) };
       }
     }
     const removeLetter = () => letters.remove(letterId, row.user_id);
@@ -487,7 +691,10 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     if (view === null) return null;
     if (view === 'late' || view.status !== 'succeeded') {
       await removeLetter();
-      return { ok: false, message: view === 'late' ? message('MSG_PREPARE_TOOK_TOO_LONG') : taskError(view, message('MSG_PREPARE_LETTER_FAILED')) };
+      return {
+        ok: false,
+        message: view === 'late' ? message('MSG_PREPARE_TOOK_TOO_LONG') : await rowTaskError(row, view, message('MSG_PREPARE_LETTER_FAILED')),
+      };
     }
     return { ok: true, coverLetterId: letterId };
   }
@@ -498,6 +705,7 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     target: DraftTarget,
     resumeId: string | null,
     planned: readonly PlannedQuestion[],
+    payer: PersonPayer,
   ): Promise<{ values: Map<number, AutofillSubmittedAnswerValue | null>; failed: string | null } | null> {
     const values = new Map<number, AutofillSubmittedAnswerValue | null>();
     const asked = planned.filter((item) => item.state === 'draft');
@@ -535,17 +743,14 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
       const { input } = answerTaskInput(request, screen);
       // The Prepare's mark, as the letter's (the task's own parse leaves it out).
       const marked = { ...input, prepare: { id: row.id } };
+      // v33 SHARE-5: the Prepare's payer pays.
+      const options = autofillAnswerTask.enqueueOptions({ userId: row.user_id, input: marked, priority: priority(), chargeTo: payer });
       let taskId: string;
       try {
-        taskId =
-          rejoined ??
-          (
-            await whenFree(() =>
-              ai.enqueue(autofillAnswerTask.enqueueOptions({ userId: row.user_id, input: marked, priority: priority() })),
-            )
-          ).taskId;
+        taskId = rejoined ?? (await whenFree(row, () => ai.enqueue(options))).taskId;
       } catch (error) {
-        failed = messageOf(error);
+        passSignal(error);
+        failed = await rowMessageOf(row, error);
         if (error instanceof AppError && REFUSALS.has(error.code)) break;
         continue;
       }
@@ -554,7 +759,7 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
       if (!await stillActive(row.id)) return { values, failed };
       const result = view !== 'late' && view.status === 'succeeded' ? AutofillAnswerResultSchema.safeParse(view.result) : null;
       if (!result?.success) {
-        failed = view === 'late' ? message('MSG_PREPARE_TOOK_TOO_LONG') : taskError(view, message('MSG_PREPARE_ANSWERS_FAILED'));
+        failed = view === 'late' ? message('MSG_PREPARE_TOOK_TOO_LONG') : await rowTaskError(row, view, message('MSG_PREPARE_ANSWERS_FAILED'));
         continue;
       }
       const byKey = new Map<string, AutofillAnswer>(result.data.answers.map((answer) => [answer.key, answer]));
@@ -574,6 +779,9 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
       return;
     }
     const jobId = target.jobId;
+    // v33 SHARE-5: who pays (B under the grant on a profile shared with them), and whether the share still allows it.
+    const payer = await payerFor(initial);
+    if (!payer || (await accessEnded(initial))) return;
     if (initial.state === 'waiting') await updatePrepare(db, id, { state: 'filtering', started_at: initial.started_at ?? now() }, now());
     // A kit queued at the start whose finish left a part to make (no start time): its work is taken up now.
     else if (initial.started_at === null) await updatePrepare(db, id, { started_at: now() }, now());
@@ -582,21 +790,21 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
 
     // a, b: the filters (a restart past them does not ask again).
     if (row.state === 'filtering') {
-      if ((await customStep(row, jobId)) === 'ended') return;
+      if ((await customStep(row, jobId, payer)) === 'ended') return;
       row = await stillActive(id);
-      if (!row) return;
+      if (!row || (await accessEnded(row))) return; // v33 SHARE-5
     }
     if (row.state === 'filtering' || row.state === 'analyzing') {
-      if ((await analysisStep(row, jobId)) === 'ended') return;
+      if ((await analysisStep(row, jobId, payer)) === 'ended') return;
       row = await stillActive(id);
-      if (!row) return;
+      if (!row || (await accessEnded(row))) return; // v33 SHARE-5
     }
 
     // c: the letter decision.
     await updatePrepare(db, id, { state: 'building' }, now());
     const questions = await questionsOf(jobId);
     row = await stillActive(id);
-    if (!row || stopping || await leftSaved(row)) return;
+    if (!row || stopping || await stopsHere(row)) return;
     const wanted = (await decideLetter(deps, row.letter_mode, jobId, questions)).wanted;
     await updatePrepare(db, id, { letter_wanted: wanted }, now());
     const errors: string[] = [];
@@ -616,7 +824,7 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
     if (draft.resume_status !== 'ready' || !draft.resume_id) {
       if (row.resume_mode === 'tailor') {
         await write({ resume_status: 'building', ...(wanted ? { letter_status: 'building' as const } : {}) });
-        const made = await tailorStep(row, target, wanted);
+        const made = await tailorStep(row, target, wanted, payer);
         if (made === null || !await stillActive(id)) return;
         if (made.ok) {
           await db.tx(async () => {
@@ -651,11 +859,11 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
       }
     }
     draft = await kit();
-    if (!draft || await leftSaved(row)) return;
+    if (!draft || await stopsHere(row)) return;
     // The letter, from the kit's resume, when one is wanted and the kit has none written from it.
     if (wanted && draft.resume_status === 'ready' && draft.resume_id && draft.letter_status !== 'failed' && !await kitLetterFits(deps, userId, draft)) {
       await write({ letter_status: 'building' });
-      const made = await letterStep(row, target, draft.resume_id);
+      const made = await letterStep(row, target, draft.resume_id, payer);
       if (made === null || !await stillActive(id)) return;
       if (made.ok) {
         await db.tx(async () => {
@@ -670,14 +878,15 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
 
     // e: the answers (never when the resume failed: the Prepare fails).
     draft = await kit();
-    if (!draft || await leftSaved(row)) return;
+    if (!draft || await stopsHere(row)) return;
     if (draft.resume_status === 'ready' && (draft.answers_status === 'pending' || draft.answers_status === 'building')) {
       const planned = planQuestions(questions, await valueScreen(deps, userId));
       await write({ answers_status: 'building' });
       let made: Awaited<ReturnType<typeof answersStep>>;
       try {
-        made = await answersStep(row, target, draft.resume_id, planned);
+        made = await answersStep(row, target, draft.resume_id, planned, payer);
       } catch (error) {
+        passSignal(error); // v33 SHARE-5
         deps.log.warn(`[prepare] Prepare ${id}: its answers could not be prepared`, error instanceof Error ? error.name : 'unknown');
         made = { values: new Map(), failed: message('MSG_PREPARE_ANSWERS_FAILED') };
       }

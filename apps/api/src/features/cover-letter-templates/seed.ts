@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { escapeHtml, LETTER_FONT_NAMES } from '@tailorit/shared';
+import { escapeHtml, LETTER_FONT_NAMES, RoleFamilyIdSchema } from '@tailorit/shared';
 import { nowIso, type AppDeps } from '../../core/context';
 import { staticDir } from '../../core/paths';
 import { letterText } from '../cover-letters/sanitize';
-import { setSystemOrder } from './repository';
+import { setSystemFamilies, setSystemOrder } from './repository';
 
 // TailorIT's starter templates (static/letter-templates/*.json, our own text), upserted by system_key at every start:
 // a new file is added, a changed one updated, an unchanged one left alone (its times stay). Two processes may seed at
@@ -28,6 +28,9 @@ const StarterSchema = z.object({
   fontFamily: z.enum(LETTER_FONT_NAMES),
   aiPrompt: z.string().max(1000),
   blocks: z.array(BlockSchema).min(1),
+  // v33 PROMPTS (F5): the role families the starter is written for: the letter pickers list a person's field's first.
+  // Never stored (the API answers it from here), so it changes no seeded row.
+  families: z.array(RoleFamilyIdSchema).optional(),
 });
 export type StarterTemplate = z.infer<typeof StarterSchema>;
 
@@ -71,6 +74,7 @@ interface ExistingRow {
 export async function seedSystemTemplates(deps: Pick<AppDeps, 'db' | 'now'>): Promise<number> {
   const list = starterTemplates();
   setSystemOrder(list.map((template) => template.systemKey));
+  setSystemFamilies(list.map((template) => [template.systemKey, template.families ?? []] as const));
   const now = nowIso(deps);
   return deps.db.tx(async (t) => {
     let written = 0;

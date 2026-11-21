@@ -393,8 +393,29 @@ export type QueueAction =
   | 'dismiss'
   | 'prepare';
 
-/** The actions of 08's state table, by row. */
-export function rowActions(row: QueueRow): QueueAction[] {
+/**
+ * v33 SHARE-6 (PLAN F9 "Queue changes": remove, clear finished, Mark as applied): the actions a row offers on a profile
+ * shared with the person without its owner's Queue changes box: none of those (the API refuses them there).
+ */
+export const QUEUE_EDIT_ACTIONS: ReadonlySet<QueueAction> = new Set<QueueAction>(['remove', 'mark_applied']);
+
+/**
+ * v33 SHARE-6 / INT-1: whether the tab may change the queue (Remove, Clear finished, Mark as applied): always on the
+ * person's own profile (`key` null); on a shared one only with its owner's Queue changes box (`queue:edit`), and not
+ * before the list of profiles is read. The Queue pane and the kit sheet ask it.
+ */
+export function queueEditOf(key: string | null, profile: { permissions: readonly string[] } | null): boolean {
+  return key === null || (profile?.permissions.includes('queue:edit') ?? false);
+}
+
+/** The actions of 08's state table, by row. v33 SHARE-6: without `queueEdit`, none of QUEUE_EDIT_ACTIONS. */
+export function rowActions(row: QueueRow, queueEdit = true): QueueAction[] {
+  const actions = stateActions(row);
+  return queueEdit ? actions : actions.filter((action) => !QUEUE_EDIT_ACTIONS.has(action));
+}
+
+/** The actions of 08's state table, by row (every one: the person's own profile). */
+function stateActions(row: QueueRow): QueueAction[] {
   if (row.kind === 'prepare') {
     const { state } = row.item;
     if (isActivePrepareState(state)) return ['cancel'];

@@ -3,9 +3,11 @@ import { createBackgroundGate, WARNING_PAUSE_MS } from '../../../ai/background';
 import { AI_ERROR_MESSAGES, MAX_ACTIVE_PER_USER_KIND, type AiService } from '../../../ai/index';
 import type { RateLimitReading } from '../../../ai/provider/types';
 import { taskInputSql } from '../../../ai/payloads';
+import { constantsOf } from '../../../core/constants/service';
 import { nextDailyResetAt } from '../../../core/constants/day';
 import type { AppDeps } from '../../../core/context';
 import { AppError } from '../../../core/http/errors';
+import { BACKLOG_PAYER_SQL, backlogPayerOf, isAccessEnded } from '../backlog-payer'; // v33 SHARE-3
 import { assertRoomForResumes } from '../repository';
 import { copiesOffMessage, isNoRoom, type CopyErrorCode } from './store';
 
@@ -31,6 +33,12 @@ import { copiesOffMessage, isNoRoom, type CopyErrorCode } from './store';
 // Off when AI is off or the server has no AI service: the rows then wait (GET /api/resumes/copies says why). While AI
 // is off, the timer still settles the copies a previous run left being made: made, or failed with the AI-off sentence
 // (Try again once AI is on). No timer runs before start().
+// v33 SHARE-3 (PLAN F9 "Who pays"; SP v33 PLAN-sharing.md §5 "Resume backlogs"): each row names who pays for its copy
+// (charge_user_id, grant_id; NULL: the owner). "Per account" above is per payer: one copy at a time per payer, the payer
+// served least recently first (B's copies on 10 profiles are one person's turn), and a spent budget holds only the
+// rows that payer pays for (B's on every profile; never A's own). A copy B pays for never takes A's last resume places
+// (SHARING_RESUME_RESERVE). A row whose grant ended, or lost documents:edit, is stopped (endGrant's `backlogs` step
+// stops those waiting; the queue refuses the rest at enqueue and at run). Its owner may Try again, at their own cost.
 
 const MINUTE = 60_000;
 /** A restart or an outage with no AI pause puts a copy back in line; the third time, it fails. */
@@ -88,6 +96,8 @@ interface MakingRow {
   user_id: string;
   task_id: string | null;
   retries: number;
+  /** v33 SHARE-3: who pays (NULL: the owner). */
+  charge_user_id: string | null;
 }
 
 interface CandidateRow {
@@ -95,7 +105,13 @@ interface CandidateRow {
   user_id: string;
   source_resume_id: string;
   template_id: string | null;
+  /** v33 SHARE-3: who pays (NULL: the owner) and under which grant. */
+  charge_user_id: string | null;
+  grant_id: string | null;
 }
+
+/** v33 SHARE-3: who pays for a row's copy (its charge_user_id, else its owner). */
+const payerIdOf = (row: { user_id: string; charge_user_id: string | null }) => row.charge_user_id ?? row.user_id;
 
 /** How a settled copy's row is written (the rest of it is left as it was). */
 interface Outcome {
@@ -131,7 +147,7 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
   const nudge = () => schedule?.(NUDGE_MS);
 
   const sql = {
-    making: "SELECT id, user_id, task_id, retries FROM resume_copy_backlog WHERE state = 'making'",
+    making: "SELECT id, user_id, task_id, retries, charge_user_id FROM resume_copy_backlog WHERE state = 'making'",
     // The line's copies queued or running, from their tasks: one whose upload (and so its row) was deleted meanwhile
     // still runs, and still holds its slot. The mark is JSON true: 1 on SQLite, 'true' on PostgreSQL, as text.
     inFlight:
@@ -140,20 +156,25 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
     // Each account's oldest copy due; the account served least recently first (its last editable copy, from ai_tasks,
     // which the account cannot remove; never served: first), then the oldest copy. The insert order (`seq`, v3.0 PG-E:
     // SQLite's rowid) breaks a tie of created_at.
-    candidates: `SELECT d.id, d.user_id, d.source_resume_id, d.template_id,
-              (SELECT max(t.created_at) FROM ai_tasks t WHERE t.user_id = d.user_id AND t.kind = 'resume_import')
-                AS served
+    // v33 SHARE-3: per payer (coalesce(charge_user_id, user_id)): each payer's oldest copy due, the payer served least
+    // recently first (their last editable copy on any profile); both the owner and the payer enabled.
+    candidates: `SELECT d.id, d.user_id, d.source_resume_id, d.template_id, d.charge_user_id, d.grant_id,
+              (SELECT max(t.created_at) FROM ai_tasks t
+                 WHERE coalesce(t.charge_user_id, t.user_id) = d.payer AND t.kind = 'resume_import') AS served
        FROM (
-         SELECT b.id, b.user_id, b.source_resume_id, b.template_id, b.created_at,
-                row_number() OVER (PARTITION BY b.user_id ORDER BY b.created_at, ${d.seq('b')}) AS place
+         SELECT b.id, b.user_id, b.source_resume_id, b.template_id, b.created_at, b.charge_user_id, b.grant_id,
+                ${BACKLOG_PAYER_SQL('b')} AS payer,
+                row_number() OVER (PARTITION BY ${BACKLOG_PAYER_SQL('b')} ORDER BY b.created_at, ${d.seq('b')}) AS place
          FROM resume_copy_backlog b WHERE b.state = 'waiting' AND b.next_attempt_at <= ?) d
        JOIN users u ON u.id = d.user_id
-       WHERE d.place = 1 AND u.disabled_at IS NULL
+       JOIN users p ON p.id = d.payer
+       WHERE d.place = 1 AND u.disabled_at IS NULL AND p.disabled_at IS NULL
        ORDER BY served NULLS FIRST, d.created_at, d.id
        LIMIT ${CANDIDATES}`,
-    // The account's editable copies queued or running: asked for alone, or from this line.
+    // The payer's editable copies queued or running: asked for alone, or from this line (v33 SHARE-3: by payer).
     userTasks:
-      "SELECT count(*) AS n FROM ai_tasks WHERE user_id = ? AND kind = 'resume_import' " + "AND status IN ('queued', 'running')",
+      "SELECT count(*) AS n FROM ai_tasks WHERE coalesce(charge_user_id, user_id) = ? AND kind = 'resume_import' " +
+      "AND status IN ('queued', 'running')",
     owned: 'SELECT 1 AS ok FROM resumes WHERE id = ? AND user_id = ?',
     // `IS NOT DISTINCT FROM`: the same task, or none on both sides (what SQLite's `IS` said; both engines read this).
     settle: `UPDATE resume_copy_backlog SET state = @state, retries = @retries, next_attempt_at = @next,
@@ -163,12 +184,15 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
        WHERE id = ? AND state = 'waiting'`,
     // v2.0: the person's copies in line wait for the daily reset (their AI usage is used up); never sooner than a
     // later attempt already set. A CASE rather than SQLite's two-argument max(), which PostgreSQL spells greatest().
+    // v33 SHARE-3: the copies that person pays for, on every profile (never the owner's own for someone else's budget).
     deferUsage: `UPDATE resume_copy_backlog
          SET next_attempt_at = CASE WHEN next_attempt_at > @until THEN next_attempt_at ELSE @until END,
            error_code = 'usage', updated_at = @now
-       WHERE user_id = @userId AND state = 'waiting'`,
+       WHERE ${BACKLOG_PAYER_SQL('resume_copy_backlog')} = @userId AND state = 'waiting'`,
     usagePause: `SELECT min(next_attempt_at) AS until FROM resume_copy_backlog
-       WHERE user_id = ? AND state = 'waiting' AND error_code = 'usage' AND next_attempt_at > ?`,
+       WHERE ${BACKLOG_PAYER_SQL('resume_copy_backlog')} = ? AND state = 'waiting' AND error_code = 'usage' AND next_attempt_at > ?`,
+    // v33 SHARE-3: the grant the copy would be paid under ended (or lost documents:edit): the copy stops.
+    accessEnded: `UPDATE resume_copy_backlog SET state = 'stopped', finished_at = ?, updated_at = ? WHERE id = ? AND state = 'waiting'`,
     noRoom: `UPDATE resume_copy_backlog SET state = 'failed', error_code = 'no_room', error_message = ?, finished_at = ?,
          updated_at = ?
        WHERE id = ? AND state = 'waiting'`,
@@ -216,6 +240,11 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
     }
     const code = task.error?.code;
     const message = task.error?.message || AI_ERROR_MESSAGES.failed;
+    // v33 SHARE-3: the grant the copy was paid under ended before it ran: stopped (its owner may Try again).
+    if (code === 'profile_ended' || code === 'profile_not_shared') {
+      await update('stopped');
+      return;
+    }
     // AI was turned off since the copy started (the restart cut off or turned away its task): it is not made while AI
     // is off, and Try again makes it once AI is on.
     if (offMessage && (code === 'interrupted' || code === 'ai_unavailable')) {
@@ -242,9 +271,10 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
         return;
       case 'ai_usage_exhausted': {
         // v2.0: turned away as it was about to run (the person's usage ran out meanwhile): it waits for the daily
-        // reset, uncounted, with the person's other copies.
-        const resetMs = await deferForUsage(row.user_id, nowMs);
-        await update('waiting', { next: resetMs, code: 'usage', message });
+        // reset, uncounted, with the person's other copies. v33 SHARE-3: the payer's (B's full words stay B's).
+        const resetMs = await deferForUsage(payerIdOf(row), nowMs);
+        const words = payerIdOf(row) === row.user_id ? message : constantsOf(deps).message('MSG_RESUME_COPY_PAYER_LIMIT');
+        await update('waiting', { next: resetMs, code: 'usage', message: words });
         return;
       }
       case 'validation_failed':
@@ -280,8 +310,10 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
   async function begin(ai: AiService, row: CandidateRow, nowMs: number): Promise<string | null | 'stop'> {
     const now = iso(nowMs);
     try {
-      // No AI call for a copy the account has no room to keep.
-      await assertRoomForResumes(deps, row.user_id, 1);
+      // v33 SHARE-3: who pays (B under the grant: the queue checks it is still live, at enqueue and at run).
+      const payer = backlogPayerOf(row);
+      // No AI call for a copy the account has no room to keep (v33 SHARE-3: nor one of A's last places for B's copy).
+      await assertRoomForResumes(deps, row.user_id, 1, payer);
       const accepted = await ai.enqueue({
         kind: 'resume_import',
         userId: row.user_id,
@@ -293,6 +325,7 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
           copyLine: true,
         },
         dedupeKey: `resume_import:${row.source_resume_id}`,
+        chargeTo: payer, // v33 SHARE-3
       });
       await db.run(sql.started, [accepted.taskId, now, now, row.id]);
       // Its end starts the account's next copy at once.
@@ -305,8 +338,14 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
         return null;
       }
       if (app?.code === 'ai_usage_exhausted') {
-        // v2.0: this person's copies wait for the daily reset; the next account's copy may start.
-        await deferForUsage(row.user_id, nowMs);
+        // v2.0: this person's copies wait for the daily reset; the next account's copy may start. v33 SHARE-3: the
+        // payer's copies (on every profile).
+        await deferForUsage(payerIdOf(row), nowMs);
+        return null;
+      }
+      if (isAccessEnded(error)) {
+        // v33 SHARE-3: the grant the copy would be paid under ended: it stops (its owner may Try again).
+        await db.run(sql.accessEnded, [now, now, row.id]);
         return null;
       }
       if (app?.code === 'ai_busy') return null;
@@ -341,8 +380,8 @@ export function createResumeCopyBacklog(deps: AppDeps): ResumeCopyBacklog {
     let free = batchSlots - (await count(sql.inFlight));
     if (free <= 0) return started;
     for (const row of await db.all<CandidateRow>(sql.candidates, [iso(nowMs)])) {
-      // One at a time per account: its other place is left to a copy asked for alone.
-      if ((await count(sql.userTasks, [row.user_id])) >= MAX_ACTIVE_PER_USER_KIND - 1) continue;
+      // One at a time per account: its other place is left to a copy asked for alone. v33 SHARE-3: per payer.
+      if ((await count(sql.userTasks, [payerIdOf(row)])) >= MAX_ACTIVE_PER_USER_KIND - 1) continue;
       const taskId = await begin(ai, row, nowMs);
       if (taskId === 'stop') break;
       if (!taskId) continue;

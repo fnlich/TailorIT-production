@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Router, type Request } from 'express';
 import { DocumentsZipBodySchema, IdParam, ResumeZipBodySchema } from '@tailorit/shared';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { payerOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-3: payerOf
 import type { AppDeps } from '../../core/context';
 import { contentDisposition } from '../../core/files/names';
 import { AppError, asyncHandler } from '../../core/http/errors';
@@ -35,13 +35,13 @@ export function createResumeZipRouter(deps: AppDeps): Router {
 
   router.post('/', async (req, res) => {
     const body = parseInput(ResumeZipBodySchema, req.body ?? {}, 'request');
-    res.status(202).json(await serviceOf(deps).start(userOf(req).id, body));
+    res.status(202).json(await serviceOf(deps).start(userOf(req).id, body, payerOf(req))); // v33 SHARE-3: the asker's plan
   });
 
   // v20 P10 (A28): the "documents" source. Its build is polled and downloaded through the routes below.
   router.post('/documents', async (req, res) => {
     const body = parseInput(DocumentsZipBodySchema, req.body ?? {}, 'request');
-    res.status(202).json(await serviceOf(deps).startDocuments(userOf(req).id, body));
+    res.status(202).json(await serviceOf(deps).startDocuments(userOf(req).id, body, payerOf(req))); // v33 SHARE-3
   });
 
   router.get('/:buildId', (req, res) => {

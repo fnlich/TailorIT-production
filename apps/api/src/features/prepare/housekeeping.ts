@@ -1,6 +1,6 @@
 import { constantsOf } from '../../core/constants/index';
 import type { DailyStep } from '../../core/feature';
-import { cancelStaleMcpPrepares } from './service';
+import { cancelStaleGranteeMcpPrepares, cancelStaleMcpPrepares } from './service'; // v33 SHARE-5: the grantee one
 import { DAY_MS } from '@tailorit/shared';
 
 // v30 INT-0: Prepare's steps of the daily housekeeping (Feature.daily; v2.0 ran them in features/account's
@@ -40,5 +40,14 @@ export const cancelAbandonedMcpPrepares: DailyStep = {
   run: (deps) => cancelStaleMcpPrepares(deps),
 };
 
-/** prepareFeature.daily, in the order the v2.0 housekeeping ran them. */
-export const PREPARE_DAILY: readonly DailyStep[] = [prunePrepareJobs, cancelAbandonedMcpPrepares];
+/**
+ * v33 SHARE-5: the own-AI Prepares of shares never taken up within SHARING_MCP_STALE_HOURS, cancelled (the feature's
+ * hourly pass does it too; this one covers a process that was down).
+ */
+export const cancelStaleSharedMcpPrepares: DailyStep = {
+  name: 'staleSharedMcpPrepares',
+  run: (deps) => cancelStaleGranteeMcpPrepares(deps),
+};
+
+/** prepareFeature.daily, in the order the v2.0 housekeeping ran them (v33 SHARE-5's step last). */
+export const PREPARE_DAILY: readonly DailyStep[] = [prunePrepareJobs, cancelAbandonedMcpPrepares, cancelStaleSharedMcpPrepares];

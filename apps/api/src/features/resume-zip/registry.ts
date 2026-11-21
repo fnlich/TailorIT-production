@@ -11,6 +11,7 @@ import {
   type ResumeZipBuild,
 } from '@tailorit/shared';
 import { assertFeature } from '../../core/accounts/entitlements';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
@@ -110,12 +111,12 @@ export interface ResumeZipService {
   /** <DATA_DIR>/resume-zips: one folder per build. */
   readonly root: string;
   /** POST: answers what it can from stored data (400/404/409/413/429), then builds in the background. */
-  start(userId: string, body: ResumeZipBody): Promise<ResumeZipAccepted>;
+  start(userId: string, body: ResumeZipBody, payer: PersonPayer): Promise<ResumeZipAccepted>; // v33 SHARE-3: payer (INT-1: required)
   /**
    * v20 P10 (A28) POST …/documents: the batch download of the selected resumes. 403 `paid_feature` for a plan without
    * batch_download (Free), 400 above BATCH_DOWNLOAD_MAX_RESUMES, 404 when a resume is not the account's; then as `start`.
    */
-  startDocuments(userId: string, body: DocumentsZipBody): Promise<ResumeZipAccepted>;
+  startDocuments(userId: string, body: DocumentsZipBody, payer: PersonPayer): Promise<ResumeZipAccepted>; // v33 SHARE-3: payer (INT-1: required)
   /** GET: the build's progress (404 when it is not the account's, or no longer kept). */
   status(userId: string, buildId: string): ResumeZipBuild;
   /** GET …/file: the ready zip (404 when unknown or failed, 409 while building). */
@@ -281,10 +282,11 @@ export function createResumeZipService(deps: AppDeps, overrides: Partial<ResumeZ
   const service: ResumeZipService = {
     root,
 
-    async start(userId, body) {
+    async start(userId, body, payer) {
       // v2.0 FIX-B (SEC-6, coordinator decision: A28's batch_download covers every multi-resume ZIP): the Tracker's
       // Build resumes is Paid only too, refused by the server with Documents' refusal and words.
-      await assertFeature(deps, userId, 'batch_download');
+      // v33 SHARE-3 (PLAN F9 "Who pays"): the plan of who asks (B's on A's profile: a Free B is refused there too).
+      await assertFeature(deps, payer, 'batch_download');
       const tzOffsetMinutes = body.tzOffsetMinutes ?? 0;
       return begin(
         userId,
@@ -310,9 +312,9 @@ export function createResumeZipService(deps: AppDeps, overrides: Partial<ResumeZ
     },
 
     // v20 P10 (A28): Documents' batch download.
-    async startDocuments(userId, body) {
-      // The plan first: a Free account is refused by the server, never only by the page.
-      await assertFeature(deps, userId, 'batch_download');
+    async startDocuments(userId, body, payer) {
+      // The plan first: a Free account is refused by the server, never only by the page. v33 SHARE-3: the asker's plan.
+      await assertFeature(deps, payer, 'batch_download');
       const max = constantsOf(deps).get('BATCH_DOWNLOAD_MAX_RESUMES');
       // v2.0 FIX-B (REQ-3): the words are the constant's (A18).
       if (body.resumeIds.length > max) throw refuse(deps, 'validation_failed', 'MSG_BATCH_DOWNLOAD_MAX', { max });

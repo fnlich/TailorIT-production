@@ -26,6 +26,7 @@ import { viewOf } from '../pages/views';
 import { sectionLabel } from '../store/actions';
 import type { EditorStore } from '../store/store';
 import { boardOf, columnOrder, dropTarget, type BoardColumnName, type BoardItem, type Drop } from './rearrange';
+import { useEditorField } from '../../roles/EditorField'; // v33 ROLES
 
 // Enhancv's Rearrange: "Hold & Drag the boxes to rearrange the sections". The pages one under another, each drawn as
 // the page itself at a small scale (its margins, its columns at their widths) with the header locked at the top of
@@ -175,6 +176,7 @@ function useSlide(board: RefObject<HTMLElement | null>) {
 
 export function RearrangeDialog({ open, onClose, document, store }: { open: boolean; onClose(): void; document: ResumeDocument; store: EditorStore }) {
   const [measured, setMeasured] = useState<{ plan: PagePlan; heights: Readonly<Record<string, number>> } | null>(null);
+  const wordings = useEditorField().copy.sections; // v33 ROLES: the field's section names ("Skills" for a nurse)
   const [dragging, setDragging] = useState<{ label: string; height: number } | null>(null);
   const spec = RESUME_TEMPLATES[effectiveTemplateId(document)];
   const twoColumns = spec.columns === 2;
@@ -272,7 +274,7 @@ export function RearrangeDialog({ open, onClose, document, store }: { open: bool
                           <SectionBox
                             key={boardKey(item)}
                             item={item}
-                            label={sectionLabel(document, item.ref)}
+                            label={sectionLabel(document, item.ref, wordings)}
                             height={sized(item.height)}
                             twoColumns={twoColumns}
                             onHide={() => store.disableSection(item.ref)}

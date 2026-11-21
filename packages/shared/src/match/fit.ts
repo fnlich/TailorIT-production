@@ -88,6 +88,14 @@ const ROLE_FOLDS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bsite[\s-]+reliability\b/g, 'sre'],
   [/\buser[\s-]+experience\b/g, 'ux'],
   [/\buser[\s-]+interface\b/g, 'ui'],
+  // v33 ROLES (F4): the same role written two ways, outside software too.
+  [/\bregistered[\s-]+nurse\b/g, 'rn'],
+  [/\blicensed[\s-]+(?:practical|vocational)[\s-]+nurse\b/g, 'lpn'],
+  [/\b(?:certified[\s-]+)?nurs(?:e|ing)[\s-]+(?:assistant|aide)\b/g, 'cna'],
+  [/\badmin(?=[\s-]+(?:assistant|coordinator|specialist|support|officer|clerk)\b)/g, 'administrative'],
+  [/\b(?:cdl(?:[\s-]+(?:class[\s-]+)?a)?|tractor[\s-]+trailer|otr|semi)[\s-]+(?:truck[\s-]+)?driver\b/g, 'truck driver'],
+  [/\bwait(?:er|ress|staff)\b/g, 'server'],
+  [/\bcare[\s-]+giver\b/g, 'caregiver'],
 ];
 /** Heads that name one kind of role. */
 const HEAD_ALIASES: ReadonlyMap<string, string> = new Map([
@@ -98,6 +106,20 @@ const HEAD_ALIASES: ReadonlyMap<string, string> = new Map([
   ['swe', 'engineer'],
   ['sde', 'engineer'],
   ['coder', 'engineer'],
+  // v33 ROLES
+  ['rep', 'representative'],
+  ['reps', 'representative'],
+  ['lawyer', 'attorney'],
+  ['doctor', 'physician'],
+  ['educator', 'teacher'],
+  ['carer', 'caregiver'],
+  ['custodian', 'janitor'],
+  ['secretary', 'assistant'],
+]);
+/** v33 ROLES: words that name a role only as a title's last word ("Pharmacy Tech"; "Tech Lead" keeps its own). */
+const LAST_WORD_ALIASES: ReadonlyMap<string, string> = new Map([
+  ['tech', 'technician'],
+  ['techs', 'technician'],
 ]);
 /** Level words: the title part is about the kind of role, the years part about seniority. */
 const LEVEL_WORDS: ReadonlySet<string> = new Set([
@@ -110,6 +132,8 @@ const NOISE_WORDS: ReadonlySet<string> = new Set([
   'and', 'the', 'of', 'for', 'with', 'to', 'a', 'an', 'in', 'at', 'on', 'our', 'remote', 'hybrid', 'onsite', 'contract',
   'contractor', 'temporary', 'temp', 'part', 'full', 'time', 'fulltime', 'parttime', 'permanent', 'us', 'usa',
   'position', 'role', 'opening', 'hiring', 'urgent',
+  // v33 ROLES: shift and schedule words of hourly postings ("Night Shift", "PRN", "Per Diem").
+  'shift', 'night', 'nights', 'weekend', 'weekends', 'prn', 'per', 'diem', 'seasonal', 'hourly',
 ]);
 /** Words after a title's comma, dash or bracket that still say what the role is ("Software Engineer, Backend"). */
 const ROLE_QUALIFIERS: ReadonlySet<string> = new Set([
@@ -118,17 +142,26 @@ const ROLE_QUALIFIERS: ReadonlySet<string> = new Set([
   'growth', 'product', 'design', 'ux', 'ui', 'qa', 'test', 'automation', 'analytics', 'research', 'applied',
   'distributed', 'integration', 'solutions', 'support', 'search', 'identity', 'observability', 'billing', 'game',
   'graphics', 'compiler', 'kernel', 'robotics', 'blockchain',
+  // v33 ROLES: the qualifiers of other fields ("Registered Nurse, ICU", "Teacher, Elementary").
+  'icu', 'er', 'pediatric', 'pediatrics', 'oncology', 'surgical', 'telemetry', 'outpatient', 'inpatient', 'nursing',
+  'medical', 'dental', 'payroll', 'litigation', 'warehouse', 'retail', 'kitchen', 'hvac', 'plumbing', 'construction',
+  'elementary', 'preschool', 'math', 'english',
 ]);
 const ROLE_CUT = /,|\(|\||:|\s[-–—]\s|\s+at\s+|\s+@\s+/;
 const ROLE_TOKEN = /[a-z0-9][a-z0-9+#]*(?:\.[a-z0-9+#]+)*|\.[a-z][a-z0-9]*/g;
 
 function roleTokens(text: string): string[] {
   const out: string[] = [];
-  for (const raw of text.match(ROLE_TOKEN) ?? []) {
-    const word = HEAD_ALIASES.get(raw) ?? raw;
-    if (LEVEL_WORDS.has(word) || NOISE_WORDS.has(word) || /^l\d$/.test(word) || out.includes(word)) continue;
-    out.push(word);
-  }
+  const raws = text.match(ROLE_TOKEN) ?? [];
+  // v33 ROLES: the last word is the role ("Sales Associate", "Pharmacy Tech"), never a level ("Associate Product Manager").
+  const last = raws.length - 1;
+  raws.forEach((raw, at) => {
+    const head = at === last && raws.length > 1;
+    const word = (head ? LAST_WORD_ALIASES.get(raw) : undefined) ?? HEAD_ALIASES.get(raw) ?? raw;
+    const level = LEVEL_WORDS.has(word) && !(head && (word === 'associate' || word === 'associates'));
+    if (level || NOISE_WORDS.has(word) || /^l\d$/.test(word) || out.includes(word)) return;
+    out.push(word === 'associates' ? 'associate' : word);
+  });
   return out;
 }
 

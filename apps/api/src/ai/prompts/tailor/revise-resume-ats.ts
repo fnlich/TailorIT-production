@@ -1,4 +1,5 @@
 import { definePrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { adapt, AnyObjectSchema, BETWEEN_MARKERS, STARTS_WITH_BRACE, tailorPromptParts, type TailorPromptText } from './render';
 
 // v30 ST2: tailor_builder0's revise-resume-ats, moved from features/tailor/prompts/{text,index}.ts. Tailoring's step 5
@@ -57,12 +58,20 @@ export const REVISE_PROMPT: TailorPromptText = {
   sharedVariables: [],
 };
 
+/** v33 PROMPTS (F5): the prompt in a role family's words (the person's); the technical family's is REVISE_PROMPT. */
+export const revisePromptFor = perFamily(
+  (family): TailorPromptText => ({
+    ...REVISE_PROMPT,
+    content: adapt(familyText(REVISE_RESUME_ATS, 'revise-resume-ats', family), 'revise-resume-ats', REVISE_RESUME_ADAPTATIONS),
+  }),
+);
+
 /** revise-resume-ats (step 5, at most twice). */
 export const reviseResumePrompt = definePrompt({
   area: 'tailor',
   name: 'revise-resume-ats',
   version: 1,
   description: "Tailoring's step 5: the smallest edits to a tailored resume that fix the problems its ATS check listed.",
-  ...tailorPromptParts(REVISE_PROMPT, { quotesPosting: false }),
+  ...tailorPromptParts(revisePromptFor, { quotesPosting: false }),
   output: AnyObjectSchema,
 });

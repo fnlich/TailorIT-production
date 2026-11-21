@@ -13,8 +13,8 @@ import { normalizeCompany } from '../../ingest/normalize';
 import { isRefusedPageHost, isSiteHost } from '../../job-reviews/hosts';
 import { sharedAddress } from './address';
 import { legacyHeld } from './held';
-import { noticeVerification } from './notify';
-import { APPROVAL_LOCK, linkRejected, noteUnverified, ownJobsOfLink } from './verification';
+import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
+import { APPROVAL_LOCK, linkRejected, noteUnverified, ownJobsOfLink, type LinkAdder } from './verification'; // v33 SHARE-6: LinkAdder
 import { versionOf } from './versions';
 
 // v32 ADMINAPP (E6, the owner's "In admin review, admin should be able to approve manually"; the coordinator's decision
@@ -327,31 +327,33 @@ export async function publishCapturedIn(
  */
 export async function giveWayToApproved(
   deps: AppDeps,
-  input: { jobId: number; url: string; told: readonly string[]; approvedByAdmin: boolean },
+  input: { jobId: number; url: string; told: readonly LinkAdder[]; approvedByAdmin: boolean },
 ): Promise<number> {
   const key = linkKey(input.url);
   const owners = key ? await ownJobsOfLink(deps.db, key) : [];
+  // v33 SHARE-6: each adder by whose own job it is (`user_id`), told where they added it (linkNoticeTarget).
+  const told = new Map(input.told.map((adder) => [adder.user_id, adder]));
+  const tell = async (adder: LinkAdder, words: { approvedByAdmin?: boolean; publicVersion?: boolean }) => {
+    const target = await linkNoticeTarget(deps, adder);
+    await noticeVerification(deps, { userId: target.userId, profile: target.profile, jobId: input.jobId, state: 'published', ...words });
+  };
   if (input.approvedByAdmin) {
-    for (const userId of [...new Set(input.told)].sort()) {
-      await noticeVerification(deps, { userId, jobId: input.jobId, state: 'published', approvedByAdmin: true });
-    }
-    const others = [...new Set(owners.map((row) => row.user_id).filter((userId) => !input.told.includes(userId)))].sort();
-    for (const userId of others) {
-      await noticeVerification(deps, { userId, jobId: input.jobId, state: 'published', publicVersion: true });
-    }
-    return new Set(input.told).size;
+    for (const userId of [...told.keys()].sort()) await tell(told.get(userId)!, { approvedByAdmin: true });
+    const others = new Map(owners.filter((row) => !told.has(row.user_id)).map((row) => [row.user_id, row] as const));
+    for (const userId of [...others.keys()].sort()) await tell(others.get(userId)!, { publicVersion: true });
+    return told.size;
   }
-  const heard = new Set<string>(input.told);
+  const heard = new Map<string, LinkAdder>(told);
   for (const row of owners) {
     try {
-      if (await upgradeOwnPageJob(deps, row.user_id, Number(row.job_id), input.jobId, { sameLink: true })) heard.add(row.user_id);
+      if (await upgradeOwnPageJob(deps, row.user_id, Number(row.job_id), input.jobId, { sameLink: true })) {
+        if (!heard.has(row.user_id)) heard.set(row.user_id, row);
+      }
     } catch (error) {
       deps.log.warn('[job-links] an own job could not give way to the read job', error instanceof Error ? error.name : 'unknown');
     }
   }
-  for (const userId of [...heard].sort()) {
-    await noticeVerification(deps, { userId, jobId: input.jobId, state: 'published' });
-  }
+  for (const userId of [...heard.keys()].sort()) await tell(heard.get(userId)!, {});
   return heard.size;
 }
 
@@ -385,9 +387,12 @@ export async function approveUnverifiedJob(
     url_key: string;
     user_id: string | null;
     reason: string;
+    added_by: string | null; // v33 SHARE-6
+    grant_id: string | null; // v33 SHARE-6
   }>(
     `SELECT j.owner_user_id, j.active, j.held_since IS NOT NULL AS held, j.unverified_since IS NOT NULL AS out,
-       EXISTS (SELECT 1 FROM job_admin_approvals a WHERE a.job_id = j.id) AS approved, j.superseded_by, v.url, v.url_key, v.user_id, v.reason
+       EXISTS (SELECT 1 FROM job_admin_approvals a WHERE a.job_id = j.id) AS approved, j.superseded_by, v.url, v.url_key, v.user_id, v.reason,
+       v.added_by, v.grant_id
      FROM jobs j JOIN job_verifications v ON v.job_id = j.id WHERE j.id = ?`,
     [jobId],
   );
@@ -467,7 +472,7 @@ export async function approveUnverifiedJob(
     const adders = await giveWayToApproved(deps, {
       jobId: published.jobId,
       url,
-      told: published.joined ? [] : [row.user_id!],
+      told: published.joined ? [] : [{ user_id: row.user_id!, added_by: row.added_by, grant_id: row.grant_id }], // v33 SHARE-6
       approvedByAdmin: published.approved,
     });
     if (published.joined) {

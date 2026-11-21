@@ -30,6 +30,11 @@ export interface ApplicationActions {
    * (POST /api/jobs/:id/verify); absent where the screen has no such action.
    */
   onRetryRead?: (application: ApplicationSummary) => void;
+  /**
+   * v33 SHARE-9: whether the application's profile lets the person change it (the Job Tracker's Change box: Move to stage,
+   * Archive, Restore, the heart, drag and drop); absent: yes (the person's own, or a profile they may change).
+   */
+  canEdit?: (application: ApplicationSummary) => boolean;
 }
 
 /**
@@ -40,6 +45,8 @@ export interface ApplicationActions {
  */
 export function ApplicationMenuItems({ application, actions }: { application: ApplicationSummary; actions: ApplicationActions }) {
   const { t } = usePublicConstants();
+  // v33 SHARE-9: a profile shared to see only keeps Open and the posting; nothing that changes it is offered.
+  const editable = actions.canEdit?.(application) ?? true;
   return (
     <>
       <MenuItem icon={<ArrowsOutSimpleIcon size={16} />} onClick={() => actions.onOpen(application)}>
@@ -64,36 +71,40 @@ export function ApplicationMenuItems({ application, actions }: { application: Ap
           {RETRY_READ_COPY.button}
         </MenuItem>
       )}
-      <MenuSeparator />
-      <MenuSub label={t('LABEL_TRACKER_MOVE_TO_STAGE')} icon={<ArrowsLeftRightIcon size={16} />}>
-        <MenuSubContent width="w-52">
-          <MenuRadioGroup
-            value={String(application.currentStatus)}
-            onValueChange={(value) => actions.onMove(application, Number(value) as ApplicationStatus)}
-          >
-            {APPLICATION_STATUSES.map((status) => (
-              <MenuRadioItem
-                key={status}
-                value={String(status)}
-                icon={<StatusIcon status={status} size={16} />}
-                disabled={status === application.currentStatus}
-                closeOnClick
+      {editable && (
+        <>
+          <MenuSeparator />
+          <MenuSub label={t('LABEL_TRACKER_MOVE_TO_STAGE')} icon={<ArrowsLeftRightIcon size={16} />}>
+            <MenuSubContent width="w-52">
+              <MenuRadioGroup
+                value={String(application.currentStatus)}
+                onValueChange={(value) => actions.onMove(application, Number(value) as ApplicationStatus)}
               >
-                {STATUS_INFO[status].label}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuSubContent>
-      </MenuSub>
-      <MenuSeparator />
-      {application.archivedAt ? (
-        <MenuItem icon={<ArrowCounterClockwiseIcon size={16} />} onClick={() => actions.onRestore(application)}>
-          Restore application
-        </MenuItem>
-      ) : (
-        <MenuItem icon={<ArchiveIcon size={16} />} onClick={() => actions.onArchive(application)}>
-          Archive application
-        </MenuItem>
+                {APPLICATION_STATUSES.map((status) => (
+                  <MenuRadioItem
+                    key={status}
+                    value={String(status)}
+                    icon={<StatusIcon status={status} size={16} />}
+                    disabled={status === application.currentStatus}
+                    closeOnClick
+                  >
+                    {STATUS_INFO[status].label}
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuSubContent>
+          </MenuSub>
+          <MenuSeparator />
+          {application.archivedAt ? (
+            <MenuItem icon={<ArrowCounterClockwiseIcon size={16} />} onClick={() => actions.onRestore(application)}>
+              Restore application
+            </MenuItem>
+          ) : (
+            <MenuItem icon={<ArchiveIcon size={16} />} onClick={() => actions.onArchive(application)}>
+              Archive application
+            </MenuItem>
+          )}
+        </>
       )}
     </>
   );

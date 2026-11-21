@@ -35,6 +35,7 @@ import {
   type ActionMenuItem,
   type DocumentColumn,
 } from '../core';
+import { tabCan, tabDeletes, useTabProfile } from '../../sharing/access'; // v33 FIX-1; FIX-2: tabDeletes
 
 /*
  * Documents › Templates (a table, list only): Name + "Built in" badge + an 80-character preview of the body, Created,
@@ -76,19 +77,28 @@ export function TemplatesTab() {
     }
   };
 
-  const menu = (template: LetterTemplateSummary): ActionMenuItem[] => [
+  // v33 FIX-1 (PLAN-sharing §9): no Duplicate, Delete or selection on a profile shared without Documents' Change. v33
+  // FIX-2: no Delete (nor the selection, which only deletes) on any shared profile (tabDeletes).
+  const tab = useTabProfile();
+  const canEdit = tabCan(tab, 'documents:edit');
+  const canDelete = canEdit && tabDeletes(tab);
+  const menu = (template: LetterTemplateSummary): ActionMenuItem[] => (!canEdit ? [] : [
     { key: 'duplicate', label: 'Duplicate', icon: <CopyIcon size={16} />, onSelect: () => void duplicate(template) },
-    {
-      key: 'delete',
-      label: 'Delete',
-      icon: <TrashIcon size={16} />,
-      tone: 'danger',
-      ruleBefore: true,
-      disabled: template.isSystem,
-      title: template.isSystem ? t('MSG_DOCS_TEMPLATE_BUILT_IN_KEPT') : undefined,
-      onSelect: () => setDeleting(template),
-    },
-  ];
+    ...(canDelete
+      ? [
+          {
+            key: 'delete',
+            label: 'Delete',
+            icon: <TrashIcon size={16} />,
+            tone: 'danger' as const,
+            ruleBefore: true,
+            disabled: template.isSystem,
+            title: template.isSystem ? t('MSG_DOCS_TEMPLATE_BUILT_IN_KEPT') : undefined,
+            onSelect: () => setDeleting(template),
+          },
+        ]
+      : []),
+  ]);
 
   const columns: DocumentColumn<LetterTemplateSummary>[] = [
     {
@@ -132,13 +142,13 @@ export function TemplatesTab() {
         renderActions={(template) => (
           <TableRowActions label={template.name} editHref={`/cover-letter-template/${template.id}`} menuItems={menu(template)} />
         )}
-        selectable
+        selectable={canDelete}
         isSelectable={(template) => !template.isSystem}
         bulkDeleteNote={(selected) => {
           const system = selected.filter((template) => template.isSystem).length;
           return system ? t('MSG_DOCS_TEMPLATES_SKIPPED', { count: system }) : null;
         }}
-        onBulkDelete={async (ids) => {
+        onBulkDelete={!canDelete ? undefined : async (ids) => {
           const { deleted } = await bulkDeleteTemplates(ids);
           await refresh();
           toast.success(`Deleted ${deleted} ${deleted === 1 ? 'template' : 'templates'}`);

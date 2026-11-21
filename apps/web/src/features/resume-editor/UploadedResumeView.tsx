@@ -16,6 +16,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { aiUsedUpLimit, limitOfTaskError, useAiUsedUp, useLimitDialog } from '@/components/limits';
 import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
+import { profileUrl } from '@/lib/profile';
 import { useAiTask } from '@/lib/useAiTask';
 import { ResumeThumb } from '@/features/documents/resumes/ResumeThumb';
 import {
@@ -31,6 +32,7 @@ import {
 import { invalidateResumes, putResumeInList } from './cache';
 import { downloadFrom } from './files';
 import { ResumeAnalysisPanel } from './ResumeAnalysisPanel';
+import { useChangeAccess } from '../sharing/access'; // v33 FIX-1
 
 function sizeText(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -56,6 +58,8 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
   const limits = useLimitDialog();
   const usedUp = useAiUsedUp();
   const { t } = usePublicConstants();
+  // v33 FIX-1 (PLAN-sharing §9): on a profile shared without Documents' Change, no Rename or editable copy (refused).
+  const canEdit = useChangeAccess('documents:edit').change;
   const taskLimit = taskId && task.isFailed ? limitOfTaskError(task.task?.error) : null;
   const shownLimitFor = useRef<string | null>(null);
   useEffect(() => {
@@ -98,7 +102,7 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
       <EditorBar
         name={title}
         documentsHref={RESUMES_TAB_HREF}
-        onRename={async (name) => {
+        onRename={!canEdit ? undefined : async (name) => {
           const saved = await renameResume(resume.id, name);
           setTitle(name);
           putResumeInList(queryClient, saved.summary);
@@ -130,10 +134,12 @@ export function UploadedResumeView({ resume }: { resume: ResumeView }) {
               </p>
             )}
             <div className="mt-6 flex flex-wrap gap-3">
-              <Button onClick={() => void makeCopy()} disabled={running} icon={running ? <Spinner size={16} /> : <SparkleIcon size={16} weight="fill" />}>
-                {running ? 'Making an editable copy...' : 'Make an editable copy'}
-              </Button>
-              <a href={resumeFileHref(resume.id, true)} target="_blank" rel="noopener" className={buttonClasses({ variant: 'outline' })}>
+              {canEdit && (
+                <Button onClick={() => void makeCopy()} disabled={running} icon={running ? <Spinner size={16} /> : <SparkleIcon size={16} weight="fill" />}>
+                  {running ? 'Making an editable copy...' : 'Make an editable copy'}
+                </Button>
+              )}
+              <a href={profileUrl(resumeFileHref(resume.id, true))} target="_blank" rel="noopener" className={buttonClasses({ variant: 'outline' })}>
                 <ArrowSquareOutIcon size={16} />
                 Open the file
               </a>

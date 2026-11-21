@@ -1,11 +1,8 @@
 import {
-  BOARD_COLUMN_ORDER,
-  DISPLAY_STATUS_DRAFT,
-  STATUS,
+  APPLICATION_STATUSES,
   type ApplicationStatus,
   type ApplicationSummary,
   type BoardColumn,
-  type DisplayStatus,
   type EmploymentType,
   type SortOrder,
   type TrackerSort,
@@ -16,7 +13,6 @@ import { validationFailed } from '../../core/http/errors';
 import {
   APPLICATION_COLUMNS,
   APPLICATION_FROM,
-  LIVE_QUEUE_ROW_AT_SQL,
   loadEventsFor,
   toSummary,
   type ApplicationRow,
@@ -173,7 +169,7 @@ export function keyValues(text: string, sort: TrackerSort): string[] {
 }
 
 /** The read a cursor belongs to. */
-export function cursorScope(spec: SortSpec, column?: DisplayStatus): string {
+export function cursorScope(spec: SortSpec, column?: ApplicationStatus): string {
   return `${spec.sort}:${spec.order}${column === undefined ? '' : `:${column}`}`;
 }
 
@@ -246,24 +242,16 @@ export function allApplicationRows(db: DbQueries, where: Fragment, spec: SortSpe
   );
 }
 
-/**
- * The cards of one board column: a stored status, Saved without a live queue row, or (v20 A30) Draft, the Saved entries
- * whose job has a live queue row.
- */
-function withStatus(where: Fragment, status: DisplayStatus): Fragment {
-  if (status === DISPLAY_STATUS_DRAFT) {
-    return { sql: `${where.sql} AND a.current_status = ? AND ${LIVE_QUEUE_ROW_AT_SQL} IS NOT NULL`, params: [...where.params, STATUS.saved] };
-  }
-  if (status === STATUS.saved) {
-    return { sql: `${where.sql} AND a.current_status = ? AND ${LIVE_QUEUE_ROW_AT_SQL} IS NULL`, params: [...where.params, status] };
-  }
+/** The cards of one board column: its stored status (v33 TRACKER, F1: a Saved entry in the queue stays in Saved). */
+function withStatus(where: Fragment, status: ApplicationStatus): Fragment {
   return { sql: `${where.sql} AND a.current_status = ?`, params: [...where.params, status] };
 }
 
 /**
  * The board: one column per status with its total under the filter and its first page (or, with `only`, that one
- * column from `cursor`). A status the filter leaves out is an empty column. v20 A30: the columns are BOARD_COLUMN_ORDER,
- * Draft (`'draft'`, the Saved entries whose job has a live queue row) right after Saved, which then holds the others.
+ * column from `cursor`). A status the filter leaves out is an empty column. v33 TRACKER (F1, "No Draft lane"): the
+ * columns are the stored statuses, in APPLICATION_STATUSES' order; a Saved entry whose job has a live queue row is a
+ * Saved card that carries the Draft mark (its `queued`), no longer a column of its own.
  */
 export async function boardColumns(
   db: DbQueries,
@@ -271,23 +259,17 @@ export async function boardColumns(
   filter: ApplicationFilter,
   spec: SortSpec,
   limit: number,
-  only?: { status: DisplayStatus; cursor?: string },
+  only?: { status: ApplicationStatus; cursor?: string },
 ): Promise<BoardColumn[]> {
   const where = filterClause(db.dialect, userId, filter);
-  const totals = new Map<DisplayStatus, number>();
-  // Each card's column as text on both engines ('draft', or the status's number): one CASE answers one type.
-  const rows = await db.all<{ status: string; n: number }>(
-    `SELECT CASE WHEN a.current_status = ${STATUS.saved} AND ${LIVE_QUEUE_ROW_AT_SQL} IS NOT NULL THEN 'draft'
-              ELSE CAST(a.current_status AS TEXT) END AS status, COUNT(*) AS n
-     FROM applications a WHERE ${where.sql} GROUP BY 1`,
+  const totals = new Map<ApplicationStatus, number>();
+  const rows = await db.all<{ status: number; n: number }>(
+    `SELECT a.current_status AS status, COUNT(*) AS n FROM applications a WHERE ${where.sql} GROUP BY a.current_status`,
     where.params,
   );
-  for (const row of rows) {
-    const status: DisplayStatus = row.status === DISPLAY_STATUS_DRAFT ? DISPLAY_STATUS_DRAFT : (Number(row.status) as ApplicationStatus);
-    totals.set(status, row.n);
-  }
+  for (const row of rows) totals.set(Number(row.status) as ApplicationStatus, Number(row.n));
 
-  const statuses = only ? [only.status] : BOARD_COLUMN_ORDER;
+  const statuses = only ? [only.status] : APPLICATION_STATUSES;
   const columns: BoardColumn[] = [];
   for (const status of statuses) {
     const total = totals.get(status) ?? 0;

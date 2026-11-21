@@ -15,9 +15,11 @@ import {
   type PrepareStartRequest,
   type PrepareStartResponse,
 } from '@tailorit/shared/prepare';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-8
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
+import type { PrepareService } from '../../core/seams'; // v33 INT-D (SHARE-8's seam edit)
 import { readAutofillProfile } from '../autofill/profile/repository';
 import { decideLetter } from '../prepare/kit';
 import {
@@ -37,6 +39,11 @@ import {
 // INT: the draft functions are v1.5's names in features/prepare/service.ts; if P2 renames them, this file alone changes.
 // v3.0 D2: every method answers a promise (its reads go through the async client). The prepare service's functions are
 // awaited whether they are async yet or not (features/prepare converts them: D2-F), so this file needs no change then.
+// v33 SHARE-8 (PLAN-sharing.md §7 "Handles"; SHARE-5's edit 7): the caller's own AI works only on the MCP Prepares the
+// caller started (prepare_jobs.started_by, `startedBy` below), on whichever profile: the list, the saves, the finish and
+// a cancel name them. A start on another person's profile is the caller's, paid under the grant
+// (payerOfGrant(grant, 'mcp')), its reasons masked without `sensitive:view` (the viewer); the service checks the grant
+// is live, the owner's and the caller's, with `prepare:run` and `mcp`.
 
 /** A kit's parts as the MCP tools read them (P2's draft view). */
 export interface DraftParts {
@@ -61,6 +68,8 @@ export interface McpPrepare {
   /** The resume it chose (the default, the most similar, or the tailored one once made); null until chosen. */
   resumeId: string | null;
   createdAt: string;
+  /** v33 SHARE-8: who started it (prepare_jobs.started_by: the owner's own, or someone the profile is shared with). */
+  startedBy: string;
 }
 
 /** A job waiting for the person's own AI (prepare_queue's row). */
@@ -86,16 +95,26 @@ export interface Finished {
   queueFull: boolean;
 }
 
+/** v33 SHARE-8: who starts an MCP Prepare and pays (the caller), and what its answer may show. */
+export interface McpStartOptions {
+  payer: PersonPayer;
+  viewer: { sensitive: boolean };
+}
+
 export interface PrepareAdapter {
-  /** The person's `mcp` Prepares waiting for their AI, oldest first, whose entries are still at Saved. */
-  waiting(deps: AppDeps, userId: string): Promise<WaitingJob[]>;
-  /** The application's active Prepare (either mode), or null. */
+  /**
+   * The person's `mcp` Prepares waiting for their AI, oldest first, whose entries are still at Saved. v33 SHARE-8: those
+   * `startedBy` started (the caller's own AI's).
+   */
+  waiting(deps: AppDeps, userId: string, startedBy: string): Promise<WaitingJob[]>;
+  /** The application's active Prepare (either mode, anyone's: McpPrepare.startedBy says whose), or null. */
   active(deps: AppDeps, userId: string, applicationId: string): Promise<McpPrepare | null>;
   /** prepare_start: P2's startPrepare in mode `mcp` (its checks; no AI check, since no server AI runs). */
-  start(deps: AppDeps, userId: string, request: PrepareStartRequest): Promise<PrepareStartResponse>;
-  /** Queues the application's `mcp` Prepare when its required parts are ready (P2's finishIfComplete). */
-  finish(deps: AppDeps, userId: string, applicationId: string): Promise<Finished>;
-  cancel(deps: AppDeps, userId: string, prepareId: string): Promise<void>;
+  start(deps: AppDeps, userId: string, request: PrepareStartRequest, options: McpStartOptions): Promise<PrepareStartResponse>;
+  /** Queues the application's `mcp` Prepare `startedBy` started when its required parts are ready (finishIfComplete). */
+  finish(deps: AppDeps, userId: string, applicationId: string, startedBy: string): Promise<Finished>;
+  /** v33 SHARE-8: `actorId` (the caller) cancels only a Prepare they started on someone else's profile. */
+  cancel(deps: AppDeps, userId: string, prepareId: string, actorId: string): Promise<void>;
   /** The person's resume mode (user_settings.prepare_resume_mode; the constant's default without a row). */
   resumeMode(deps: AppDeps, userId: string): Promise<PrepareResumeMode>;
   /** Whether a letter is made for the job, and why (the Prepare's letter mode, else the profile's). */
@@ -107,23 +126,27 @@ export interface PrepareAdapter {
   ): Promise<{ wanted: boolean; reason: LetterReason }>;
   draft(deps: AppDeps, userId: string, applicationId: string): Promise<DraftParts | null>;
   questions(deps: AppDeps, userId: string, applicationId: string): Promise<DraftQuestion[]>;
+  // v33 SHARE-8: each save names `startedBy` (the caller): only a Prepare they started takes it (SHARE-5's McpSaveOptions).
   saveResume(
     deps: AppDeps,
     userId: string,
     applicationId: string,
     input: { document: ResumeDocument; sourceResumeId: string; title?: string },
+    startedBy: string,
   ): Promise<{ resumeId: string }>;
   saveLetter(
     deps: AppDeps,
     userId: string,
     applicationId: string,
     input: { paragraphs: string[] },
+    startedBy: string,
   ): Promise<{ coverLetterId: string }>;
   saveAnswers(
     deps: AppDeps,
     userId: string,
     applicationId: string,
     answers: ReadonlyArray<{ questionId: number; answer: AutofillSubmittedAnswerValue | null }>,
+    startedBy: string,
   ): Promise<{ kept: number; ready: number; refused: Array<{ questionId: number; reason: DraftAnswerRefusal }> }>;
   mark(
     deps: AppDeps,
@@ -131,7 +154,8 @@ export interface PrepareAdapter {
     applicationId: string,
     status: 'failed' | 'skipped',
     reason: string,
-    part?: 'resume' | 'letter' | 'answers' | 'all',
+    part: 'resume' | 'letter' | 'answers' | 'all' | undefined,
+    startedBy: string,
   ): Promise<void>;
 }
 
@@ -146,10 +170,11 @@ interface PrepareRow {
   resume_mode: PrepareResumeMode;
   resume_id: string | null;
   created_at: string;
+  started_by: string;
 }
 
 const PREPARE_COLUMNS = `p.id, p.application_id, p.job_id, p.mode, p.state, p.letter_mode, p.letter_wanted, p.resume_mode,
-  p.resume_id, p.created_at`;
+  p.resume_id, p.created_at, p.started_by`;
 const ACTIVE = `(${PREPARE_ACTIVE_STATES.map((state) => `'${state}'`).join(', ')})`;
 
 const prepareOf = (row: PrepareRow): McpPrepare => ({
@@ -164,10 +189,14 @@ const prepareOf = (row: PrepareRow): McpPrepare => ({
   resumeMode: row.resume_mode,
   resumeId: row.resume_id,
   createdAt: row.created_at,
+  startedBy: row.started_by, // v33 SHARE-8 (NOT NULL since 0049)
 });
 
-/** P2's service; refused plainly while a server has none (a build before INT wires it). */
-function service(deps: AppDeps) {
+/**
+ * P2's service; refused plainly while a server has none (a build before INT wires it). v33 INT-D: core/seams.ts'
+ * PrepareService takes the v3.3 options of cancel and finishIfComplete (SHARE-8's seam edit): no cast.
+ */
+function service(deps: AppDeps): PrepareService {
   const prepare = deps.services.prepare;
   if (!prepare) throw new AppError('internal', 'Prepare & Queue is not available on this TailorIT server.');
   return prepare;
@@ -177,14 +206,14 @@ const isResumeMode = (value: unknown): value is PrepareResumeMode =>
   (PREPARE_RESUME_MODES as readonly unknown[]).includes(value);
 
 export const prepareService: PrepareAdapter = {
-  async waiting(deps, userId) {
+  async waiting(deps, userId, startedBy) {
     const rows = await deps.db.all<PrepareRow & { title: string; company_name: string }>(
       `SELECT ${PREPARE_COLUMNS}, a.title, a.company_name FROM prepare_jobs p
          JOIN applications a ON a.id = p.application_id AND a.user_id = p.user_id
         WHERE p.user_id = ? AND p.mode = 'mcp' AND p.state IN ${ACTIVE} AND p.job_id IS NOT NULL
-          AND a.current_status = ? AND a.archived_at IS NULL
+          AND p.started_by = ? AND a.current_status = ? AND a.archived_at IS NULL
         ORDER BY p.created_at, p.id`,
-      [userId, STATUS.saved],
+      [userId, startedBy, STATUS.saved],
     );
     const jobs: WaitingJob[] = [];
     for (const row of rows) {
@@ -208,17 +237,19 @@ export const prepareService: PrepareAdapter = {
     return row ? prepareOf(row) : null;
   },
 
-  async start(deps, userId, request) {
-    return await service(deps).startPrepare(userId, request, 'mcp');
+  async start(deps, userId, request, options) {
+    // v33 SHARE-5 (the review's decision 4: the seam takes the payer) and SHARE-8: the caller pays (their own on their
+    // profile; payerOfGrant(grant, 'mcp') on a shared one, profiles.ts), the reasons as the caller may see them.
+    return await service(deps).startPrepare(userId, request, 'mcp', { payer: options.payer, viewer: options.viewer });
   },
 
-  async finish(deps, userId, applicationId) {
-    const finished = await service(deps).finishIfComplete(userId, applicationId);
+  async finish(deps, userId, applicationId, startedBy) {
+    const finished = await service(deps).finishIfComplete(userId, applicationId, { startedBy });
     return { queued: finished?.state === 'queued', queueFull: finished?.queueFull === true };
   },
 
-  async cancel(deps, userId, prepareId) {
-    await service(deps).cancel(userId, prepareId);
+  async cancel(deps, userId, prepareId, actorId) {
+    await service(deps).cancel(userId, prepareId, { actorId });
   },
 
   async resumeMode(deps, userId) {
@@ -258,20 +289,20 @@ export const prepareService: PrepareAdapter = {
     return (await draftQuestions(deps, userId, applicationId)).questions;
   },
 
-  async saveResume(deps, userId, applicationId, input) {
-    return await saveDraftResume(deps, userId, applicationId, input, 'mcp');
+  async saveResume(deps, userId, applicationId, input, startedBy) {
+    return await saveDraftResume(deps, userId, applicationId, input, 'mcp', { startedBy });
   },
 
-  async saveLetter(deps, userId, applicationId, input) {
-    return await saveDraftLetter(deps, userId, applicationId, input, 'mcp');
+  async saveLetter(deps, userId, applicationId, input, startedBy) {
+    return await saveDraftLetter(deps, userId, applicationId, input, 'mcp', { startedBy });
   },
 
-  async saveAnswers(deps, userId, applicationId, answers) {
-    const saved = await saveDraftAnswers(deps, userId, applicationId, answers, 'mcp');
+  async saveAnswers(deps, userId, applicationId, answers, startedBy) {
+    const saved = await saveDraftAnswers(deps, userId, applicationId, answers, 'mcp', { startedBy });
     return { kept: saved.kept, ready: saved.ready, refused: saved.refused.map(({ questionId, reason }) => ({ questionId, reason })) };
   },
 
-  async mark(deps, userId, applicationId, status, reason, part = 'all') {
-    await markDraft(deps, userId, applicationId, { part, status, error: reason });
+  async mark(deps, userId, applicationId, status, reason, part = 'all', startedBy) {
+    await markDraft(deps, userId, applicationId, { part, status, error: reason }, { startedBy });
   },
 };

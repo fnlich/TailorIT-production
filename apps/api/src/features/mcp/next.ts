@@ -24,9 +24,14 @@ export type PrepareStep = (typeof PREPARE_STEPS)[number];
 /** The most jobs one write_answers prompt (and one prepare_save_answers call) takes. */
 export const ANSWER_BATCH_JOBS = 3;
 
+// v33 SHARE-8 (PLAN-sharing.md §7): once the caller works on more than one profile, every next call names its profile
+// (`hint`: "me" or the key; null keeps the one-profile words).
+/** A call's job argument, with the profile it works on when the caller has more than one. */
+export const jobArg = (jobId: number, hint: string | null = null) => `"jobId": ${jobId}${hint ? `, "profile": "${hint}"` : ''}`;
+
 /** The tool call that gets a step's prompt for a job. */
-export const promptCall = (jobId: number, step: PrepareStep) =>
-  `prepare_prompt with {"jobId": ${jobId}, "step": "${step}"}`;
+export const promptCall = (jobId: number, step: PrepareStep, hint: string | null = null) =>
+  `prepare_prompt with {${jobArg(jobId, hint)}, "step": "${step}"}`;
 
 const OWN = {
   analysis:
@@ -72,19 +77,27 @@ const isOpen = (status: DraftParts['resumeStatus'] | undefined) => status === un
 /** A wanted letter still to write: anything but ready (an `off` letter that is now wanted is written too). */
 const letterOpen = (status: DraftParts['letterStatus'] | undefined) => status !== 'ready' && status !== 'skipped';
 
-/** The application's active Prepare when it is the person's AI's (mode `mcp`). */
+/**
+ * The application's active Prepare when it is the person's AI's (mode `mcp`). v33 SHARE-8 (PLAN-sharing.md §7): and the
+ * caller started it (started_by): another person's AI's Prepare of the job is never this AI's to save into.
+ */
 export async function mcpPrepareOf(ctx: SaveContext, applicationId: string): Promise<McpPrepare | null> {
   const prepare = await ctx.prepare.active(ctx.deps, ctx.userId, applicationId);
-  return prepare?.mode === 'mcp' ? prepare : null;
+  return prepare?.mode === 'mcp' && prepare.startedBy === ctx.caller.id ? prepare : null;
 }
 
 /** The call after a job is done: the next job waiting for the person's AI, else the end of the queue. */
 export async function nextJob(ctx: SaveContext, jobId: number): Promise<string> {
-  const others = (await ctx.prepare.waiting(ctx.deps, ctx.userId)).filter((job) => job.jobId !== jobId);
+  const others = (await ctx.prepare.waiting(ctx.deps, ctx.userId, ctx.caller.id)).filter((job) => job.jobId !== jobId);
   const next = others[0];
+  // v33 SHARE-8: on several profiles, the queue across them says what is left.
+  if (!next && ctx.hint) {
+    return 'This job is done. Call prepare_queue for the jobs still waiting on every profile; when none is left, tell ' +
+      'the person how many jobs were prepared and queued on each profile, and which failed and why.';
+  }
   return next
     ? `This job is done (${others.length} job${others.length === 1 ? '' : 's'} left). Next job: call ` +
-        `prepare_job_context with {"jobId": ${next.jobId}}.`
+        `prepare_job_context with {${jobArg(next.jobId, ctx.hint)}}.`
     : 'This job is done and no other job waits for your AI: tell the person how many jobs were prepared and ' +
         'queued, and which failed and why.';
 }
@@ -125,9 +138,9 @@ export async function finishIfDone(ctx: SaveContext, job: McpJob): Promise<Finis
   if (!prepare) return { queued: false, queueFull: false };
   const state = await kitState(ctx, job, prepare);
   if (state.resumeDone && state.letter.done && state.openQuestions === 0 && isOpen(state.parts?.answersStatus)) {
-    await ctx.prepare.saveAnswers(ctx.deps, ctx.userId, job.applicationId, []);
+    await ctx.prepare.saveAnswers(ctx.deps, ctx.userId, job.applicationId, [], ctx.caller.id);
   }
-  return ctx.prepare.finish(ctx.deps, ctx.userId, job.applicationId);
+  return ctx.prepare.finish(ctx.deps, ctx.userId, job.applicationId, ctx.caller.id);
 }
 
 /** The next call after a save: the next job once this one is finished (queued, or kept prepared), else its next step. */
@@ -152,72 +165,76 @@ export function finishedView(finished: Finished): { queued: boolean; queueFull?:
 export async function nextStep(ctx: SaveContext, job: McpJob, mode: McpPromptMode): Promise<string> {
   const { deps, userId } = ctx;
   const { jobId } = job;
+  const hint = ctx.hint;
   const prepare = await mcpPrepareOf(ctx, job.applicationId);
   if (!prepare) {
-    return (await ctx.prepare.active(deps, userId, job.applicationId))
+    const active = await ctx.prepare.active(deps, userId, job.applicationId);
+    // v33 SHARE-8: another person's AI (the owner's own, or someone else they shared the profile with) may hold it.
+    if (active?.mode === 'mcp') return "Another person's AI is preparing this job now: there is nothing for your AI to do on it.";
+    return active
       ? "TailorIT's own AI is preparing this job now: there is nothing for your AI to do on it."
-      : `This job is not being prepared for your AI. To prepare it: filter_jobs {"jobIds": [${jobId}]}, then ` +
+      : `This job is not being prepared for your AI. To prepare it: filter_jobs {"jobIds": [${jobId}]${hint ? `, "profile": "${hint}"` : ''}}, then ` +
           'prepare_start with its runId.';
   }
   const state = await kitState(ctx, job, prepare);
   if (!state.resumeDone) {
     if (!readableForAi(job.posting)) {
-      return `Next: call prepare_mark with {"jobId": ${jobId}, "part": "resume", "status": "skipped", "reason": "The ` +
+      return `Next: call prepare_mark with {${jobArg(jobId, hint)}, "part": "resume", "status": "skipped", "reason": "The ` +
         'posting has too little text to tailor a resume to."}.';
     }
     if (!(await heldAnalysis(deps, userId, job))) {
       return mode === 'own-prompt'
-        ? `Next: analyze the posting with your own prompt (prepare_job_context {"jobId": ${jobId}, ` +
-            `"includePosting": true}) and save it with prepare_save_analysis {"jobId": ${jobId}, "analysis": ` +
+        ? `Next: analyze the posting with your own prompt (prepare_job_context {${jobArg(jobId, hint)}, ` +
+            `"includePosting": true}) and save it with prepare_save_analysis {${jobArg(jobId, hint)}, "analysis": ` +
             `${OWN.analysis}}.`
-        : `Next: call ${promptCall(jobId, 'analyze')}, write its JSON and save it with prepare_save_analysis as ` +
+        : `Next: call ${promptCall(jobId, 'analyze', hint)}, write its JSON and save it with prepare_save_analysis as ` +
             '"analysis".';
     }
-    return nextTailor(jobId, mode);
+    return nextTailor(jobId, mode, hint);
   }
   if (!state.letter.done) {
     return mode === 'own-prompt'
       ? `Next: write the cover letter from the job's resume (prepare_job_context "includeResume": true) with your own ` +
-          `prompt and save it with prepare_save_cover_letter {"jobId": ${jobId}, ${OWN.letter}}.`
-      : `Next: call ${promptCall(jobId, 'write_cover_letter')}, write the letter and save its paragraphs with ` +
+          `prompt and save it with prepare_save_cover_letter {${jobArg(jobId, hint)}, ${OWN.letter}}.`
+      : `Next: call ${promptCall(jobId, 'write_cover_letter', hint)}, write the letter and save its paragraphs with ` +
           'prepare_save_cover_letter.';
   }
   if (!state.answersDone) {
     return mode === 'own-prompt'
       ? 'Next: answer the questions prepare_job_context lists (with "includeResume": true for the facts of the job\'s ' +
-          `resume) and save them with prepare_save_answers {"jobId": ${jobId}, "answers": [{"questionId", "answer"}]}, ` +
+          `resume) and save them with prepare_save_answers {${jobArg(jobId, hint)}, "answers": [{"questionId", "answer"}]}, ` +
           'in one call.'
-      : `Next: call ${promptCall(jobId, 'write_answers')}, answer what the facts support and save the answers with ` +
+      : `Next: call ${promptCall(jobId, 'write_answers', hint)}, answer what the facts support and save the answers with ` +
           'prepare_save_answers, in one call.';
   }
   return nextJob(ctx, jobId);
 }
 
 /** The tailor step. */
-export function nextTailor(jobId: number, mode: McpPromptMode): string {
+export function nextTailor(jobId: number, mode: McpPromptMode, hint: string | null = null): string {
   return mode === 'own-prompt'
-    ? `Next: write the tailored resume with your own prompt (prepare_job_context {"jobId": ${jobId}, ` +
+    ? `Next: write the tailored resume with your own prompt (prepare_job_context {${jobArg(jobId, hint)}, ` +
         `"includeResume": true} gives the resume and the keyword plan) and save it with prepare_save_resume as ` +
         `"resume": ${OWN.resume}.`
-    : `Next: call ${promptCall(jobId, 'tailor')}, write the resume JSON it asks for and save it with ` +
+    : `Next: call ${promptCall(jobId, 'tailor', hint)}, write the resume JSON it asks for and save it with ` +
         'prepare_save_resume as "resume".';
 }
 
 /** After the analyze step's save. */
-export function nextAfterAnalysis(jobId: number, mode: McpPromptMode): string {
+export function nextAfterAnalysis(jobId: number, mode: McpPromptMode, hint: string | null = null): string {
   return mode === 'own-prompt'
     ? `Next: check the posting for keywords the analysis missed and save them with prepare_save_analysis ` +
-        `{"jobId": ${jobId}, "missing": [...]} (the same rows; [] when nothing is missing).`
-    : `Next: call ${promptCall(jobId, 'review')}, write its JSON and save its "missing" array with ` +
+        `{${jobArg(jobId, hint)}, "missing": [...]} (the same rows; [] when nothing is missing).`
+    : `Next: call ${promptCall(jobId, 'review', hint)}, write its JSON and save its "missing" array with ` +
         'prepare_save_analysis as "missing" (an empty array when nothing is missing).';
 }
 
 /** After a resume save at `round` (1 is the tailor step's) that answers "revise": true. */
-export function nextRevision(jobId: number, round: number, rounds: number, mode: McpPromptMode): string {
+export function nextRevision(jobId: number, round: number, rounds: number, mode: McpPromptMode, hint: string | null = null): string {
   const used = `${round - 1} of ${rounds} revision round${rounds === 1 ? '' : 's'} used`;
   return mode === 'own-prompt'
     ? `Required while "revise" is true (${used}): fix the issues above with your own prompt and save with ` +
         `prepare_save_resume as "revision": ${OWN.revision}.`
-    : `Required while "revise" is true (${used}): call ${promptCall(jobId, 'revise')}, write the edits it asks for ` +
+    : `Required while "revise" is true (${used}): call ${promptCall(jobId, 'revise', hint)}, write the edits it asks for ` +
         'and save them with prepare_save_resume as "revision". The prompt lists the issues above.';
 }

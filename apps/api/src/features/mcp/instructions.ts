@@ -1,6 +1,8 @@
 import type { AppDeps } from '../../core/context';
-import { instructionsText } from '../../ai/prompts/mcp/instructions';
+import { heldGrants, type LiveGrant } from '../../core/auth/grants';
+import { instructionsText, PROFILE_ALLOWS, type InstructionProfile } from '../../ai/prompts/mcp/instructions';
 import { mcpSettings, mcpSettingsChangedAt } from './settings';
+import { firstNameOf } from './profiles';
 
 // v30 ST2: the instructions' words (DEFAULT_MCP_INSTRUCTIONS, the <person> fence, the step preferences) are in the
 // prompt catalogue (ai/prompts/mcp/instructions.ts, person-block.ts, step-preferences.ts); this file serves them.
@@ -12,10 +14,30 @@ import { mcpSettings, mcpSettingsChangedAt } from './settings';
 // The custom text cannot change what the server allows: prepare_start runs the saved filters again, and every limit is
 // checked by the service a tool calls. DECISIONS A29 adds R7: the letter and the answers agree with the resume the
 // person's mode chose, which the AI never replaces.
+// v33 SHARE-8 (PLAN-sharing.md §7 "Instructions v3"): the CALLER's (the token's person's) instructions, with the
+// PROFILES list of the live grants that let their AI in (reachableProfiles with `mcp`). Only the caller's custom
+// instructions are ever sent, never a profile owner's. The pointer also fires when a grant of the caller's changed
+// (profile_grants.changed_at: shared, boxes changed, ended) after the token's last read.
 
-/** The account's instructions as the server and the tool `instructions` serve them. */
-export async function instructionsFor(deps: Pick<AppDeps, 'db'>, userId: string): Promise<string> {
-  return instructionsText((await mcpSettings(deps, userId)).customInstructions);
+/** A grant as the PROFILES list shows it: its key, its owner's first name, what it lets the AI do. */
+export function instructionProfileOf(grant: LiveGrant): InstructionProfile {
+  return {
+    key: grant.id,
+    name: firstNameOf(grant.owner.name, 'Owner'),
+    allows: PROFILE_ALLOWS.filter(([perm]) => (grant.permissions as readonly string[]).includes(perm)).map(([, words]) => words),
+  };
+}
+
+/** The caller's instructions as the server and the tool `instructions` serve them, with the profiles `grants` share. */
+export async function instructionsFor(
+  deps: Pick<AppDeps, 'db'>,
+  caller: { id: string; name: string },
+  grants: readonly LiveGrant[],
+): Promise<string> {
+  return instructionsText((await mcpSettings(deps, caller.id)).customInstructions, {
+    caller: caller.name,
+    profiles: grants.map(instructionProfileOf),
+  });
 }
 
 // --------------------------------------------------------------------------------------------- the read pointer
@@ -38,16 +60,20 @@ export function noteInstructionsRead(tokenId: string | null, at: Date): void {
 
 /**
  * `{rules: "call instructions first"}` while the token's AI has not read the instructions since the person last changed
- * their settings (custom instructions included); else nothing.
+ * their settings (custom instructions included), or (v33 SHARE-8) since one of their grants changed (a profile shared
+ * with them, its boxes changed, or its end); else nothing.
  */
 export async function rulesPointer(
-  deps: Pick<AppDeps, 'db'>,
-  userId: string,
+  deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
+  callerId: string,
   tokenId: string | null,
 ): Promise<{ rules?: string }> {
   if (!tokenId) return {};
   const readAt = reads.get(tokenId);
   if (readAt === undefined) return { rules: RULES_POINTER };
-  const changed = await mcpSettingsChangedAt(deps, userId);
-  return changed !== null && Date.parse(changed) > readAt ? { rules: RULES_POINTER } : {};
+  const changed = await mcpSettingsChangedAt(deps, callerId);
+  if (changed !== null && Date.parse(changed) > readAt) return { rules: RULES_POINTER };
+  // v33 SHARE-8: the newest change of a grant of the caller's (heldGrants: newest first).
+  const newest = (await heldGrants(deps, callerId))[0];
+  return newest && Date.parse(newest.changedAt) > readAt ? { rules: RULES_POINTER } : {};
 }

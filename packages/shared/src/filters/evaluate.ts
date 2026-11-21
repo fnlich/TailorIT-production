@@ -6,6 +6,7 @@ import { industryLabel, NOT_SPECIFIED_INDUSTRY } from '../jobs/taxonomy';
 import type { MergedFilters } from './merge';
 import {
   FILTER_REASON_LABELS,
+  FILTER_REASONS, // v33 SHARE-5
   type CustomFilterState,
   type FilterReason,
   type FilterReasonEntry,
@@ -121,16 +122,38 @@ function byOffset(a: string, b: string): number {
   return minutes(a) - minutes(b);
 }
 
+// v33 JOBDETAIL: the degree and the years parts of the qualification filter, exported so the job page's "Requirements
+// at a glance" (apps/api features/jobs/glance.ts) reads them with the same rule (no behaviour change here).
+/** The degree part: the job asks for a degree above the person's (both known) and takes no equivalent experience. */
+export function degreeBelowJob(
+  job: Pick<JobFactsView, 'degreeLevel' | 'degreeOrEquivalent'>,
+  highestDegree: DegreeLevelV2 | null,
+): boolean {
+  if (!job.degreeLevel || job.degreeLevel === 'none' || !highestDegree || job.degreeOrEquivalent) return false;
+  return DEGREE_LEVELS_V2.indexOf(job.degreeLevel) > DEGREE_LEVELS_V2.indexOf(highestDegree);
+}
+
+/** The years part: the person's years, with `grace` added, are fewer than the job's minimum (both known). */
+export function yearsBelowJob(minYears: number | null, yearsExperience: number | null, grace: number): boolean {
+  return minYears !== null && yearsExperience !== null && yearsExperience + grace < minYears;
+}
+// end v33 JOBDETAIL
+
+// v33 SHARE-5 (PLAN F9 "Sensitive answers"; PLAN-sharing.md §4 "Sensitive facts and what can be inferred"): the
+// qualification filter's citizenship part names the citizenship a job asks for ("US citizens"); the degree and years
+// parts never end so (DEGREE_WORD, "N+ years"), so this suffix tells the citizenship part apart.
+/** The end of the qualification reason's value when its citizenship part failed ("US citizens"). */
+export const CITIZENS_SUFFIX = ' citizens';
+// end v33 SHARE-5
+
 /** 06's qualification mismatch: the degree, the years, the citizenship, each part on its own. Null when it passes. */
 function qualificationMismatch(job: JobFactsView, person: PersonFacts, grace: number): string | null {
-  if (job.degreeLevel && job.degreeLevel !== 'none' && person.highestDegree && !job.degreeOrEquivalent) {
-    if (DEGREE_LEVELS_V2.indexOf(job.degreeLevel) > DEGREE_LEVELS_V2.indexOf(person.highestDegree)) return DEGREE_WORD[job.degreeLevel];
-  }
-  if (job.minYears !== null && person.yearsExperience !== null && person.yearsExperience + grace < job.minYears) {
+  if (degreeBelowJob(job, person.highestDegree)) return DEGREE_WORD[job.degreeLevel!];
+  if (yearsBelowJob(job.minYears, person.yearsExperience, grace)) {
     return `${job.minYears}+ years`;
   }
   if (job.authorization === 'citizen' && job.citizenshipCountry && person.citizenships && !person.citizenships.includes(job.citizenshipCountry)) {
-    return `${job.citizenshipCountry} citizens`;
+    return `${job.citizenshipCountry}${CITIZENS_SUFFIX}`; // v33 SHARE-5: the suffix maskEligibility reads
   }
   return null;
 }
@@ -224,3 +247,36 @@ export function filteredLabel(
   const reason = message(FILTER_REASON_LABELS[entry.code], { value: entry.value ?? '' });
   return message('MSG_FILTERED', { reason });
 }
+
+// v33 SHARE-5 (PLAN F9 "Sensitive answers"; PLAN-sharing.md §4): someone a profile is shared with, without the
+// Sensitive answers permission (`sensitive:view`), never learns an eligibility answer from a filter's reason: the
+// reasons that come from one (the sponsorship switch, the clearance, the qualification filter's citizenship part) show as
+// one reason, `eligibility`, with no value, always at one place: where `sponsorship` stands in FILTER_REASONS' order
+// (after the experience reason, before `custom`), whichever part fired, so its place among the other reasons tells
+// nothing either (the SHARE-5 review: a citizenship fires 6th, a clearance 11th). They can tell that eligibility filtered
+// a job, never why (the documented leak). Stored verdicts keep their reasons; the reads mask them.
+
+/** Where the masked `eligibility` reason stands among the others: `sponsorship`'s place in FILTER_REASONS. */
+const ELIGIBILITY_RANK = FILTER_REASONS.indexOf('sponsorship');
+
+/** Whether a filter reason comes from an eligibility answer (its words would tell one). */
+export function isEligibilityReason(entry: Pick<FilterReasonEntry, 'code' | 'value'>): boolean {
+  if (entry.code === 'sponsorship' || entry.code === 'clearance' || entry.code === 'eligibility') return true;
+  return entry.code === 'qualification' && typeof entry.value === 'string' && entry.value.endsWith(CITIZENS_SUFFIX);
+}
+
+/** The reasons as someone without the Sensitive answers permission sees them (see above). */
+export function maskEligibility<T extends Pick<FilterReasonEntry, 'code' | 'value'>>(reasons: readonly T[]): FilterReasonEntry[] {
+  const out: FilterReasonEntry[] = [];
+  let masked = false;
+  for (const entry of reasons) {
+    if (isEligibilityReason(entry)) masked = true;
+    else out.push(entry.value === undefined ? { code: entry.code } : { code: entry.code, value: entry.value });
+  }
+  if (!masked) return out;
+  // The one `eligibility`, before the first other reason that comes after `sponsorship` in FILTER_REASONS (`custom`).
+  const at = out.findIndex((entry) => FILTER_REASONS.indexOf(entry.code) > ELIGIBILITY_RANK);
+  out.splice(at < 0 ? out.length : at, 0, { code: 'eligibility' });
+  return out;
+}
+// end v33 SHARE-5

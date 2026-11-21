@@ -103,6 +103,7 @@ export function RichTextEditor({
   minHeight = 160,
   toolbar = true,
   className,
+  readOnly = false,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -112,6 +113,8 @@ export function RichTextEditor({
   minHeight?: number;
   toolbar?: boolean;
   className?: string;
+  /** v33 SHARE-9: shown, not edited (no toolbar; the text can still be read and selected). */
+  readOnly?: boolean;
 }) {
   // The latest onChange, for the editor's update callback (set once, at creation).
   const changed = useRef(onChange);
@@ -131,21 +134,27 @@ export function RichTextEditor({
         'aria-label': label,
         'aria-multiline': 'true',
         role: 'textbox',
+        ...(readOnly ? { 'aria-readonly': 'true' } : {}),
         class: clsx(PROSE, PLACEHOLDER, 'px-3 py-2.5 outline-none'),
         style: `min-height: ${minHeight}px`,
       },
     }),
-    [label, minHeight],
+    [label, minHeight, readOnly],
   );
   // The document is loaded once (remount with a key for another one); later `value`s are the editor's own echo.
   const [initial] = useState(value);
   const editor = useEditor({
     extensions,
     content: initial,
+    editable: !readOnly,
     immediatelyRender: false,
     editorProps,
     onUpdate: ({ editor: current }) => changed.current(current.isEmpty ? '' : current.getHTML()),
   });
+  // v33 SHARE-9: what may be done can change after the editor is made (a shared profile's boxes are read later).
+  useEffect(() => {
+    if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
+  }, [editor, readOnly]);
 
   return (
     <div
@@ -155,7 +164,7 @@ export function RichTextEditor({
         className,
       )}
     >
-      {toolbar && editor && <Toolbar editor={editor} />}
+      {toolbar && !readOnly && editor && <Toolbar editor={editor} />}
       {editor ? (
         <EditorContent editor={editor} />
       ) : (

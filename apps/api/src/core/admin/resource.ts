@@ -1,5 +1,6 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { ownProfileOnly } from '../auth/grants'; // v33 SHARE-1
 import { requireAdmin, userOf } from '../auth/guards';
 import { nowIso, type AppDeps } from '../context';
 import { notFound } from '../http/errors';
@@ -97,6 +98,13 @@ const actorOf = (req: Request): AdminActor => {
   return { id: user.id, email: user.email };
 };
 
+// v33 SHARE-1 (PLAN F9 "Always locked: admin"; SP v33 PLAN-sharing.md §4): no admin page or power is ever used on a
+// shared profile. A request that names one (req.actingCandidate, live or not) is refused before requireAdmin, whatever
+// the mount's acting policy says: own_profile_only. A request that names none (or `me`) is as before.
+const refuseNamedProfile = (req: Request, _res: Response, next: NextFunction) =>
+  next(req.actingCandidate ? ownProfileOnly() : undefined);
+// end v33 SHARE-1
+
 /** "That report", "That source": the not-found words' subject. */
 const subject = (resource: string) => `That ${resource}`;
 
@@ -106,7 +114,7 @@ export function adminRouter<Id = number, Row = unknown, Query = unknown, Patch =
   spec: AdminResourceSpec<Id, Row, Query, Patch, Bulk>,
 ): Router {
   const router = Router();
-  router.use(requireAdmin);
+  router.use(refuseNamedProfile, requireAdmin); // v33 SHARE-1
   const idSchema = (spec.id ?? PositiveId) as z.ZodType<Id>;
   const idOf = (req: Request) => parseInput(idSchema, req.params.id ?? '', `${spec.resource} id`);
 

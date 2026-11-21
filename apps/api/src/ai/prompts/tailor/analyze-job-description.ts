@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { definePrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { tailorPromptParts, type TailorPromptText } from './render';
 
 // v30 ST2: tailor_builder0's analyze-job-description, moved from features/tailor/prompts/{text,index}.ts. Tailoring's
@@ -110,6 +111,14 @@ export const ANALYZE_PROMPT: TailorPromptText = {
 };
 
 /**
+ * v33 PROMPTS (F5): the prompt in a role family's words (ai/prompts/roles: each slot replaced); the technical family's
+ * is ANALYZE_PROMPT, word for word. The analysis reads the job's family.
+ */
+export const analyzePromptFor = perFamily(
+  (family): TailorPromptText => ({ ...ANALYZE_PROMPT, content: familyText(ANALYZE_JOB_DESCRIPTION, 'analyze-job-description', family) }),
+);
+
+/**
  * The analysis's answer, read leniently in code (keywords.ts) as tailor_builder0 reads it: only a list of keywords is
  * required here, so an answer without one gets the repair retry.
  */
@@ -121,6 +130,6 @@ export const analyzeJobPrompt = definePrompt({
   name: 'analyze-job-description',
   version: 1,
   description: "Tailoring's step 1: the ATS keywords a candidate should put on a resume, read from one job posting.",
-  ...tailorPromptParts(ANALYZE_PROMPT, { quotesPosting: true }),
+  ...tailorPromptParts(analyzePromptFor, { quotesPosting: true }),
   output: AnalysisOutputSchema,
 });

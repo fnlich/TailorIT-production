@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { isRegionCode, MINUTE_MS, PreferencesSchema, SetDefaultResumeBodySchema, TrackerLanesSchema, type Preferences } from '@tailorit/shared';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { isActing, rateKeyOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-6: isActing, rateKeyOf
 import { getAccount, MAX_NAME_LENGTH } from '../../core/auth/users';
 import { nowIso, type AppDeps } from '../../core/context';
 import { notFound, validationFailed } from '../../core/http/errors';
@@ -11,6 +11,15 @@ import { getPreferences, normalizePreferences, savePreferences } from './prefere
 import { getTrackerLanes, saveTrackerLanes } from './ui-prefs'; // v32 FIX-UX (UXREQ-15)
 
 // The signed-in account: name, preferences, default resume. Owned by work package F3 (see docs/ARCHITECTURE.md).
+// v33 SHARE-6 (PLAN F9; SP v33 PLAN-sharing.md §3 "Job settings", "Per-person, self"; §4 "Explicit changes", "Where
+// applications go"): on a profile shared with the signed-in person (me/acting.ts) the preferences are the owner's (Job
+// settings' See and Change): a save there keeps the owner's contact details (phone, LinkedIn, location, portfolio: a
+// letter's and a resume's contact lines fall back to them); the default resume is the owner's (Change), answered with its
+// id alone, never the owner's account; the name is never changed (`never`); the tracker lanes are the person's own
+// (`self`), and so is their save limit.
+
+/** v33 SHARE-6: the contact details a save on a shared profile keeps as the owner stored them. */
+const OWNER_CONTACT_FIELDS = ['phone', 'linkedinUrl', 'location', 'portfolioUrl'] as const;
 
 const MAX_LIST_ENTRIES = 100;
 /** v32 FIX-UX: saves of the tracker's lanes shown a person may make in a minute (a box ticked is one). */
@@ -90,6 +99,7 @@ export function createMeRouter(deps: AppDeps): Router {
 
   router.put('/preferences', async (req, res) => {
     const userId = userOf(req).id;
+    const acting = isActing(req); // v33 SHARE-6
     const preferences = normalizePreferences(parseInput(PreferencesSchema, req.body));
     checkSizes(preferences);
     // Read, checked, saved and compared in one transaction (the person's, one at a time), so the comparison that bumps
@@ -99,6 +109,8 @@ export function createMeRouter(deps: AppDeps): Router {
         await t.lockPerson(userId);
         const stored = await getPreferences(deps, userId);
         checkLocation(preferences, stored);
+        // v33 SHARE-6: on a shared profile the owner's contact details stay as stored.
+        if (acting) for (const field of OWNER_CONTACT_FIELDS) preferences[field] = stored[field];
         const written = await savePreferences(deps, userId, preferences);
         // v2.0 (INT, P4): the prepare filters compare the person's country, state and time zone; a change of one makes
         // every stored verdict stale, so the Saved labels are computed again at the next read.
@@ -124,7 +136,7 @@ export function createMeRouter(deps: AppDeps): Router {
   const lanesLimit = keyedRateLimit({
     windowMs: MINUTE_MS,
     limit: TRACKER_LANES_SAVES_PER_MINUTE,
-    key: (req) => `tracker-lanes:${userOf(req).id}`,
+    key: (req) => `tracker-lanes:${rateKeyOf(req, MINUTE_MS)}`, // v33 SHARE-6: the person's (a `self` route)
     message: (retryAfterSeconds) => `That is a lot of changes at once. Try again in ${retryAfterSeconds} s.`,
   });
   router.put('/tracker-lanes', lanesLimit, async (req, res) => {
@@ -141,6 +153,11 @@ export function createMeRouter(deps: AppDeps): Router {
       if (!own) throw notFound('That resume');
     }
     await deps.db.run('UPDATE users SET default_resume_id = ?, updated_at = ? WHERE id = ?', [resumeId, nowIso(deps), user.id]);
+    // v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"): on a shared profile, the id alone (never the owner's account).
+    if (isActing(req)) {
+      res.json({ defaultResumeId: resumeId });
+      return;
+    }
     res.json(await getAccount(deps, user.id));
   });
 

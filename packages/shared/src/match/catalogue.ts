@@ -311,6 +311,137 @@ export const CERTIFICATIONS: readonly CertificationSpec[] = [
     patterns: [pattern(String.raw`Oracle[\s-]+Certified[\s-]+(?:Professional|Associate|Master|Expert)`)],
     anchors: ['oracle'],
   },
+  // v33 SKILLS: the licences and certifications of the other fields (general knowledge), so an upload's reading names
+  // them and the job glance's licences row can say "You have it". Names the postings' rules also read
+  // (jobs/eligibility.ts EXTRA_LICENCES: RN, LPN, CNA, CDL, PE, EIT, BLS, ACLS, PALS, BCBA, CPR) are spelled as they
+  // are there, so both sides compare equal. Acronyms that mean something else elsewhere count only with context.
+  // Healthcare
+  // A longer name that holds another goes first: the first spec to claim a span keeps it.
+  { name: 'Critical Care Registered Nurse (CCRN)', phrases: ['Critical Care Registered Nurse'], codes: ['CCRN'] },
+  { name: 'Registered Nurse (RN)', phrases: ['Registered Nurse'], codes: ['RN'] },
+  { name: 'Licensed Practical Nurse (LPN)', phrases: ['Licensed Practical Nurse', 'Licensed Vocational Nurse'], codes: ['LPN', 'LVN'] },
+  { name: 'Certified Nursing Assistant (CNA)', phrases: ['Certified Nursing Assistant', 'Certified Nurse Aide', 'Certified Nurse Assistant'], codes: ['CNA'] },
+  { name: 'Family Nurse Practitioner (FNP)', phrases: ['Family Nurse Practitioner'], codes: ['FNP', 'FNP-BC', 'FNP-C'] },
+  { name: 'Basic Life Support (BLS)', phrases: ['Basic Life Support'], codes: ['BLS'] },
+  { name: 'Advanced Cardiovascular Life Support (ACLS)', phrases: ['Advanced Cardiovascular Life Support', 'Advanced Cardiac Life Support'], codes: ['ACLS'] },
+  { name: 'Pediatric Advanced Life Support (PALS)', phrases: ['Pediatric Advanced Life Support'], codes: ['PALS'] },
+  { name: 'Neonatal Resuscitation Program (NRP)', phrases: ['Neonatal Resuscitation Program'], contextCodes: ['NRP'], context: /neonatal|nurs|resuscitation|\bPALS\b|\bBLS\b/i },
+  { name: 'Trauma Nursing Core Course (TNCC)', phrases: ['Trauma Nursing Core Course'], codes: ['TNCC'] },
+  {
+    name: 'CPR',
+    phrases: ['CPR Certification', 'CPR Certified', 'CPR/AED', 'Cardiopulmonary Resuscitation', 'Adult and Pediatric CPR'],
+    codes: ['CPR'],
+  },
+  { name: 'First Aid Certification', phrases: ['First Aid Certification', 'First Aid Certified', 'First Aid Certificate', 'Standard First Aid'] },
+  { name: 'Emergency Medical Technician (EMT)', phrases: ['Emergency Medical Technician'], codes: ['EMT', 'EMT-B', 'EMT-Basic'] },
+  { name: 'Paramedic License', phrases: ['National Registry Paramedic', 'Licensed Paramedic', 'Certified Paramedic', 'Paramedic License', 'Paramedic Certification'] },
+  { name: 'Certified Medical Assistant', phrases: ['Certified Medical Assistant', 'Registered Medical Assistant', 'Certified Clinical Medical Assistant'], codes: ['CCMA'] },
+  { name: 'Phlebotomy Technician Certification', phrases: ['Certified Phlebotomy Technician', 'Phlebotomy Technician Certification', 'Phlebotomy Certification', 'Phlebotomy Certificate'] },
+  { name: 'Certified Pharmacy Technician (CPhT)', phrases: ['Certified Pharmacy Technician', 'Pharmacy Technician Certification'], codes: ['CPhT'] },
+  { name: 'Certified Professional Coder (CPC)', phrases: ['Certified Professional Coder'], contextCodes: ['CPC'], context: /\bcod(?:er|ing)\b|\bAAPC\b|\bICD|\bmedical\b/i },
+  { name: 'Certified Coding Specialist (CCS)', phrases: ['Certified Coding Specialist'], contextCodes: ['CCS'], context: /\bcod(?:er|ing)\b|\bAHIMA\b/i },
+  { name: 'Registered Health Information Technician (RHIT)', phrases: ['Registered Health Information Technician'], codes: ['RHIT', 'RHIA'] },
+  { name: 'Registered Dental Hygienist (RDH)', phrases: ['Registered Dental Hygienist'], codes: ['RDH'] },
+  { name: 'Certified Dental Assistant', phrases: ['Certified Dental Assistant', 'Registered Dental Assistant'] },
+  { name: 'ARRT Certification', phrases: ['ARRT Registered', 'ARRT Certified', 'Registered Radiologic Technologist'], codes: ['ARRT'] },
+  { name: 'Board Certified Behavior Analyst (BCBA)', phrases: ['Board Certified Behavior Analyst', 'Board Certified Behaviour Analyst'], codes: ['BCBA'] },
+  { name: 'Registered Behavior Technician (RBT)', phrases: ['Registered Behavior Technician'], codes: ['RBT'] },
+  { name: 'Licensed Clinical Social Worker (LCSW)', phrases: ['Licensed Clinical Social Worker'], codes: ['LCSW'] },
+  { name: 'Licensed Professional Counselor (LPC)', phrases: ['Licensed Professional Counselor', 'Licensed Professional Counsellor'], codes: ['LPC', 'LPCC'] },
+  // Skilled trades and safety
+  { name: 'OSHA 10', patterns: [pattern(String.raw`OSHA[\s-]*10(?:[\s-]*Hours?)?`)], anchors: ['osha', 'osha10'] },
+  { name: 'OSHA 30', patterns: [pattern(String.raw`OSHA[\s-]*30(?:[\s-]*Hours?)?`)], anchors: ['osha', 'osha30'] },
+  {
+    name: 'EPA Section 608',
+    patterns: [pattern(String.raw`EPA[\s-]*(?:Section[\s-]*)?608(?:[\s-]*(?:Universal|Type[\s-]*(?:I{1,3}|[123])))?`)],
+    anchors: ['epa', 'epa608'],
+  },
+  { name: 'Journeyman Electrician License', phrases: ['Journeyman Electrician', 'Journeyman Electrical License', "Journeyman Electrician's License"] },
+  { name: 'Master Electrician License', phrases: ['Master Electrician', "Master Electrician's License"] },
+  { name: 'Journeyman Plumber License', phrases: ['Journeyman Plumber', 'Journeyman Plumbing License'] },
+  { name: 'Master Plumber License', phrases: ['Master Plumber', 'Master Plumbing License'] },
+  { name: 'NCCER Certification', codes: ['NCCER'] },
+  { name: 'AWS Certified Welder', phrases: ['AWS Certified Welder', 'American Welding Society Certified Welder', 'AWS D1.1 Certified', 'AWS D1.1 Certification'] },
+  { name: 'Certified Welding Inspector (CWI)', phrases: ['Certified Welding Inspector'], codes: ['CWI'] },
+  { name: 'NATE Certification', phrases: ['NATE Certified', 'NATE Certification', 'North American Technician Excellence'] },
+  { name: 'Professional Engineer (PE)', phrases: ['Professional Engineer License', 'Professional Engineering License', 'Licensed Professional Engineer', 'PE License'] },
+  { name: 'Engineer in Training (EIT)', phrases: ['Engineer in Training', 'Engineer-in-Training'], codes: ['EIT'] },
+  // Transportation and logistics
+  {
+    name: "Commercial Driver's License (CDL)",
+    phrases: ["Commercial Driver's License", 'Commercial Drivers License', "Commercial Driver's Licence"],
+    codes: ['CDL'],
+    patterns: [pattern(String.raw`CDL[\s-]*(?:Class[\s-]*)?[AB]|Class[\s-]*[AB][\s-]+(?:CDL|Commercial[\s-]+Driver'?s?[\s-]+Licen[cs]e)`, 'gu')],
+    anchors: ['cdl', 'class', 'cdla', 'cdlb'],
+  },
+  { name: 'HAZMAT Endorsement', phrases: ['Hazardous Materials Endorsement'], patterns: [pattern(String.raw`Haz[\s-]?Mat[\s-]+Endorsement`)], anchors: ['hazmat', 'haz'] },
+  { name: 'TWIC Card', phrases: ['Transportation Worker Identification Credential', 'TWIC Card'], codes: ['TWIC'] },
+  { name: 'DOT Medical Card', phrases: ['DOT Medical Card', 'DOT Medical Certificate', 'DOT Physical Card', 'DOT Medical Examiner Certificate'] },
+  {
+    name: 'Forklift Certification',
+    phrases: ['Forklift Certification', 'Forklift Certified', 'Forklift Operator Certification', 'Certified Forklift Operator', 'Forklift License', 'Forklift Licence', 'Powered Industrial Truck Certification'],
+  },
+  { name: 'FAA A&P License', phrases: ['Airframe and Powerplant', 'A&P License', 'A&P Mechanic', 'A&P Certificate'] },
+  { name: 'Commercial Pilot License', phrases: ['Commercial Pilot License', 'Commercial Pilot Licence', 'Commercial Pilot Certificate'] },
+  { name: 'Airline Transport Pilot (ATP)', phrases: ['Airline Transport Pilot'], contextCodes: ['ATP'], context: /pilot|FAA|flight/i },
+  // Food safety
+  { name: 'ServSafe Food Handler', patterns: [pattern(String.raw`ServSafe[\s-]+Food[\s-]+Handlers?`)], anchors: ['servsafe'] },
+  { name: 'ServSafe Manager', patterns: [pattern(String.raw`ServSafe[\s-]+(?:Food[\s-]+(?:Protection[\s-]+|Safety[\s-]+)?)?Manager`)], anchors: ['servsafe'] },
+  { name: 'ServSafe Alcohol', patterns: [pattern(String.raw`ServSafe[\s-]+Alcohol`)], anchors: ['servsafe'] },
+  { name: 'ServSafe Certification', patterns: [pattern('ServSafe')], anchors: ['servsafe'] },
+  { name: 'Food Protection Manager Certification', phrases: ['Certified Food Protection Manager', 'Food Protection Manager Certification', 'Certified Food Manager'] },
+  {
+    name: 'Food Handler Card',
+    phrases: ["Food Handler Card", "Food Handler's Card", 'Food Handlers Card', 'Food Handler Certificate', 'Food Handler Certification', "Food Handler's Permit"],
+  },
+  { name: 'TIPS Alcohol Certification', patterns: [pattern(String.raw`TIPS[\s-]+(?:[Cc]ertifi(?:ed|cation|cate)|[Aa]lcohol)`, 'gu')], anchors: ['tips'] },
+  // Education
+  {
+    name: 'Teaching Certificate',
+    phrases: ['Teaching Certificate', 'Teaching Certification', 'Teaching License', 'Teaching Licence', 'Teacher Certification', 'Teaching Credential', 'Teacher License', 'Teacher Licensure'],
+  },
+  { name: 'National Board Certification', phrases: ['National Board Certified Teacher', 'National Board Certification'], codes: ['NBCT'] },
+  { name: 'TEFL Certificate', codes: ['TEFL'] },
+  { name: 'TESOL Certificate', codes: ['TESOL'], contextPhrases: ['Teaching English to Speakers of Other Languages'] },
+  { name: 'CELTA', codes: ['CELTA'] },
+  { name: 'Child Development Associate (CDA)', phrases: ['Child Development Associate'], contextCodes: ['CDA'], context: /child|early\s+childhood|preschool/i },
+  { name: 'Praxis', patterns: [pattern(String.raw`Praxis(?:[\s-]+(?:I{1,2}|Core|Subject\s+Assessments?))?`)], anchors: ['praxis'] },
+  // Business, finance and other professions
+  { name: 'Enrolled Agent (EA)', phrases: ['Enrolled Agent'] },
+  { name: 'Certified Fraud Examiner (CFE)', phrases: ['Certified Fraud Examiner'], codes: ['CFE'] },
+  { name: 'ACCA', phrases: ['Association of Chartered Certified Accountants'], codes: ['ACCA'] },
+  { name: 'Chartered Accountant', phrases: ['Chartered Accountant'] },
+  { name: 'Certified Bookkeeper', phrases: ['Certified Bookkeeper', 'Certified Public Bookkeeper'] },
+  { name: 'QuickBooks Certified ProAdvisor', phrases: ['QuickBooks ProAdvisor', 'QuickBooks Certified User', 'Certified QuickBooks ProAdvisor', 'QuickBooks Online Certified'] },
+  { name: 'Property and Casualty Insurance License', phrases: ['Property and Casualty License', 'Property & Casualty License', 'P&C License', 'Property and Casualty Insurance License'] },
+  { name: 'Life and Health Insurance License', phrases: ['Life and Health License', 'Life & Health License', 'Life and Health Insurance License', 'L&H License'] },
+  {
+    name: 'Real Estate License',
+    phrases: ['Real Estate License', 'Real Estate Licence', 'Licensed Real Estate Agent', 'Licensed Realtor', 'Real Estate Salesperson License', 'Real Estate Broker License'],
+  },
+  { name: 'Notary Public', phrases: ['Notary Public', 'Commissioned Notary', 'Notary Commission'] },
+  { name: 'Paralegal Certificate', phrases: ['Certified Paralegal', 'Paralegal Certificate', 'Paralegal Certification'] },
+  { name: 'Microsoft Office Specialist', phrases: ['Microsoft Office Specialist', 'MOS Certified', 'MOS Certification'] },
+  { name: 'Google Analytics Certification', phrases: ['Google Analytics Certification', 'Google Analytics Certified', 'Google Analytics Individual Qualification'], codes: ['GAIQ'] },
+  { name: 'Google Ads Certification', phrases: ['Google Ads Certification', 'Google Ads Certified'] },
+  { name: 'HubSpot Certification', patterns: [pattern(String.raw`HubSpot(?:[\s-]+(?:Inbound|Content|Email|Social\s+Media|Marketing(?:\s+Software)?|Sales(?:\s+Software)?))*[\s-]+(?:Marketing[\s-]+)?Certifi(?:ed|cation)`)], anchors: ['hubspot'] },
+  // Security and public safety
+  {
+    name: 'Security Guard License',
+    phrases: ['Guard Card', 'Security Guard License', 'Security Guard Licence', 'Security Officer License', 'Security Guard Card', 'SORA License'],
+  },
+  { name: 'Armed Security License', phrases: ['Armed Guard Card', 'Armed Guard License', 'Armed Security License', 'Exposed Firearm Permit', 'Firearms Permit'] },
+  { name: 'Certified Protection Professional (CPP)', phrases: ['Certified Protection Professional'], contextCodes: ['CPP'], context: /\bASIS\b|security/i },
+  { name: 'POST Certification', phrases: ['Peace Officer Standards and Training'], patterns: [pattern(String.raw`POST[\s-]+Certifi(?:ed|cation)`, 'gu')], anchors: ['post', 'peace'] },
+  {
+    // "Firefighter I/II", "Firefighter II", "Firefighter 1 and 2", "Firefighter I Certification"; never "as a firefighter I ran".
+    name: 'Firefighter I/II Certification',
+    patterns: [
+      pattern(String.raw`[Ff]ire[\s-]?[Ff]ighter[\s-]+(?:I\s*(?:\/|and|&)\s*II|II|[12](?:\s*(?:\/|and|&)\s*[12])?|I[\s-]+Certifi(?:ed|cation))`, 'gu'),
+    ],
+    anchors: ['firefighter', 'fire'],
+  },
+  { name: 'Lifeguard Certification', phrases: ['Lifeguard Certification', 'Lifeguard Certified', 'Lifeguarding Certification', 'Lifeguard Certificate'] },
 ];
 
 /** A certification name's key: lower case, letters, digits and "+" only ("CompTIA Security+" -> "comptiasecurity+"). */
@@ -562,6 +693,9 @@ const DOMAINS: readonly DomainSpec[] = [
       'healthcare', 'health care', 'healthtech', 'health tech', 'digital health', 'clinical', 'pharmaceutical',
       'pharmaceuticals', 'pharma', 'biotech', 'biotechnology', 'life sciences', 'hospital', 'hospitals', 'health system',
       'health systems', 'patient care', 'telehealth', 'telemedicine', 'medtech', 'medical devices',
+      // v33 ROLES (F4): care settings outside hospitals.
+      'nursing home', 'nursing homes', 'long-term care', 'skilled nursing', 'home health', 'assisted living',
+      'urgent care', 'behavioral health', 'dental practice', 'physician practice',
     ],
     codes: ['EHR', 'EMR', 'HIPAA'],
     patterns: [pattern(String.raw`medical(?!\s*(?:,|and|&)?\s*(?:leave|dental|vision|insurance|benefits?|coverage|plans?))`)],
@@ -583,18 +717,48 @@ const DOMAINS: readonly DomainSpec[] = [
     ],
     anchors: ['defense', 'defence', 'military'],
   },
-  { id: 'education', phrases: ['edtech', 'ed-tech', 'higher education', 'education technology', 'school district', 'school districts', 'e-learning'], codes: ['K-12', 'K12'] },
-  { id: 'retail_ecommerce', phrases: ['e-commerce', 'ecommerce', 'retail', 'omnichannel', 'direct-to-consumer'] },
+  {
+    id: 'education',
+    phrases: [
+      'edtech', 'ed-tech', 'higher education', 'education technology', 'school district', 'school districts', 'e-learning',
+      // v33 ROLES (not a school's name: a resume's own schooling never makes it education)
+      'early childhood education', 'childcare center', 'child care center', 'public school district', 'k-12 education',
+    ],
+    codes: ['K-12', 'K12'],
+  },
+  {
+    id: 'retail_ecommerce',
+    phrases: [
+      'e-commerce', 'ecommerce', 'retail', 'omnichannel', 'direct-to-consumer',
+      'grocery store', 'grocery stores', 'supermarket', 'supermarkets', 'department store', 'convenience store', // v33 ROLES
+    ],
+  },
   {
     id: 'logistics_transportation',
-    phrases: ['logistics', 'supply chain', 'freight', 'trucking', 'fleet management', 'last-mile delivery'],
+    phrases: [
+      'logistics', 'supply chain', 'freight', 'trucking', 'fleet management', 'last-mile delivery',
+      'warehousing', 'distribution center', 'distribution centers', 'fulfillment center', 'fulfillment centers', // v33 ROLES
+    ],
     patterns: [pattern(String.raw`transportation(?!\s+(?:benefits?|stipends?|allowances?|reimbursements?|subsid(?:y|ies)))`)],
     anchors: ['transportation'],
   },
-  { id: 'manufacturing', phrases: ['manufacturing', 'automotive', 'semiconductor', 'semiconductors', 'industrial automation', 'factory automation'] },
+  {
+    id: 'manufacturing',
+    phrases: [
+      'manufacturing', 'automotive', 'semiconductor', 'semiconductors', 'industrial automation', 'factory automation',
+      'production facility', 'assembly plant', 'machine shop', // v33 ROLES
+    ],
+  },
   { id: 'telecommunications', phrases: ['telecom', 'telecoms', 'telecommunications', 'telco', 'telcos', 'wireless carrier', 'wireless carriers', 'mobile network operator', 'mobile network operators'] },
   { id: 'real_estate', phrases: ['real estate', 'proptech', 'prop-tech', 'property management'] },
-  { id: 'hospitality_travel', phrases: ['hospitality', 'hotel', 'hotels', 'airline', 'airlines', 'travel industry', 'travel tech', 'online travel', 'cruise line', 'cruise lines', 'restaurant industry'] },
+  {
+    id: 'hospitality_travel',
+    phrases: [
+      'hospitality', 'hotel', 'hotels', 'airline', 'airlines', 'travel industry', 'travel tech', 'online travel',
+      'cruise line', 'cruise lines', 'restaurant industry',
+      'restaurant', 'restaurants', 'food service', 'foodservice', 'catering company', 'casino', 'resort', // v33 ROLES
+    ],
+  },
   { id: 'nonprofit', phrases: ['nonprofit', 'nonprofits', 'non-profit', 'non-profits', 'not-for-profit', 'charitable organization', 'charitable organisation'], codes: ['NGO', 'NGOs'] },
   {
     id: 'media_entertainment',
@@ -614,6 +778,19 @@ const DOMAINS: readonly DomainSpec[] = [
     ],
   },
   { id: 'consulting', phrases: ['consulting firm', 'consulting firms', 'management consulting', 'consultancy', 'consultancies', 'professional services firm'] },
+  // v33 ROLES (F4): the industries v3.3 added.
+  {
+    id: 'construction',
+    phrases: [
+      'construction company', 'construction companies', 'general contractor', 'general contractors',
+      'commercial construction', 'residential construction', 'construction industry', 'homebuilder', 'home builder',
+    ],
+  },
+  { id: 'agriculture', phrases: ['agriculture', 'agricultural', 'agribusiness', 'agtech', 'farming operation', 'farming operations'] },
+  {
+    id: 'food_beverage',
+    phrases: ['food and beverage industry', 'food & beverage industry', 'food manufacturing', 'food processing', 'food production', 'beverage company'],
+  },
 ];
 
 const COMPILED_DOMAINS = DOMAINS.map((spec) => {

@@ -60,6 +60,7 @@ import { invalidateApplications, trackerApi } from '../tracker/data';
 import { cancelPrepare } from './api';
 import { CHANGE_FILTERS, FILTERS_LABEL, filtersButtonName, PREPARE_ALL_LABEL, PREPARE_LABEL } from './copy';
 import { PrepareButton } from './PrepareButton';
+import { tabCan, useTabProfile } from '../sharing/access'; // v33 FIX-1
 import type { PrepareAndQueue } from './usePrepareAndQueue';
 
 // v2.0: the Saved Jobs pane, the left of the Auto-apply page (docs/design/v2.0/08-ui.md, "The Saved pane"), which
@@ -115,6 +116,11 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
   const { t } = usePublicConstants();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // v33 FIX-1 (PLAN-sharing §9): on a profile shared without Prepare & queue's Change, no Select, Prepare All, a row's
+  // Prepare & Queue or Cancel (each was refused); without the Job Tracker's Change, no Remove from Saved Jobs.
+  const tab = useTabProfile();
+  const canPrepare = tabCan(tab, 'prepare:run');
+  const canRemove = tabCan(tab, 'tracker:edit');
   const [removing, setRemoving] = useState<SavedJobItem | null>(null);
   const [cancelling, setCancelling] = useState<ReadonlySet<string>>(new Set());
   const items = saved.items ? orderSaved(saved.items, filter) : null;
@@ -199,7 +205,7 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
           onClick={prepare.openFilters}
           data-filters-button=""
         />
-        {!selectMode && (
+        {!selectMode && canPrepare && (
           <>
             <IconButton
               label="Select"
@@ -296,6 +302,8 @@ export function SavedPane({ filter, onFilterChange, saved, prepare, scroll, filt
               leaving={leaving}
               marker={savedMarker(item, t)}
               selectMode={selectMode}
+              canPrepare={canPrepare}
+              canRemove={canRemove}
               checked={selected.has(item.applicationId)}
               onChecked={(on) =>
                 setSelected((current) => {
@@ -466,6 +474,8 @@ function SavedRow({
   leaving,
   marker,
   selectMode,
+  canPrepare,
+  canRemove,
   checked,
   onChecked,
   pending,
@@ -481,6 +491,10 @@ function SavedRow({
   leaving: boolean;
   marker: MarkerView | null;
   selectMode: boolean;
+  /** v33 FIX-1: Prepare & Queue and Cancel are offered (Prepare & queue's Change on a shared profile). */
+  canPrepare: boolean;
+  /** v33 FIX-1: Remove from Saved Jobs is offered (the Job Tracker's Change on a shared profile). */
+  canRemove: boolean;
   checked: boolean;
   onChecked: (on: boolean) => void;
   pending: boolean;
@@ -543,7 +557,7 @@ function SavedRow({
             <ClosedBadge closed={closed} sentenceId={closedId} />
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            {action === 'prepare' && !selectMode && (
+            {action === 'prepare' && !selectMode && canPrepare && (
               <PrepareButton
                 variant="outline"
                 loading={pending}
@@ -555,7 +569,7 @@ function SavedRow({
                 {...ROW_ACTION}
               />
             )}
-            {action === 'cancel' && (
+            {action === 'cancel' && canPrepare && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -609,10 +623,14 @@ function SavedRow({
                 >
                   Open in Job Tracker
                 </MenuLinkItem>
-                <MenuSeparator />
-                <MenuItem icon={<ArchiveIcon size={16} />} onClick={onRemove}>
-                  Remove from Saved Jobs
-                </MenuItem>
+                {canRemove && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem icon={<ArchiveIcon size={16} />} onClick={onRemove}>
+                      Remove from Saved Jobs
+                    </MenuItem>
+                  </>
+                )}
               </MenuContent>
             </Menu>
           </div>

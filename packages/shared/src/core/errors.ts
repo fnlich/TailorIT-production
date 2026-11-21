@@ -46,6 +46,17 @@ export const ERROR_CODES = [
   /** A Paid-only feature asked by a Free account: AI job search, batch resume download (`subscribe`). */
   'paid_feature',
   // end v2.0
+  // v33 SHARE-0 (PLAN F9, shared profiles; @tailorit/shared/sharing SHARING_ERROR_MESSAGES): a request that names a profile.
+  /** The named profile is unknown, someone else's or no longer shared (one answer for the three, no name, no id). */
+  'profile_ended',
+  /** The profile is shared, but not with the permission this needs. */
+  'profile_not_shared',
+  /** Only on the person's own profile (account security, sharing itself, admin), or an extension token named a profile. */
+  'own_profile_only',
+  // end v33 SHARE-0
+  // v33 SHARE-3 (PLAN-sharing §5 "Refusal wording"): work someone else pays for (B's on A's profile, read by A's
+  // extension) stopped at that person's own AI limit (MSG_AI_PAYER_LIMIT); their reset and buttons are theirs alone.
+  'payer_limit',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -83,6 +94,12 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   resume_limit_reached: 403,
   paid_feature: 403,
   // end v2.0
+  // v33 SHARE-0
+  profile_ended: 403,
+  profile_not_shared: 403,
+  own_profile_only: 403,
+  // end v33 SHARE-0
+  payer_limit: 403, // v33 SHARE-3
 };
 
 export const ApiErrorBodySchema = z.object({

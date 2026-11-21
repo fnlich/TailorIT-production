@@ -1,4 +1,5 @@
 import type { Feature } from '../../core/feature';
+import { AI_SEARCH_ACTING, JOBS_ACTING, SAVE_ALL_ACTING, SAVED_SEARCHES_ACTING } from './acting'; // v33 SHARE-3, SHARE-6
 import { createAiSearchRouter, createAiSearchService, jobSearchTask } from './ai-search';
 import { createJobsRouter } from './jobs-router';
 import { createSaveAllRouter } from './save-all-router';
@@ -24,10 +25,10 @@ export const jobsFeature: Feature = {
   // v30 ST3: the `job_search` task (defineAiTask), registered whenever the server has an AI queue.
   aiTasks: [jobSearchTask],
   routes: [
-    { path: '/api/jobs/save-all', router: createSaveAllRouter },
-    { path: '/api/jobs/ai-search', router: createAiSearchRouter },
-    { path: '/api/jobs', router: createJobsRouter },
-    { path: '/api/saved-searches', router: createSavedSearchesRouter },
+    { path: '/api/jobs/save-all', router: createSaveAllRouter, acting: SAVE_ALL_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/jobs/ai-search', router: createAiSearchRouter, acting: AI_SEARCH_ACTING /* v33 SHARE-3 */ },
+    { path: '/api/jobs', router: createJobsRouter, acting: JOBS_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/saved-searches', router: createSavedSearchesRouter, acting: SAVED_SEARCHES_ACTING /* v33 SHARE-6 */ },
   ],
   // v30 PG-SEARCH: the search projection's nightly repair (job_search, both ways), and the same pass on demand.
   daily: [searchRepairStep],

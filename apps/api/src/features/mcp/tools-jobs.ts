@@ -15,7 +15,7 @@ import { APPLIED_SQL, Params, placeSql, SPONSORS_SQL, visibleSql } from '../jobs
 import { jobVisibleTo } from '../jobs/visibility';
 import { dayIn, instantOf, offsetMinutes, zoneOf, type Zone } from './dates';
 import { PLATFORMS } from './platform';
-import { loadResultSet, readSetCursor, saveResultSet, SET_MAX_IDS, setCursor, type ResultSet } from './result-sets';
+import { loadResultSet, readSetCursor, saveResultSet, SET_MAX_IDS, setCursor, type ResultSet, type SetOwner } from './result-sets';
 import { matchExpression, type MatchExpression } from './terms';
 
 // v1.5 Q2: search_jobs and job_details, in SQL only, at the scale of a million jobs. The matches' ids (the first
@@ -667,10 +667,15 @@ async function pageOf(deps: Deps, userId: string, set: ResultSet, offset: number
 }
 
 /** search_jobs. */
-export async function searchJobs(deps: SearchDeps, userId: string, args: SearchArgs): Promise<SearchAnswer> {
+export async function searchJobs(
+  deps: SearchDeps,
+  userId: string,
+  args: SearchArgs,
+  sets: SetOwner = userId, // v33 SHARE-8: the caller on this profile (result-sets.ts)
+): Promise<SearchAnswer> {
   if (args.cursor) {
     const { setId, offset } = readSetCursor(args.cursor);
-    const set = await loadResultSet(deps, userId, setId);
+    const set = await loadResultSet(deps, sets, setId);
     if (set.source !== 'search') throw validationFailed('cursor: that cursor is not a search\'s; use list_applications or queue_list with it.');
     const stored = set.query as SearchArgs;
     const paging = { ...args, fields: args.fields ?? stored.fields, limit: args.limit ?? stored.limit };
@@ -684,7 +689,7 @@ export async function searchJobs(deps: SearchDeps, userId: string, args: SearchA
   const counted = await aggregate(deps, built, args.facets ?? [], ids.length > SET_MAX_IDS ? null : ids.length);
   const total = counted?.total ?? ids.length;
   const query = { ...args, countOnly: undefined, facets: undefined, cursor: undefined };
-  const set = await saveResultSet(deps, userId, 'search', query, ids, total);
+  const set = await saveResultSet(deps, sets, 'search', query, ids, total);
   const extra: Partial<SearchAnswer> = {
     ...(set.total > set.ids.length ? { capped: set.ids.length } : {}),
     ...(counted?.facetsNotComputed ? { facetsNotComputed: true as const } : {}),

@@ -38,6 +38,7 @@ import {
   templateExportPath,
   templateKeys,
 } from '../letter-editor/data';
+import { conflictToast, isSaveConflict } from '../letter-editor/conflict'; // v33 SHARE-3
 import { EditorMenu } from '../letter-editor/EditorMenu';
 import { isEmptyLetterHtml, isLetterFont, storedHtmlOf, toEditorHtml } from '../letter-editor/html';
 import { CopyIcon, FileArrowUpIcon, FilePdfIcon, SparkleIcon } from '../letter-editor/icons';
@@ -48,6 +49,7 @@ import { BaseFromTemplateSelect } from './BaseFromTemplateSelect';
 import { InsertVariableSelect } from './InsertVariableSelect';
 import { usePublicConstants } from '@/lib/constants';
 import { deleteOneWords } from '@/features/documents/core';
+import { useChangeAccess, useDeletesDocuments } from '../sharing/access'; // v33 FIX-1; FIX-2: useDeletesDocuments
 
 /*
  * The cover letter template editor (/cover-letter-template/[id]): EditorBar with rename and
@@ -105,7 +107,10 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
   const toast = useToast();
   const now = useNow();
   const id = initial.id;
-  const readOnly = initial.isSystem;
+  // v33 FIX-1 (PLAN-sharing §9): read-only on a profile shared without Documents' Change, as a built-in one is.
+  const sharedReadOnly = !useChangeAccess('documents:edit').change;
+  const readOnly = initial.isSystem || sharedReadOnly;
+  const canDelete = useDeletesDocuments(); // v33 FIX-2: never on a shared profile (Documents' Change never deletes)
 
   const [template, setTemplate] = useState(initial);
   const [name, setName] = useState(initial.name);
@@ -116,12 +121,16 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const deleted = useRef(false);
+  // v33 SHARE-3: the version the next save changes (the template's updatedAt as last loaded or saved).
+  const base = useRef(initial.updatedAt);
+  const onConflict = useRef<() => void>(() => undefined);
 
   const others = useQuery({ queryKey: templateKeys.all, queryFn: fetchTemplates });
   const otherTemplates = (others.data?.items ?? []).filter((item) => item.id !== id);
 
   const remember = useCallback(
     (updated: LetterTemplateDetail) => {
+      base.current = updated.updatedAt; // v33 SHARE-3
       setTemplate(updated);
       queryClient.setQueryData(templateKeys.detail(id), updated);
       void queryClient.invalidateQueries({ queryKey: templateKeys.all, exact: true });
@@ -131,8 +140,34 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
 
   const autosave = useAutosave<PatchLetterTemplateBody>(async (patch, { keepalive }) => {
     if (deleted.current || readOnly) return;
-    const updated = await patchTemplate(id, patch, { keepalive });
-    if (!keepalive) remember(updated);
+    try {
+      const updated = await patchTemplate(id, { ...patch, baseUpdatedAt: base.current }, { keepalive });
+      if (!keepalive) remember(updated);
+    } catch (error) {
+      // v33 SHARE-3: saved elsewhere since: the latest version replaces this one (nothing more is sent from it).
+      if (!keepalive && isSaveConflict(error)) {
+        onConflict.current();
+        return;
+      }
+      throw error;
+    }
+  });
+
+  // v33 SHARE-3: the template was saved elsewhere: say so, drop what waits, and show the latest version.
+  useEffect(() => {
+    onConflict.current = () => {
+      autosave.discard();
+      const words = conflictToast(t, 'template');
+      toast.info(words.title, words.description);
+      void fetchTemplate(id)
+        .then((latest) => {
+          editor?.chain().setContent(toEditorHtml(latest.contentHtml), { emitUpdate: false }).run();
+          setName(latest.name);
+          if (isLetterFont(latest.fontFamily)) setFont(latest.fontFamily);
+          remember(latest);
+        })
+        .catch(() => undefined);
+    };
   });
 
   const { flush } = autosave;
@@ -225,13 +260,17 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
           ruleBefore: true,
           onSelect: () => router.push('/cover-letter-template/new'),
         },
-        {
-          key: 'delete',
-          label: 'Delete this template',
-          icon: <TrashIcon size={16} />,
-          tone: 'danger' as const,
-          onSelect: () => setConfirmDelete(true),
-        },
+        ...(canDelete
+          ? [
+              {
+                key: 'delete',
+                label: 'Delete this template',
+                icon: <TrashIcon size={16} />,
+                tone: 'danger' as const,
+                onSelect: () => setConfirmDelete(true),
+              },
+            ]
+          : []),
       ];
 
   return (
@@ -243,6 +282,8 @@ function TemplateWorkspace({ initial }: { initial: LetterTemplateDetail }) {
           readOnly
             ? undefined
             : async (next) => {
+                // v33 SHARE-3: what waits is saved first, so the rename never makes the next save look stale.
+                await autosave.flush().catch(() => undefined);
                 const updated = await patchTemplate(id, { name: next });
                 setName(updated.name);
                 remember(updated);

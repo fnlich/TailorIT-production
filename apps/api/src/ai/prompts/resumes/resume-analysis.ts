@@ -32,10 +32,10 @@ What to list:
 - roles: the job titles the person has held, exactly as written. The headline under the name first, when the resume
   has one; then each role's title in the order the resume lists them. Titles only: no employer, dates or location.
   At most 8.
-- hardSkills: every technical skill the resume names: languages, frameworks, libraries, tools, platforms, databases,
-  cloud services and methods, spelled as the resume spells them. At most 60.
+- hardSkills: every hard skill the resume names: software, tools, equipment, procedures, techniques, methods,
+  languages, platforms and standards, spelled as the resume spells them. At most 60.
 - softSkills: the soft skills the resume states, such as communication, mentoring or stakeholder management, as
-  written. Never a technical skill. At most 40.
+  written. Never a hard skill. At most 40.
 - certifications: the certifications and licences the resume says the person holds, by the names it uses. Never a
   degree, a course or a skill. At most 10.
 - industries: the industries the resume itself names for the person's work, in its words (fintech, healthcare,

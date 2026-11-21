@@ -2,6 +2,7 @@
 
 import type { TrackerTab } from '@tailorit/shared';
 import { ApiError, UNREACHABLE_MESSAGE } from '@/lib/api';
+import { profileHeaders } from '@/lib/profile';
 import { filterQuery, type FilterState } from '../state';
 
 /** "TailorIT_Tracked_Jobs_2026-10-22.csv" from the server's Content-Disposition, else a dated fallback. */
@@ -21,7 +22,7 @@ export async function downloadExport(tab: TrackerTab, filters: FilterState, q: s
   }
   let response: Response;
   try {
-    response = await fetch(`/api/applications/export.csv?${params.toString()}`, { credentials: 'same-origin' });
+    response = await fetch(`/api/applications/export.csv?${params.toString()}`, { credentials: 'same-origin', headers: profileHeaders('/api/applications/export.csv') }); // v33 SHARE-4
   } catch {
     throw new ApiError({ status: 0, code: 'internal', message: UNREACHABLE_MESSAGE });
   }

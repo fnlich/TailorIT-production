@@ -12,30 +12,33 @@ import {
 import {
   documentPlainText,
   effectiveTemplateId,
-  isEditorDocument,
   isResumeTemplateId,
   normalizeCompanyName,
   normalizeResumeDocument,
   normalizeJobTitle,
+  personSideFamily,
   printedDocument,
+  RoleFamilyIdSchema,
   HOUR_MS,
   UNLIMITED,
   type ResumeTemplateId,
 } from '@tailorit/shared';
 import { requireAi, type AiTaskContext } from '../../ai/index';
 import { taskInputSql, taskResultSql } from '../../ai/payloads';
+import { scopedDedupeKey, taskPayerOf, type TaskViewer } from '../../ai/queue'; // v33 SHARE-3
 import { hourlyLimitOf } from '../../core/accounts/entitlements';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3 (INT-1: a person's)
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse';
-import { upgradeLegacyDocument } from '../../core/resume-upgrade';
+import { editorDocumentOf } from '../../core/skills/index'; // v33 LEGACY
 import { holdsCanary, speaksAsAnAi, stringsOf } from '../autofill/ai/tasks';
 import { holdsPromptMarkup, untrustedLines } from '../autofill/ai/untrusted';
 import { applicationFacts, jobFacts, letterProfile, visibleTemplate } from '../cover-letters/context';
 import { readableForAi } from '../job-analysis/service';
-import { getResumeEngine } from '../resumes/engine';
 import { assertRoomForResumes } from '../resumes/repository';
 import { getResumeEvidence } from '../resumes/evidence';
+import { jobFamilyOf, profileFamilyOf } from '../roles/index'; // v33 ROLES's resolvers (PROMPTS)
 import { analyzePosting } from './analysis';
 import { buildAtsReport } from './ats';
 import { keptFacts, profileFromDocument, tailoredDocument } from './mapping';
@@ -44,6 +47,7 @@ import { fillCompanyName } from './humanize';
 import {
   generateCoverLetter,
   letterParagraphs,
+  tailorFitOf,
   tailorResume,
   withProfileFiguresKept,
   type TailorRun,
@@ -97,6 +101,10 @@ export const TailorTaskInputSchema = z.object({
   // hourly limit (FREE_/PAID_PREPARE_PER_HOUR pace Prepares).
   prepare: z.object({ id: z.string() }).optional(),
   // end v2.0
+  // v33 PROMPTS (F5): the families the prompts are written for (the person's field, else the job's when the person's is
+  // general). Optional, so tasks queued before v3.3 still parse; a missing family reads as technical.
+  profileFamily: RoleFamilyIdSchema.optional(),
+  jobFamily: RoleFamilyIdSchema.optional(),
 });
 export type TailorTaskInput = z.infer<typeof TailorTaskInputSchema>;
 
@@ -147,14 +155,24 @@ export interface TailorStartOptions {
    * are paced by FREE_/PAID_PREPARE_PER_HOUR (prepare_jobs.started_at) instead.
    */
   prepare?: { id: string };
+  /**
+   * v33 SHARE-3 (PLAN F9 "Who pays"): who pays: the request's payerOf(req) (B on A's profile), a Prepare's
+   * payerOfRow(row). B's plan, budget, credit and tailorings an hour apply; B never joins a tailoring A pays for (nor
+   * A one of B's). v33 INT-1: required (the owner's own tailoring names the owner).
+   */
+  payer: PersonPayer;
 }
 // end v2.0
 
 export interface TailorService {
   /** Checks a request and queues its task, or answers the same tailoring done or running already. */
-  start(userId: string, ask: TailorAsk, options?: TailorStartOptions): Promise<AutofillTailorAccepted>;
-  /** One of the account's tailoring tasks, as GET …/tailor/:id answers it; 404 for any other task. */
-  view(userId: string, taskId: string): Promise<AutofillTailorTask>;
+  start(userId: string, ask: TailorAsk, options: TailorStartOptions): Promise<AutofillTailorAccepted>; // v33 INT-1: options.payer required
+  /**
+   * One of the account's tailoring tasks, as GET …/tailor/:id answers it; 404 for any other task. v33 SHARE-3: a
+   * TaskViewer (the request's owner, payer and grant permissions: the AI queue's getTaskFor) or, the v3.2 form, the
+   * owner's id.
+   */
+  view(viewer: string | TaskViewer, taskId: string): Promise<AutofillTailorTask>;
   /** The queue's handler. */
   handler(input: unknown, ctx: AiTaskContext): Promise<TailorResult>;
 }
@@ -177,8 +195,9 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
     running: "SELECT id FROM ai_tasks WHERE dedupe_key = ? AND status IN ('queued', 'running')",
     // v2.0: a Prepare's tailorings ($.prepare) are not the person's own: the Prepares an hour pace them instead. A task
     // v1.5's Prebuild started keeps its $.prebuild mark (01-data-model.md, 0822), and is not the person's own either.
+    // v33 SHARE-3: counted per payer (coalesce(charge_user_id, user_id)): B's tailorings on every profile, B's alone.
     startedSince: `SELECT count(*) AS n, min(created_at) AS first FROM ai_tasks
-        WHERE user_id = ? AND kind = 'tailor' AND created_at >= ? AND ${db.dialect.jsonText(input, '$.prepare')} IS NULL
+        WHERE coalesce(charge_user_id, user_id) = ? AND kind = 'tailor' AND created_at >= ? AND ${db.dialect.jsonText(input, '$.prepare')} IS NULL
           AND ${db.dialect.jsonText(input, '$.prebuild')} IS NULL`,
     resumeExists: 'SELECT 1 AS one FROM resumes WHERE id = ? AND user_id = ?',
     letterExists: 'SELECT 1 AS one FROM cover_letters WHERE id = ? AND user_id = ?',
@@ -202,10 +221,11 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
    * with when the oldest of them leaves the hour. UNLIMITED (Paid's default): nothing is counted or refused. Every
    * tailoring the person started in the hour counts, whatever their plan was then.
    */
-  async function assertUnderHourlyLimit(userId: string): Promise<void> {
-    const max = await hourlyLimitOf(deps, userId, 'tailorsPerHour');
+  async function assertUnderHourlyLimit(payer: PersonPayer): Promise<void> {
+    // v33 SHARE-3: the payer's plan and count (B's on A's profile: a Free B is held to Free's on a Paid A's).
+    const max = await hourlyLimitOf(deps, payer, 'tailorsPerHour');
     if (max === UNLIMITED) return;
-    const { n, first } = (await db.one<{ n: number; first: string | null }>(sql.startedSince, [userId, since(HOUR_MS)])) ?? { n: 0, first: null };
+    const { n, first } = (await db.one<{ n: number; first: string | null }>(sql.startedSince, [payer.id, since(HOUR_MS)])) ?? { n: 0, first: null };
     if (n < max) return;
     const freesAt = (first ? Date.parse(first) : deps.now().getTime()) + HOUR_MS;
     const seconds = Math.max(1, Math.ceil((freesAt - deps.now().getTime()) / 1000));
@@ -213,7 +233,7 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
   }
 
   return {
-    async start(userId, ask, options = {}) {
+    async start(userId, ask, options) {
       const ai = requireAi(deps);
       // The job: TailorIT's job, the tracker entry, or the posting the request carries.
       const facts = ask.jobId
@@ -234,11 +254,16 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
       const postingUrl = (ask.postingUrl ?? '').trim();
 
       const source = await resolveSource(deps, userId, ask.resumeId);
+      // v33 PROMPTS: the person's field is the source resume's (a tailored copy inherits it); the job's is its category's.
+      const profileFamily = (await profileFamilyOf(deps, userId, source.resumeId)).familyId;
+      const jobFamily = await jobFamilyOf(deps, { jobId: facts.jobId, title });
       const templates = await chooseTemplates(deps, userId, {
         resumeTemplateId: ask.resumeTemplateId,
         coverLetterTemplateId: ask.coverLetterTemplateId,
       });
-      await assertRoomForResumes(deps, userId, 1);
+      // v33 SHARE-3: B's tailoring never takes A's last resume places (SHARING_RESUME_RESERVE).
+      const payer = taskPayerOf(userId, options.payer);
+      await assertRoomForResumes(deps, userId, 1, options.payer);
 
       const signature = sha(
         JSON.stringify([
@@ -247,6 +272,8 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
           source.revision,
           templates.resumeTemplateId,
           ask.coverLetter ? (templates.coverLetterTemplate?.id ?? null) : 'no-letter',
+          // v33: a resume's Field changes no document revision, so the field written for is part of the signature.
+          personSideFamily(profileFamily, jobFamily),
         ]),
       );
       const dedupeKey = `tailor:${signature}`;
@@ -254,10 +281,12 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
         const earlier = await earlierResult(userId, signature);
         if (earlier) return { taskId: earlier, deduped: true };
       }
-      const running = await db.one<{ id: string }>(sql.running, [`${userId}:${dedupeKey}`]);
+      // v33 SHARE-3: the running twin of the same payer only (the queue's scopedDedupeKey): A's identical tailoring while
+      // B's runs is A's own task, and ending B's access never stops A's.
+      const running = await db.one<{ id: string }>(sql.running, [scopedDedupeKey('tailor', userId, payer.charge_user_id, dedupeKey)]);
       if (running) return { taskId: running.id, deduped: true };
       // v2.0: a Prepare is paced by its own constant (features/prepare), never held to the interactive limit.
-      if (!options.prepare) await assertUnderHourlyLimit(userId);
+      if (!options.prepare) await assertUnderHourlyLimit(options.payer);
 
       const input: TailorTaskInput = {
         signature,
@@ -271,12 +300,16 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
         resumeTemplateId: templates.resumeTemplateId,
         coverLetterTemplateId: templates.coverLetterTemplate?.id ?? null,
         coverLetter: ask.coverLetter,
+        profileFamily,
+        jobFamily,
         ...(options.page ? { page: { canaries: ask.canaries ?? [] } } : {}),
         ...(options.prepare ? { prepare: { id: options.prepare.id } } : {}),
       };
       // v2.0: a Prepare's tailoring waits for the background slot, so it never holds up the person's own work.
       const priority = options.prepare && deps.config.ai.backgroundSlots > 0 ? 'background' : 'interactive';
-      const accepted = await ai.enqueue(tailorTask.enqueueOptions({ userId, input, dedupeKey, priority }));
+      const accepted = await ai.enqueue(
+        tailorTask.enqueueOptions({ userId, input, dedupeKey, priority, chargeTo: options.payer }),
+      );
       deps.log.debug(
         `[tailor] account ${userId} ${accepted.deduped ? 'joined' : 'started'} task ${accepted.taskId}` +
           `${options.page ? ' (extension)' : ''}${options.prepare ? ' (prepare)' : ''}`,
@@ -284,8 +317,10 @@ export function createTailorService(deps: AppDeps, options: { store?: AnalysisSt
       return accepted;
     },
 
-    async view(userId, taskId) {
-      const task = await requireAi(deps).getTask(taskId, userId);
+    async view(viewer, taskId) {
+      // v33 SHARE-3: as the request's reader may see it (getTaskFor: B on A's profile reads A's tailorings, documents:view).
+      const ai = requireAi(deps);
+      const task = typeof viewer === 'string' ? await ai.getTask(taskId, viewer) : await ai.getTaskFor(taskId, viewer);
       if (!task || task.kind !== 'tailor') throw notFound('That tailoring');
       const step: TailorStep | null =
         task.status === 'queued' ? 'waiting' : task.status === 'running' ? (steps.get(taskId) ?? 'analyzing') : null;
@@ -345,21 +380,22 @@ async function runTailoring(
   setStep: (step: TailorStep) => void,
 ): Promise<TailorResult> {
   const { row, document: stored } = await sourceDocument(deps, userId, input.sourceResumeId);
-  const engine = getResumeEngine(deps);
   const templateId: ResumeTemplateId = isResumeTemplateId(input.resumeTemplateId)
     ? input.resumeTemplateId
     : effectiveTemplateId(stored);
-  const editor = isEditorDocument(stored)
-    ? stored
-    : upgradeLegacyDocument(stored, { templates: engine.templates, skills: await engine.skillsFor(userId), into: templateId });
+  const editor = await editorDocumentOf(deps, userId, stored, templateId); // v33 LEGACY
   const evidence = await getResumeEvidence(deps, userId, row.id);
   const profile = profileFromDocument(editor, evidence?.profile);
 
   const replies: string[] = [];
+  // v33 PROMPTS (F5): written for the person's field (the job's when theirs is general); a task from before v3.3 reads
+  // as technical. The analysis reads the job's family.
+  const fit = tailorFitOf(input.profileFamily && input.jobFamily ? personSideFamily(input.profileFamily, input.jobFamily) : input.profileFamily);
   const run: TailorRun = {
     runPrompt: ctx.runPrompt,
     promptOptions: { signal: ctx.signal, ...(input.page ? { onReply: (text: string) => void replies.push(text) } : {}) },
     onStep: setStep,
+    fit,
   };
 
   let analysis: JobAnalysis | null = null;
@@ -368,8 +404,9 @@ async function runTailoring(
   const stats: TailorStats = { revisions: 0, firstScore: 0, finalScore: 0 };
   if (readableForAi(input.postingText)) {
     setStep('analyzing');
-    analysis = (await analyzePosting(run, input.postingText, input.title, store, deps.config.ai.features.tailor.model))
-      .analysis;
+    analysis = (
+      await analyzePosting(run, input.postingText, input.title, store, deps.config.ai.features.tailor.model, input.jobFamily)
+    ).analysis;
     tailored = withProfileFiguresKept(
       await tailorResume(run, profile, analysis, input.company, { coverLetter: input.coverLetter, stats }),
       profile,
@@ -395,7 +432,7 @@ async function runTailoring(
 
   setStep('saving');
   const title = tailoredTitle(input.company, input.title);
-  const document = tailoredDocument(editor, tailored, { templateId, profile });
+  const document = tailoredDocument(editor, tailored, { templateId, profile, skills: fit.skills });
   // The protected facts (employers, titles, dates, education and every other section) are the source's, by
   // construction; checked again here so that no change to the mapping can ever store a resume that alters them.
   if (!keptFacts(normalizeResumeDocument({ ...editor, templateId }), document)) {
@@ -427,6 +464,8 @@ async function runTailoring(
           template: coverLetterTemplate,
         })
       : null;
+  // v33 SHARE-3: a tailoring B pays for on A's profile never takes A's last resume places (checked again as it stores).
+  if (ctx.payer?.grantId) await assertRoomForResumes(deps, userId, 1, ctx.payer);
   const saved = await storeTailored(deps, userId, {
     title,
     document,
@@ -440,14 +479,15 @@ async function runTailoring(
       postingUrl: input.postingUrl,
     },
     postingText: input.postingText,
+    ...(ctx.payer ? { payer: ctx.payer } : {}), // v33 SHARE-3 (review): checked again behind the person's lock
   });
 
   const softSkills = documentPlainText(printedDocument(editor)).softSkills ?? [];
   const ats =
     analysis && tailored
       ? {
-          ...buildAtsReport(tailored, analysis, profile),
-          scoreBefore: buildAtsReport(sourceAsTailored(profile, softSkills), analysis, profile).score,
+          ...buildAtsReport(tailored, analysis, profile, fit.numbers),
+          scoreBefore: buildAtsReport(sourceAsTailored(profile, softSkills), analysis, profile, fit.numbers).score,
         }
       : null;
   deps.log.debug(

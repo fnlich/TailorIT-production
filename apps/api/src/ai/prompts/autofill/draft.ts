@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import type { RoleFamilyId } from '@tailorit/shared';
 import { AUTOFILL_AI_LIMITS, type AutofillDraftQuestion } from '@tailorit/shared/autofill';
 import { untrusted, untrustedBlock } from '../../../features/autofill/ai/untrusted';
+import { familyVoice } from '../roles/variants';
 import { definePrompt } from '../types';
 import { factsAndJob } from './facts-and-job';
 import { UNTRUSTED_RULE } from './untrusted';
@@ -63,6 +65,15 @@ export interface DraftPromptInput {
   company: string;
   jobTitle: string;
   facts: { resume: string; profile: string; note: string };
+  /** v33 PROMPTS (F5): the applicant's field; another field than the technical one adds its voice line to Style. */
+  family?: RoleFamilyId | null;
+}
+
+/** v33 PROMPTS: SYSTEM with a field's voice line last in Style (the technical family's, or none: SYSTEM itself). */
+function systemFor(family?: RoleFamilyId | null): string {
+  const voice = familyVoice(family);
+  const anchor = '- Never use an em dash, an en dash or a double hyphen.\n';
+  return voice ? SYSTEM.replace(anchor, () => `${anchor}- ${voice}\n`) : SYSTEM;
 }
 
 /**
@@ -109,7 +120,7 @@ export const autofillDraftPrompt = definePrompt<DraftPromptInput, DraftOutput>({
   // question's INSTRUCTION. 5 (v1.3 C): the facts, the note and the job in the system prompt (cached for the form's
   // next batch), the QUESTIONs alone in the message; the job text cut at 12,000 characters.
   version: 5,
-  system: () => SYSTEM,
+  system: (input) => systemFor(input.family),
   context: (input) => factsAndJob(input, { note: true }),
   user: (input) => input.questions.map((question, at) => questionText(question, at + 1)).join('\n\n'),
   output: DraftOutputSchema,

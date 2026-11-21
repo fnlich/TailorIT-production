@@ -27,6 +27,8 @@ export const PROMPT_AREAS = [
   'companies',
   // v30 ST0: the AI layer's own words (the JSON instruction every model prompt ends with, the admin's connectivity test).
   'system',
+  // v33 PROMPTS (F5): the role families' words (the tailor prompts' overlays, the FIELDS guide, the voice line).
+  'roles',
 ] as const;
 export type PromptArea = (typeof PROMPT_AREAS)[number];
 

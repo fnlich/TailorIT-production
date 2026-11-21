@@ -2,6 +2,7 @@ import {
   categorizeTitle,
   extractJobFacets,
   extractKeywords,
+  familyOfCategory,
   inferExperienceLevels,
   inferLeadership,
   inferMinYears,
@@ -14,9 +15,10 @@ import {
   type JobTerms,
   type KeywordGroup,
   type Leadership,
+  type RoleFamilyId,
   type SkillLists,
 } from '@tailorit/shared';
-import { getSkillLibrary } from '../../core/skills-vocabulary';
+import { getSkillLibrary, skillsForFamily } from '../../core/skills-vocabulary';
 import { emptySections, extractSections, mergeSections, type PostingSections } from './sections';
 
 // The free analysis every posting gets at ingest (docs/ARCHITECTURE.md §9, job-analysis policy 1): the summary
@@ -27,8 +29,13 @@ import { emptySections, extractSections, mergeSections, type PostingSections } f
 // or when the analysis is next read, because a bump would have every posting re-read by the lazy path, which lacks
 // the source's own sections, department and plain-text reading.
 
-/** 2: keywords are labelled as the posting writes them ("AWS services", not the library's "Aws Services"). */
-export const DETERMINISTIC_VERSION = 2;
+/**
+ * 2: keywords are labelled as the posting writes them ("AWS services", not the library's "Aws Services").
+ * 3 (v33 SKILLS): keywords come from the skills of the job's role family (skills.json v2): a nurse's posting reads the
+ * clinical skills and none of the technology (a cook's "Chef" is not the DevOps tool), and a field's short spellings
+ * ("EHR") count in its own postings only. A posting of no known field reads every skill.
+ */
+export const DETERMINISTIC_VERSION = 3;
 
 /** Keyword caps, as the AI analysis's. */
 export const MAX_HIGH_KEYWORDS = 15;
@@ -151,6 +158,26 @@ function given(sections: Partial<PostingSections> | null | undefined): PostingSe
   };
 }
 
+/**
+ * v33 SKILLS: the role family a posting's title names (else its department's): its keywords come from that family's
+ * skills (skills.json v2). General when neither names a field: every skill, as before v3.3.
+ */
+export function postingFamily(
+  title: string,
+  department?: string | null,
+): { family: RoleFamilyId; categoryId: string; subcategoryIds: string[] } {
+  let category = categorizeTitle(title);
+  if (category.categoryId === OTHER_CATEGORY_ID && department?.trim()) {
+    const byDepartment = categorizeTitle(department);
+    if (byDepartment.categoryId !== OTHER_CATEGORY_ID) category = byDepartment;
+  }
+  return {
+    family: familyOfCategory(category.categoryId, category.subcategoryIds),
+    categoryId: category.categoryId,
+    subcategoryIds: [...category.subcategoryIds],
+  };
+}
+
 /** The deterministic analysis of one posting. Pure apart from reading the (cached) skill library. */
 export function analyzeDeterministic(input: DeterministicInput): AnalysisDraft {
   const found =
@@ -159,8 +186,9 @@ export function analyzeDeterministic(input: DeterministicInput): AnalysisDraft {
       : emptySections();
   const sections = mergeSections(given(input.sections), found);
   const requirementsText = [...sections.requirements, ...sections.desired].join('\n');
-  // The same array every call: extractKeywords compiles a vocabulary once per array.
-  const vocabulary = getSkillLibrary().vocabulary;
+  const category = postingFamily(input.title, input.department);
+  // The job's family's skills (the same array every call per family: extractKeywords compiles a vocabulary once per array).
+  const vocabulary = skillsForFamily(category.family).vocabulary;
   const vocabularyTerms = extractKeywords(input.text, vocabulary, {
     title: input.title,
     requirementsText: sections.requirements.join('\n'),
@@ -170,11 +198,6 @@ export function analyzeDeterministic(input: DeterministicInput): AnalysisDraft {
   const keywords = inPostingCase(vocabularyTerms, `${input.title}\n${input.text}`);
   // Years are stated in the requirements when there are any; the whole text otherwise.
   const yearsText = requirementsText || input.text;
-  let category = categorizeTitle(input.title);
-  if (category.categoryId === OTHER_CATEGORY_ID && input.department?.trim()) {
-    const byDepartment = categorizeTitle(input.department);
-    if (byDepartment.categoryId !== OTHER_CATEGORY_ID) category = byDepartment;
-  }
   return {
     ...sections,
     keywords,

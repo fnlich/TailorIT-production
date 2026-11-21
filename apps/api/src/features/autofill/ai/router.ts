@@ -5,7 +5,7 @@ import {
   AutofillDraftRequestSchema,
   AutofillPickRequestSchema,
 } from '@tailorit/shared/autofill';
-import { userOf } from '../../../core/auth/guards';
+import { holds, userOf } from '../../../core/auth/guards'; // v33 SHARE-3: holds
 import { constantsOf } from '../../../core/constants/service';
 import type { AppDeps } from '../../../core/context';
 import { asyncHandler, notFound } from '../../../core/http/errors';
@@ -15,6 +15,7 @@ import { sensitiveAnswerScreen } from '../profile/sensitive-screen';
 import { answerTaskInput } from './answer';
 import { classifyTaskInput } from './classify';
 import { draftTaskInput } from './draft';
+import { autofillPayerOf } from './payer'; // v33 SHARE-3
 import { pickTaskInput, type AnswerScreen } from './pick';
 import { answerTask } from './tasks';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from '@tailorit/shared';
@@ -32,6 +33,8 @@ import { MINUTE_MS, HOUR_MS, DAY_MS } from '@tailorit/shared';
 // answers), queues one task (or reattaches to its twin still in flight) and waits up to AUTOFILL_AI_WAIT_MS for it;
 // the extension polls a 202's task on GET /api/ai/tasks/:id. The log names the account, the task, counts and the
 // time; never a label, an option, a value, a question or anything Claude answered.
+// v33 SHARE-3 (PLAN F9 "Who pays"): who pays is autofillPayerOf's (payer.ts): the grantee who prepared the job the
+// token is running (B's help on A's extension), else the owner; a session request pays as any request (payerOf).
 
 /** Requests of one kind per account: a minute's and an hour's (v30 ST3: the constant AUTOFILL_AI_PER_HOUR). A form pass
  *  asks once per kind (answers in batches of ten). */
@@ -55,10 +58,11 @@ async function requireOwnResume(deps: AppDeps, userId: string, resumeId: string 
  * for a caller that may read them: the Settings session, or a token with `profile:sensitive`. A token without that
  * scope never holds them, and a screen run for it would let it test guesses against them (the few genders and races
  * above all), so its items are screened by their own text alone. v3.0 D2: the answers are read once, as the request
- * is screened (sensitiveAnswerScreen).
+ * is screened (sensitiveAnswerScreen). v33 SHARE-3: holds() (a session acting on a shared profile screens with the
+ * owner's answers only with sensitive:view).
  */
 async function answerScreenFor(deps: AppDeps, req: Request): Promise<AnswerScreen> {
-  const mayRead = req.authVia !== 'token' || req.extensionToken?.scopes.includes('profile:sensitive') === true;
+  const mayRead = holds(req, 'sensitive:view', 'profile:sensitive');
   if (!mayRead) return () => false;
   return sensitiveAnswerScreen(deps, userOf(req).id);
 }
@@ -81,7 +85,8 @@ export function createAutofillAiRouter(deps: AppDeps): Router {
       const userId = userOf(req).id;
       const request = parseInput(AutofillPickRequestSchema, req.body ?? {}, 'request');
       const { input, screened } = pickTaskInput(request, await answerScreenFor(deps, req));
-      await answerTask(deps, res, { kind: 'autofill_pick', userId, input, items: input.items.length, screened });
+      const payer = await autofillPayerOf(deps, req); // v33 SHARE-3
+      await answerTask(deps, res, { kind: 'autofill_pick', userId, payer, input, items: input.items.length, screened });
     }),
   );
 
@@ -93,7 +98,8 @@ export function createAutofillAiRouter(deps: AppDeps): Router {
       const userId = userOf(req).id;
       const request = parseInput(AutofillClassifyRequestSchema, req.body ?? {}, 'request');
       const { input, screened } = classifyTaskInput(request);
-      await answerTask(deps, res, { kind: 'autofill_classify', userId, input, items: input.items.length, screened });
+      const payer = await autofillPayerOf(deps, req); // v33 SHARE-3
+      await answerTask(deps, res, { kind: 'autofill_classify', userId, payer, input, items: input.items.length, screened });
     }),
   );
 
@@ -107,7 +113,8 @@ export function createAutofillAiRouter(deps: AppDeps): Router {
       const request = parseInput(AutofillDraftRequestSchema, req.body ?? {}, 'request');
       await requireOwnResume(deps, userId, request.resumeId);
       const { input, screened } = draftTaskInput(request);
-      await answerTask(deps, res, { kind: 'autofill_draft', userId, input, items: input.questions.length, screened });
+      const payer = await autofillPayerOf(deps, req, request.resumeId); // v33 SHARE-3
+      await answerTask(deps, res, { kind: 'autofill_draft', userId, payer, input, items: input.questions.length, screened });
     }),
   );
 
@@ -120,7 +127,8 @@ export function createAutofillAiRouter(deps: AppDeps): Router {
       const request = parseInput(AutofillAnswerRequestSchema, req.body ?? {}, 'request');
       await requireOwnResume(deps, userId, request.resumeId);
       const { input, screened } = answerTaskInput(request, await answerScreenFor(deps, req));
-      await answerTask(deps, res, { kind: 'autofill_answer', userId, input, items: input.items.length, screened });
+      const payer = await autofillPayerOf(deps, req, request.resumeId); // v33 SHARE-3
+      await answerTask(deps, res, { kind: 'autofill_answer', userId, payer, input, items: input.items.length, screened });
     }),
   );
 

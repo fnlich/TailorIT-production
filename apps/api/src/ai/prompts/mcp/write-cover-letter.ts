@@ -1,6 +1,7 @@
 import { adapt, type TailorPromptText } from '../tailor/render';
 import { WRITE_COVER_LETTER, WRITE_LETTER_PROMPT } from '../tailor/write-cover-letter';
 import { defineTextPrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { rendered, stepFooter, type StepPromptInput } from './render';
 
 // v30 ST2: the MCP step prompt `write_cover_letter` for a built resume with a keyword analysis, moved from
@@ -27,6 +28,14 @@ export const MCP_WRITE_LETTER_TEXT: TailorPromptText = {
   sharedVariables: WRITE_LETTER_PROMPT.sharedVariables,
 };
 
+/** v33 PROMPTS (F5): the step in the person's family's words, then the MCP adaptations; technical: MCP_WRITE_LETTER_TEXT. */
+export const mcpWriteLetterTextFor = perFamily(
+  (family): TailorPromptText => ({
+    ...MCP_WRITE_LETTER_TEXT,
+    content: adapt(familyText(WRITE_COVER_LETTER, 'write-cover-letter', family), 'write-cover-letter', MCP_WRITE_LETTER_ADAPTATIONS),
+  }),
+);
+
 /** The letter steps' footer: the call that saves the paragraphs, and what TailorIT does with them. */
 export const letterFooter = (jobId: number) =>
   stepFooter(
@@ -41,5 +50,5 @@ export const mcpWriteLetterPrompt = defineTextPrompt<StepPromptInput>({
   version: 1,
   description:
     "The step `write_cover_letter` for the person's AI on a built resume with the job's keyword analysis, saved with prepare_save_cover_letter.",
-  text: ({ jobId, values }) => rendered(MCP_WRITE_LETTER_TEXT, values, true, letterFooter(jobId)),
+  text: ({ jobId, values, family }) => rendered(mcpWriteLetterTextFor(family), values, true, letterFooter(jobId)),
 });

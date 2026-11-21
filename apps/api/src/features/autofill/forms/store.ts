@@ -16,7 +16,7 @@ import {
 } from '@tailorit/shared/autofill';
 import type { Dialect } from '../../../core/db/dialect';
 import type { DbQueries, SqlParam } from '../../../core/db/types';
-import { screenAnswer } from '../answers/screen';
+import { isSensitiveAnswerRow, screenAnswer } from '../answers/screen'; // v33 SHARE-6: isSensitiveAnswerRow
 import { postingIdentityOf, type PageReading } from '../lookup';
 
 // The application forms' questions and the answers people submitted (TailorIT v1.3, migration 0811). The only module
@@ -71,7 +71,8 @@ export const FORM_SQL = {
   questions: `SELECT id, question_key, option_set_hash, label, field_kind, options, section, required, step, position, source,
          first_seen_at, last_seen_at
        FROM job_form_questions WHERE form_id = ? ORDER BY step, position, id LIMIT ?`,
-  submitted: `SELECT q.id, q.label, q.section, q.step, q.position, q.required, q.field_kind, a.answer, a.submitted_at
+  submitted: `SELECT q.id, q.label, q.section, q.step, q.position, q.required, q.field_kind, a.answer, a.submitted_at,
+         q.question_key, a.category
        FROM application_form_answers a JOIN job_form_questions q ON q.id = a.question_id
        WHERE a.user_id = ? AND a.application_id = ? ORDER BY q.step, q.position, q.id`,
 } as const;
@@ -566,6 +567,8 @@ export interface SubmittedRow {
   kind: AutofillFieldKind;
   answer: AutofillSubmittedAnswerValue | null;
   submittedAt: string;
+  /** v33 SHARE-6: a self-identification, legal or pay answer (isSensitiveAnswerRow): never shown without Sensitive answers' See. */
+  sensitive: boolean;
 }
 
 /**
@@ -587,12 +590,22 @@ export interface SubmittedDbRow {
   field_kind: AutofillFieldKind;
   answer: string | null;
   submitted_at: string;
+  question_key: string; // v33 SHARE-6
+  category: string | null; // v33 SHARE-6
 }
 
 /** The submitted answers' rows as the Tracker's tab has them. */
 export function submittedOfRows(d: Dialect, rows: readonly SubmittedDbRow[]): SubmittedRow[] {
   return rows.map((row) => {
-    const parsed = row.answer === null ? null : AutofillSubmittedAnswerValueSchema.safeParse(parseJson(row.answer));
+    const value = row.answer === null ? null : parseJson(row.answer);
+    const parsed = value === null ? null : AutofillSubmittedAnswerValueSchema.safeParse(value);
+    // v33 SHARE-6: whether a reader without Sensitive answers' See is never shown it.
+    const sensitive = isSensitiveAnswerRow({
+      category: (row.category ?? null) as AutofillFieldCategory | null,
+      questionKey: row.question_key,
+      questionLabel: row.label,
+      answer: value,
+    });
     return {
       questionId: row.id,
       label: row.label,
@@ -603,6 +616,7 @@ export function submittedOfRows(d: Dialect, rows: readonly SubmittedDbRow[]): Su
       kind: row.field_kind,
       answer: parsed?.success ? parsed.data : null,
       submittedAt: row.submitted_at,
+      sensitive,
     };
   });
 }

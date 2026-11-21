@@ -1,6 +1,7 @@
 import { GENERATE_COVER_LETTER } from '../tailor/generate-cover-letter';
 import { adapt, type TailorPromptText } from '../tailor/render';
 import { defineTextPrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { rendered, type StepPromptInput } from './render';
 import { letterFooter } from './write-cover-letter';
 
@@ -23,11 +24,23 @@ export const MCP_GENERATE_LETTER_TEXT: TailorPromptText = {
   sharedVariables: [],
 };
 
+/** v33 PROMPTS (F5): the step in the person's family's words, then the MCP adaptations; technical: MCP_GENERATE_LETTER_TEXT. */
+export const mcpGenerateLetterTextFor = perFamily(
+  (family): TailorPromptText => ({
+    ...MCP_GENERATE_LETTER_TEXT,
+    content: adapt(
+      familyText(GENERATE_COVER_LETTER, 'generate-cover-letter', family),
+      'generate-cover-letter',
+      MCP_GENERATE_LETTER_ADAPTATIONS,
+    ),
+  }),
+);
+
 export const mcpGenerateLetterPrompt = defineTextPrompt<StepPromptInput>({
   area: 'mcp',
   name: 'generate-cover-letter',
   version: 1,
   description:
     "The step `write_cover_letter` for the person's AI on a built resume with no keyword analysis, saved with prepare_save_cover_letter.",
-  text: ({ jobId, values }) => rendered(MCP_GENERATE_LETTER_TEXT, values, true, letterFooter(jobId)),
+  text: ({ jobId, values, family }) => rendered(mcpGenerateLetterTextFor(family), values, true, letterFooter(jobId)),
 });

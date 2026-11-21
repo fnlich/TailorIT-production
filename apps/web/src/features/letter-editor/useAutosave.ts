@@ -1,11 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { registerFlush } from '@/lib/profile';
 
 /*
  * Autosave for the letter and template editors (1 second after typing stops). Changes are merged into one
  * pending patch; saves never overlap (a change during a save is sent right after it); a failed save keeps its patch
  * for the next change or flush. Leaving the page with unsaved changes sends them with `keepalive`.
+ * v33 SHARE-4: a profile switch waits for `flush` first and stays put when it fails (every save names the profile the
+ * page loaded with, the keepalive one at unload included: lib/api.ts).
  */
 
 export type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
@@ -20,6 +23,11 @@ export interface Autosave<P extends object> {
   flush: () => Promise<void>;
   /** Whether anything is waiting or being saved. */
   hasUnsaved: () => boolean;
+  /**
+   * v33 SHARE-3: drops what is waiting (the editor loads the latest version after a save was refused as stale:
+   * conflict.ts). A save in flight still ends.
+   */
+  discard: () => void;
 }
 
 export const AUTOSAVE_DELAY_MS = 1000;
@@ -94,6 +102,14 @@ export function useAutosave<P extends object>(
 
   const hasUnsaved = useCallback(() => pending.current !== null || running.current !== null, []);
 
+  const discard = useCallback(() => {
+    clearTimer();
+    pending.current = null;
+    setState('idle');
+  }, []);
+
+  useEffect(() => registerFlush(run), [run]);
+
   // Leaving: send what is pending without waiting for the timer.
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -116,7 +132,7 @@ export function useAutosave<P extends object>(
     };
   }, []);
 
-  return { state, savedAt, schedule, flush: run, hasUnsaved };
+  return { state, savedAt, schedule, flush: run, hasUnsaved, discard };
 }
 
 /**

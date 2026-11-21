@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { IsoDateTime, listResponse } from '../core/list';
 import { queryEnum, queryText } from '../format/params';
+import { RoleFamilyIdSchema } from '../roles/dto'; // v33 PROMPTS
 import {
   AI_PROMPT_MAX,
   CUSTOM_PROMPT_MAX,
@@ -87,6 +88,12 @@ export const PatchCoverLetterBodySchema = z
     templateId: z.string().nullable(),
     resumeId: z.string().nullable(),
     applicationId: z.string().nullable(),
+    /**
+     * v33 SHARE-3 (PLAN-sharing §9 "Editors"): the `updatedAt` of the version the editor changes. When given and the
+     * letter was saved since (someone else on a shared profile, or another tab), nothing is saved: 409
+     * `revision_conflict` (MSG_LETTER_CHANGED). Absent: saved as before.
+     */
+    baseUpdatedAt: IsoDateTime,
   })
   .partial();
 export type PatchCoverLetterBody = z.infer<typeof PatchCoverLetterBodySchema>;
@@ -156,6 +163,8 @@ export const LetterTemplateSummarySchema = z.object({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   lastEditedAt: IsoDateTime.nullable(),
+  /** v33 PROMPTS (F5): the role families a TailorIT starter is written for (the pickers list the person's field's first). */
+  roleFamilies: z.array(RoleFamilyIdSchema).optional(),
 });
 export type LetterTemplateSummary = z.infer<typeof LetterTemplateSummarySchema>;
 
@@ -186,6 +195,8 @@ export const PatchLetterTemplateBodySchema = z
     contentHtml: HtmlField,
     fontFamily: FontField,
     aiPrompt: z.string().max(AI_PROMPT_MAX),
+    /** v33 SHARE-3: as PatchCoverLetterBodySchema's (409 `revision_conflict`, MSG_LETTER_TEMPLATE_CHANGED). */
+    baseUpdatedAt: IsoDateTime,
   })
   .partial();
 export type PatchLetterTemplateBody = z.infer<typeof PatchLetterTemplateBodySchema>;

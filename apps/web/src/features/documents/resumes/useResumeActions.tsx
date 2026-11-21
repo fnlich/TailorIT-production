@@ -20,8 +20,9 @@ import {
   TrashIcon,
 } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/Toast';
+import { invalidateAccount } from '@/lib/account';
 import { userMessage } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+import { profileUrl } from '@/lib/profile';
 import { usePublicConstants } from '@/lib/constants';
 import {
   deleteResume,
@@ -41,12 +42,14 @@ import { ResumePreviewDialog } from '../preview/ResumePreviewDialog';
 import { menuKeysFor, withKnownReading, type ResumeMenuKey } from './list';
 import { useResumeLimitGate } from './resumeLimit'; // v20 P8
 import { useUploadEdit } from './uploadEdit';
+import { tabCan, tabDeletes, useTabProfile } from '../../sharing/access'; // v33 FIX-1; FIX-2: tabDeletes
 
 const RESUME_NOUN = { one: 'resume', many: 'resumes' };
 
 /** Opens an uploaded resume's file in a new tab (a PDF shows in the browser; a Word file downloads). */
 export function openResumeFile(id: string): void {
-  window.open(resumeFileHref(id, true), '_blank', 'noopener');
+  // v33 SHARE-4: the browser loads this address itself, so it names the page's profile in its query.
+  window.open(profileUrl(resumeFileHref(id, true)), '_blank', 'noopener');
 }
 
 /** An uploaded resume's page at "What TailorIT read from this resume". */
@@ -77,7 +80,6 @@ export function useResumeActions({
   const toast = useToast();
   const { t } = usePublicConstants();
   const queryClient = useQueryClient();
-  const { setAccount } = useAuth();
   const [renaming, setRenaming] = useState<ResumeSummary | null>(null);
   const [deleting, setDeleting] = useState<ResumeSummary | null>(null);
   const [previewing, setPreviewing] = useState<ResumeSummary | null>(null);
@@ -107,8 +109,10 @@ export function useResumeActions({
 
   const setDefault = (resume: ResumeSummary) =>
     attempt(resume, 'default', 'Could not set the default resume', async () => {
-      const account = await setDefaultResume(resume.id);
-      if (account) setAccount(account);
+      // v33 SHARE-4: never the signed-in account's cache (on a shared profile the default is its owner's): the
+      // profile's default is read again from GET /api/account's `profile`.
+      await setDefaultResume(resume.id);
+      void invalidateAccount(queryClient);
       markDefaultInList(queryClient, resume.id);
       void refresh();
       toast.success(`${resume.label} is now your default resume`);
@@ -220,7 +224,11 @@ export function useResumeActions({
     }),
   };
 
-  const itemsFor = (resume: ResumeSummary) => menuKeysFor(resume).map((key) => build[key](resume));
+  // v33 FIX-1: on a profile shared without Documents' Change, the menu only reads (menuKeysFor). v33 FIX-2: no Delete
+  // on a shared profile (tabDeletes).
+  const tab = useTabProfile();
+  const canEdit = tabCan(tab, 'documents:edit');
+  const itemsFor = (resume: ResumeSummary) => menuKeysFor(resume, canEdit, canEdit && tabDeletes(tab)).map((key) => build[key](resume));
 
   const dialogs = (
     <>

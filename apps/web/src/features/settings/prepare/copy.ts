@@ -58,6 +58,8 @@ export const FILTERS_COPY = {
   locationMissingLink: 'Add them now',
   qualifications: 'Qualifications',
   qualificationsHint: 'Skip jobs needing a degree, years or citizenship your profile lacks.',
+  /** v33 FIX-2: on a profile shared without Sensitive answers' Change (it checks citizenship). */
+  qualificationsLocked: "It checks citizenship, so changing it needs Sensitive answers' Change.",
   certifications: 'Certifications',
   certificationsHint: 'Skip jobs needing a certification your profile lacks.',
   certificationsLink: 'Edit certifications',

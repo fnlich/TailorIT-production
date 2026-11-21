@@ -11,15 +11,18 @@ import {
   substituteVariables,
   type CoverLetterGenerateResult,
   type LetterProfile,
+  type RoleFamilyId,
 } from '@tailorit/shared';
 import { AUTOFILL_COVER_LETTER_LIMITS } from '@tailorit/shared/autofill';
 import { requireAi, type AiTaskContext } from '../../ai/index';
 import { taskInputSql } from '../../ai/payloads';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3 (INT-1: a person's)
 import type { Dialect } from '../../core/db/dialect';
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound, validationFailed } from '../../core/http/errors';
 import { LETTER_NOT_KEPT, letterContacts, letterProblem } from '../autofill/ai/letter';
 import { getResumeEvidence, type ResumeEvidence } from '../resumes/evidence';
+import { writtenFamily } from '../tailor/family'; // v33 PROMPTS
 import { letterProfile, requireVisibleTemplate, visibleTemplate, type TemplateRecord } from './context';
 import { coverLetterPrompt } from '../../ai/prompts/cover-letters/cover-letter';
 import type { LetterJobInput } from '../../ai/prompts/cover-letters/letter-rules';
@@ -64,6 +67,13 @@ export const GenerateTaskInputSchema = z.object({
 });
 export type GenerateTaskInput = z.infer<typeof GenerateTaskInputSchema>;
 
+/**
+ * v33 PROMPTS (F5): the field a letter is written in: the resume's (its Field, else what TailorIT read from it), else
+ * the job's, read from its title (a letter's job may be only a company and a title).
+ */
+const letterFamily = (deps: AppDeps, userId: string, resumeId: string, jobTitle: string): Promise<RoleFamilyId> =>
+  writtenFamily(deps, userId, resumeId, { title: jobTitle });
+
 /** A task's failure when the person wrote the letter while it was being written (`onlyIfEmpty`). */
 export const WRITTEN_MEANWHILE = 'This cover letter was written in the meantime, so it was kept as it is.';
 
@@ -99,14 +109,25 @@ const GENERATION_KINDS = ['cover_letter', 'template_fill'] as const;
  * template's AI prompt and font). One at a time per letter: asked again while it runs, the queue answers the same
  * task (both callers ask only when generationInFlight says none runs: the editor's route answers 409 then, the
  * extension's the letter being written). Throws the queue's refusals (`ai_unavailable`, `ai_busy`, a hold).
+ * v33 SHARE-3 (PLAN F9 "Who pays"): `payer` pays (B on A's letter: payerOf(req); v33 INT-1: required). A letter is
+ * one row, so its writing is one task whoever pays: while one person's writing of it is live, another person's ask is
+ * refused (409 conflict, MSG_LETTER_BEING_WRITTEN: the queue's SHARED_ROW_KINDS), never joined to work someone else
+ * pays for.
  */
 export async function startGeneration(
   deps: AppDeps,
   userId: string,
   input: GenerateTaskInput,
   template: TemplateRecord | null,
+  payer: PersonPayer, // v33 INT-1: required
 ): Promise<{ taskId: string; deduped: boolean }> {
-  return requireAi(deps).enqueue({ kind: generationKind(template), userId, input, dedupeKey: `cover-letter:${input.letterId}` });
+  return requireAi(deps).enqueue({
+    kind: generationKind(template),
+    userId,
+    input,
+    dedupeKey: `cover-letter:${input.letterId}`,
+    chargeTo: payer, // v33 SHARE-3; INT-1: always named
+  });
 }
 
 /** `template_fill` for a template with content; else `cover_letter`. */
@@ -223,6 +244,7 @@ export async function generateWithoutTemplate(
       resume: resumeForPrompt(evidence),
       templatePrompt: template?.aiPrompt ?? '',
       customPrompt: input.customPrompt,
+      family: await letterFamily(deps, userId, evidence.resumeId, input.jobTitle),
     },
     page.options,
   );
@@ -282,6 +304,7 @@ export async function generateFromTemplate(
         names: aiNames,
         personName: profile.fullName,
         today: formatLongDate(today),
+        family: await letterFamily(deps, userId, evidence.resumeId, input.jobTitle),
       },
       page.options,
     );

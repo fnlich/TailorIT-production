@@ -12,6 +12,7 @@ import {
 import { AiError, type AiTaskContext } from '../../../ai/index';
 import { autofillDraftPrompt, draftCap, type DraftOutput, type DraftPromptInput } from '../../../ai/prompts/autofill/draft';
 import type { AppDeps } from '../../../core/context';
+import { writtenFamily } from '../../tailor/family'; // v33 PROMPTS
 import { asksLegalQuestion, asksSelfIdentification } from '../answers/vocabulary';
 import { holdsPostalAddress, namesForeignContact, NO_CONTACTS, type OwnContacts } from './contacts';
 import { isAttentionCheck, namesSensitiveTopic } from './screen';
@@ -133,6 +134,8 @@ export interface DraftFacts {
   note: string;
   /** The person's own links, email addresses and phone numbers: a draft may name these and no others. Never sent. */
   contacts: OwnContacts;
+  /** v33 PROMPTS (F5): the resume the facts were read from (null: none), whose field the answers are written in. */
+  resumeId?: string | null;
 }
 
 /** Reads the facts for a draft task of `userId`'s: `resumeId`, else the profile's resume, else the default, else the
@@ -270,6 +273,8 @@ export async function runAutofillDraft(
       company: task.company,
       jobTitle: task.jobTitle,
       facts: { resume: facts.resume, profile: facts.profile, note: facts.note },
+      // v33 PROMPTS (F5): in the applicant's field's words (the resume's; the job title's when theirs is general).
+      family: await writtenFamily(deps, ctx.userId, facts.resumeId, { title: task.jobTitle }),
     };
     // v5 (the stream): each draft is released as it lands, through its own checks (settleDraft) and the reply's up to
     // it (stream.ts); never for a request with canaries, whose reply is checked whole.

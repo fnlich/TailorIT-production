@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { memo, useCallback, useId, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { useEditorField } from '../../roles/EditorField';
 import { addSkill, fetchSkills, resumeKeys, type SkillLibraryList } from '../api';
 import { CHIP_REFUSALS } from './parts';
 import { cleanChip, librarySpelling } from './spelling';
@@ -12,6 +13,8 @@ import { cleanChip, librarySpelling } from './spelling';
 // the main skills as a <datalist>, each one's other spellings as its label, which the browser searches too, so typing
 // "ASP.NET Core" offers ".NET" rather than a second skill that means the same. A skill the library lacks is kept for
 // the person (POST /api/skills), which also answers the library's spelling of one it knows by another name.
+// v33 SKILLS: the open resume's field's skills come first (a datalist offers its options in their order), and a skill
+// the person adds is filed under the field's heading.
 
 export interface SkillLibrary {
   /** The id to give the input's `list`. */
@@ -33,13 +36,14 @@ const Suggestions = memo(function Suggestions({ id, library }: { id: string; lib
   );
 });
 
-/** The library, loaded once `enabled` (a box for interests or soft skills never asks for it). */
+/** The library, loaded once `enabled` (a box for interests or soft skills never asks for it), the field's skills first. */
 export function useSkillLibrary(enabled = true): SkillLibrary {
   const listId = useId();
   const queryClient = useQueryClient();
+  const family = useEditorField().familyId;
   const { data } = useQuery({
-    queryKey: resumeKeys.skills('hard'),
-    queryFn: ({ signal }) => fetchSkills('hard', signal),
+    queryKey: resumeKeys.skills('hard', family),
+    queryFn: ({ signal }) => fetchSkills('hard', signal, family),
     staleTime: 30 * 60_000,
     enabled,
   });
@@ -50,8 +54,8 @@ export function useSkillLibrary(enabled = true): SkillLibrary {
       const known = librarySpelling(data?.skills ?? [], typed);
       if (known || !typed) return known ?? typed;
       try {
-        const stored = await addSkill('hard', typed);
-        queryClient.setQueryData<SkillLibraryList>(resumeKeys.skills('hard'), (current) =>
+        const stored = await addSkill('hard', typed, family);
+        queryClient.setQueryData<SkillLibraryList>(resumeKeys.skills('hard', family), (current) =>
           current && !librarySpelling(current.skills, stored) ? { ...current, skills: [...current.skills, stored] } : current,
         );
         return stored;
@@ -60,7 +64,7 @@ export function useSkillLibrary(enabled = true): SkillLibrary {
         return typed;
       }
     },
-    [data, queryClient],
+    [data, queryClient, family],
   );
 
   return { listId, suggestions: <Suggestions id={listId} library={data} />, spell };

@@ -8,8 +8,10 @@ import {
   type AutofillAnswerScope,
   type AutofillFieldKind,
 } from '@tailorit/shared/autofill';
+import type { RoleFamilyId } from '@tailorit/shared';
 import { openingOf } from '../../../features/autofill/ai/opening';
 import { untrusted, untrustedList } from '../../../features/autofill/ai/untrusted';
+import { familyVoice } from '../roles/variants';
 import { definePrompt } from '../types';
 import { CATEGORY_LINES } from './classify';
 import { factsAndJob, factsText, wrappedOrNone } from './facts-and-job';
@@ -121,6 +123,13 @@ ${all ? NEVER_ALL : NEVER_STANDARD}
 - A CHOICE: ${all ? CHOOSE_ALL : CHOOSE_STANDARD}`;
 }
 
+/** v33 PROMPTS: ANSWER_SYSTEM with a field's voice line last in Answers (the technical family's, or none: itself). */
+function answerSystemFor(family?: RoleFamilyId | null): string {
+  const voice = familyVoice(family);
+  const anchor = `\n\n${UNTRUSTED_RULE}`;
+  return voice ? ANSWER_SYSTEM.replace(anchor, () => `\n- ${voice}${anchor}`) : ANSWER_SYSTEM;
+}
+
 /** What the prompt module reads: the asked items alone, numbered 1, 2, ... in the request's order, and the scope. */
 export interface AnswerPromptInput {
   items: readonly AutofillAnswerItem[];
@@ -131,6 +140,8 @@ export interface AnswerPromptInput {
   company: string;
   jobTitle: string;
   facts: { resume: string; profile: string; note: string };
+  /** v33 PROMPTS (F5): the applicant's field; another field than the technical one adds its voice line to Answers. */
+  family?: RoleFamilyId | null;
 }
 
 /** True when an item of the `all` scope is an attention check, which the prompt marks so. */
@@ -199,7 +210,7 @@ export const autofillAnswerPrompt = definePrompt<AnswerPromptInput, AnswerOutput
   // one system prompt for every scope, holding the resume, the profile and the job (cached); the scope's rules, the
   // category list when an ITEM asks one, the note and the ITEMs in the message; the job text cut at 12,000 characters.
   version: 6,
-  system: () => ANSWER_SYSTEM,
+  system: (input) => answerSystemFor(input.family),
   context: (input) => factsAndJob(input, { note: false }),
   user: (input) =>
     [

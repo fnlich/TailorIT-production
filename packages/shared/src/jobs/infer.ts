@@ -5,6 +5,7 @@ import {
   type Leadership,
   type WorkArrangement,
 } from './enums';
+import { FIELD_CATCH_ALLS, FIELD_RULES, RECRUITING_TITLE, TECH_TITLE } from './field-title-rules'; // v33 ROLES
 import { OTHER_CATEGORY_ID, type JobCategoryId, type JobSubcategoryId } from './taxonomy';
 
 // Deterministic readings of a posting, used at ingest (before, or instead of, the AI analysis) and by the CSV import.
@@ -342,12 +343,21 @@ export function inferLeadership(title: string | null | undefined): Leadership {
 /** Pattern, category, subcategory, and whether it is a catch-all (its subcategory counts only when nothing finer does). */
 type Rule = readonly [RegExp, JobCategoryId, JobSubcategoryId | null, boolean?];
 
+// v33 ROLES
+/**
+ * The title rules' edition: bump it when a title's category or subcategories change, so the one-time
+ * re-categorization (apps/api/src/features/roles/recategorize-pass.ts, stamped with it) runs again. 1 was v3.2's;
+ * 2 is v3.3's rules for every field (./field-title-rules.ts).
+ */
+export const TITLE_RULES_VERSION = 2;
+// end v33 ROLES
+
 /**
  * In order: role nouns first (a "Product Manager, AI" is Product, a "Recruiter, Engineering" People & HR), then the
  * engineering specialities from the most to the least specific, then software in general.
  */
 const TITLE_RULES: readonly Rule[] = [
-  [/\b(?:engineering|software|development)\s+(?:manager|director)\b|\bmanager,?\s+(?:software\s+)?engineering\b|\b(?:head|director|vp|vice\s+president)\s+of\s+(?:engineering|software|development|technology)\b|\bcto\b|\bchief\s+technology\s+officer\b/i, 'engineering-management', 'engineering-leadership'],
+  [/\b(?:engineering|software|(?<!business\s)development)\s+(?:manager|director)\b|\bmanager,?\s+(?:software\s+)?engineering\b|\b(?:head|director|vp|vice\s+president)\s+of\s+(?:engineering|software|development|technology)\b|\bcto\b|\bchief\s+technology\s+officer\b/i, 'engineering-management', 'engineering-leadership'],
   [/\btechnical\s+program\s+manager\b|\btpm\b|\bprogram\s+manager\b/i, 'engineering-management', 'program-management'],
   [/\bscrum\s+master\b|\bagile\s+coach\b|\bdelivery\s+manager\b/i, 'engineering-management', 'agile-delivery'],
   [/\btechnical\s+product\s+manager\b/i, 'product', 'technical-product-management'],
@@ -360,19 +370,19 @@ const TITLE_RULES: readonly Rule[] = [
   [/\b(?:visual|graphic|brand|motion)\s+designer\b/i, 'design', 'visual-design'],
   [/\b(?:product|ux|ui|ui\/ux|ux\/ui|interaction|experience)\s+designer\b|\bdesigner\b|\bhead\s+of\s+design\b|\bdesign\s+(?:lead|director|manager)\b/i, 'design', 'product-design'],
   [/\brecruit(?:er|ing|ment)\b|\btalent\s+(?:acquisition|partner|sourcer)\b|\bsourcer\b/i, 'people-hr', 'recruiting'],
-  [/\bcompensation\b|\bbenefits\s+(?:manager|specialist|analyst)\b|\btotal\s+rewards\b/i, 'people-hr', 'compensation-benefits'],
+  [/\bcompensation\b|\bbenefits\s+(?:manager|specialist|analyst|administrator|coordinator)\b|\btotal\s+rewards\b/i, 'people-hr', 'compensation-benefits'], // v33 FIX-1: administrator, coordinator
   [/\blearning\s+(?:and|&)\s+development\b|\bl&d\b|\btraining\s+(?:manager|specialist)\b/i, 'people-hr', 'learning-development'],
   [/\bhuman\s+resources\b|\bhr\s+(?:business\s+partner|generalist|manager|specialist|coordinator)\b|\bhrbp\b|\bpeople\s+(?:operations|partner|ops)\b/i, 'people-hr', 'people-operations'],
-  [/\b(?:general\s+)?counsel\b|\battorney\b|\blawyer\b|\bparalegal\b|\blegal\s+(?:operations|specialist|manager|analyst)\b/i, 'legal', 'legal-counsel'],
+  [/\b(?:general\s+)?counsel\b|\battorney\b|\blawyer\b|\blegal\s+(?:operations|specialist|manager|analyst)\b/i, 'legal', 'legal-counsel'],
   [/\bcontracts?\s+(?:manager|specialist|administrator)\b/i, 'legal', 'contracts'],
   [/\bcompliance\s+(?:officer|manager|analyst|specialist)\b/i, 'legal', 'compliance'],
   [/\baccountant\b|\baccounting\b|\bcontroller\b|\bbookkeeper\b|\baccounts\s+(?:payable|receivable)\b/i, 'finance', 'accounting'],
   [/\bfp&a\b|\bfinancial\s+(?:analyst|planning)\b|\bfinance\s+(?:manager|director|associate|lead|partner)\b|\bcfo\b/i, 'finance', 'financial-planning'],
-  [/\btax\s+(?:manager|analyst|associate|specialist)\b|\bauditor\b|\binternal\s+audit\b/i, 'finance', 'audit-tax'],
+  [/\btax\s+(?:manager|analyst|associate|specialist|preparer|advisor)\b|\bauditor\b|\binternal\s+audit\b/i, 'finance', 'audit-tax'], // v33 FIX-1: preparer, advisor
   [/\binvestment\b|\binvestor\s+relations\b|\bportfolio\s+manager\b|\bquant(?:itative)?\s+(?:analyst|trader|researcher)\b|\btrader\b/i, 'finance', 'investment'],
   [/\bdeveloper\s+(?:advocate|relations|evangelist)\b|\bdevrel\b/i, 'marketing', 'developer-relations'],
   [/\bproduct\s+marketing\b/i, 'marketing', 'product-marketing'],
-  [/\bgrowth\s+(?:marketing|marketer|manager)\b|\bperformance\s+marketing\b|\bdemand\s+generation\b|\bpaid\s+(?:media|social|search)\b/i, 'marketing', 'growth-marketing'],
+  [/\bgrowth\s+(?:marketing|marketer|manager)\b|\bperformance\s+marketing\b|\bdemand\s+generation\b|\bpaid\s+(?:media|social|search)\b|\bmedia\s+buyers?\b/i, 'marketing', 'growth-marketing'], // v33 FIX-1: a media buyer (before supply chain's buyer)
   [/\bcontent\s+(?:marketing|strategist|writer|manager)\b|\bcopywriter\b/i, 'marketing', 'content-marketing'],
   [/\bseo\b/i, 'marketing', 'seo'],
   [/\bcommunications\s+(?:manager|specialist|lead)\b|\bpublic\s+relations\b|\bpr\s+manager\b|\bbrand\s+(?:manager|marketing)\b|\bsocial\s+media\b/i, 'marketing', 'brand-communications'],
@@ -389,9 +399,9 @@ const TITLE_RULES: readonly Rule[] = [
   [/\bcustomer\s+success\b|\baccount\s+manager\b|\bclient\s+success\b/i, 'customer-success', 'customer-success-management'],
   [/\bimplementation\s+(?:manager|specialist|consultant|engineer)\b|\bonboarding\s+(?:manager|specialist)\b/i, 'customer-success', 'implementation'],
   [/\b(?:technical\s+)?support\s+engineer\b|\bproduction\s+support\b/i, 'customer-success', 'support-engineering'],
-  [/\bcustomer\s+(?:support|service|experience|care)\b|\bsupport\s+(?:specialist|representative|agent|associate)\b/i, 'customer-success', 'customer-support'],
+  [/\bcustomer\s+(?:support|service|experience|care)\b|\bsupport\s+(?:specialist|representative|agent|associate)\b|\bclient\s+(?:service|services|support|care)\s+(?:representative|specialist|associate|agent|coordinator)s?\b/i, 'customer-success', 'customer-support'], // v33 FIX-1: client service representatives
   [/\brevenue\s+operations\b|\brevops\b|\bsales\s+operations\b/i, 'operations', 'revenue-operations'],
-  [/\bsupply\s+chain\b|\blogistics\b|\bprocurement\b|\bsourcing\s+manager\b/i, 'operations', 'supply-chain'],
+  [/\bsupply\s+chain\b|\blogistics\b|\bprocurement\b|\bsourcing\s+manager\b|\bpurchasing\s+(?:agent|manager|specialist|coordinator|assistant|analyst|officer)s?\b|\bbuyers?\b/i, 'operations', 'supply-chain'], // v33 FIX-1: purchasing agents and buyers
   [/\bstrategy\s+(?:and|&)\s+operations\b|\bbiz\s*ops\b|\bbusiness\s+operations\b|\boperations\s+(?:manager|associate|analyst|lead|specialist|coordinator)\b|\bchief\s+of\s+staff\b/i, 'operations', 'business-operations'],
   [/\bstrategy\b|\bstrategist\b|\bcorporate\s+development\b/i, 'operations', 'strategy'],
   [/\bproject\s+(?:manager|coordinator)\b/i, 'operations', 'project-management'],
@@ -412,7 +422,7 @@ const TITLE_RULES: readonly Rule[] = [
   [/\baccessibility\s+(?:tester|testing|analyst)\b/i, 'qa-testing', 'accessibility-testing'],
   [/\bqa\b|\bquality\s+assurance\b|\btest\s+(?:engineer|analyst|lead)\b|\btester\b|\bquality\s+engineer\b/i, 'qa-testing', 'manual-qa', true],
   [/\bmlops\b|\bllmops\b|\bml\s+(?:platform|infrastructure|ops)\b/i, 'ai-ml', 'mlops'],
-  [/\bcomputer\s+vision\b|\bnlp\b|\bnatural\s+language\b|\bspeech\b|\brecommend(?:er|ation)s?\b|\bsearch\s+(?:relevance|ranking)\b|\bperception\b/i, 'ai-ml', 'applied-ml'],
+  [/\bcomputer\s+vision\b|\bnlp\b|\bnatural\s+language\b|\bspeech\b|\brecommend(?:er|ation)s?\b|\bsearch\s+(?:relevance|ranking)\b|\bperception\b|\bapplied\s+scientists?\b/i, 'ai-ml', 'applied-ml'], // v33 FIX-1: applied scientists
   [/\bllms?\b|\bgenerative\s+ai\b|\bgen\s?ai\b|\bai\s+(?:engineer|application|product\s+engineer)\b|\bprompt\s+engineer\b|\bapplied\s+ai\b/i, 'ai-ml', 'llm-applications'],
   [/\bai\s+safety\b|\bresponsible\s+ai\b|\balignment\b/i, 'ai-ml', 'ai-safety'],
   [/\bresearch\s+(?:scientist|engineer)\b|\bai\s+research(?:er)?\b|\bml\s+research(?:er)?\b/i, 'ai-ml', 'ai-research'],
@@ -450,26 +460,40 @@ const TITLE_RULES: readonly Rule[] = [
   [/\bhpc\b|\bhigh[\s-]performance\s+computing\b|\bgpu\s+(?:engineer|programmer)\b/i, 'software-engineering', 'hpc'],
   [/\bsalesforce\b|\bsap\b|\bservicenow\b|\bdynamics\s+365\b/i, 'software-engineering', 'enterprise-platforms'],
   [/\b(?:software|solutions?|enterprise|technical|application)\s+architect\b/i, 'software-engineering', 'software-architecture'],
-  [/\bsoftware\b|\bdeveloper\b|\bprogrammer\b|\bswe\b|\bcoder\b|\bmember\s+of\s+technical\s+staff\b|\bmts\b/i, 'software-engineering', null],
+  // v33 FIX-1: an engineer named only by level ("Staff Engineer", "Engineer II") or a tech lead is a software engineer, as
+  // v3.2's prompts always read them (a field's engineer names the field: "Mechanical Engineer", "Building Engineer").
+  [/^(?:(?:senior|sr\.?|staff|principal|lead|founding|junior|jr\.?)\s+)+engineer(?:\s*,?\s*(?:i{1,3}|iv|v|[1-5]))?$|^engineer\s*,?\s*(?:i{1,3}|iv|v|[1-5])$|\btech(?:nical)?\s+lead\b/i, 'software-engineering', null],
+  [/\bsoftware\b|\bdeveloper\b|\bprogrammer\b|\bswe\b|\bsde\b|\bcoder\b|\bmember\s+of\s+technical\s+staff\b|\bmts\b/i, 'software-engineering', null], // v33 FIX-1: sde
 ];
+
+// v33 ROLES: v3.3's rules for every other field (./field-title-rules.ts) come first and last, each marked as a field
+// rule (the fifth item): it never fires on a technology title or a recruiter's.
+type OrderedRule = readonly [RegExp, JobCategoryId, JobSubcategoryId | null, boolean | undefined, boolean];
+const ORDERED_RULES: readonly OrderedRule[] = [
+  ...FIELD_RULES.map(([pattern, category, sub, catchAll]): OrderedRule => [pattern, category, sub, catchAll, true]),
+  ...TITLE_RULES.map(([pattern, category, sub, catchAll]): OrderedRule => [pattern, category, sub, catchAll, false]),
+  ...FIELD_CATCH_ALLS.map(([pattern, category, sub, catchAll]): OrderedRule => [pattern, category, sub, catchAll, true]),
+];
+// end v33 ROLES
 
 /**
  * TailorIT's category for a job title, by rule: the first matching rule names the category, and every matching rule
  * of that category adds its subcategory ("Frontend / Mobile Engineer" -> frontend, mobile); a catch-all rule's
  * subcategory only when nothing finer matched ("Data Scientist" is Data Science, not also Data Analysis). A title no
- * rule knows is "other".
+ * rule knows is "other". v33 ROLES: the rules for every field outside software run first (a nurse, a security guard),
+ * except on a technology title or a recruiter's.
  */
 export function categorizeTitle(title: string | null | undefined): {
   categoryId: JobCategoryId;
   subcategoryIds: JobSubcategoryId[];
 } {
   const name = (title ?? '').replace(/\s+/g, ' ').trim();
-  const first = TITLE_RULES.find(([pattern]) => pattern.test(name));
+  const fields = !TECH_TITLE.test(name) && !RECRUITING_TITLE.test(name);
+  const applies = ([pattern, , , , field]: OrderedRule) => (fields || !field) && pattern.test(name);
+  const first = ORDERED_RULES.find(applies);
   if (!first) return { categoryId: OTHER_CATEGORY_ID, subcategoryIds: [] };
   const categoryId = first[1];
-  const matching = TITLE_RULES.filter(
-    ([pattern, category, subcategory]) => category === categoryId && subcategory && pattern.test(name),
-  );
+  const matching = ORDERED_RULES.filter((rule) => rule[1] === categoryId && rule[2] && applies(rule));
   const specific = matching.filter(([, , , catchAll]) => !catchAll);
   const chosen = specific.length > 0 ? specific : matching;
   const subcategoryIds: JobSubcategoryId[] = [];

@@ -1,4 +1,4 @@
-import { displayStatusOf, STATUS, type ApplicationStatus, type StatusKey } from '@tailorit/shared';
+import { STATUS, type ApplicationStatus, type StatusKey } from '@tailorit/shared';
 import { AUTOFILL_AGENT_STATES, type AutofillAgentState } from '@tailorit/shared/autofill';
 import type { AppDeps } from '../../core/context';
 import type { Dialect, SqlParam } from '../../core/db/index';
@@ -9,13 +9,14 @@ import { saveJobs } from '../applications/service';
 import { archiveRow, LIVE_QUEUE_ROW_AT_SQL } from '../applications/store';
 import { untrustedText } from '../autofill/ai/untrusted';
 import { dayIn, dayRange, zoneOf, type DayRange, type Zone } from './dates';
-import { loadResultSet, readSetCursor, saveResultSet, setCursor, targetsOf, type ResultSet } from './result-sets';
+import { loadResultSet, readSetCursor, saveResultSet, setCursor, targetsOf, type ResultSet, type SetOwner } from './result-sets';
 import { PAGE_DEFAULT, PAGE_MAX, type Table } from './tools-jobs';
 
 // v1.5 Q2: the tracker and the auto-apply queue for the person's own AI: save_jobs / unsave_jobs, queue_remove /
 // queue_clear_finished (each takes job ids, at most 500, or a result set), list_applications, queue_list and
-// application_timeline (v2.0 P5: queue_add is gone, A4; a Saved entry with a live queue row shows status `draft`,
-// A30's displayStatusOf). Every write goes through the tracker's and the queue's own code (saveJobs,
+// application_timeline (v2.0 P5: queue_add is gone, A4; v33 TRACKER, F1: a Saved entry with a live queue row shows
+// status `saved` with its Q flag, as the Tracker shows it in Saved with a Draft mark; a status filter that still asks for
+// `draft`, v3.2's word, reads as saved and queued). Every write goes through the tracker's and the queue's own code (saveJobs,
 // archiveRow, removeQueued, clearFinished), so their rules hold (a tracked job keeps its status, a
 // running row is never removed), in one transaction where the code allows it (saveJobs
 // writes in chunks of 25, each its own transaction, as Save all does). Answers are counts, with at most
@@ -35,6 +36,14 @@ type Deps = Pick<AppDeps, 'db' | 'config' | 'now' | 'services' | 'log'>;
 export const STATUS_KEYS = Object.keys(STATUS) as StatusKey[];
 const KEY_OF = new Map<number, StatusKey>(Object.entries(STATUS).map(([key, code]) => [code, key as StatusKey]));
 export const statusKey = (code: number): string => KEY_OF.get(code) ?? String(code);
+
+// v33 TRACKER (F1)
+/** v3.2's shown status of a Saved entry with a live queue row: no longer answered, still read in a status filter. */
+export const DRAFT_STATUS_FILTER = 'draft' as const;
+/** What list_applications' (and application_stats' filters') `status` takes: the stored statuses' keys, and `draft`. */
+export const APP_STATUS_FILTERS = [...(STATUS_KEYS as [StatusKey, ...StatusKey[]]), DRAFT_STATUS_FILTER] as const;
+export type AppStatusFilter = StatusKey | typeof DRAFT_STATUS_FILTER;
+// end v33 TRACKER
 
 export interface BulkInput {
   ids?: number[];
@@ -56,8 +65,13 @@ function refusals(list: readonly Refusal[]) {
 // ------------------------------------------------------------------------------------------------- save / unsave
 
 /** save_jobs: each job Saved on `date` (default today in the zone) with the tracker's Save. */
-export async function saveJobsTool(deps: Deps, userId: string, input: BulkInput & { date?: string; tz?: string }) {
-  const targets = await targetsOf(deps, userId, input);
+export async function saveJobsTool(
+  deps: Deps,
+  userId: string,
+  input: BulkInput & { date?: string; tz?: string },
+  sets: SetOwner = userId, // v33 SHARE-8: the caller on this profile (result-sets.ts)
+) {
+  const targets = await targetsOf(deps, sets, input);
   const zone = zoneOf(input.tz);
   const date = input.date ?? dayIn(deps.now(), zone.tz);
   if (targets.ids.length === 0) return { saved: 0, restored: 0, skipped: 0 };
@@ -87,8 +101,8 @@ export async function saveJobsTool(deps: Deps, userId: string, input: BulkInput 
 }
 
 /** unsave_jobs: archives the Saved applications of the jobs, as the Jobs page's un-save does; never one past Saved. */
-export async function unsaveJobsTool(deps: Deps, userId: string, input: BulkInput) {
-  const targets = await targetsOf(deps, userId, input);
+export async function unsaveJobsTool(deps: Deps, userId: string, input: BulkInput, sets: SetOwner = userId) {
+  const targets = await targetsOf(deps, sets, input);
   const now = deps.now().toISOString();
   return deps.db.tx(async (t) => {
     const found = await t.all<{ job_id: number; id: string; current_status: number; archived_at: string | null }>(
@@ -115,8 +129,8 @@ export async function unsaveJobsTool(deps: Deps, userId: string, input: BulkInpu
 // ------------------------------------------------------------------------------------------------- the queue
 
 /** queue_remove: takes the jobs' rows out of the queue (the rule never picks them again); a running row stays. */
-export async function queueRemoveTool(deps: Deps, userId: string, input: BulkInput) {
-  const targets = await targetsOf(deps, userId, input);
+export async function queueRemoveTool(deps: Deps, userId: string, input: BulkInput, sets: SetOwner = userId) {
+  const targets = await targetsOf(deps, sets, input);
   return deps.db.tx(async (t) => {
     const found = await t.all<{ job_id: number; id: string }>(
       `SELECT job_id, id FROM autofill_agent_queue WHERE user_id = ? AND job_id IN (${jobIdsIn(t.dialect)})`,
@@ -172,7 +186,7 @@ export interface DateFilter {
 }
 
 export interface AppFilters {
-  status?: StatusKey[];
+  status?: AppStatusFilter[];
   archived?: 'exclude' | 'only' | 'include';
   saved?: DateFilter;
   applied?: DateFilter;
@@ -201,12 +215,6 @@ function escapeLike(text: string): string {
 
 const codeOf = (key: StatusKey): ApplicationStatus => STATUS[key];
 
-/** v2.0 P5 (A30): the status a person sees: `draft` for a Saved entry with a live queue row, else the stored one's key. */
-export function shownStatus(code: number, queuedAt: string | null): string {
-  const shown = displayStatusOf({ status: code as ApplicationStatus, queued: queuedAt !== null });
-  return typeof shown === 'number' ? statusKey(shown) : shown;
-}
-
 export interface Where {
   sql: string[];
   params: Record<string, unknown>;
@@ -234,7 +242,14 @@ export function appWhere(
   const archived = filters.archived ?? archivedDefault;
   if (archived === 'exclude') sql.push('a.archived_at IS NULL');
   if (archived === 'only') sql.push('a.archived_at IS NOT NULL');
-  if (filters.status && filters.status.length > 0) sql.push(`a.current_status IN (${filters.status.map((key) => add(codeOf(key))).join(', ')})`);
+  if (filters.status && filters.status.length > 0) {
+    // v33 TRACKER (F1): `draft` is saved and queued (a live queue row), as v3.2 showed it.
+    const stored = filters.status.filter((key): key is StatusKey => key !== DRAFT_STATUS_FILTER);
+    const parts: string[] = [];
+    if (stored.length > 0) parts.push(`a.current_status IN (${stored.map((key) => add(codeOf(key))).join(', ')})`);
+    if (filters.status.includes(DRAFT_STATUS_FILTER)) parts.push(`(a.current_status = ${add(STATUS.saved)} AND ${LIVE_QUEUE_ROW_AT_SQL} IS NOT NULL)`);
+    sql.push(parts.length === 1 ? parts[0]! : `(${parts.join(' OR ')})`);
+  }
   const ranges: Record<string, Partial<DayRange>> = {};
   const between = (expression: string, range: Partial<DayRange> | null) => {
     if (!range) return;
@@ -302,7 +317,6 @@ interface AppRow {
   platform: string;
   draft_ready: boolean;
   queue_state: AutofillAgentState | null;
-  queued_at: string | null;
 }
 
 function appRows(deps: Pick<AppDeps, 'db'>, where: Where, sort: ListArgs['sort']): Promise<AppRow[]> {
@@ -310,7 +324,7 @@ function appRows(deps: Pick<AppDeps, 'db'>, where: Where, sort: ListArgs['sort']
   return deps.db.all<AppRow>(
     `SELECT a.id, a.job_id, a.title, a.company_name, a.location, a.posting_url, a.current_status, a.archived_at, a.favorite,
        a.tracked_on, a.updated_at, ${APPLIED_ON} AS applied_on, ${APP_PLATFORM} AS platform,
-       COALESCE(${DRAFT_READY}, false) AS draft_ready, q.state AS queue_state, ${LIVE_QUEUE_ROW_AT_SQL} AS queued_at
+       COALESCE(${DRAFT_READY}, false) AS draft_ready, q.state AS queue_state
      FROM ${APP_FROM}
      WHERE ${where.sql.join(' AND ')}
      ORDER BY ${order}, a.id`,
@@ -338,7 +352,7 @@ function appCell(row: AppRow, field: AppField): string | number | null {
     case 'company':
       return untrustedText(row.company_name, 80);
     case 'status':
-      return shownStatus(row.current_status, row.queued_at);
+      return statusKey(row.current_status);
     case 'saved':
       return row.tracked_on.slice(0, 10);
     case 'applied':
@@ -378,13 +392,18 @@ function pageRows<R>(rows: readonly R[], offset: number, limit: number) {
 }
 
 /** list_applications. */
-export async function listApplications(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, args: ListArgs): Promise<ListAnswer> {
+export async function listApplications(
+  deps: Pick<AppDeps, 'db' | 'now'>,
+  userId: string,
+  args: ListArgs,
+  sets: SetOwner = userId, // v33 SHARE-8
+): Promise<ListAnswer> {
   let set: ResultSet | null = null;
   let offset = 0;
   let query: ListArgs = args;
   if (args.cursor) {
     const cursor = readSetCursor(args.cursor);
-    set = await loadResultSet(deps, userId, cursor.setId);
+    set = await loadResultSet(deps, sets, cursor.setId);
     if (set.source !== 'applications') throw validationFailed('cursor: that cursor is not a list_applications cursor.');
     offset = cursor.offset;
     const stored = set.query as ListArgs;
@@ -395,7 +414,7 @@ export async function listApplications(deps: Pick<AppDeps, 'db' | 'now'>, userId
   if (!set) {
     const jobIds = rows.map((row) => row.job_id).filter((id): id is number => id !== null);
     const stored = { ...query, countOnly: undefined, facets: undefined, cursor: undefined };
-    set = await saveResultSet(deps, userId, 'applications', stored, jobIds, jobIds.length);
+    set = await saveResultSet(deps, sets, 'applications', stored, jobIds, jobIds.length);
   }
   const meta = {
     ...(Object.keys(where.ranges).length > 0 ? { ranges: where.ranges, tz: where.zone.tz } : {}),
@@ -419,7 +438,7 @@ export async function listApplications(deps: Pick<AppDeps, 'db' | 'now'>, userId
 function appFacets(rows: readonly AppRow[], facets: ReadonlyArray<(typeof APP_FACETS)[number]>) {
   const out: Record<string, Array<[string, number]>> = {};
   for (const facet of new Set(facets)) {
-    if (facet === 'status') out.status = count(rows, (row) => shownStatus(row.current_status, row.queued_at), 12);
+    if (facet === 'status') out.status = count(rows, (row) => statusKey(row.current_status), 12);
     if (facet === 'platform') out.platform = count(rows, (row) => row.platform, 12);
     if (facet === 'company') out.company = count(rows, (row) => untrustedText(row.company_name, 80), 10);
     if (facet === 'queue') out.queue = count(rows, (row) => row.queue_state ?? 'none', 8);
@@ -462,13 +481,13 @@ interface QueueListRow {
 }
 
 /** queue_list: the account's queue rows (at most 500), running first, then queued oldest first, then finished. */
-export async function queueList(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, args: QueueListArgs) {
+export async function queueList(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, args: QueueListArgs, sets: SetOwner = userId) {
   let set: ResultSet | null = null;
   let offset = 0;
   let query = args;
   if (args.cursor) {
     const cursor = readSetCursor(args.cursor);
-    set = await loadResultSet(deps, userId, cursor.setId);
+    set = await loadResultSet(deps, sets, cursor.setId);
     if (set.source !== 'queue') throw validationFailed('cursor: that cursor is not a queue_list cursor.');
     offset = cursor.offset;
     const stored = set.query as QueueListArgs;
@@ -503,7 +522,7 @@ export async function queueList(deps: Pick<AppDeps, 'db' | 'now'>, userId: strin
   );
   if (!set) {
     const stored = { ...query, countOnly: undefined, facets: undefined, cursor: undefined };
-    set = await saveResultSet(deps, userId, 'queue', stored, rows.map((row) => row.job_id), rows.length);
+    set = await saveResultSet(deps, sets, 'queue', stored, rows.map((row) => row.job_id), rows.length);
   }
   const facets: Record<string, Array<[string, number]>> = {};
   for (const facet of new Set(query.facets ?? [])) {
@@ -565,11 +584,10 @@ export async function applicationTimeline(deps: Pick<AppDeps, 'db'>, userId: str
     queue_state: string | null;
     queue_reason: string | null;
     queue_run: string | null;
-    queued_at: string | null;
   }>(
     `SELECT a.id, a.job_id, a.title, a.company_name, a.location, a.current_status, a.archived_at, a.tracked_on,
        a.posting_url, ${APP_PLATFORM} AS platform, d.resume_status, d.letter_status, d.answers_status,
-       q.state AS queue_state, q.reason AS queue_reason, q.run AS queue_run, ${LIVE_QUEUE_ROW_AT_SQL} AS queued_at
+       q.state AS queue_state, q.reason AS queue_reason, q.run AS queue_run
      FROM ${APP_FROM} WHERE a.id = ? AND a.user_id = ?`,
     [applicationId, userId],
   );
@@ -584,7 +602,7 @@ export async function applicationTimeline(deps: Pick<AppDeps, 'db'>, userId: str
     title: untrustedText(row.title, 120),
     company: untrustedText(row.company_name, 80),
     location: untrustedText(row.location, 60),
-    status: shownStatus(row.current_status, row.queued_at),
+    status: statusKey(row.current_status),
     archived: row.archived_at !== null,
     platform: row.platform,
     events: events.map((event) => [statusKey(event.status), event.occurred_on]),

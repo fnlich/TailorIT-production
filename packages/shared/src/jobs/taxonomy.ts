@@ -1,5 +1,6 @@
-// TailorIT's job taxonomy: 18 parent categories, each with subcategories. Ids are stable (they are stored on jobs and in
-// saved searches); labels are display only. Subcategory ids are unique across the whole taxonomy, so a filter can name
+// TailorIT's job taxonomy: 36 parent categories, each with subcategories. Ids are stable (they are stored on jobs and in
+// saved searches); labels are display only. v3.3 ROLES (F3, "category them as much as possible") added 18 parents
+// before `other` and five subcategories under existing parents, additively: no id was renamed or removed. Subcategory ids are unique across the whole taxonomy, so a filter can name
 // one without its parent. The software and tech subcategories follow free_tailor's 103 job fields
 // (backend/src/config/jobFields.ts), regrouped under these parents; `FT_JOB_FIELD_MAP` maps each of those ids here.
 
@@ -210,6 +211,7 @@ export const JOB_CATEGORIES = [
       sub('customer-support', 'Customer Support'),
       sub('implementation', 'Implementation & Onboarding'),
       sub('support-engineering', 'Support Engineering'),
+      sub('call-center', 'Call Center'), // v33 ROLES
     ],
   },
   {
@@ -231,6 +233,8 @@ export const JOB_CATEGORIES = [
       sub('financial-planning', 'Financial Planning & Analysis'),
       sub('investment', 'Investment & Banking'),
       sub('audit-tax', 'Audit & Tax'),
+      sub('banking-operations', 'Banking Operations & Lending'), // v33 ROLES
+      sub('insurance-underwriting-claims', 'Insurance Underwriting & Claims'), // v33 ROLES
     ],
   },
   {
@@ -241,6 +245,7 @@ export const JOB_CATEGORIES = [
       sub('people-operations', 'People Operations'),
       sub('compensation-benefits', 'Compensation & Benefits'),
       sub('learning-development', 'Learning & Development'),
+      sub('payroll', 'Payroll'), // v33 ROLES
     ],
   },
   {
@@ -251,8 +256,230 @@ export const JOB_CATEGORIES = [
       sub('compliance', 'Compliance'),
       sub('ip-licensing', 'IP, Licensing & Regulation'),
       sub('contracts', 'Contracts'),
+      sub('paralegal', 'Paralegal & Legal Assistance'), // v33 ROLES
     ],
   },
+  // v33 ROLES (F3): the parents for work outside software and the office's tech roles, before `other`.
+  {
+    id: 'administrative-office',
+    label: 'Administrative & Office',
+    subcategories: [
+      sub('administrative-assistant', 'Administrative Assistants'),
+      sub('executive-assistant', 'Executive Assistants'),
+      sub('office-management', 'Office Management'),
+      sub('reception', 'Reception & Front Desk'),
+      sub('data-entry-records', 'Data Entry & Records'),
+      sub('office-clerical', 'General Office & Clerical'),
+    ],
+  },
+  {
+    id: 'healthcare',
+    label: 'Healthcare',
+    subcategories: [
+      sub('nursing', 'Nursing'),
+      sub('nursing-assistant', 'Nursing Assistants & Patient Care'),
+      sub('physicians-advanced-practice', 'Physicians & Advanced Practice'),
+      sub('allied-health', 'Allied Health & Technologists'),
+      sub('therapy-rehabilitation', 'Therapy & Rehabilitation'),
+      sub('pharmacy', 'Pharmacy'),
+      sub('dental', 'Dental'),
+      sub('behavioral-health', 'Mental & Behavioral Health'),
+      sub('medical-administration', 'Medical Office, Billing & Coding'),
+      sub('home-health', 'Home Health & Caregiving'),
+      sub('emergency-medical', 'Emergency Medical Services'),
+      sub('veterinary', 'Veterinary'),
+    ],
+  },
+  {
+    id: 'education',
+    label: 'Education',
+    subcategories: [
+      sub('k12-teaching', 'K-12 Teaching'),
+      sub('early-childhood', 'Early Childhood & Childcare'),
+      sub('special-education', 'Special Education'),
+      sub('higher-education', 'Higher Education & Faculty'),
+      sub('tutoring-instruction', 'Tutoring & Instruction'),
+      sub('teaching-assistant', 'Teaching Assistants & Paraprofessionals'),
+      sub('school-administration', 'School Administration & Counseling'),
+      sub('instructional-design', 'Instructional Design'),
+    ],
+  },
+  {
+    id: 'retail',
+    label: 'Retail',
+    subcategories: [
+      sub('retail-sales', 'Retail Sales'),
+      sub('cashier', 'Cashiers & Checkout'),
+      sub('store-management', 'Store Management'),
+      sub('merchandising-stocking', 'Merchandising & Stocking'),
+    ],
+  },
+  {
+    id: 'hospitality-food',
+    label: 'Hospitality & Food Service',
+    subcategories: [
+      sub('culinary', 'Chefs, Cooks & Kitchen Staff'),
+      sub('food-beverage-service', 'Servers, Bartenders & Baristas'),
+      sub('restaurant-management', 'Restaurant Management'),
+      sub('hotel-lodging', 'Hotels & Lodging'),
+      sub('events-travel', 'Events & Travel'),
+    ],
+  },
+  {
+    id: 'skilled-trades',
+    label: 'Skilled Trades',
+    subcategories: [
+      sub('electrical', 'Electricians'),
+      sub('plumbing-pipefitting', 'Plumbing & Pipefitting'),
+      sub('hvac', 'HVAC & Refrigeration'),
+      sub('carpentry-construction', 'Carpentry & Construction'),
+      sub('welding-fabrication', 'Welding & Fabrication'),
+      sub('automotive-mechanics', 'Automotive & Diesel Mechanics'),
+      sub('field-service', 'Field Service Technicians'),
+      sub('construction-supervision', 'Construction Supervision & Estimating'),
+      sub('heavy-equipment', 'Heavy Equipment Operation'),
+    ],
+  },
+  {
+    id: 'manufacturing',
+    label: 'Manufacturing & Production',
+    subcategories: [
+      sub('production-assembly', 'Production & Assembly'),
+      sub('machine-operation', 'Machining & Machine Operation'),
+      sub('quality-control', 'Quality Control & Inspection'),
+      sub('industrial-maintenance', 'Industrial Maintenance'),
+      sub('production-supervision', 'Production Supervision & Planning'),
+    ],
+  },
+  {
+    id: 'logistics-warehouse',
+    label: 'Warehouse & Logistics',
+    subcategories: [
+      sub('warehouse-operations', 'Warehouse Associates'),
+      sub('material-handling', 'Forklift & Material Handling'),
+      sub('inventory-control', 'Inventory Control'),
+      sub('shipping-receiving', 'Shipping & Receiving'),
+      sub('warehouse-management', 'Warehouse & Distribution Management'),
+      sub('dispatch-coordination', 'Dispatch & Logistics Coordination'),
+    ],
+  },
+  {
+    id: 'transportation',
+    label: 'Transportation & Driving',
+    subcategories: [
+      sub('truck-driving', 'Truck Drivers (CDL)'),
+      sub('delivery-driving', 'Delivery & Courier Drivers'),
+      sub('passenger-transit', 'Bus, Transit & Passenger Drivers'),
+      sub('aviation', 'Aviation & Flight Crew'),
+      sub('maritime-rail', 'Maritime & Rail'),
+      sub('fleet-management', 'Fleet & Transportation Management'),
+    ],
+  },
+  {
+    id: 'engineering-physical',
+    label: 'Mechanical, Electrical & Civil Engineering',
+    subcategories: [
+      sub('mechanical-engineering', 'Mechanical Engineering'),
+      sub('electrical-engineering', 'Electrical & Electronics Engineering'),
+      sub('civil-structural', 'Civil & Structural Engineering'),
+      sub('chemical-process', 'Chemical & Process Engineering'),
+      sub('industrial-manufacturing-engineering', 'Industrial & Manufacturing Engineering'),
+      sub('aerospace-engineering', 'Aerospace Engineering'),
+      sub('environmental-engineering', 'Environmental Engineering'),
+      sub('biomedical-engineering', 'Biomedical Engineering'),
+      sub('quality-engineering', 'Quality & Reliability Engineering'),
+      sub('drafting-cad', 'Drafting & CAD'),
+    ],
+  },
+  {
+    id: 'science-research',
+    label: 'Science & Research',
+    subcategories: [
+      sub('life-sciences', 'Biology & Life Sciences'),
+      sub('chemistry', 'Chemistry'),
+      sub('lab-research', 'Laboratory & Research Technicians'),
+      sub('clinical-research', 'Clinical Research'),
+      sub('environmental-science', 'Environmental & Earth Sciences'),
+      sub('physical-sciences', 'Physics & Materials Science'),
+    ],
+  },
+  {
+    id: 'writing-media',
+    label: 'Writing, Media & Communications',
+    subcategories: [
+      sub('journalism', 'Journalism & Reporting'),
+      sub('editing-publishing', 'Editing & Publishing'),
+      sub('video-film-broadcast', 'Video, Film & Broadcast'),
+      sub('photography', 'Photography'),
+      sub('illustration-animation', 'Illustration & Animation'),
+      sub('translation-interpreting', 'Translation & Interpreting'),
+      sub('audio-music', 'Audio & Music Production'),
+    ],
+  },
+  {
+    id: 'real-estate',
+    label: 'Real Estate',
+    subcategories: [
+      sub('real-estate-sales', 'Real Estate Agents & Brokers'),
+      sub('property-management', 'Property & Leasing Management'),
+      sub('real-estate-appraisal', 'Appraisal, Title & Escrow'),
+    ],
+  },
+  {
+    id: 'social-public-sector',
+    label: 'Social Services & Public Sector',
+    subcategories: [
+      sub('social-work', 'Social Work & Case Management'),
+      sub('community-outreach', 'Community & Youth Programs'),
+      sub('public-administration', 'Government & Public Administration'),
+      sub('nonprofit-fundraising', 'Nonprofit & Fundraising'),
+      sub('library-archives', 'Libraries & Archives'),
+    ],
+  },
+  {
+    id: 'protective-services',
+    label: 'Protective Services & Security',
+    subcategories: [
+      sub('security-guard', 'Security Officers & Guards'),
+      sub('law-enforcement', 'Law Enforcement & Corrections'),
+      sub('fire-rescue', 'Fire & Rescue'),
+      sub('loss-prevention', 'Loss Prevention'),
+      sub('emergency-dispatch', 'Emergency Management & Dispatch'),
+    ],
+  },
+  {
+    id: 'facilities-services',
+    label: 'Facilities & Maintenance',
+    subcategories: [
+      sub('janitorial-custodial', 'Janitorial & Cleaning'),
+      sub('building-maintenance', 'Building Maintenance'),
+      sub('landscaping-grounds', 'Landscaping & Grounds'),
+      sub('facilities-management', 'Facilities Management'),
+    ],
+  },
+  {
+    id: 'personal-care-services',
+    label: 'Personal Care & Services',
+    subcategories: [
+      sub('beauty-cosmetology', 'Hair, Beauty & Cosmetology'),
+      sub('fitness-wellness', 'Fitness & Wellness'),
+      sub('massage-spa', 'Massage & Spa'),
+      sub('childcare-nanny', 'Nannies & In-Home Childcare'),
+      sub('pet-care', 'Pet Care & Grooming'),
+    ],
+  },
+  {
+    id: 'agriculture-energy',
+    label: 'Agriculture, Energy & Environment',
+    subcategories: [
+      sub('farming-agriculture', 'Farming & Agriculture'),
+      sub('forestry-conservation', 'Forestry & Conservation'),
+      sub('utilities-operations', 'Energy & Utilities Operations'),
+      sub('oil-gas-mining', 'Oil, Gas & Mining'),
+      sub('renewable-energy', 'Solar & Wind'),
+    ],
+  },
+  // end v33 ROLES
   { id: 'other', label: 'Other', subcategories: [] },
 ] as const satisfies readonly JobCategory[];
 
@@ -260,6 +487,33 @@ export type JobCategoryId = (typeof JOB_CATEGORIES)[number]['id'];
 export type JobSubcategoryId = (typeof JOB_CATEGORIES)[number]['subcategories'][number]['id'];
 
 export const OTHER_CATEGORY_ID: JobCategoryId = 'other';
+
+// v33 ROLES
+/**
+ * The parents v3.3 added (F3). The one-time re-categorization (features/roles/recategorize-pass.ts) moves a job into
+ * one of these when its title says so, whatever v3.2 filed it under: v3.2 had nowhere to put a nurse or a guard.
+ */
+export const NEW_CATEGORY_IDS_V33 = [
+  'administrative-office',
+  'healthcare',
+  'education',
+  'retail',
+  'hospitality-food',
+  'skilled-trades',
+  'manufacturing',
+  'logistics-warehouse',
+  'transportation',
+  'engineering-physical',
+  'science-research',
+  'writing-media',
+  'real-estate',
+  'social-public-sector',
+  'protective-services',
+  'facilities-services',
+  'personal-care-services',
+  'agriculture-energy',
+] as const satisfies readonly JobCategoryId[];
+// end v33 ROLES
 
 export const JOB_CATEGORY_IDS = JOB_CATEGORIES.map((category) => category.id) as [JobCategoryId, ...JobCategoryId[]];
 export const JOB_SUBCATEGORY_IDS = JOB_CATEGORIES.flatMap((category) =>
@@ -449,7 +703,11 @@ export function placeFtJobField(fieldId: unknown): Placement | null {
 
 // --------------------------------------------------------------------------------------------- industries
 
-/** free_tailor's industry list (config/industries.ts), `other` last; `not_specified` is stored for "says nothing". */
+/**
+ * free_tailor's industry list (config/industries.ts), `other` last; `not_specified` is stored for "says nothing". v33
+ * ROLES (F4): three industries of work outside offices added before `other` (construction, agriculture, food and
+ * beverage); no id was renamed or removed.
+ */
 export const INDUSTRIES = [
   { id: 'healthcare', label: 'Healthcare' },
   { id: 'finance', label: 'Finance' },
@@ -469,6 +727,9 @@ export const INDUSTRIES = [
   { id: 'real_estate', label: 'Real Estate' },
   { id: 'hospitality_travel', label: 'Hospitality & Travel' },
   { id: 'nonprofit', label: 'Nonprofit' },
+  { id: 'construction', label: 'Construction' }, // v33 ROLES
+  { id: 'agriculture', label: 'Agriculture' }, // v33 ROLES
+  { id: 'food_beverage', label: 'Food & Beverage' }, // v33 ROLES
   { id: 'other', label: 'Other' },
 ] as const;
 
@@ -526,6 +787,14 @@ const INDUSTRY_ALIASES: Readonly<Record<string, IndustryId>> = {
   travel: 'hospitality_travel',
   non_profit: 'nonprofit',
   not_for_profit: 'nonprofit',
+  // v33 ROLES
+  building_and_construction: 'construction',
+  agribusiness: 'agriculture',
+  agtech: 'agriculture',
+  farming: 'agriculture',
+  food: 'food_beverage',
+  food_and_beverages: 'food_beverage',
+  beverages: 'food_beverage',
   unspecified: NOT_SPECIFIED_INDUSTRY,
   unknown: NOT_SPECIFIED_INDUSTRY,
   none: NOT_SPECIFIED_INDUSTRY,

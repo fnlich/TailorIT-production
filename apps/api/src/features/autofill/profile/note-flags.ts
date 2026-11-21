@@ -50,6 +50,35 @@ export function noteWithoutSensitive(note: string, max: number): NoteView {
 }
 
 /**
+ * v33 SHARE-6 (PLAN-sharing §3 "Sensitive answers"): the note as a caller that saw every line but may not change the
+ * sensitive answers sends it back (a shared profile's Sensitive answers See without its Change), each flagged line made a
+ * placeholder again, so mergeHiddenNoteLines puts the stored lines back in their places: such a caller never writes,
+ * rewrites or erases a line that states a sensitive answer.
+ */
+export function maskSensitiveLines(note: string): string {
+  const flagged = new Set(flaggedNoteLines(note));
+  if (flagged.size === 0) return note;
+  return note
+    .split(/\r?\n/)
+    .map((line, index) => (flagged.has(index) ? HIDDEN_NOTE_LINE : line))
+    .join('\n');
+}
+
+/**
+ * v33 SHARE-6 (the SHARE-6 review): the note as someone working on a shared profile without Sensitive answers' See or
+ * Change sends it, each line of theirs that states a sensitive answer left out (they never saw the stored ones: those
+ * come back through mergeHiddenNoteLines' placeholders), so such a caller never adds one.
+ */
+export function dropSensitiveLines(note: string): string {
+  const flagged = new Set(flaggedNoteLines(note));
+  if (flagged.size === 0) return note;
+  return note
+    .split(/\r?\n/)
+    .filter((_line, index) => !flagged.has(index))
+    .join('\n');
+}
+
+/**
  * A note saved by a caller without profile:sensitive, with the stored note's hidden lines kept (audit A2): each
  * HIDDEN_NOTE_LINE it sends back stands for the next hidden line, in order; hidden lines whose placeholder it left out
  * follow at the end, so such a caller never erases or rewrites one. A placeholder with no hidden line left is dropped.

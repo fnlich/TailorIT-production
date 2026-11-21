@@ -1,7 +1,9 @@
 import type { Feature } from '../../core/feature';
+import { APPLICATION_DRAFT_ACTING, PREPARE_ACTING } from './acting'; // v33 SHARE-5
 import { PREPARE_DAILY } from './housekeeping';
 import { createApplicationDraftRouter, createPrepareRouter } from './router';
-import { createPrepareService, prepareServiceOf, registerPrepareService } from './service';
+import { createPrepareService, endGrantPrepareStep, prepareServiceOf, registerPrepareService } from './service';
+import { registerEndGrantStep } from '../sharing/end-grant'; // v33 SHARE-5
 
 // Prepare & Queue (v2.0, docs/design/v2.0/05-prepare-flow.md; DECISIONS A29, A30): one Prepare of one saved job at a
 // time (prepare_jobs, 0822), its kit in the application's draft (application_drafts): the resume by the person's resume
@@ -12,14 +14,18 @@ import { createPrepareService, prepareServiceOf, registerPrepareService } from '
 // The kit reaches the extension through the lookup's `draftReady` and POST /api/autofill/forms/known's `drafts`
 // (known.ts), and its documents as the application's.
 
+// v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §6 "endGrant"): ending a share (or taking away Prepare & queue's Change,
+// or Their own AI) cancels the Prepares it allowed that are not over (access_ended).
+registerEndGrantStep('prepares', endGrantPrepareStep);
+
 export const prepareFeature: Feature = {
   name: 'prepare',
   services(deps) {
     registerPrepareService(deps, createPrepareService(deps));
   },
   routes: [
-    { path: '/api/prepare', router: createPrepareRouter },
-    { path: '/api/applications', router: createApplicationDraftRouter },
+    { path: '/api/prepare', router: createPrepareRouter, acting: PREPARE_ACTING /* v33 SHARE-5 */ },
+    { path: '/api/applications', router: createApplicationDraftRouter, acting: APPLICATION_DRAFT_ACTING /* v33 SHARE-5 */ },
   ],
   start: (deps) => prepareServiceOf(deps).start(),
   // v30 INT-0: finished Prepares pruned, abandoned MCP Prepares cancelled (housekeeping.ts).

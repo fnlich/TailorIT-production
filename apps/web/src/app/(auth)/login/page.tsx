@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
+import { ForgetProfile } from '@/components/shell/profile/ForgetProfile';
 import { HelpTip } from '@/components/ui/HelpTip';
 import { SignInPage } from '@/features/auth/SignInPage';
 import { SIGN_IN_CARD, SIGN_IN_TITLE, SignInFrame } from '@/features/auth/SignInFrame';
@@ -22,8 +23,12 @@ function SignInFallback() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<SignInFallback />}>
-      <SignInPage />
-    </Suspense>
+    <>
+      {/* v33 SHARE-4: the tab forgets the profile it worked on. */}
+      <ForgetProfile />
+      <Suspense fallback={<SignInFallback />}>
+        <SignInPage />
+      </Suspense>
+    </>
   );
 }

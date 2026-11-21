@@ -1,6 +1,6 @@
 import { normalizeResumeDocument, type ResumeDocument } from '@tailorit/shared';
 
-// The sample person the template thumbnails and the tests draw: apps/api/static/sample-resume.json as an on-page
+// The sample person the template thumbnails and the tests draw: apps/api/test/fixtures/sample-resume.json as an on-page
 // editor document (entry ids, structured dates, marked-up text and a layout), with languages, certifications and a
 // project added so every short kind of section has something to show.
 

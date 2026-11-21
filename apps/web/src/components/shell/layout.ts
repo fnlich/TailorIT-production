@@ -31,6 +31,8 @@ export const ACCOUNT_NAV = [
   { href: '/settings/integrations', label: 'Integrations' },
   { href: '/settings', label: 'Settings' },
   { href: '/settings/autofill', label: 'Autofill' },
+  // v33 SHARE-7 (SHARE-4's edit 3a): Settings › Sharing. In lib/profile.ts OWN_ONLY_PATHS, so it hides while acting.
+  { href: '/settings/sharing', label: 'Sharing' },
   { href: '/settings/admin', label: 'Admin', adminOnly: true },
 ] as const satisfies readonly NavItem[];
 
@@ -77,6 +79,9 @@ const SECTION_TITLES: readonly (readonly [string, string])[] = [
   ['/settings/autofill', 'Autofill'],
   ['/settings/integrations', 'Integrations'],
   ['/settings/admin', 'Admin'],
+  // v33 SHARE-7: Settings › Sharing and the Profiles page.
+  ['/settings/sharing', 'Sharing'],
+  ['/profiles', 'Profiles'],
   // v31 FIX-WEB (REV-UX UX-16): /oauth/consent has no top bar (app/(focus)), so no name here.
 ];
 

@@ -271,8 +271,9 @@ export function EditorToolbars({ session, canvas, onRearrange }: EditorToolbarsP
         commands={commands}
         ai={ai}
         settingsHint={settingsHint}
-        onAsk={(task, note) => {
-          const request = entry.ai ? entryBulletsRequest(currentDocument(), entry.path, entry.ai, task, note) : null;
+        onAsk={(task, note, roleFamily) => {
+          // v33 INT-1: written in the resume's field as its Field select shows it (EntryToolbar's Write with AI reads it).
+          const request = entry.ai ? entryBulletsRequest(currentDocument(), entry.path, entry.ai, task, note, roleFamily) : null;
           if (request) void ai.ask(request, { path: entry.path, task });
         }}
         onEscape={backToPage}

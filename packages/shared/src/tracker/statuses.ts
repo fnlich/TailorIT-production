@@ -2,7 +2,6 @@ import { z } from 'zod';
 // v20 A30
 import type { AutofillAgentState } from '../autofill/agent';
 import type { MessageKey } from '../constants/constants';
-import { PUBLIC_CONSTANT_SPECS } from '../constants/public/specs';
 // end v20 A30
 
 // The tracker's statuses, numeric codes (as stored) in the order every select lists them. Archived is not a status: it
@@ -142,52 +141,30 @@ export function isCelebratedStatus(status: ApplicationStatus): boolean {
 // v31 FIX-DOCS: an empty board lane's words are the constants MSG_TRACKER_LANE_EMPTY_TITLE / _TEXT / _DROP (the web's
 // BoardView reads them), no longer copies here.
 
-// v20 A30 -------------------------------------------------------------------------------------------------------------
+// v20 A30, v33 TRACKER (F1 "No Draft lane") --------------------------------------------------------------------------
 // "Draft" (DECISIONS A30): a Tracker entry at Saved whose job has a live queue row (prepared, its kit frozen, waiting
-// or being applied) shows the status Draft wherever a person sees a status: the board (a Draft column between Saved
-// and Applied), the list, the Saved Jobs pane's marker, the detail sheet, MCP's list_applications. Draft is DERIVED,
-// never stored: STATUS, STATUS_INFO and application_status_events are unchanged, so the extension and the reports read
-// the statuses as before. Applied (2) ends it as before; removing the queue row, or a row that finished without being
-// applied (failed, skipped, needs-you), shows Saved again.
+// or being applied). v3.3 (the owner: "Draft lane in Job tracker is useless. remove this lane. If the job in saved lane
+// is drafted, just mark only as `Draft`"): Draft is no longer a status anywhere, only a mark. The entry stays in Saved
+// (the board's Saved lane, the list's Saved stage, MCP's `saved` with its Q flag) and shows a Draft badge on its card,
+// its row and its detail. It was never stored: STATUS, STATUS_INFO and application_status_events are unchanged.
+// Applied (2) ends it as before; removing the queue row, or a row that finished without being applied (failed,
+// skipped, needs-you), drops the mark.
 
-/** The derived status of a Saved entry with a live queue row. */
-export const DISPLAY_STATUS_DRAFT = 'draft' as const;
-/** A status as a person sees it: a stored status, or Draft. */
-export type DisplayStatus = ApplicationStatus | typeof DISPLAY_STATUS_DRAFT;
-
-/** The queue row states that make a Saved entry Draft: waiting its turn or being applied (not yet finished). */
+/** The queue row states that mark a Saved entry Draft: waiting its turn or being applied (not yet finished). */
 export const DRAFT_QUEUE_STATES = ['queued', 'running'] as const satisfies readonly AutofillAgentState[];
 
 /** Draft's words live in one place, the constant STATUS_DRAFT_LABEL (admin-editable): read it, never copy it. */
 export const DISPLAY_STATUS_DRAFT_LABEL_KEY = 'STATUS_DRAFT_LABEL' as const satisfies MessageKey;
 
 /**
- * The status to show: Draft for a Saved entry whose job has a live queue row (`queued`: a row in DRAFT_QUEUE_STATES),
- * else the stored status. A `queued` left out (an older answer) counts as false.
+ * Whether an entry carries the Draft mark: Saved, not archived, and its job has a live queue row (`queued`: a row in
+ * DRAFT_QUEUE_STATES). A `queued` left out (an older answer) counts as false.
  */
-export function displayStatusOf(entry: { status: ApplicationStatus; queued?: boolean | null }): DisplayStatus {
-  return entry.status === STATUS.saved && entry.queued === true ? DISPLAY_STATUS_DRAFT : entry.status;
+export function isDraftEntry(entry: {
+  status: ApplicationStatus;
+  queued?: boolean | null;
+  archivedAt?: string | null;
+}): boolean {
+  return entry.status === STATUS.saved && entry.queued === true && !entry.archivedAt;
 }
-
-export function isDraftStatus(status: DisplayStatus): status is typeof DISPLAY_STATUS_DRAFT {
-  return status === DISPLAY_STATUS_DRAFT;
-}
-
-/**
- * A shown status's words: Draft's from the constant (pass the resolved value, usePublicConstants().t, so an admin's
- * change shows; the default otherwise), a stored status's from STATUS_INFO.
- */
-export function displayStatusLabel(
-  status: DisplayStatus,
-  draftLabel: string = PUBLIC_CONSTANT_SPECS.STATUS_DRAFT_LABEL.default,
-): string {
-  return isDraftStatus(status) ? draftLabel : statusLabel(status);
-}
-
-/** The Tracker board's columns, in order: Draft between Saved and Applied, then the stored statuses as before. */
-export const BOARD_COLUMN_ORDER: readonly DisplayStatus[] = [
-  STATUS.saved,
-  DISPLAY_STATUS_DRAFT,
-  ...APPLICATION_STATUSES.filter((status) => status !== STATUS.saved),
-];
 // end v20 A30

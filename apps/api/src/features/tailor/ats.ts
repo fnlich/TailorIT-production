@@ -1,3 +1,4 @@
+import { TECHNICAL_FAMILY_ID, roleTailoringOf, type RoleTailoring } from '@tailorit/shared';
 import type { AtsKeyword, JobAnalysis, KeywordPriority, Profile, TailoredContent } from './types';
 
 // tailor_builder0's services/atsScore.ts, ported (the owner's permission of 2026-11-09).
@@ -32,7 +33,8 @@ export interface AtsReport {
 }
 
 // Share of the overall score. Hard skills dominate, as they do in Jobscan.
-const WEIGHTS = { hardSkills: 65, softSkills: 15, searchability: 20 } as const;
+// v33 PROMPTS (F5): the archetype's weights (RoleTailoring.atsWeights); the technical archetype's are these, 65/15/20.
+const TECHNICAL_NUMBERS = roleTailoringOf(TECHNICAL_FAMILY_ID);
 
 // Domain-knowledge entries ending in one of these describe the employer's own
 // product ("Affiliate tracking platform"), not something a candidate lists.
@@ -186,8 +188,44 @@ function scoreKeywords(matches: AtsKeywordMatch[]): { score: number; matched: nu
   return { score: earned / possible, matched };
 }
 
-function buildSearchabilityChecks(tailored: TailoredContent, profile?: Profile): AtsCheck[] {
+// Compliance frameworks a team works under ("ISO 27001 / SOC 2 exposure"), not
+// credentials a person holds. The model often labels them certifications, which
+// would keep them off the resume; scanners count them as hard skills.
+// v33 FIX-1: moved here from keywords.ts (which re-exports it), for jobAsksForLicence.
+const COMPLIANCE_FRAMEWORK =
+  /^(iso(\/iec)?\s*\d{4,5}(-\d+)?|soc\s*[123]?(\s*type\s*(1|2|i|ii))?|pci(\s*dss)?|hipaa|hitrust|gdpr|ccpa|fedramp(\s+(high|moderate|low))?|stateramp|fisma|nist(\s*(csf|800-\d+))?|sox|cmmc(\s*\d(\.0)?)?|itar|cjis)$/i;
+
+export function isComplianceFramework(term: string): boolean {
+  return COMPLIANCE_FRAMEWORK.test(term.trim());
+}
+
+/** A hard requirement that names a licence or a certification ("Active RN license", "CDL Class A required"). */
+const LICENCE_REQUIREMENT = /\b(?:licen[cs](?:e|ed|es|ure)|certified|certifications?|certificates?|registration|endorsements?)\b|\bcdl\b/i;
+
+/**
+ * v33 FIX-1: whether the job asks for a licence or a certification: a certification keyword of its analysis (not a
+ * standard the work happens under), or a hard requirement that names one.
+ */
+export function jobAsksForLicence(jobAnalysis: JobAnalysis): boolean {
+  if (getAtsKeywords(jobAnalysis).some((keyword) => keyword.kind === 'certification' && !isComplianceFramework(keyword.term))) return true;
+  return (jobAnalysis.keywords?.mustInclude ?? []).some((requirement) => LICENCE_REQUIREMENT.test(requirement));
+}
+
+function buildSearchabilityChecks(
+  tailored: TailoredContent,
+  profile: Profile | undefined,
+  numbers: RoleTailoring,
+  jobAnalysis: JobAnalysis,
+): AtsCheck[] {
   const experience = tailored.experience ?? [];
+  // v33 PROMPTS (F5): hands-on and care resumes are searched for their licences and certifications. v33 FIX-1: only
+  // when the job asks for one (a cashier's or a cook's resume was failed for a section their job never names); a
+  // hands-on resume then in place of its education, a care resume as well as it (a nurse's or a teacher's job asks for
+  // both). Every other job keeps v3.2's education check.
+  const licences = { label: 'Licences or certifications section', passed: (profile?.certifications ?? []).length > 0 };
+  const education = { label: 'Education section', passed: (profile?.education ?? []).length > 0 };
+  const asked = numbers.searchabilitySection !== 'education' && jobAsksForLicence(jobAnalysis);
+  const sections = !asked ? [education] : numbers.searchabilitySection === 'education-licences' ? [education, licences] : [licences];
   return [
     { label: 'Email address', passed: Boolean(profile?.contact?.email?.trim()) },
     { label: 'Phone number', passed: Boolean(profile?.contact?.phone?.trim()) },
@@ -198,11 +236,16 @@ function buildSearchabilityChecks(tailored: TailoredContent, profile?: Profile):
       label: 'Every role has dates',
       passed: experience.length > 0 && experience.every((exp) => Boolean(exp.startDate?.trim() && exp.endDate?.trim())),
     },
-    { label: 'Education section', passed: (profile?.education ?? []).length > 0 },
+    ...sections,
   ];
 }
 
-export function buildAtsReport(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile?: Profile): AtsReport {
+export function buildAtsReport(
+  tailored: TailoredContent,
+  jobAnalysis: JobAnalysis,
+  profile?: Profile,
+  numbers: RoleTailoring = TECHNICAL_NUMBERS,
+): AtsReport {
   const jobText = toKeywordMatchForm(jobAnalysis.sourceJobDescription ?? '');
   const resumeText = toKeywordMatchForm(getTailoredResumeText(tailored));
 
@@ -214,11 +257,12 @@ export function buildAtsReport(tailored: TailoredContent, jobAnalysis: JobAnalys
   const title = jobAnalysis.jobMeta?.title?.trim() ?? '';
   const titleFound = title ? countPhrase(resumeText, toKeywordMatchForm(title)) > 0 : false;
 
-  const checks = buildSearchabilityChecks(tailored, profile);
+  const checks = buildSearchabilityChecks(tailored, profile, numbers, jobAnalysis);
+  const weights = numbers.atsWeights;
   const searchabilityScore = checks.filter((check) => check.passed).length / checks.length;
 
   const score = Math.round(
-    hard.score * WEIGHTS.hardSkills + soft.score * WEIGHTS.softSkills + searchabilityScore * WEIGHTS.searchability
+    hard.score * weights.hardSkills + soft.score * weights.softSkills + searchabilityScore * weights.searchability
   );
 
   return {

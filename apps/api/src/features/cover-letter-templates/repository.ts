@@ -3,6 +3,7 @@ import {
   templatePreviewText,
   type LetterTemplateDetail,
   type LetterTemplateSummary,
+  type RoleFamilyId,
   type TemplateOrigin,
 } from '@tailorit/shared';
 import { nowIso, type AppDeps } from '../../core/context';
@@ -39,6 +40,7 @@ export function systemReadOnly(): AppError {
 }
 
 export function toTemplateSummary(row: TemplateRow): LetterTemplateSummary {
+  const roleFamilies = row.is_system ? (systemFamilies.get(row.system_key ?? '') ?? []) : [];
   return {
     id: row.id,
     name: row.name,
@@ -47,6 +49,8 @@ export function toTemplateSummary(row: TemplateRow): LetterTemplateSummary {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastEditedAt: row.last_edited_at,
+    // v33 PROMPTS (F5): a starter's fields, for the pickers' field-first order (absent for any other template).
+    ...(roleFamilies.length > 0 ? { roleFamilies: [...roleFamilies] } : {}),
   };
 }
 
@@ -79,6 +83,12 @@ export interface TemplateChanges {
 let systemOrder: Map<string, number> = new Map();
 export function setSystemOrder(keys: readonly string[]): void {
   systemOrder = new Map(keys.map((key, index) => [key, index]));
+}
+
+/** v33 PROMPTS (F5): each starter's role families (static/letter-templates `families`), set by the seed. */
+let systemFamilies: Map<string, readonly RoleFamilyId[]> = new Map();
+export function setSystemFamilies(entries: ReadonlyArray<readonly [string, readonly RoleFamilyId[]]>): void {
+  systemFamilies = new Map(entries);
 }
 
 const SELECT_VISIBLE = (d: Dialect) =>

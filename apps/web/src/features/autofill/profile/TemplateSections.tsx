@@ -14,6 +14,7 @@ import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { userMessage } from '@/lib/api';
 import { TemplatePreview } from '../../cover-letter-editor/TemplatePreview';
+import { useFieldFirst } from '../../cover-letter-editor/fieldFirst';
 import { fetchTemplates, templateKeys } from '../../letter-editor/data';
 import { ResumeCanvas } from '../../resume-editor/pages/ResumeCanvas';
 import { Section } from '../Section';
@@ -217,10 +218,12 @@ export function LetterTemplateSection() {
   const form = useProfileForm();
   const chosen = form.state.draft.profile.documents.coverLetterTemplateId;
   const templates = useLetterTemplates();
-  const items = useMemo(() => {
-    const list = templates.data?.items ?? [];
-    return [...list.filter((item) => item.isSystem), ...list.filter((item) => !item.isSystem)];
-  }, [templates.data]);
+  // v33 PROMPTS (F5): TailorIT's own first (the person's field's starters at the top), then the person's.
+  const ordered = useFieldFirst(templates.data?.items);
+  const items = useMemo(
+    () => [...ordered.filter((item) => item.isSystem), ...ordered.filter((item) => !item.isSystem)],
+    [ordered],
+  );
   const missing = templates.isSuccess && chosen !== null && !items.some((item) => item.id === chosen);
   return (
     <Section

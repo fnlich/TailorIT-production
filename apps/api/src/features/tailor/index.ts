@@ -1,4 +1,5 @@
 import type { Feature } from '../../core/feature';
+import { AUTOFILL_TAILOR_ACTING, TAILOR_ACTING } from './acting'; // v33 SHARE-3
 import { createAutofillTailorRouter, createTailorRouter } from './router';
 import { createTailorService, type TailorService } from './service';
 import { tailorTask } from './task';
@@ -7,8 +8,9 @@ import { tailorTask } from './task';
 // tailor_builder0's pipeline (the owner's own earlier project, ISC licence, copied with the owner's permission of
 // 2026-11-09), run as the AI task kind `tailor`. Its prompts are tailor_builder0's word for word (prompts/), its code
 // ported as it was (keywords.ts, ats.ts, humanize.ts, pipeline.ts, skills/; v30 ST2: the prompts are the prompt
-// catalogue's tailor area, ai/prompts/tailor, and the task kind task.ts), with its skill library shipped as
-// static/skills/tailor-skills.json for tailoring alone. TailorIT's own pieces: the analysis store (store.ts, migration
+// catalogue's tailor area, ai/prompts/tailor, and the task kind task.ts), with its skill library kept verbatim in
+// static/skills/skills.json (v33 SKILLS: each entry's `tailor` data, read per role family by skills/reference.ts
+// `referenceFor`; the v3.2 tailor-skills.json is gone). TailorIT's own pieces: the analysis store (store.ts, migration
 // 0813), the source and templates (source.ts), the mapping from and to a resume document (mapping.ts), what is stored
 // and linked (output.ts), the task and its limits (service.ts) and the routes (router.ts).
 
@@ -28,7 +30,7 @@ export const tailorFeature: Feature = {
   // v30 ST2: the AI task kind `tailor` (task.ts), registered by setupServices after `services`.
   aiTasks: [tailorTask],
   routes: [
-    { path: '/api/tailor', router: createTailorRouter },
-    { path: '/api/autofill', router: createAutofillTailorRouter },
+    { path: '/api/tailor', router: createTailorRouter, acting: TAILOR_ACTING /* v33 SHARE-3 */ },
+    { path: '/api/autofill', router: createAutofillTailorRouter, acting: AUTOFILL_TAILOR_ACTING /* v33 SHARE-3 */ },
   ],
 };

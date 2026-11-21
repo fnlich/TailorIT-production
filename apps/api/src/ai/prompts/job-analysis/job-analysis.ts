@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { INDUSTRIES, JOB_CATEGORIES } from '@tailorit/shared';
+import { GENERAL_FAMILY_ID, INDUSTRIES, JOB_CATEGORIES, roleFamilyLabel, type RoleFamilyId } from '@tailorit/shared';
 import { untrusted, untrustedBlock } from '../../../features/autofill/ai/untrusted';
 import { capWithFacts, withoutBoilerplate } from '../../../features/job-analysis/trim';
+import { FIELDS_GUIDE } from '../roles/fields-guide';
 import { definePrompt } from '../types';
 
 // v30 ST1: moved word for word from features/job-analysis/prompt.ts (which re-exports it until INT-0 repoints its
@@ -21,6 +22,11 @@ import { definePrompt } from '../types';
 // leniently as v1 reads softSkills and terms, so a slip in one reads as unknown and never costs the rest of the answer a
 // repair round. Which v1 jobs are read again at version 2 is JOB_ANALYSIS_V2_REREAD's to say
 // (features/job-analysis/backlog.ts).
+//
+// v33 PROMPTS (F5): one system text for every kind of job: its examples are no longer software-only, and a FIELDS
+// guide (ai/prompts/roles/fields-guide.ts) says what keywords are in each role family; the message names the job's
+// field when TailorIT knows it ("Field: Healthcare", from its stored category or its title). The wording changes the
+// hash only: the version stays 2, so no stored analysis is asked for again.
 
 export const JOB_ANALYSIS_PROMPT_VERSION = 2;
 
@@ -56,6 +62,17 @@ export interface JobAnalysisPromptInput {
    * message says so, as the autofill prompts quote page text. The system prompt stays the same.
    */
   fromPage?: boolean;
+  /**
+   * v33 PROMPTS (F5): the job's role family (from its stored category or its title), named on the message's first line
+   * ("Field: Healthcare"); none for general or unknown.
+   */
+  family?: RoleFamilyId | null;
+}
+
+/** v33 PROMPTS: the message's first line naming the job's field, or nothing. */
+function fieldLines(input: JobAnalysisPromptInput): string[] {
+  const label = input.family && input.family !== GENERAL_FAMILY_ID ? roleFamilyLabel(input.family) : '';
+  return label ? [`Field: ${label}`] : [];
 }
 
 /** The paragraph a page's text is introduced with: its wrapped text is data, never instructions. */
@@ -68,6 +85,7 @@ export const PAGE_TEXT_RULE =
 /** The user message for a posting copied from a page: each field wrapped, the description's lines kept. */
 function pageUserMessage(input: JobAnalysisPromptInput): string {
   return [
+    ...fieldLines(input),
     PAGE_TEXT_RULE,
     '',
     `Job title: ${untrusted(input.title, 300)}`,
@@ -102,7 +120,7 @@ SUMMARY (display bullets)
 - summary.requirements: what the posting says a candidate must have: required skills, experience, education,
   certifications. One bullet per requirement, close to the posting's wording, at most 20 words each.
 - summary.responsibilities: the work the role does, one bullet per duty the posting describes, starting with a verb
-  ("Design and maintain backend services"), at most 20 words each.
+  ("Prepare the monthly sales reports"), at most 20 words each.
 - summary.desiredQualifications: what the posting calls preferred, a plus, nice to have or a bonus. Never repeat a
   requirement here.
 - Up to 10 bullets per list. Leave out benefits, pay, perks, company history, the mission statement, EEO and
@@ -113,8 +131,8 @@ KEYWORDS (matched literally against resumes)
 - keywords.low: other skills, tools, technologies, methods and domain terms the posting names.
 - Each keyword is {"term": ..., "synonyms": [...]}. "term" is spelled exactly as the posting spells it. When the
   posting uses an abbreviation with one standard expansion, or an expansion with one standard abbreviation, put the
-  other form in "synonyms" ("CI/CD" with "continuous integration", "LLMs" with "large language models", "Kubernetes"
-  with "K8s"). Synonyms are only other names of the very same thing, never related skills.
+  other form in "synonyms" ("EHR" with "electronic health records", "SEO" with "search engine optimization", "CI/CD"
+  with "continuous integration"). Synonyms are only other names of the very same thing, never related skills.
 - Skip: company, product and brand names of the hiring company, places, team names, job titles, legal or visa text,
   pay and benefits, and recruiting phrases ("fast-paced", "rockstar").
 - Up to 15 high and 15 low keywords. Every term or one of its synonyms must appear in the posting.
@@ -123,8 +141,8 @@ SOFT SKILLS AND OTHER KEYWORDS
 - softSkills: the personal and interpersonal skills the posting asks of the candidate ("communication",
   "collaboration", "mentoring", "attention to detail"), named as the posting names them, from its requirements and
   duties. Never a tool or a technology, and nothing from the company description, benefits or EEO text. Up to 15.
-- terms.certifications: certifications and licences the posting names ("AWS Certified Solutions Architect", "CISSP",
-  "PMP"), as it writes them. Up to 8.
+- terms.certifications: certifications and licences the posting names ("RN license", "CDL Class A", "CPA", "AWS
+  Certified Solutions Architect"), as it writes them. Up to 8.
 - terms.domains: the industries the role or the company is in, when the posting says so ("fintech", "healthcare",
   "insurance", "logistics"). Never "technology" or "software". Up to 4.
 - [] for a list the posting gives nothing for.
@@ -135,8 +153,8 @@ FACTS (null when the posting does not say)
   principal, lead, director and above are expert). [] when neither says.
 - leadership: "manager" when the role manages people, otherwise "ic".
 - minYears: the fewest years of experience the posting asks for, as a number.
-- requiredYears: the years of experience the requirements ask for in general, as a number ("7+ years of backend
-  experience, including 3+ years leading teams" is 7). Only a number of years the posting writes.
+- requiredYears: the years of experience the requirements ask for in general, as a number ("7+ years of experience in
+  the field, including 3+ years leading teams" is 7). Only a number of years the posting writes.
 - category: {"id": one category id below, "subcategoryIds": the subcategory ids of that category that fit}.
 - workArrangement: "remote", "hybrid" or "onsite", only when the posting says how this role is worked (where the
   person works); null when it does not say. Remote tools or monitoring, remote customers or teams, on-site
@@ -165,6 +183,8 @@ FILTER FACTS (null when the posting does not say; never a guess, never what such
 - requiredCertifications / preferredCertifications: the certifications or licences the posting requires or prefers,
   as it writes them (at most 10 each).
 - coverLetterRequired: true when the posting says a cover letter is required, false when it says none is needed.
+
+${FIELDS_GUIDE}
 
 INDUSTRIES (id (label))
 ${industryLines()}
@@ -267,7 +287,9 @@ export const jobAnalysisPrompt = definePrompt<JobAnalysisPromptInput, JobAnalysi
 
 /** The user message for a posting a job board's API gave (as since version 1). */
 function boardUserMessage(input: JobAnalysisPromptInput): string {
+  const field = fieldLines(input);
   return [
+    ...field,
     `Job title: ${input.title}`,
     `Company: ${input.company}`,
     input.locations ? `Location: ${input.locations}` : '',
@@ -277,6 +299,6 @@ function boardUserMessage(input: JobAnalysisPromptInput): string {
     promptDescription(input.description),
     '"""',
   ]
-    .filter((line, index) => line !== '' || index === 3)
+    .filter((line, index) => line !== '' || index === 3 + field.length)
     .join('\n');
 }

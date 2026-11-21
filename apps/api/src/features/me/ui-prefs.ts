@@ -8,7 +8,11 @@ interface UiPrefsRow {
   tracker_lanes: unknown;
 }
 
-/** The lanes stored as they parse (the driver answers json as an object, or text); anything else reads as none. */
+/**
+ * The lanes stored as they parse (the driver answers json as an object, or text); anything else reads as none. v33
+ * TRACKER (F1): a choice saved before v3.3 holds the Draft lane's mode; it reads as the rest of it (the schema drops
+ * `draft`), and the next save stores it without.
+ */
 export function lanesOfStored(value: unknown): TrackerLanes | null {
   let source = value;
   if (typeof source === 'string') {

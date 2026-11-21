@@ -25,7 +25,9 @@ import {
   type AnswerPromptInput,
 } from '../../../ai/prompts/autofill/answer';
 import { factsAndJob } from '../../../ai/prompts/autofill/facts-and-job';
+import { TECHNICAL_FAMILY_ID, type RoleFamilyId } from '@tailorit/shared';
 import type { AppDeps } from '../../../core/context';
+import { writtenFamily } from '../../tailor/family'; // v33 PROMPTS
 import {
   asksLegalQuestion,
   asksSelfIdentification,
@@ -369,13 +371,21 @@ interface AnswerCache {
  * from the person's facts, so the rows are their account's alone and go with it. A cached answer that holds one of this
  * page's canaries is asked again, and one whose reply was voided after it streamed is never kept.
  */
-function answerCacheFor(deps: AppDeps, userId: string, task: AnswerTaskInput, facts: DraftFacts): AnswerCache {
+function answerCacheFor(
+  deps: AppDeps,
+  userId: string,
+  task: AnswerTaskInput,
+  facts: DraftFacts,
+  family?: RoleFamilyId,
+): AnswerCache {
   const model = deps.config.ai.features.autofill_answer.model;
   const key = { kind: 'autofill_answer' as const, model, version: autofillAnswerPrompt.version, scope: { userId } };
   const cache = createResultCache(deps.db, deps.now);
   const base = itemHash({
     context: factsAndJob({ facts, company: task.company, jobTitle: task.jobTitle, jobText: task.jobText }, { note: false }),
     contacts: facts.contacts,
+    // v33 PROMPTS (F5): another field's answers are its own; the technical family's key is v3.2's (undefined drops out).
+    family: family === TECHNICAL_FAMILY_ID ? undefined : family,
   });
   const note = itemHash(facts.note);
   const hashOf = (item: AutofillAnswerItem) =>
@@ -433,6 +443,7 @@ async function askForAnswers(
   asked: readonly AutofillAnswerItem[],
   facts: DraftFacts,
   withoutNote: boolean,
+  family?: RoleFamilyId,
 ): Promise<Settled[]> {
   let settled: Settled[] = [];
   // Every reply's whole text, for the checks: held here only, never stored or logged.
@@ -446,6 +457,7 @@ async function askForAnswers(
     jobTitle: task.jobTitle,
     ...(task.platform === undefined ? {} : { platform: task.platform }),
     facts: { resume: facts.resume, profile: facts.profile, note: withoutNote ? '' : facts.note },
+    family,
   };
   // v5 (the stream): each answer is released as it lands, through the same checks of its own (settleOne) and the
   // reply's up to it (stream.ts); never for a request with canaries, whose reply is checked whole.
@@ -504,8 +516,10 @@ export async function runAutofillAnswer(
   let cachedCount = 0;
   if (allAsked.length) {
     const facts = await readFacts(userId, task.resumeId);
+    // v33 PROMPTS (F5): in the applicant's field's words (the resume's; the job title's when theirs is general).
+    const family = await writtenFamily(deps, userId, facts.resumeId, { title: task.jobTitle });
     // v1.3 C (decision 11): the answers given before, for this account, to the same item about the same facts and job.
-    const cache = answerCacheFor(deps, userId, task, facts);
+    const cache = answerCacheFor(deps, userId, task, facts, family);
     const fromCache = await cache.read(allAsked);
     cachedCount = fromCache.size;
     for (const [item, one] of fromCache) {
@@ -516,7 +530,7 @@ export async function runAutofillAnswer(
     if (asked.length) {
       // The person's note never goes with a question the `all` scope opened (a legal, pay or attention-check one).
       const withoutNote = opensSensitive(task.scope, asked);
-      const settled = await askForAnswers(ctx, task, asked, facts, withoutNote);
+      const settled = await askForAnswers(ctx, task, asked, facts, withoutNote, family);
       asked.forEach((item, at) => settledByItem.set(item, settled[at]!));
       await cache.write(asked, settled, { withoutNote });
     }

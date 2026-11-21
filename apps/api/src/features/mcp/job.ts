@@ -1,21 +1,24 @@
 import {
   effectiveTemplateId,
-  isEditorDocument,
   isResumeTemplateId,
+  personSideFamily,
   STATUS,
   type LetterProfile,
+  type RoleFamilyId,
   type ResumeDocument,
   type ResumeTemplateId,
 } from '@tailorit/shared';
 import { AUTOFILL_TAILOR_LIMITS } from '@tailorit/shared/autofill';
 import type { AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
-import { upgradeLegacyDocument } from '../../core/resume-upgrade';
+import { editorDocumentOf } from '../../core/skills/index'; // v33 LEGACY
 import { untrustedLines } from '../autofill/ai/untrusted';
 import { jobFacts, letterProfile, type TemplateRecord } from '../cover-letters/context';
-import { getResumeEngine } from '../resumes/engine';
 import { getResumeEvidence, type ResumeEvidence } from '../resumes/evidence';
-import { ANALYSIS_PROMPT_HASH } from '../tailor/analysis';
+import { jobFamilyOf, profileFamilyOf } from '../roles/index'; // v33 PROMPTS
+import { analysisPromptHash } from '../tailor/analysis';
+import { tailorFitOf, type TailorFit } from '../tailor/pipeline';
+import { referenceFor } from '../tailor/skills/reference';
 import { analysisFromSaved, withTargetRoleTitle } from '../tailor/keywords';
 import { profileFromDocument } from '../tailor/mapping';
 import { resolveSource } from '../tailor/source';
@@ -45,13 +48,17 @@ export interface McpJob {
   postingUrl: string;
   /** The posting's text, cleaned line by line as page text is (untrustedLines), at most 20,000 characters. */
   posting: string;
+  /** v33 PROMPTS (F5): the job's stored category (null when it has none). */
+  categoryId: string | null;
+  /** v33 PROMPTS (F5): the job's role family (jobFamilyOf): the analysis and review steps are written for it. */
+  family: RoleFamilyId;
 }
 
 /** The account's Saved Tracker entry of `jobId` with its posting; 404 `not_found` otherwise. */
 export async function mcpJobOf(deps: Pick<AppDeps, 'db'>, userId: string, jobId: number): Promise<McpJob> {
-  const row = await deps.db.one<{ id: string; title: string; company_name: string; posting_url: string }>(
-    `SELECT id, title, company_name, posting_url FROM applications
-      WHERE user_id = ? AND job_id = ? AND archived_at IS NULL AND current_status = ?`,
+  const row = await deps.db.one<{ id: string; title: string; company_name: string; posting_url: string; category_id: string | null }>(
+    `SELECT a.id, a.title, a.company_name, a.posting_url, j.category_id FROM applications a LEFT JOIN jobs j ON j.id = a.job_id
+      WHERE a.user_id = ? AND a.job_id = ? AND a.archived_at IS NULL AND a.current_status = ?`,
     [userId, jobId, STATUS.saved],
   );
   if (!row) throw new AppError('not_found', NOT_IN_PREPARE);
@@ -62,13 +69,16 @@ export async function mcpJobOf(deps: Pick<AppDeps, 'db'>, userId: string, jobId:
     if (!(error instanceof AppError && error.code === 'not_found')) throw error;
   }
   if (!facts) throw new AppError('not_found', NOT_IN_PREPARE);
+  const title = (facts.jobTitle || row.title).trim().slice(0, AUTOFILL_TAILOR_LIMITS.title);
   return {
     applicationId: row.id,
     jobId,
     company: (facts.companyName || row.company_name).trim().slice(0, AUTOFILL_TAILOR_LIMITS.company),
-    title: (facts.jobTitle || row.title).trim().slice(0, AUTOFILL_TAILOR_LIMITS.title),
+    title,
     postingUrl: row.posting_url,
     posting: untrustedLines(facts.jobDescription ?? '', AUTOFILL_TAILOR_LIMITS.jobDescription),
+    categoryId: row.category_id,
+    family: await jobFamilyOf(deps, { jobId, title }),
   };
 }
 
@@ -82,6 +92,13 @@ export interface SourceProfile {
   /** The template the tailored resume is drawn on: the profile's, else the source's own. */
   templateId: ResumeTemplateId;
   coverLetterTemplate: TemplateRecord | null;
+  /** v33 PROMPTS (F5): the person's field, this resume's (profileFamilyOf). */
+  family: RoleFamilyId;
+}
+
+/** v33 PROMPTS (F5): what a tailoring from `source` for `job` is written for: the person's field, else the job's. */
+export function personFitOf(source: Pick<SourceProfile, 'family'>, job: Pick<McpJob, 'family'>): TailorFit {
+  return tailorFitOf(personSideFamily(source.family, job.family));
 }
 
 /**
@@ -103,10 +120,7 @@ export async function builtProfile(deps: AppDeps, userId: string, resumeId: stri
   const templateId: ResumeTemplateId = isResumeTemplateId(templates.resumeTemplateId)
     ? templates.resumeTemplateId
     : effectiveTemplateId(stored);
-  const engine = getResumeEngine(deps);
-  const editor = isEditorDocument(stored)
-    ? stored
-    : upgradeLegacyDocument(stored, { templates: engine.templates, skills: await engine.skillsFor(userId), into: templateId });
+  const editor = await editorDocumentOf(deps, userId, stored, templateId); // v33 LEGACY
   const evidence = await getResumeEvidence(deps, userId, row.id);
   return {
     resumeId: row.id,
@@ -115,6 +129,7 @@ export async function builtProfile(deps: AppDeps, userId: string, resumeId: stri
     profile: profileFromDocument(editor, evidence?.profile),
     templateId,
     coverLetterTemplate: templates.coverLetterTemplate,
+    family: (await profileFamilyOf(deps, userId, row.id)).familyId,
   };
 }
 
@@ -149,16 +164,19 @@ export async function heldAnalysis(
   given?: Work,
 ): Promise<{ analysis: JobAnalysis; madeBy: AnalysisMaker } | null> {
   const work = given ?? (await workFor(deps, userId, job.jobId));
+  // v33 PROMPTS (F5): an analysis is the job's: filtered with the job family's skill library.
+  const skills = referenceFor(job.family);
   const postingHash = postingHashOf(job.posting);
   if (work.analysisRaw && work.postingHash === postingHash) {
-    const own = analysisFromSaved(work.analysisRaw, job.posting);
+    const own = analysisFromSaved(work.analysisRaw, job.posting, skills);
     if (own) return { analysis: withTargetRoleTitle(own, job.title), madeBy: 'your-ai' };
   }
+  // v33 PROMPTS: TailorIT's own analysis of the posting is kept per job family (tailor/analysis.ts analysisPromptHash).
   const kept = await createAnalysisStore(deps).read({
     postingHash,
-    promptHash: ANALYSIS_PROMPT_HASH,
+    promptHash: analysisPromptHash(job.family),
     model: deps.config.ai.features.tailor.model,
   });
-  const server = kept ? analysisFromSaved(kept, job.posting) : null;
+  const server = kept ? analysisFromSaved(kept, job.posting, skills) : null;
   return server ? { analysis: withTargetRoleTitle(server, job.title), madeBy: 'tailorit' } : null;
 }

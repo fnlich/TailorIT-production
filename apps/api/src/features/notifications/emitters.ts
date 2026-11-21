@@ -1,4 +1,5 @@
 import { formatUsd, UNLIMITED, type Limit } from '@tailorit/shared';
+import { linkAs, type ProfileKey } from '@tailorit/shared/sharing'; // v33 SHARE-5
 import { constantsOf } from '../../core/constants/service';
 import type { DbQueries } from '../../core/db/types';
 import { guarded, notify, notifyAdmins, notifyStats, type NotifyDeps, type NotifyOutcome } from './service';
@@ -35,28 +36,62 @@ async function read<T>(deps: NotifyDeps, what: string, fn: (db: DbQueries) => Pr
  * and the batch did work in the background (a Prepare was taken up: started_at set), one summary for the batch:
  * `prepare_finished` with how many are ready (queued or prepared) and how many failed, or `prepare_failed` when none
  * is ready. Nothing for a batch that was all filtered or cancelled, or that the start queued at once (the person saw
- * it). Dedupe `prepare:<created_at>`. Call it in the transaction that ended the Prepare.
+ * it). Call it in the transaction that ended the Prepare.
+ * v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §6 "Notifications"): a batch is one profile's (user_id), one starter's
+ * (started_by) and one moment's (created_at). The summary goes to the person who started it, linking to that profile
+ * (`/auto-apply?as=<key>` for a profile shared with them), dedupe `prepare:<user_id>:<created_at>` (two profiles' batches
+ * of one moment both tell). A batch someone the profile is shared with started also tells the owner, when jobs are
+ * ready: `sharing_prepared` ("Prepared by Bob: 3 jobs on your profile"), dedupe `sharing_prepared:<grant>:<created_at>`.
  */
-export async function notifyPrepareBatch(deps: NotifyDeps, prepare: { user_id: string; created_at: string }): Promise<NotifyOutcome> {
+export async function notifyPrepareBatch(
+  deps: NotifyDeps,
+  prepare: { user_id: string; created_at: string; started_by?: string | null; grant_id?: string | null },
+): Promise<NotifyOutcome> {
+  const starter = prepare.started_by ?? prepare.user_id;
   const batch = await read(deps, 'prepare batch', (db) =>
     db.one<{ active: number; ready: number; failed: number; started: number }>(
       `SELECT count(*) FILTER (WHERE state IN ${ACTIVE_PREPARE}) AS active,
               count(*) FILTER (WHERE state IN ('queued','prepared')) AS ready,
               count(*) FILTER (WHERE state = 'failed') AS failed,
               count(*) FILTER (WHERE started_at IS NOT NULL) AS started
-         FROM prepare_jobs WHERE user_id = ? AND created_at = CAST(? AS timestamptz)`,
-      [prepare.user_id, prepare.created_at],
+         FROM prepare_jobs WHERE user_id = ? AND started_by = ? AND created_at = CAST(? AS timestamptz)`,
+      [prepare.user_id, starter, prepare.created_at],
     ),
   );
   if (!batch) return 'failed';
   if (batch.active > 0 || batch.started === 0 || batch.ready + batch.failed === 0) return 'skipped';
   const ready = batch.ready > 0;
-  return notify(deps, prepare.user_id, {
+  const at = new Date(prepare.created_at).toISOString();
+  const shared = starter !== prepare.user_id && Boolean(prepare.grant_id);
+  const outcome = await notify(deps, starter, {
     kind: ready ? 'prepare_finished' : 'prepare_failed',
     params: { ready: batch.ready, failed: batch.failed },
     ...(ready && batch.failed > 0 ? { body: ['MSG_NOTIFY_PREPARE_FINISHED_BODY', 'MSG_NOTIFY_PREPARE_SOME_FAILED'] as const } : {}),
+    link: shared ? linkAs('/auto-apply', prepare.grant_id as ProfileKey) : '/auto-apply',
+    dedupeKey: `prepare:${prepare.user_id}:${at}`,
+  });
+  if (shared && ready) await notifySharingPrepared(deps, prepare.user_id, starter, prepare.grant_id!, batch.ready, at);
+  return outcome;
+}
+
+/** v33 SHARE-5: the owner hears that someone they share their profile with prepared jobs on it (`sharing_prepared`). */
+async function notifySharingPrepared(
+  deps: NotifyDeps,
+  ownerId: string,
+  starterId: string,
+  grantId: string,
+  count: number,
+  at: string,
+): Promise<NotifyOutcome> {
+  const starter = await read(deps, 'sharing_prepared', (db) =>
+    db.one<{ name: string | null; email: string }>('SELECT name, email FROM users WHERE id = ?', [starterId]),
+  );
+  if (!starter) return 'skipped';
+  return notify(deps, ownerId, {
+    kind: 'sharing_prepared',
+    params: { name: starter.name?.trim() || starter.email, count },
     link: '/auto-apply',
-    dedupeKey: `prepare:${new Date(prepare.created_at).toISOString()}`,
+    dedupeKey: `sharing_prepared:${grantId}:${at}`,
   });
 }
 

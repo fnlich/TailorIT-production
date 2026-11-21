@@ -9,7 +9,7 @@ import {
   type NotificationPrefs,
   type NotificationReadAll,
 } from '@tailorit/shared/notifications';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { rateKeyOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-6: rateKeyOf
 import type { AppDeps } from '../../core/context';
 import { parseInput } from '../../core/http/validate';
 import { keyedRateLimit } from '../../core/rate-limit';
@@ -51,7 +51,7 @@ function perAccount(name: string, limit: number): RequestHandler {
   return keyedRateLimit({
     windowMs: MINUTE_MS,
     limit,
-    key: (req) => `${name}:${userOf(req).id}`,
+    key: (req) => `${name}:${rateKeyOf(req, MINUTE_MS)}`, // v33 SHARE-6: the signed-in person's (a `self` mount)
     message: (seconds) => `There have been too many notification requests. ${waitSentence(seconds)}`,
   });
 }

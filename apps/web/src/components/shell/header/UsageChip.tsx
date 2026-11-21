@@ -18,6 +18,9 @@ import { Button, buttonClasses } from '../../ui/Button';
 import { Popover, PopoverContent, PopoverTrigger } from '../../ui/Popover';
 import { Skeleton } from '../../ui/Skeleton';
 import { TapeMeter } from '../../ui/TapeMeter';
+import { Tooltip } from '../../ui/Tooltip';
+import { PROFILE_COPY } from '../profile/copy';
+import { useProfile } from '../profile/useProfile';
 import { useHeaderSummary } from './api';
 import { USAGE_COPY } from './copy';
 import { HelpTip } from '../../ui/HelpTip';
@@ -69,6 +72,8 @@ function LiveUsageChip({ extraFrom }: { extraFrom: ExtraFrom }) {
   const summary = useHeaderSummary();
   const { values } = usePublicConstants();
   const [dialog, setDialog] = useState<Dialog>(null);
+  // v33 SHARE-4: once the person has shared profiles, the chip says whose AI use it is (theirs, on every profile).
+  const { hasProfiles } = useProfile();
   if (!summary.data) {
     // Until the first read (and while it fails: the next read tries again) the chip keeps its room quietly.
     return summary.isError ? null : <ChipSkeleton />;
@@ -82,6 +87,7 @@ function LiveUsageChip({ extraFrom }: { extraFrom: ExtraFrom }) {
         resetText={resetTextOf(values.DAY_RESET_TIME, values.DAY_RESET_ZONE_LABEL)}
         autoApply={<LiveAutoApply />}
         onDialog={setDialog}
+        tip={hasProfiles ? PROFILE_COPY.usageTip : undefined}
       />
       {/* Mounted when asked for: each reads the account and the constants. */}
       {dialog === 'credit' && <BuyCreditDialog open onOpenChange={(next) => !next && setDialog(null)} />}
@@ -109,10 +115,12 @@ export interface UsageChipFrameProps {
   onDialog: (dialog: Exclude<Dialog, null>) => void;
   /** Where the extra usage words start (the editors' bar: 1280 or 1536 px). */
   extraFrom?: ExtraFrom;
+  /** v33 SHARE-4: the chip's tooltip ("Your AI use" once the person has shared profiles). */
+  tip?: string;
 }
 
 /** The chip and its popover for one summary. */
-export function UsageChipFrame({ summary, warningPercent, resetText, autoApply, onDialog, extraFrom = 'sm' }: UsageChipFrameProps) {
+export function UsageChipFrame({ summary, warningPercent, resetText, autoApply, onDialog, extraFrom = 'sm', tip }: UsageChipFrameProps) {
   const [open, setOpen] = useState(false);
   const tone = useHeaderTone();
   const view = usageView(summary, warningPercent);
@@ -120,15 +128,24 @@ export function UsageChipFrame({ summary, warningPercent, resetText, autoApply, 
     setOpen(false);
     onDialog(dialog);
   };
+  const trigger = (
+    <PopoverTrigger
+      aria-label={view.triggerLabel}
+      data-header-usage={view.tone}
+      className={clsx('flex h-9 shrink-0 items-center gap-2 rounded-control px-2 transition-colors duration-150', TRIGGER_TONE[tone])}
+    >
+      <UsageChipFace view={view} extraFrom={extraFrom} tone={tone} />
+    </PopoverTrigger>
+  );
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        aria-label={view.triggerLabel}
-        data-header-usage={view.tone}
-        className={clsx('flex h-9 shrink-0 items-center gap-2 rounded-control px-2 transition-colors duration-150', TRIGGER_TONE[tone])}
-      >
-        <UsageChipFace view={view} extraFrom={extraFrom} tone={tone} />
-      </PopoverTrigger>
+      {tip ? (
+        <Tooltip content={tip} side="bottom">
+          {trigger}
+        </Tooltip>
+      ) : (
+        trigger
+      )}
       <PopoverContent align="end" aria-label={USAGE_COPY.popoverLabel} className="w-[min(23rem,calc(100vw-1rem))]">
         {open && <UsagePanel view={view} summary={summary} resetText={resetText} autoApply={autoApply} onDialog={ask} onClose={() => setOpen(false)} />}
       </PopoverContent>

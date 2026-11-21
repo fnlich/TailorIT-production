@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { AI_TASK_KINDS, type AiTaskKind } from '@tailorit/shared';
 import { AI_KIND_DEFAULT_MODELS, HAIKU_MODEL } from '../config/models';
+import { isPersonPayer, type Payer } from '../core/accounts/payer'; // v33 SHARE-3
 import type { AppDeps } from '../core/context';
 import { AI_DETAILS, AiError } from './errors';
 import type { CatalogPrompt } from './prompts/types';
@@ -32,6 +33,10 @@ import type { AiService, AiTaskContext, AiTaskHandler, EnqueueOptions } from './
  * - `server`: nobody, a server cost (system work such as the job analysis backlog); enqueue passes `chargeTo: null`;
  * - `caller`: the caller says whom on each enqueue (`chargeTo`): the job analysis is a server cost from the backlog
  *   and the person's when Prepare forces it.
+ * v33 SHARE-3 (PLAN F9 "Who pays"): `person` is the person who started the work, not always the profile's owner: B
+ * pays for what B starts on A's profile (`userId` A, `chargeTo` B's Payer: payerOf(req), payerOfRow, payerOfGrant).
+ * v33 INT-1: `chargeTo` is required on every kind (the owner's own work names the owner: payerOf(req) or a listed
+ * ownPayer); a `server` kind takes only a server cost (serverCost).
  */
 export type AiCharge = 'person' | 'server' | 'caller';
 
@@ -63,8 +68,11 @@ export interface AiTaskEnqueue<I> {
   input: I;
   priority?: AiPriority;
   dedupeKey?: string;
-  /** Only for `charge: 'caller'` (required there): whose budget pays, null for the server. */
-  chargeTo?: string | null;
+  /**
+   * Whose budget pays (v33 INT-1: required): a `person` kind a Payer of a person (B on A's profile; the owner's own:
+   * payerOf(req) or a listed ownPayer), a `server` kind only a server cost (serverCost), a `caller` kind either.
+   */
+  chargeTo: Payer;
 }
 
 export interface AiTask<I, O> {
@@ -132,21 +140,21 @@ export function defineAiTask<I, O>(spec: AiTaskSpec<I, O>): AiTask<I, O> {
       deps.services.ai?.registerHandler(spec.kind, task.handler(deps));
     },
     enqueueOptions({ userId, input, priority, dedupeKey, chargeTo }) {
-      const options: EnqueueOptions = {
+      // v33 INT-1: the compiler refuses a call without a Payer; a caller the compiler did not see is refused here.
+      if (typeof chargeTo !== 'object' || chargeTo === null) throw new Error(`The AI task "${spec.kind}" names who pays (chargeTo: a Payer).`);
+      // v33 SHARE-3: a person kind takes the person who pays as a Payer (B on A's profile; never a bare id: a Payer comes
+      // from payerOf, payerOfRow, payerOfGrant or a listed ownPayer); a server kind only a server cost; a caller kind either.
+      if (spec.charge !== 'caller' && (spec.charge === 'person' ? !isPersonPayer(chargeTo) : isPersonPayer(chargeTo))) {
+        throw new Error(`The AI task "${spec.kind}" is charged to the ${spec.charge}: that chargeTo is not taken.`);
+      }
+      return {
         kind: spec.kind,
         userId,
         input,
         ...(priority ? { priority } : {}),
         ...(dedupeKey ? { dedupeKey } : {}),
+        chargeTo,
       };
-      if (spec.charge === 'caller') {
-        if (chargeTo === undefined) throw new Error(`The AI task "${spec.kind}" is charged to the caller: pass chargeTo.`);
-        return { ...options, chargeTo };
-      }
-      if (chargeTo !== undefined) {
-        throw new Error(`The AI task "${spec.kind}" is charged to the ${spec.charge}: chargeTo is not taken.`);
-      }
-      return spec.charge === 'server' ? { ...options, chargeTo: null } : options;
     },
     async enqueue(deps, options) {
       return queueOf(deps).enqueue(task.enqueueOptions(options));

@@ -1,5 +1,6 @@
 import type { AppDeps } from '../../core/context';
 import type { Feature } from '../../core/feature';
+import { PREPARE_FILTERS_ACTING } from './acting'; // v33 SHARE-5
 import { customFilterTask } from './custom';
 import { pruneCustomVerdicts } from './housekeeping';
 import { createPrepareFiltersRouter } from './router';
@@ -33,7 +34,13 @@ export const prepareFiltersFeature: Feature = {
     deps.services.prepareFilters = serviceOf(deps);
   },
   aiTasks: [customFilterTask],
-  routes: [{ path: '/api/prepare/filters', router: (deps) => createPrepareFiltersRouter(deps, serviceOf(deps)) }],
+  routes: [
+    {
+      path: '/api/prepare/filters',
+      router: (deps) => createPrepareFiltersRouter(deps, serviceOf(deps)),
+      acting: PREPARE_FILTERS_ACTING, // v33 SHARE-5
+    },
+  ],
   // v30 INT-0: old Custom filter verdicts pruned (housekeeping.ts).
   daily: [pruneCustomVerdicts],
 };

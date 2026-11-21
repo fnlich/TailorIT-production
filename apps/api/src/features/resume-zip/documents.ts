@@ -2,7 +2,6 @@ import { mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
-import { getResumeEngine } from '../resumes/engine';
 import {
   ALL_FAILED,
   BUILT_RESUME_ESTIMATE_BYTES,
@@ -82,7 +81,6 @@ export async function buildDocumentsZip(
 ): Promise<ZipBuildResult> {
   const { userId, signal } = input;
   await mkdir(input.dir, { recursive: true });
-  getResumeEngine(deps);
   input.progress.setTotal(input.resumeIds.length);
 
   // The resumes as they are now: one deleted since the request is left out, and SKIPPED.txt counts it.

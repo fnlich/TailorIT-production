@@ -1,3 +1,4 @@
+import { TECHNICAL_FAMILY_ID, roleTailoringOf, type RoleFamilyId, type RoleTailoring } from '@tailorit/shared';
 import type { RunPrompt, RunPromptOptions } from '../../ai/index';
 import { untrusted, untrustedText } from '../autofill/ai/untrusted';
 import {
@@ -38,10 +39,13 @@ import {
   isSkillLibrary,
   loadSkillsReference,
   referenceAliases,
+  referenceForms,
   referenceCategory,
   referenceOrder,
+  referenceFor,
   referenceSkillsInText,
   referenceSpelling,
+  type SkillsReference,
 } from './skills/reference';
 import type { Experience, JobAnalysis, Profile, TailoredContent, TailoredExperience, TailoredStrength } from './types';
 
@@ -60,17 +64,12 @@ export { combinedSkillName } from './skills/names';
 // The most bullets a role keeps, newest role first: 5-7, 4-6, 3-4, then 2-3 for older
 // roles, and 18 on the whole resume. The revision may add one more to the newest role
 // when a keyword can't fit otherwise.
-const BULLETS_PER_ROLE = [7, 6, 4];
-const OLDER_ROLE_BULLETS = 3;
-const MIN_BULLETS_PER_ROLE = [5, 4, 3];
-const OLDER_ROLE_MIN_BULLETS = 2;
-const MAX_TOTAL_BULLETS = 18;
+// v33 PROMPTS (F5): those numbers, and the skills lists' sizes (hard 20-25, soft 8-12), are the technical archetype's
+// (packages/shared roles ARCHETYPE_TAILORING, pinned equal to v3.2's constants by a test); a tailoring for another
+// family works to its archetype's (TailorFit.numbers), and routes its lists by its family's skill library.
 const MAX_SUMMARY_SENTENCES = 4;
 const MAX_REVISION_ROUNDS = 2;
 const MAX_SKILL_WORDS = 6;
-// Size of each skills list on the finished resume.
-const HARD_SKILLS_RANGE = { min: 20, max: 25 };
-const SOFT_SKILLS_RANGE = { min: 8, max: 12 };
 // The header reads "<your title> | <2-4 of the job's main tools>".
 const HEADER_PHRASES = 3;
 const MAX_HEADER_PHRASE_WORDS = 3;
@@ -127,12 +126,32 @@ function uniqueTerms(values: string[]): string[] {
   });
 }
 
-function bulletLimit(roleIndex: number): number {
-  return BULLETS_PER_ROLE[roleIndex] ?? OLDER_ROLE_BULLETS;
+/**
+ * v33 PROMPTS (F5): what a tailoring is written for: the role family (the person's, or the job's when the person's is
+ * general), its archetype's numbers and its skill library. The technical family's are v3.2's constants and
+ * tailor_builder0's library, so a technical tailoring runs exactly as before. Every step takes it explicitly.
+ */
+export interface TailorFit {
+  family: RoleFamilyId;
+  numbers: RoleTailoring;
+  skills: SkillsReference;
 }
 
-function minBullets(roleIndex: number): number {
-  return MIN_BULLETS_PER_ROLE[roleIndex] ?? OLDER_ROLE_MIN_BULLETS;
+/** The fit of a family; missing reads as technical (a task queued before v3.3, and every caller that names none). */
+export function tailorFitOf(family?: RoleFamilyId | null): TailorFit {
+  const id = family ?? TECHNICAL_FAMILY_ID;
+  return { family: id, numbers: roleTailoringOf(id), skills: referenceFor(id) };
+}
+
+/** The technical archetype's numbers (v3.2's constants). */
+const TECHNICAL_NUMBERS = roleTailoringOf(TECHNICAL_FAMILY_ID);
+
+function bulletLimit(roleIndex: number, numbers: RoleTailoring): number {
+  return numbers.bulletsPerRole[roleIndex] ?? numbers.olderRoleBullets;
+}
+
+function minBullets(roleIndex: number, numbers: RoleTailoring): number {
+  return numbers.minBulletsPerRole[roleIndex] ?? numbers.olderRoleMinBullets;
 }
 
 // --- The profile's own figures -------------------------------------------------
@@ -168,16 +187,16 @@ function capBullets(bullets: string[], limit: number, protectedFigures: string[]
   return result;
 }
 
-// At most 18 bullets on the resume: shorten the oldest roles first, down to their minimum.
-function trimToTotalBullets(experience: TailoredExperience[], protectedByRole: string[][]): TailoredExperience[] {
+// At most 18 bullets on the resume (the archetype's cap): shorten the oldest roles first, down to their minimum.
+function trimToTotalBullets(experience: TailoredExperience[], protectedByRole: string[][], numbers: RoleTailoring): TailoredExperience[] {
   const total = () => experience.reduce((sum, role) => sum + role.achievements.length, 0);
   let trimmed = true;
-  while (total() > MAX_TOTAL_BULLETS && trimmed) {
+  while (total() > numbers.maxTotalBullets && trimmed) {
     trimmed = false;
-    for (let index = experience.length - 1; index >= 0 && total() > MAX_TOTAL_BULLETS; index -= 1) {
+    for (let index = experience.length - 1; index >= 0 && total() > numbers.maxTotalBullets; index -= 1) {
       const bullets = experience[index]!.achievements;
       const last = bullets[bullets.length - 1];
-      if (bullets.length > minBullets(index) && !figuresIn(last ?? '').some((figure) => protectedByRole[index]?.includes(figure))) {
+      if (bullets.length > minBullets(index, numbers) && !figuresIn(last ?? '').some((figure) => protectedByRole[index]?.includes(figure))) {
         bullets.pop();
         trimmed = true;
       }
@@ -199,22 +218,45 @@ function limitSentences(text: string, max: number): string {
  * ("Senior Software Engineer | Terraform, Kubernetes & AWS"). The posted job title never
  * goes on the resume. Only tools the skills list already carries are used, so the header
  * doesn't stand in for a mention in the text.
+ * v33 PROMPTS (F5): the archetype's header. `tools` (technical): as above. `specialties`: the job's main hard keywords,
+ * named tools or practices ("Account Executive | Salesforce, Pipeline management & Cold calling").
+ * `specialties-licences` (hands-on and care): a licence the candidate holds that the job asks for, then specialties
+ * ("Registered Nurse | RN license, Telemetry & Wound care").
  */
-export function buildHeaderTitle(profile: Profile, jobAnalysis: JobAnalysis): string {
+export function buildHeaderTitle(profile: Profile, jobAnalysis: JobAnalysis, fit: TailorFit = tailorFitOf()): string {
   const base = profile.title?.trim() || profile.experience?.[0]?.title?.trim() || '';
   const baseKey = ` ${toKeywordMatchForm(base)} `;
   const phrases: string[] = [];
+  // v33 FIX-1: each phrase's forms (its own, unprefixed, its library aliases): one skill is named once ("Illustrator"
+  // and "Adobe Illustrator", "Excel" and "Microsoft Excel" were both listed, from the analysis's two spellings).
+  const named: Array<Set<string>> = [];
+  const style = fit.numbers.header;
+  const add = (term: string) => {
+    const key = toKeywordMatchForm(term);
+    const forms = referenceForms(term, fit.skills);
+    if (baseKey.includes(` ${key} `) || named.some((known) => [...forms].some((form) => known.has(form)))) return;
+    phrases.push(term);
+    named.push(forms);
+  };
+  if (style === 'specialties-licences') heldLicences(profile, jobAnalysis).slice(0, 1).forEach(add);
   for (const keyword of getKeywordTargets(jobAnalysis)) {
     if (phrases.length === HEADER_PHRASES) break;
     if (keyword.type !== 'hard' || keyword.kind === 'certification') continue;
-    const isTool = hasSkillsReference() ? placementOf(keyword.term, keyword.type) === 'hardSkills' : keyword.kind === 'tool';
+    const isTool =
+      style !== 'tools' || (hasSkillsReference(fit.skills) ? placementOf(keyword.term, keyword.type, fit.skills) === 'hardSkills' : keyword.kind === 'tool');
     if (!isTool || keyword.term.split(' ').length > MAX_HEADER_PHRASE_WORDS) continue;
-    const key = toKeywordMatchForm(keyword.term);
-    if (baseKey.includes(` ${key} `) || phrases.some((phrase) => toKeywordMatchForm(phrase) === key)) continue;
-    phrases.push(keyword.term);
+    add(keyword.term);
   }
   if (!base || phrases.length < 2) return base;
   return `${base} | ${phrases.slice(0, -1).join(', ')} & ${phrases[phrases.length - 1]}`;
+}
+
+/** v33 PROMPTS: the candidate's certifications and licences the job names (its posting or its hard requirements). */
+function heldLicences(profile: Profile, jobAnalysis: JobAnalysis): string[] {
+  const asked = [jobAnalysis.sourceJobDescription ?? '', ...(jobAnalysis.keywords?.mustInclude ?? [])].join('\n');
+  return (profile.certifications ?? [])
+    .map((certification) => certification.name?.trim() ?? '')
+    .filter((name) => name && name.split(' ').length <= MAX_HEADER_PHRASE_WORDS && countKeyword(asked, name) > 0);
 }
 
 function asRawExperienceList(value: unknown): RawExperience[] {
@@ -224,7 +266,7 @@ function asRawExperienceList(value: unknown): RawExperience[] {
 // Employer, title, dates and location always come from the profile; the model
 // only writes the description and bullets. Model entries are matched by company,
 // falling back to position.
-function mergeExperience(profile: Profile, rawEntries: RawExperience[]): TailoredExperience[] {
+function mergeExperience(profile: Profile, rawEntries: RawExperience[], numbers: RoleTailoring): TailoredExperience[] {
 
   if (!profile.experience?.length) {
     return rawEntries.map((entry, index) => {
@@ -236,7 +278,7 @@ function mergeExperience(profile: Profile, rawEntries: RawExperience[]): Tailore
         endDate: asText(raw.endDate),
         location: asText(raw.location),
         description: asText(raw.description),
-        achievements: (Array.isArray(raw.achievements) ? raw.achievements : []).map(asBullet).filter(Boolean).slice(0, bulletLimit(index)),
+        achievements: (Array.isArray(raw.achievements) ? raw.achievements : []).map(asBullet).filter(Boolean).slice(0, bulletLimit(index, numbers)),
       };
     });
   }
@@ -272,12 +314,12 @@ function mergeExperience(profile: Profile, rawEntries: RawExperience[]): Tailore
       description: asText(raw.description) || asText(role.description),
       achievements: capBullets(
         bullets.length > 0 ? bullets : (role.achievements ?? []).map(asBullet).filter(Boolean),
-        bulletLimit(index),
+        bulletLimit(index, numbers),
         protectedByRole[index]!
       ),
     };
   });
-  return trimToTotalBullets(experience, protectedByRole);
+  return trimToTotalBullets(experience, protectedByRole, numbers);
 }
 
 function asStrengths(value: unknown): TailoredStrength[] {
@@ -319,8 +361,7 @@ function blockedCertifications(jobAnalysis: JobAnalysis, profile: Profile): Set<
 // reference file, keywords go to the list matching their own type.
 type Placement = 'hardSkills' | 'softSkills' | 'text';
 
-function placementOf(term: string, fallbackType: 'hard' | 'soft'): Placement {
-  const reference = loadSkillsReference();
+function placementOf(term: string, fallbackType: 'hard' | 'soft', reference: SkillsReference): Placement {
   if (!hasSkillsReference(reference)) return fallbackType === 'soft' ? 'softSkills' : 'hardSkills';
   const type = classifyReferenceSkill(term, reference);
   return type === 'hard' ? 'hardSkills' : type === 'soft' ? 'softSkills' : 'text';
@@ -328,12 +369,12 @@ function placementOf(term: string, fallbackType: 'hard' | 'soft'): Placement {
 
 // Both skills lists hold only reference skills, each in the list the reference
 // assigns; anything else belongs in the resume text.
-function routeSkillLists(hard: string[], soft: string[]): { hardSkills: string[]; softSkills: string[] } {
-  if (!hasSkillsReference()) return { hardSkills: hard, softSkills: soft };
+function routeSkillLists(hard: string[], soft: string[], reference: SkillsReference): { hardSkills: string[]; softSkills: string[] } {
+  if (!hasSkillsReference(reference)) return { hardSkills: hard, softSkills: soft };
   const hardSkills: string[] = [];
   const softSkills: string[] = [];
   for (const [skill, listed] of [...hard.map((s) => [s, 'hard'] as const), ...soft.map((s) => [s, 'soft'] as const)]) {
-    const placement = placementOf(skill, listed);
+    const placement = placementOf(skill, listed, reference);
     if (placement === 'hardSkills') hardSkills.push(skill);
     else if (placement === 'softSkills') softSkills.push(skill);
   }
@@ -355,15 +396,15 @@ function withoutEverydayWords(skills: string[], jobAnalysis: JobAnalysis, profil
   });
 }
 
-function normalizeResume(raw: RawResume, profile: Profile, jobAnalysis: JobAnalysis): TailoredContent {
+function normalizeResume(raw: RawResume, profile: Profile, jobAnalysis: JobAnalysis, fit: TailorFit): TailoredContent {
   const blocked = blockedCertifications(jobAnalysis, profile);
-  const lists = routeSkillLists(cleanSkillList(raw.hardSkills, blocked), cleanSkillList(raw.softSkills, blocked));
+  const lists = routeSkillLists(cleanSkillList(raw.hardSkills, blocked), cleanSkillList(raw.softSkills, blocked), fit.skills);
   const { hardSkills } = lists;
   return {
     // Never the posted job title: only a title the candidate held goes on the resume.
-    title: buildHeaderTitle(profile, jobAnalysis),
+    title: buildHeaderTitle(profile, jobAnalysis, fit),
     summary: limitSentences(asText(raw.summary), MAX_SUMMARY_SENTENCES),
-    experience: mergeExperience(profile, asRawExperienceList(raw.experience)),
+    experience: mergeExperience(profile, asRawExperienceList(raw.experience), fit.numbers),
     hardSkills,
     skills: hardSkills,
     softSkills: withoutEverydayWords(lists.softSkills, jobAnalysis, profile),
@@ -376,11 +417,16 @@ function normalizeResume(raw: RawResume, profile: Profile, jobAnalysis: JobAnaly
 // list (in the posting's wording), even when the text already uses it. Without
 // a reference, a keyword is listed only when the resume doesn't mention it at
 // all. Keywords that belong in the text are left to the tailor and revision prompts.
-export function fillMissingKeywords(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile): TailoredContent {
+export function fillMissingKeywords(
+  tailored: TailoredContent,
+  jobAnalysis: JobAnalysis,
+  profile: Profile,
+  fit: TailorFit = tailorFitOf(),
+): TailoredContent {
   // The header repeats the job's main tools; it never stands in for the skills list.
   const resumeText = getTailoredResumeText({ ...tailored, title: '' });
   const blocked = blockedCertifications(jobAnalysis, profile);
-  const withReference = hasSkillsReference();
+  const withReference = hasSkillsReference(fit.skills);
   const inList = (list: string[], term: string) => {
     const key = toKeywordMatchForm(term);
     return list.some((item) => toKeywordMatchForm(item) === key);
@@ -390,7 +436,7 @@ export function fillMissingKeywords(tailored: TailoredContent, jobAnalysis: JobA
   const toSoft: string[] = [];
   for (const keyword of getAtsKeywords(jobAnalysis)) {
     if (blocked.has(toKeywordMatchForm(keyword.term))) continue;
-    const placement = placementOf(keyword.term, keyword.type);
+    const placement = placementOf(keyword.term, keyword.type, fit.skills);
     const absent = countKeyword(resumeText, keyword.term) === 0;
     if (placement === 'text') {
       // Left to the tailor and revision prompts.
@@ -427,8 +473,7 @@ function capitalizeSkill(skill: string): string {
 
 // A job keyword keeps the posting's wording (scanners match it literally); any other skill is written the
 // way the skill library spells it ("GitHub Actions", "eBPF", "kubectl").
-function withCapitalizedSkills(tailored: TailoredContent, jobAnalysis: JobAnalysis): TailoredContent {
-  const reference = loadSkillsReference();
+function withCapitalizedSkills(tailored: TailoredContent, jobAnalysis: JobAnalysis, reference: SkillsReference): TailoredContent {
   const keywords = new Set(getAtsKeywords(jobAnalysis).map((keyword) => toKeywordMatchForm(keyword.term)));
   const spell = (skill: string) => {
     const library = isSkillLibrary(reference) && !keywords.has(toKeywordMatchForm(skill)) ? referenceSpelling(skill, reference) : null;
@@ -448,11 +493,11 @@ type SkillPriority = (skill: string) => number[];
 
 const TIERS = ['must_have', 'strong', 'nice_to_have'];
 
-function skillPriority(jobAnalysis: JobAnalysis, resumeText: string): SkillPriority {
+function skillPriority(jobAnalysis: JobAnalysis, resumeText: string, reference: SkillsReference): SkillPriority {
   const targets = new Map(getKeywordTargets(jobAnalysis).map((k) => [toKeywordMatchForm(k.term), k]));
   return (skill) => {
     const target = targets.get(toKeywordMatchForm(skill));
-    const order = referenceOrder(skill);
+    const order = referenceOrder(skill, reference);
     if (!target) return [2, 0, 0, order];
     const absent = countKeyword(resumeText, skill) === 0;
     return [absent ? 0 : 1, -(target.timesInPosting ?? 1), TIERS.indexOf(keywordPriority(target)), order];
@@ -470,10 +515,10 @@ function byPriority(priority: SkillPriority): (a: string, b: string) => number {
 // An alias is another name for the same skill ("EKS" and "Amazon EKS", "Kafka" and "Apache Kafka"), so
 // listing both says it twice. The first in priority order is kept, except that a job keyword always stays:
 // the posting's own wording has to appear.
-function withoutDuplicateNames(sorted: string[], priority: SkillPriority): string[] {
+function withoutDuplicateNames(sorted: string[], priority: SkillPriority, reference: SkillsReference): string[] {
   const covered = new Set<string>();
   return sorted.filter((skill) => {
-    const names = [skill, ...referenceAliases(skill)].map(toKeywordMatchForm);
+    const names = [skill, ...referenceAliases(skill, reference)].map(toKeywordMatchForm);
     const isKeyword = priority(skill)[0]! < 2;
     if (!isKeyword && names.some((name) => covered.has(name))) return false;
     names.forEach((name) => covered.add(name));
@@ -485,15 +530,21 @@ function withoutDuplicateNames(sorted: string[], priority: SkillPriority): strin
 // (a posting can name more listed skills than fit), then tops up a short list
 // from the extras (skipping another name for a listed skill, "EKS" next to
 // "Amazon Elastic Kubernetes Service") and caps it.
-function sizeSkillList(list: string[], priority: SkillPriority, extras: () => string[], range: { min: number; max: number }): string[] {
+function sizeSkillList(
+  list: string[],
+  priority: SkillPriority,
+  extras: () => string[],
+  range: { readonly min: number; readonly max: number },
+  reference: SkillsReference,
+): string[] {
   // Array.prototype.sort is stable, so equal skills keep the model's order.
-  const sized = withoutDuplicateNames(uniqueTerms(list).sort(byPriority(priority)), priority);
+  const sized = withoutDuplicateNames(uniqueTerms(list).sort(byPriority(priority)), priority, reference);
   if (sized.length >= range.min) return sized.slice(0, range.max);
 
-  const listed = new Set(sized.flatMap((skill) => [skill, ...referenceAliases(skill)]).map(toKeywordMatchForm));
+  const listed = new Set(sized.flatMap((skill) => [skill, ...referenceAliases(skill, reference)]).map(toKeywordMatchForm));
   for (const extra of extras()) {
     if (sized.length >= range.min) break;
-    const names = [extra, ...referenceAliases(extra)].map(toKeywordMatchForm);
+    const names = [extra, ...referenceAliases(extra, reference)].map(toKeywordMatchForm);
     if (names.some((name) => listed.has(name))) continue;
     sized.push(extra);
     names.forEach((name) => listed.add(name));
@@ -503,33 +554,40 @@ function sizeSkillList(list: string[], priority: SkillPriority, extras: () => st
 
 // The candidate's own hard skills a list may take more of: the profile's skills, then reference skills the
 // resume text already names. Never one of the soft skills, and never a certification the job doesn't allow.
-function hardSkillEvidence(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile): string[] {
+function hardSkillEvidence(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile, reference: SkillsReference): string[] {
   const blocked = blockedCertifications(jobAnalysis, profile);
   const profileSkills = cleanSkillList(profile.skills, blocked);
   const text = getTailoredResumeText({ ...tailored, title: '', hardSkills: [], softSkills: [] });
   const soft = new Set(tailored.softSkills.map(toKeywordMatchForm));
-  const skills = hasSkillsReference()
-    ? [...profileSkills.filter((s) => placementOf(s, 'hard') === 'hardSkills'), ...referenceSkillsInText(text, 'hard')]
+  const skills = hasSkillsReference(reference)
+    ? [...profileSkills.filter((s) => placementOf(s, 'hard', reference) === 'hardSkills'), ...referenceSkillsInText(text, 'hard', reference)]
     : profileSkills;
   return cleanSkillList(skills, blocked).filter((skill) => !soft.has(toKeywordMatchForm(skill)));
 }
 
-// Hard skills 20-25, soft skills 8-10. A short list is topped up with the
+// Hard skills 20-25, soft skills 8-10 (v33: the archetype's sizes). A short list is topped up with the
 // candidate's own skills: first the profile's skills, then reference skills the
 // resume text already names. With a skills reference, only reference skills are
 // used, each in the list the reference assigns.
-function sizeSkillLists(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile): TailoredContent {
+function sizeSkillLists(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile, fit: TailorFit): TailoredContent {
+  const reference = fit.skills;
   const blocked = blockedCertifications(jobAnalysis, profile);
-  const withReference = hasSkillsReference();
+  const withReference = hasSkillsReference(reference);
   const profileSkills = cleanSkillList(profile.skills, blocked);
   const inOtherList = (skill: string, other: string[]) =>
     other.some((item) => toKeywordMatchForm(item) === toKeywordMatchForm(skill));
   const text = getTailoredResumeText({ ...tailored, title: '', hardSkills: [], softSkills: [] });
-  const priority = skillPriority(jobAnalysis, text);
+  const priority = skillPriority(jobAnalysis, text, reference);
   const usable = (skills: string[], other: string[]) =>
     cleanSkillList(skills, blocked).filter((skill) => !inOtherList(skill, other));
 
-  const hardSkills = sizeSkillList(tailored.hardSkills, priority, () => hardSkillEvidence(tailored, jobAnalysis, profile), HARD_SKILLS_RANGE);
+  const hardSkills = sizeSkillList(
+    tailored.hardSkills,
+    priority,
+    () => hardSkillEvidence(tailored, jobAnalysis, profile, reference),
+    fit.numbers.hardSkills,
+    reference,
+  );
   const softSkills = sizeSkillList(
     tailored.softSkills,
     priority,
@@ -537,27 +595,32 @@ function sizeSkillLists(tailored: TailoredContent, jobAnalysis: JobAnalysis, pro
       withReference
         ? usable(
             [
-              ...profileSkills.filter((s) => placementOf(s, 'soft') === 'softSkills'),
-              ...referenceSkillsInText(text, 'soft').filter((s) => !AMBIGUOUS_SOFT_SKILLS.has(toKeywordMatchForm(s))),
+              ...profileSkills.filter((s) => placementOf(s, 'soft', reference) === 'softSkills'),
+              ...referenceSkillsInText(text, 'soft', reference).filter((s) => !AMBIGUOUS_SOFT_SKILLS.has(toKeywordMatchForm(s))),
             ],
             hardSkills
           )
         : [],
-    SOFT_SKILLS_RANGE
+    fit.numbers.softSkills,
+    reference,
   );
   return { ...tailored, hardSkills, skills: hardSkills, softSkills };
 }
 
 // The last step of every tailoring flow: job keywords into their lists, lists
 // sized, skills capitalized, then the lists tidied the way a person writes them.
-function finishSkillLists(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile): TailoredContent {
-  const finished = withCapitalizedSkills(sizeSkillLists(fillMissingKeywords(tailored, jobAnalysis, profile), jobAnalysis, profile), jobAnalysis);
-  return withListsTidied(finished, jobAnalysis, hardSkillEvidence(finished, jobAnalysis, profile));
+function finishSkillLists(tailored: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile, fit: TailorFit): TailoredContent {
+  const finished = withCapitalizedSkills(
+    sizeSkillLists(fillMissingKeywords(tailored, jobAnalysis, profile, fit), jobAnalysis, profile, fit),
+    jobAnalysis,
+    fit.skills,
+  );
+  return withListsTidied(finished, jobAnalysis, hardSkillEvidence(finished, jobAnalysis, profile, fit.skills), fit);
 }
 
 // The ATS score, and each job keyword's uses it counts: as many as the resume has, up to what the posting asks.
-function countedKeywordUses(tailored: TailoredContent, jobAnalysis: JobAnalysis): { score: number; uses: Map<string, number> } {
-  const report = buildAtsReport(tailored, jobAnalysis);
+function countedKeywordUses(tailored: TailoredContent, jobAnalysis: JobAnalysis, fit: TailorFit): { score: number; uses: Map<string, number> } {
+  const report = buildAtsReport(tailored, jobAnalysis, undefined, fit.numbers);
   const uses = new Map(
     [...report.hardSkills.keywords, ...report.softSkills.keywords].map((k) => [k.keyword, Math.min(k.resumeCount, requiredUses(k.jobCount))])
   );
@@ -575,25 +638,36 @@ function countedKeywordUses(tailored: TailoredContent, jobAnalysis: JobAnalysis)
  * would cost a counted use is skipped. The rest still apply. Each heading then gets 3 to 5 skills (see
  * withHeadingsBalanced), under the same check, from `evidence`: the candidate's own skills.
  */
-export function withListsTidied(tailored: TailoredContent, jobAnalysis: JobAnalysis, evidence: string[] = []): TailoredContent {
-  const baseline = countedKeywordUses(tailored, jobAnalysis);
+export function withListsTidied(
+  tailored: TailoredContent,
+  jobAnalysis: JobAnalysis,
+  evidence: string[] = [],
+  fit: TailorFit = tailorFitOf(),
+): TailoredContent {
+  const reference = fit.skills;
+  const baseline = countedKeywordUses(tailored, jobAnalysis, fit);
   const withLists = (hardSkills: string[], softSkills: string[]): TailoredContent => ({ ...tailored, hardSkills, skills: hardSkills, softSkills });
   const keepsScore = (candidate: TailoredContent) => {
-    const after = countedKeywordUses(candidate, jobAnalysis);
+    const after = countedKeywordUses(candidate, jobAnalysis, fit);
     return after.score >= baseline.score && [...baseline.uses].every(([keyword, uses]) => (after.uses.get(keyword) ?? 0) >= uses);
   };
 
   let hard = withSameSkillsCombined(tailored.hardSkills, (list) => keepsScore(withLists(list, tailored.softSkills)));
-  const nested = withFamiliesNested(hard);
+  const nested = withFamiliesNested(hard, reference);
   if (keepsScore(withLists(nested, tailored.softSkills))) hard = nested;
   const keywords = getAtsHardSkillKeywords(jobAnalysis);
-  hard = withHeadingsBalanced(hard, {
-    evidence: evidence.map((skill) => referenceSpelling(skill) ?? skill),
-    accept: (list) => keepsScore(withLists(list, tailored.softSkills)),
-    // The job's keyword itself or another name for it ("Microsoft Azure" for Azure), not a product named after it.
-    isKeyword: (name) => keywords.some((keyword) => combinedSkillName(name, keyword) !== null),
-  });
-  hard = inLibraryOrder(hard);
+  hard = withHeadingsBalanced(
+    hard,
+    {
+      evidence: evidence.map((skill) => referenceSpelling(skill, reference) ?? skill),
+      accept: (list) => keepsScore(withLists(list, tailored.softSkills)),
+      // The job's keyword itself or another name for it ("Microsoft Azure" for Azure), not a product named after it.
+      isKeyword: (name) => keywords.some((keyword) => combinedSkillName(name, keyword) !== null),
+      maxTotal: fit.numbers.hardSkills.max,
+    },
+    reference,
+  );
+  hard = inLibraryOrder(hard, reference);
   const soft = withoutSameWordTwice(tailored.softSkills, (list) => keepsScore(withLists(hard, list)));
   return withLists(hard, soft);
 }
@@ -620,7 +694,7 @@ export function withHeadingsBalanced(
 ): string[] {
   if (!isSkillLibrary(reference)) return skills;
   const { min, max } = SKILLS_PER_HEADING;
-  const maxTotal = options.maxTotal ?? HARD_SKILLS_RANGE.max;
+  const maxTotal = options.maxTotal ?? TECHNICAL_NUMBERS.hardSkills.max;
   const headingOf = (entry: string) => referenceCategory(baseSkillName(entry), reference);
   const count = (list: string[], heading: string) =>
     list.filter((entry) => headingOf(entry) === heading).reduce((sum, entry) => sum + skillsShown(entry, [heading]), 0);
@@ -721,8 +795,8 @@ export function withHeadingsBalanced(
  * size in order of what the job wants most, so no keyword is lost to the cut; equal skills keep that order.
  * Without the skill library (the markdown reference has no headings) the list stays as it is.
  */
-export function inLibraryOrder(skills: string[]): string[] {
-  const position = (skill: string) => referenceOrder(baseSkillName(skill));
+export function inLibraryOrder(skills: string[], reference: SkillsReference = loadSkillsReference()): string[] {
+  const position = (skill: string) => referenceOrder(baseSkillName(skill), reference);
   return skills.map((skill, index) => ({ skill, index })).sort((a, b) => position(a.skill) - position(b.skill) || a.index - b.index).map(({ skill }) => skill);
 }
 
@@ -834,12 +908,12 @@ export function profileForPrompt(profile: Profile): string {
  * goesIn is hard (the hard skills list), soft (the soft skills list) or text (a bullet or description).
  * The prompt explains the columns, so no names are repeated on every row.
  */
-function keywordPlanText(targets: KeywordTarget[]): string {
+function keywordPlanText(targets: KeywordTarget[], reference: SkillsReference): string {
   return targets
     .map((k) => {
-      const placement = placementOf(k.term, k.type);
+      const placement = placementOf(k.term, k.type, reference);
       // A few other names are enough to show which skill this is; a long list of companions is noise.
-      const aliases = referenceAliases(k.term).slice(0, MAX_PLAN_ALIASES);
+      const aliases = referenceAliases(k.term, reference).slice(0, MAX_PLAN_ALIASES);
       const goesIn = placement === 'hardSkills' ? 'hard' : placement === 'softSkills' ? 'soft' : 'text';
       // A keyword that lives in the prose is mentioned once. Two forced mentions of every one of dozens of
       // practice terms is what crams five keywords into a bullet. Tools and skills in a list still get their
@@ -866,8 +940,7 @@ export function inSentenceCase(term: string, placement: Placement, kind: string)
 // listed when the job or profile asks for them. Without a library, any short label will do.
 const MAX_SOFT_SKILL_OPTIONS = 200;
 
-function softSkillOptions(): string {
-  const reference = loadSkillsReference();
+function softSkillOptions(reference: SkillsReference): string {
   const names = [...reference.soft]
     .filter((key) => !AMBIGUOUS_SOFT_SKILLS.has(key))
     .map((key) => reference.display.get(key))
@@ -889,13 +962,13 @@ function quotedList(lines: readonly string[]): string {
 /** A keyword plan row's term, cleaned as page text is (it is the posting's own wording). */
 const cleanTerm = (term: string) => untrustedText(term, MAX_QUOTED_LINE);
 
-export function tailorPromptValues(profile: Profile, jobAnalysis: JobAnalysis): PromptValues {
+export function tailorPromptValues(profile: Profile, jobAnalysis: JobAnalysis, fit: TailorFit = tailorFitOf()): PromptValues {
   return {
     profileJson: profileForPrompt(profile),
-    keywordPlanJson: keywordPlanText(getKeywordTargets(jobAnalysis).map((k) => ({ ...k, term: cleanTerm(k.term) }))),
+    keywordPlanJson: keywordPlanText(getKeywordTargets(jobAnalysis).map((k) => ({ ...k, term: cleanTerm(k.term) })), fit.skills),
     responsibilitiesJson: quotedList(jobAnalysis.responsibilities ?? []),
     mustIncludeJson: quotedList(jobAnalysis.keywords?.mustInclude ?? []),
-    softSkillOptionsJson: softSkillOptions(),
+    softSkillOptionsJson: softSkillOptions(fit.skills),
   };
 }
 
@@ -920,12 +993,19 @@ export function generateLetterPromptValues(profile: Profile, companyName: string
   };
 }
 
-/** How the pipeline calls the model: a task's runPrompt, the options of every call, and who hears each step. */
+/**
+ * How the pipeline calls the model: a task's runPrompt, the options of every call, and who hears each step. v33
+ * PROMPTS (F5): and what the tailoring is written for (the person's fit; missing: technical).
+ */
 export interface TailorRun {
   runPrompt: RunPrompt;
   promptOptions?: RunPromptOptions;
   onStep?: (step: 'writing' | 'revising' | 'saving') => void;
+  fit?: TailorFit;
 }
+
+/** A run's fit: the one it was given, else the technical family's. */
+export const fitOfRun = (run: Pick<TailorRun, 'fit'>): TailorFit => run.fit ?? tailorFitOf();
 
 // The cover letter call returns plain text; strip stray fences or quotes.
 function asCoverLetter(content: string): string {
@@ -957,7 +1037,7 @@ async function writeCoverLetter(
 ): Promise<string> {
   try {
     const values = coverLetterPromptValues(profile, jobAnalysis, companyName);
-    const answer = await run.runPrompt(writeCoverLetterPrompt, { values }, run.promptOptions);
+    const answer = await run.runPrompt(writeCoverLetterPrompt, { values, family: fitOfRun(run).family }, run.promptOptions);
     return letterText(answer.paragraphs);
   } catch {
     // The caller writes a cover letter itself (generate-cover-letter) when this one is missing.
@@ -968,7 +1048,7 @@ async function writeCoverLetter(
 /** generate-cover-letter: the letter when there is no posting text to tailor to (tailor_builder0's route fallback). */
 export async function generateCoverLetter(run: TailorRun, profile: Profile, companyName: string, role: string): Promise<string> {
   const values = generateLetterPromptValues(profile, companyName, role);
-  const answer = await run.runPrompt(generateCoverLetterPrompt, { values }, run.promptOptions);
+  const answer = await run.runPrompt(generateCoverLetterPrompt, { values, family: fitOfRun(run).family }, run.promptOptions);
   return humanizeText(letterText(answer.paragraphs));
 }
 
@@ -1047,11 +1127,11 @@ export type RevisionIssues = {
 // Keywords the revision must work into the text: every keyword that belongs in
 // the resume text (the skills lists can't take it) and is missing, hard or soft.
 // Without a skills reference, only missing required hard keywords.
-function findIssues(report: AtsReport, jobAnalysis: JobAnalysis, profile: Profile): RevisionIssues {
+function findIssues(report: AtsReport, jobAnalysis: JobAnalysis, profile: Profile, reference: SkillsReference): RevisionIssues {
   const blocked = blockedCertifications(jobAnalysis, profile);
   const keywords = getAtsKeywords(jobAnalysis);
-  const textKeywords = hasSkillsReference()
-    ? new Set(keywords.filter((k) => placementOf(k.term, k.type) === 'text').map((k) => toKeywordMatchForm(k.term)))
+  const textKeywords = hasSkillsReference(reference)
+    ? new Set(keywords.filter((k) => placementOf(k.term, k.type, reference) === 'text').map((k) => toKeywordMatchForm(k.term)))
     : new Set(keywords.filter((k) => k.required && k.type === 'hard').map((k) => toKeywordMatchForm(k.term)));
   const tier = new Map(keywords.map((k) => [toKeywordMatchForm(k.term), ['must_have', 'strong', 'nice_to_have'].indexOf(keywordPriority(k))]));
   const tierOf = (term: string) => tier.get(toKeywordMatchForm(term)) ?? 2;
@@ -1065,7 +1145,7 @@ function findIssues(report: AtsReport, jobAnalysis: JobAnalysis, profile: Profil
       .map((k) => k.keyword),
     // A keyword that lives in the prose is mentioned once (see keywordPlanText), so it is never "underused".
     underused: report.hardSkills.keywords
-      .filter((k) => k.resumeCount > 0 && k.resumeCount < requiredUses(k.jobCount) && placementOf(k.keyword, 'hard') !== 'text')
+      .filter((k) => k.resumeCount > 0 && k.resumeCount < requiredUses(k.jobCount) && placementOf(k.keyword, 'hard', reference) !== 'text')
       .slice(0, MAX_REVISION_KEYWORDS)
       .map((k) => ({ term: k.keyword, uses: k.resumeCount, target: requiredUses(k.jobCount) })),
     style: [],
@@ -1093,7 +1173,11 @@ type RevisionEdit = { company?: unknown; title?: unknown; bullet?: unknown; text
 // The revision returns only what it changes: a new summary, bullet replacements
 // or additions by company, role descriptions, and possibly a new cover letter.
 // Everything it doesn't mention stays as tailored.
-export function applyRevisionEdits(tailored: TailoredContent, revised: Record<string, unknown>): TailoredContent {
+export function applyRevisionEdits(
+  tailored: TailoredContent,
+  revised: Record<string, unknown>,
+  numbers: RoleTailoring = TECHNICAL_NUMBERS,
+): TailoredContent {
   const experience = tailored.experience.map((role) => ({ ...role, achievements: [...role.achievements] }));
   // A role is named by its company, and by its title when the company has two roles; without a
   // title, the first role at the company.
@@ -1118,7 +1202,7 @@ export function applyRevisionEdits(tailored: TailoredContent, revised: Record<st
     if (!text || !Number.isInteger(bullet)) continue;
     if (bullet === 0) {
       // A role may grow to its limit; the newest one gets one more when a keyword can't fit otherwise.
-      if (role.achievements.length < bulletLimit(roleIndex) + (roleIndex === 0 ? 1 : 0)) role.achievements.push(text);
+      if (role.achievements.length < bulletLimit(roleIndex, numbers) + (roleIndex === 0 ? 1 : 0)) role.achievements.push(text);
     } else if (bullet >= 1 && bullet <= role.achievements.length) {
       role.achievements[bullet - 1] = text;
     }
@@ -1133,7 +1217,7 @@ export function applyRevisionEdits(tailored: TailoredContent, revised: Record<st
   };
 }
 
-async function reviseForKeywords(run: TailorRun, tailored: TailoredContent, issues: RevisionIssues): Promise<TailoredContent> {
+async function reviseForKeywords(run: TailorRun, tailored: TailoredContent, issues: RevisionIssues, fit: TailorFit): Promise<TailoredContent> {
   // The cover letter is sent only when it has an issue to fix.
   const letterIssue = issues.style.some((issue) => issue.where === 'cover letter');
   const values = {
@@ -1151,8 +1235,8 @@ async function reviseForKeywords(run: TailorRun, tailored: TailoredContent, issu
     underusedKeywordsJson: JSON.stringify(issues.underused.map((item) => ({ ...item, term: cleanTerm(item.term) }))),
     styleIssuesJson: JSON.stringify(issues.style.map(({ where, problem }) => ({ where, problem }))),
   };
-  const revised = await run.runPrompt(reviseResumePrompt, { values }, run.promptOptions);
-  return humanizeContent(applyRevisionEdits(tailored, revised));
+  const revised = await run.runPrompt(reviseResumePrompt, { values, family: fit.family }, run.promptOptions);
+  return humanizeContent(applyRevisionEdits(tailored, revised, fit.numbers));
 }
 
 // Turns a raw model reply into tailored content, without the cover letter or revision step.
@@ -1160,11 +1244,12 @@ export function normalizeTailorResumeModelContent(
   content: string | Record<string, unknown>,
   profile: Profile,
   jobAnalysis: JobAnalysis,
-  jobDescription: string
+  jobDescription: string,
+  fit: TailorFit = tailorFitOf(),
 ): TailoredContent {
   const analysis = jobAnalysis.sourceJobDescription ? jobAnalysis : { ...jobAnalysis, sourceJobDescription: jobDescription };
-  const written = humanizeContent(normalizeResume(parseResume(content), profile, analysis));
-  return finishSkillLists(withoutNightMentions(written, profile), analysis, profile);
+  const written = humanizeContent(normalizeResume(parseResume(content), profile, analysis, fit));
+  return finishSkillLists(withoutNightMentions(written, profile), analysis, profile, fit);
 }
 
 // A 2 a.m. page, a midnight deploy or "the middle of the night" reads as machine-written, so mentions of the
@@ -1216,11 +1301,11 @@ export function isUsableDraft(content: unknown, profile: Profile): boolean {
 // call in a few drafts, where keeping it would cost the whole resume. The second try says what was wrong
 // (RETRY_NOTE): the model has answered a sparse profile with a request for more information, or with an empty
 // copy of the output format.
-async function writeResumeDraft(run: TailorRun, profile: Profile, jobAnalysis: JobAnalysis): Promise<Record<string, unknown>> {
-  const values = tailorPromptValues(profile, jobAnalysis);
-  const content = await run.runPrompt(tailorResumePrompt, { values }, run.promptOptions);
+async function writeResumeDraft(run: TailorRun, profile: Profile, jobAnalysis: JobAnalysis, fit: TailorFit): Promise<Record<string, unknown>> {
+  const values = tailorPromptValues(profile, jobAnalysis, fit);
+  const content = await run.runPrompt(tailorResumePrompt, { values, family: fit.family }, run.promptOptions);
   if (isUsableDraft(content, profile)) return content;
-  return run.runPrompt(tailorResumePrompt, { values, note: RETRY_NOTE }, run.promptOptions);
+  return run.runPrompt(tailorResumePrompt, { values, note: RETRY_NOTE, family: fit.family }, run.promptOptions);
 }
 
 /** What the revise loop did, for the task's log line (counts only). */
@@ -1238,16 +1323,17 @@ export async function tailorResume(
   options: { coverLetter?: boolean; stats?: TailorStats } = {}
 ): Promise<TailoredContent> {
   run.onStep?.('writing');
+  const fit = fitOfRun(run);
   // The cover letter doesn't depend on the bullets, so it's written alongside
   // the resume instead of making the resume call longer.
   const [content, coverLetter] = await Promise.all([
-    writeResumeDraft(run, profile, jobAnalysis),
+    writeResumeDraft(run, profile, jobAnalysis, fit),
     options.coverLetter === false ? Promise.resolve('') : writeCoverLetter(run, profile, jobAnalysis, companyName),
   ]);
 
   let tailored: TailoredContent;
   try {
-    tailored = humanizeContent(normalizeResume({ ...parseResume(content), coverLetter }, profile, jobAnalysis));
+    tailored = humanizeContent(normalizeResume({ ...parseResume(content), coverLetter }, profile, jobAnalysis, fit));
   } catch {
     throw new Error('The model did not write a resume after two tries.');
   }
@@ -1255,16 +1341,16 @@ export async function tailorResume(
   // Every keyword has to appear, so a revision that leaves some out gets a second pass.
   const keywordTerms = getAtsKeywords(jobAnalysis).map((k) => k.term);
   for (let round = 1; round <= MAX_REVISION_ROUNDS; round += 1) {
-    const report = buildAtsReport(tailored, jobAnalysis, profile);
+    const report = buildAtsReport(tailored, jobAnalysis, profile, fit.numbers);
     if (round === 1 && options.stats) options.stats.firstScore = report.score;
-    const issues = findIssues(report, jobAnalysis, profile);
+    const issues = findIssues(report, jobAnalysis, profile, fit.skills);
     issues.style = [...findStyleIssues(tailored, keywordTerms, describeProfile(profile)), ...findLostMetrics(tailored, profile)];
     const toFix = styleIssuesForRound(issues.style, round);
     if (!needsRevision(issues, round)) break;
 
     run.onStep?.('revising');
     try {
-      tailored = await reviseForKeywords(run, tailored, { ...issues, style: toFix });
+      tailored = await reviseForKeywords(run, tailored, { ...issues, style: toFix }, fit);
       if (options.stats) options.stats.revisions = round;
     } catch (error) {
       // A cancelled task stops here; any other failure keeps the draft, and the fill step covers what's missing.
@@ -1273,8 +1359,8 @@ export async function tailorResume(
     }
   }
 
-  const finalTailored = finishSkillLists(withoutNightMentions(withoutTackedOnClauses(tailored, keywordTerms), profile), jobAnalysis, profile);
-  if (options.stats) options.stats.finalScore = buildAtsReport(finalTailored, jobAnalysis, profile).score;
+  const finalTailored = finishSkillLists(withoutNightMentions(withoutTackedOnClauses(tailored, keywordTerms), profile), jobAnalysis, profile, fit);
+  if (options.stats) options.stats.finalScore = buildAtsReport(finalTailored, jobAnalysis, profile, fit.numbers).score;
   return finalTailored;
 }
 
@@ -1286,14 +1372,14 @@ export async function tailorResume(
 // and the finishing is its last line. The cover letter is not part of it (the MCP tools save it on its own).
 
 /** A tailor-resume answer as tailorResume reads its model's: normalized and humanized, before the finishing steps. */
-export function draftFromAnswer(content: unknown, profile: Profile, jobAnalysis: JobAnalysis): TailoredContent {
+export function draftFromAnswer(content: unknown, profile: Profile, jobAnalysis: JobAnalysis, fit: TailorFit = tailorFitOf()): TailoredContent {
   const raw = parseResume(content);
-  return humanizeContent(normalizeResume({ ...raw, coverLetter: '' }, profile, jobAnalysis));
+  return humanizeContent(normalizeResume({ ...raw, coverLetter: '' }, profile, jobAnalysis, fit));
 }
 
 /** A revise-resume-ats answer applied to the draft it revises, as reviseForKeywords applies its model's. */
-export function draftWithRevision(draft: TailoredContent, revision: Record<string, unknown>): TailoredContent {
-  return humanizeContent(applyRevisionEdits(draft, { ...revision, coverLetter: '' }));
+export function draftWithRevision(draft: TailoredContent, revision: Record<string, unknown>, fit: TailorFit = tailorFitOf()): TailoredContent {
+  return humanizeContent(applyRevisionEdits(draft, { ...revision, coverLetter: '' }, fit.numbers));
 }
 
 /**
@@ -1307,9 +1393,10 @@ export function revisionRound(
   profile: Profile,
   round: number,
   rounds: number = MAX_REVISION_ROUNDS,
+  fit: TailorFit = tailorFitOf(),
 ): { report: AtsReport; issues: RevisionIssues; revise: boolean } {
-  const report = buildAtsReport(draft, jobAnalysis, profile);
-  const issues = findIssues(report, jobAnalysis, profile);
+  const report = buildAtsReport(draft, jobAnalysis, profile, fit.numbers);
+  const issues = findIssues(report, jobAnalysis, profile, fit.skills);
   const keywordTerms = getAtsKeywords(jobAnalysis).map((k) => k.term);
   issues.style = [...findStyleIssues(draft, keywordTerms, describeProfile(profile)), ...findLostMetrics(draft, profile)];
   const revise = round <= rounds && needsRevision(issues, round);
@@ -1317,9 +1404,9 @@ export function revisionRound(
 }
 
 /** tailorResume's finishing steps on a draft (clauses cut, night mentions out, skill lists filled and tidied). */
-export function finishedDraft(draft: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile): TailoredContent {
+export function finishedDraft(draft: TailoredContent, jobAnalysis: JobAnalysis, profile: Profile, fit: TailorFit = tailorFitOf()): TailoredContent {
   const keywordTerms = getAtsKeywords(jobAnalysis).map((k) => k.term);
-  return finishSkillLists(withoutNightMentions(withoutTackedOnClauses(draft, keywordTerms), profile), jobAnalysis, profile);
+  return finishSkillLists(withoutNightMentions(withoutTackedOnClauses(draft, keywordTerms), profile), jobAnalysis, profile, fit);
 }
 
 /** The revision rounds tailorResume runs at most. */

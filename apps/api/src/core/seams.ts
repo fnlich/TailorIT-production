@@ -13,6 +13,7 @@ import type {
   PrepareStartRequest,
   PrepareStartResponse,
 } from '@tailorit/shared';
+import type { PersonPayer } from './accounts/payer'; // v33 SHARE-3, SHARE-5 (INT-1: a person's)
 import type { NormalizedCompany } from '../features/ingest/normalize';
 import type { AppDeps } from './context';
 import type { DbTx } from './db/types';
@@ -25,6 +26,19 @@ import type { DbTx } from './db/types';
 export { assertServerAi, serverAiRefusal, type AiRefusal } from '../ai/gate';
 export { insertPreparedRow, type PreparedRowInput, type PreparedRowResult } from '../features/autofill/agent/prepared';
 
+// v33 SHARE-5 (the SHARE-5 review's decision 4): who starts a Prepare, required at every start, so a caller that forgets
+// it is a compile error rather than the owner paying for (and skipping the OK of) someone else's work.
+/** Who starts a Prepare and pays, and what its answer may show. */
+export interface PrepareStartOptions {
+  /**
+   * Who pays: the request's payer (payerOf: B under the grant on a profile shared with them; else the signed-in
+   * person), or MCP's caller (SHARE-8: payerOfGrant(grant, 'mcp') on a shared profile).
+   */
+  payer: PersonPayer;
+  /** What the answer's filter reasons may show (`sensitive` false: an eligibility reason as one word); absent: all. */
+  viewer?: { sensitive: boolean };
+}
+
 /**
  * P2 (05-prepare-flow.md): Prepare & Queue. `deps.services.prepare`, set by features/prepare.
  * (v1.5's run-based runner stays at deps.services.prepareRunner until P2 replaces it.)
@@ -34,18 +48,25 @@ export interface PrepareService {
    * POST /api/prepare (mode 'server') and MCP prepare_start (mode 'mcp'): the entries, the filters (verdicts recorded
    * even when a later check refuses), the AI check (server only), the resume limit, the queue room, then the
    * prepare_jobs rows and the reusable kits queued, in one transaction. Throws one AppError for the whole
-   * request (ai_unavailable, ai_usage_exhausted, resume_limit_reached, conflict for a full queue).
+   * request (ai_unavailable, ai_usage_exhausted, resume_limit_reached, conflict for a full queue). v33 SHARE-5:
+   * `options.payer` required (PrepareStartOptions).
    */
-  startPrepare(userId: string, request: PrepareStartRequest, mode: PrepareMode): Promise<PrepareStartResponse>;
-  /** POST /api/prepare/:id/cancel: a waiting Prepare at once, an active one when the runner sees it. 404: not theirs. */
-  cancel(userId: string, prepareId: string): Promise<PrepareJob>;
+  startPrepare(userId: string, request: PrepareStartRequest, mode: PrepareMode, options: PrepareStartOptions): Promise<PrepareStartResponse>;
+  /**
+   * POST /api/prepare/:id/cancel: a waiting Prepare at once, an active one when the runner sees it. 404: not theirs.
+   * v33 INT-D (SHARE-8's seam edit): `options.actorId`, who asks (someone other than the owner may cancel only the
+   * Prepares they started); `options.viewer`, what the answer may show.
+   */
+  cancel(userId: string, prepareId: string, options?: { actorId?: string; viewer?: { sensitive: boolean; readerId?: string } }): Promise<PrepareJob>;
   /**
    * After an MCP save: when the application's active `mcp` Prepare has its required parts ready (the resume, and the
    * letter when wanted), queues it (insertPreparedRow) in the same transaction. Null when there is nothing to finish.
+   * v33 INT-D (SHARE-8's seam edit): `options.startedBy`, only a Prepare that person's AI started.
    */
   finishIfComplete(
     userId: string,
     applicationId: string,
+    options?: { startedBy?: string },
   ): Promise<{ prepareId: string; state: PrepareJobState; queueId: string | null; queueFull: boolean } | null>;
   /** Wakes the server runner (after a start, a cancel, or a constant change). */
   kick(): void;
@@ -85,15 +106,18 @@ export interface PrepareFilterService {
   /**
    * The server path: judges the jobs with no fresh verdict in `custom_filter` tasks (charged), and stores them.
    * `prepareId` (v2.0 INT, P4): the Prepare it is for, named in each task's input (`prepare: {id}`), so its cost adds up
-   * on that Prepare.
+   * on that Prepare. v33 SHARE-5: `payer`, the Prepare's payer (B on a profile shared with them; the owner for their own: v33 INT-1, required).
    */
-  judgeOnServer(userId: string, jobIds: readonly number[], prepareId?: string): Promise<Map<number, 'pass' | 'fail'>>;
+  judgeOnServer(userId: string, jobIds: readonly number[], prepareId: string | undefined, payer: PersonPayer): Promise<Map<number, 'pass' | 'fail'>>; // v33 SHARE-3, SHARE-5: payer (INT-1: required)
 }
 
 /** P6a (04-accounts-limits.md §4): AI job search, Paid only. `deps.services.aiSearch`, set by features/jobs. */
 export interface AiSearchService {
-  /** assertFeature('ai_job_search'), then the AI gate; queues a `job_search` task charged to the person. */
-  start(userId: string, text: string): Promise<{ taskId: string }>;
+  /**
+   * assertFeature('ai_job_search'), then the AI gate; queues a `job_search` task charged to the person. v33 SHARE-3:
+   * `payer` (core/accounts/payer.ts) pays and its plan decides (B on A's profile; v33 INT-1: required).
+   */
+  start(userId: string, text: string, payer: PersonPayer): Promise<{ taskId: string }>; // v33 INT-1: payer required
   /** Waits for the person's task (the MCP tool: up to 60 s) and answers its result, parsed with JobsQuerySchema. */
   result(userId: string, taskId: string, waitMs: number): Promise<AiJobSearchResult>;
 }

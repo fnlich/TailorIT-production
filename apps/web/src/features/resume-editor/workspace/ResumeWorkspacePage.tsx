@@ -35,6 +35,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
 import { ApiError, userMessage } from '@/lib/api';
 import { useAccount } from '@/lib/auth';
+import { isActing, localCopyScope } from '@/lib/profile';
 import { usePublicConstants } from '@/lib/constants';
 import { NEW_RESUME_HREF, RESUMES_TAB_HREF, newResumeHref, renameResume, resumeEditorHref, resumeKeys } from '../api';
 import { RESUME_DEPENDENT_KEYS, putResumeInList } from '../cache';
@@ -48,6 +49,7 @@ import { ResumeCanvas } from '../pages/ResumeCanvas';
 import { DesignPanel } from '../panels/DesignPanel';
 import { RearrangeDialog } from '../panels/RearrangeDialog';
 import { TemplatesPanel } from '../panels/TemplatesPanel';
+import { EditorFieldProvider } from '../../roles/EditorField'; // v33 ROLES
 import { PhoneBottomBar } from '../phone/PhoneBottomBar';
 import { PhonePage } from '../phone/PhonePage';
 import { PHONE_PAGE_CSS, PHONE_SLOTS } from '../phone/phoneSlots';
@@ -65,6 +67,7 @@ import { LimitNotice } from '@/components/limits'; // v20 P8
 import { Badge } from '@/components/ui/Badge';
 import { useResumeLimitGate } from '../../documents/resumes/resumeLimit'; // v20 P8
 import { StatusLine } from '../../documents/core/StatusLine';
+import { SHARED_READ_ONLY_NOTE, useChangeAccess } from '../../sharing/access'; // v33 FIX-1
 
 /**
  * The resume editor (Enhancv's on-page editor) for a stored, built resume at /resumes/[id]. It opens the resume as the
@@ -113,13 +116,16 @@ export function ResumeWorkspacePage({ resumeId, opened }: { resumeId: string; op
     );
   }
   // A reload (another tab saved first) brings a newer revision, and with it a new session.
+  // v33 ROLES: the editor's words and the Templates panel follow the resume's field.
   return (
-    <Workspace
-      key={`${query.data.id}:${query.data.documentRevision}`}
-      start={query.data}
-      title={query.data.title}
-      onReload={() => void query.refetch()}
-    />
+    <EditorFieldProvider resumeId={resumeId}>
+      <Workspace
+        key={`${query.data.id}:${query.data.documentRevision}`}
+        start={query.data}
+        title={query.data.title}
+        onReload={() => void query.refetch()}
+      />
+    </EditorFieldProvider>
   );
 }
 
@@ -312,9 +318,11 @@ function Workspace({
   const queryClient = useQueryClient();
   // The name Rename gave the resume, if any.
   const [customTitle, setCustomTitle] = useState(title);
-  const session = useEditorSession(start, account?.id ?? 'signed-out', {
+  // v33 SHARE-4: the browser copy is this account's on this profile (lib/profile.ts localCopyScope); on a shared profile
+  // a newer version is someone else's (its owner, or another person they share it with), not only another tab's.
+  const session = useEditorSession(start, localCopyScope(account?.id ?? 'signed-out'), {
     onConflict() {
-      toast.info('Edited in another tab', 'Loading the latest version.');
+      toast.info(isActing() ? 'Someone else changed this resume.' : 'Edited in another tab', 'Loading the latest version.');
       onReload();
     },
     onSignedOut() {
@@ -329,7 +337,9 @@ function Workspace({
   // The id is read, not kept in state: a new resume's first save re-renders the page with its status anyway, and one
   // more render while the person types into the next field would be one more chance to lose a keystroke.
   const savedId = session.resumeId();
-  const rename = savedId
+  // v33 FIX-1: no Rename either on a profile shared without Documents' Change (sharedReadOnly, below).
+  const canChange = useChangeAccess('documents:edit').change;
+  const rename = savedId && canChange
     ? async (next: string) => {
         const saved = await renameResume(savedId, next);
         setCustomTitle(saved.summary ? saved.summary.title : next);
@@ -346,7 +356,10 @@ function Workspace({
   // read-only: the static view, no editing tools, the limit's message above the page. Download still works.
   const resumeGate = useResumeLimitGate();
   const limited = session.status.state === 'limited' ? session.status.message : null;
-  const readOnly = resumeGate.info !== null || limited !== null;
+  // v33 FIX-1 (PLAN-sharing §9): on a profile shared without Documents' Change (or before its boxes are read) the editor
+  // is read-only too: every save was refused, and what was typed was lost.
+  const sharedReadOnly = !canChange;
+  const readOnly = resumeGate.info !== null || limited !== null || sharedReadOnly;
   const previewing = previewChosen || readOnly;
   const [downloading, setDownloading] = useState(false);
   const [rearranging, setRearranging] = useState(false);
@@ -448,6 +461,11 @@ function Workspace({
         <div className={clsx('mx-auto flex w-full max-w-[816px] flex-wrap items-center gap-2 pt-6', PAGE_GUTTER)} data-resume-read-only="">
           {/* v32 COPY (E4): the state is a tag and the limit's chip (its "?" says why), never a banner. */}
           <Badge tone="neutral">Read-only</Badge>
+          {sharedReadOnly && resumeGate.info === null && limited === null ? (
+            <span className="text-sm leading-5 text-muted-foreground" data-resume-read-only-shared="">
+              {SHARED_READ_ONLY_NOTE}
+            </span>
+          ) : (
           <LimitNotice
             limit={
               resumeGate.info ?? {
@@ -460,6 +478,7 @@ function Workspace({
           >
             Changes are not saved until you have fewer resumes; you can still download it.
           </LimitNotice>
+          )}
           {phone && (
             <Button size="sm" variant="outline" icon={<DownloadSimpleIcon size={16} />} onClick={() => setDownloading(true)}>
               Download

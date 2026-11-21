@@ -494,6 +494,70 @@ export const LEGACY_TEMPLATE_IDS: Readonly<Record<string, ResumeTemplateId>> = {
   '9145ec7c-211d-4cce-a6ef-4ac44793c66a': 'ats-plain',
 };
 
+/** A section kind a retired template printed, or 'custom' for the person's own sections. */
+export type LegacyPrintedSection = SectionKind | 'custom';
+
+// v33 LEGACY: what each retired template printed, read off its Handlebars markup by the v3.2 engine
+// (`printedSections`) and written down once, so opening an older resume no longer needs the engine. A section the old
+// template had no room for opens switched off.
+const CLASSIC_PRINTS: readonly LegacyPrintedSection[] = ['summary', 'strengths', 'skills', 'softSkills', 'experience', 'education'];
+const ATS_PRINTS: readonly LegacyPrintedSection[] = [...CLASSIC_PRINTS, 'certifications'];
+const EVERY_PRINT: readonly LegacyPrintedSection[] = [
+  ...CLASSIC_PRINTS,
+  'certifications',
+  'projects',
+  'volunteering',
+  'awards',
+  'publications',
+  'courses',
+  'languages',
+  'interests',
+  'references',
+  'custom',
+];
+const NO_SOFT_SKILLS = EVERY_PRINT.filter((kind) => kind !== 'softSkills');
+const NO_SHORT_LISTS = NO_SOFT_SKILLS.filter((kind) => kind !== 'strengths');
+
+/** The sections each of the 26 retired templates printed (the keys of `LEGACY_TEMPLATE_IDS`). */
+export const LEGACY_TEMPLATE_PRINTS: Readonly<Record<string, readonly LegacyPrintedSection[]>> = {
+  default: EVERY_PRINT,
+  'azure-stack': EVERY_PRINT,
+  'amber-gradient': EVERY_PRINT,
+  'contrast-cards': EVERY_PRINT,
+  'forest-chips': EVERY_PRINT,
+  'indigo-band': EVERY_PRINT,
+  'structured-slate': EVERY_PRINT,
+  'timeline-bars': EVERY_PRINT,
+  'ink-ledger': NO_SOFT_SKILLS,
+  'charcoal-sidebar': NO_SHORT_LISTS,
+  'sidebar-executive': CLASSIC_PRINTS,
+  'dossier-panel': EVERY_PRINT,
+  'classic-serif': EVERY_PRINT,
+  'framed-serif': EVERY_PRINT,
+  'navy-gold': EVERY_PRINT,
+  'editorial-italic': EVERY_PRINT,
+  'ats-executive': ATS_PRINTS,
+  'navy-rule': NO_SHORT_LISTS,
+  'burgundy-rule': NO_SHORT_LISTS,
+  'slate-italic': EVERY_PRINT,
+  'developer-mono': EVERY_PRINT,
+  'ats-tech-compact': ATS_PRINTS,
+  'ats-classic-serif': ATS_PRINTS,
+  'ats-modern-sans': ATS_PRINTS,
+  'ats-education-first': ATS_PRINTS,
+  '9145ec7c-211d-4cce-a6ef-4ac44793c66a': CLASSIC_PRINTS,
+};
+
+/**
+ * What the retired template a stored id names printed, resolved as the old engine did: the id trimmed; a current
+ * template's id, '' or anything unknown falls back to `default` (which printed every section).
+ */
+export function legacyPrintedSections(id: unknown): readonly LegacyPrintedSection[] {
+  const wanted = typeof id === 'string' ? id.trim() : '';
+  const prints = Object.hasOwn(LEGACY_TEMPLATE_PRINTS, wanted) ? LEGACY_TEMPLATE_PRINTS[wanted] : undefined;
+  return prints ?? EVERY_PRINT;
+}
+
 /** A stored template id as a current one: a current id stays, a legacy id maps; '' and anything else is the default. */
 export function resolveTemplateId(id: unknown): ResumeTemplateId {
   if (typeof id !== 'string') return DEFAULT_TEMPLATE_ID;

@@ -15,7 +15,7 @@ import type { AiTaskContext, PromptModule } from '../../ai/index';
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound, validationFailed } from '../../core/http/errors';
 import { stringsOf } from '../autofill/ai/tasks';
-import { untrustedBlock } from '../autofill/ai/untrusted';
+import { untrustedBlock, untrustedLines } from '../autofill/ai/untrusted';
 import { applicationFacts, letterProfile, visibleTemplate } from '../cover-letters/context';
 import { requireEvidence } from '../cover-letters/generate';
 import { coverLetterPrompt } from '../../ai/prompts/cover-letters/cover-letter';
@@ -28,10 +28,14 @@ import { finishBullets, runEntryBullets } from '../resumes/ai/entryBullets';
 import { ImportedResumeSchema, resumeImportPrompt } from '../../ai/prompts/resumes/resume-import';
 import { importedDocument } from '../resumes/ai/resumeImport';
 import { documentOf, findResume, insertResume, updateResumeDocument } from '../resumes/repository';
+import { withOwnerContact } from '../resumes/contact-lock'; // v33 SHARE-8
 import { MAX_EXTRACTED_TEXT, readableForImport, UNREADABLE_TEXT } from '../resumes/upload';
+import { writtenFamily } from '../tailor/family'; // v33 PROMPTS
 import { tailoredTitle } from '../tailor/output';
 import { assertResumeEditable, assertRoomForResumes } from './limits';
 import { tailorContext, tailorSave } from './own-ai-tailor';
+import { LETTER_GUIDANCE_MAX, ownerWrap, profileWrapped, wrappedWithin } from './profiles'; // v33 SHARE-8
+import type { SaveContext } from './save'; // v33 SHARE-8
 import { contentProblem, CONTENT_REFUSALS } from './screen';
 
 // v2.0 P5 (A17; 07-mcp.md "Every AI feature is usable through MCP"): the server-AI features beside Prepare, with the
@@ -50,6 +54,12 @@ import { contentProblem, CONTENT_REFUSALS } from './screen';
 // - tailor (v2.0 FIX-C, REQ-6): the web's "Tailor my resume" for one job (jobId, or applicationId), which it does not
 //   queue: the keyword analysis, then the resume, saved as a new tailored resume under the resume limit and
 //   the plan's tailorings an hour (FREE_/PAID_TAILOR_PER_HOUR, own-ai-tailor.ts).
+// v33 SHARE-8 (PLAN-sharing.md §7; SHARE-3's review R4): on another person's profile (`profile`, documents:edit) the
+// documents are the owner's, the caller's AI writes them and the caller pays (no TailorIT AI runs here; the resume
+// room keeps the owner's last places: assertRoomForResumes and insertResume with the caller's payer). The owner's words
+// the context hands out (an upload's text, a resume's entries, the letter's resume) come in the profile's wrapper with
+// the grant's tripwire; every save is screened for the caller's grants' tripwires; an editable copy made there takes
+// the owner's contact email and phone (withOwnerContact). No MCP path stores an upload (only its text is read).
 
 export const OWN_AI_FEATURES = ['resume_copy', 'entry_bullets', 'cover_letter', 'tailor'] as const;
 export type OwnAiFeature = (typeof OWN_AI_FEATURES)[number];
@@ -63,10 +73,14 @@ const LetterOutputSchema = z.union([
   z.string().max(20_000).transform((text) => ({ paragraphs: text.split(/\n\s*\n/) })),
 ]);
 
-const refuseContent = (texts: unknown) => {
-  const problem = contentProblem(stringsOf(texts), []);
+/** v33 SHARE-8: `canaries`, the caller's grants' tripwires (a save holding one is refused, on any profile). */
+const refuseContent = (texts: unknown, canaries: readonly string[] = []) => {
+  const problem = contentProblem(stringsOf(texts), canaries);
   if (problem) throw new AppError('validation_failed', CONTENT_REFUSALS[problem]);
 };
+
+/** v33 SHARE-8: the call's own-AI context: whose documents (the profile), who pays, which words to wrap and screen. */
+type OwnCtx = Pick<SaveContext, 'deps' | 'userId' | 'profile' | 'canaries'>;
 
 /** The shape a save takes, in one line, with the call that saves it. */
 const saveLine = (feature: OwnAiFeature, ids: string, output: string) =>
@@ -85,26 +99,35 @@ async function ownUpload(deps: Pick<AppDeps, 'db'>, userId: string, resumeId: st
   return { id: row.id, text };
 }
 
-async function resumeCopyContext(deps: AppDeps, userId: string, resumeId: string) {
+async function resumeCopyContext(ctx: OwnCtx, resumeId: string) {
+  const { deps, userId } = ctx;
   const upload = await ownUpload(deps, userId, resumeId);
   return {
     feature: 'resume_copy',
     prompt: resumeImportPrompt.system({ text: '' }),
-    input: `RESUME TEXT (the person's uploaded file):\n${untrustedBlock(upload.text, UPLOAD_TEXT)}`,
+    // v33 SHARE-8 (review): on another person's profile, the text in the profile's wrapper alone (one wrapper).
+    input: ctx.profile.grant
+      ? profileWrapped(ctx.profile, `RESUME TEXT (the person's uploaded file):\n${untrustedLines(upload.text, UPLOAD_TEXT)}`)
+      : `RESUME TEXT (the person's uploaded file):\n${untrustedBlock(upload.text, UPLOAD_TEXT)}`,
     output: saveLine('resume_copy', `"resumeId": "${upload.id}"`, '<the document JSON in the shape above>'),
   };
 }
 
-async function resumeCopySave(deps: AppDeps, userId: string, resumeId: string, output: unknown) {
+async function resumeCopySave(ctx: OwnCtx, resumeId: string, output: unknown) {
+  const { deps, userId } = ctx;
+  // v33 SHARE-8: the caller's payer keeps the owner's last resume places on another person's profile.
+  const payer = ctx.profile.payer;
   const upload = await ownUpload(deps, userId, resumeId);
   // No resume is made past the plan's limit, whatever the person's AI wrote.
-  await assertRoomForResumes(deps, userId, 1);
+  await assertRoomForResumes(deps, userId, 1, payer);
   const parsed = ImportedResumeSchema.safeParse(output);
   if (!parsed.success) {
     throw validationFailed('output: expected the resume document JSON in the shape own_ai_context gave.');
   }
-  refuseContent(parsed.data);
-  const document = importedDocument(parsed.data);
+  refuseContent(parsed.data, ctx.canaries);
+  // v33 SHARE-8 (SHARE-3's R4): a copy made on another person's profile takes their contact email and phone.
+  const imported = importedDocument(parsed.data);
+  const document = ctx.profile.grant ? await withOwnerContact(deps, userId, imported) : imported;
   if (!document.name && !document.summary && document.experience.length === 0 && document.education.length === 0 && document.skills.length === 0) {
     throw validationFailed('output: the document holds no resume content. Copy the resume text into it, then save again.');
   }
@@ -113,8 +136,8 @@ async function resumeCopySave(deps: AppDeps, userId: string, resumeId: string, o
   const id = await deps.db.tx(
     async (t) => {
       await t.lockPerson(userId);
-      await assertRoomForResumes(deps, userId, 1);
-      return await insertResume(deps, userId, { kind: 'built', document, sourceResumeId: upload.id, madeBy: 'copy' });
+      await assertRoomForResumes(deps, userId, 1, payer);
+      return await insertResume(deps, userId, { kind: 'built', document, sourceResumeId: upload.id, madeBy: 'copy', payer });
     },
     { label: 'own_ai_save resume_copy' },
   );
@@ -227,10 +250,18 @@ async function capturedPrompt(request: BulletsRequest): Promise<{ module: Prompt
   return heard;
 }
 
-async function entryBulletsContext(deps: AppDeps, userId: string, resumeId: string, entryId?: string, task?: 'write' | 'improve') {
+async function entryBulletsContext(ctx: OwnCtx, resumeId: string, entryId?: string, task?: 'write' | 'improve') {
+  const { deps, userId } = ctx;
   const { document, revision } = await ownBuilt(deps, userId, resumeId);
   if (!entryId) {
-    return { feature: 'entry_bullets', resumeId, entries: entryList(document), next: 'Call own_ai_context again with one "entryId".' };
+    // v33 SHARE-8: another person's entries (their titles and employers) in the profile's wrapper.
+    const entries = entryList(document);
+    return {
+      feature: 'entry_bullets',
+      resumeId,
+      entries: ctx.profile.grant ? profileWrapped(ctx.profile, JSON.stringify(entries)) : entries,
+      next: 'Call own_ai_context again with one "entryId".',
+    };
   }
   const { kind, entry } = findEntry(document, entryId);
   const existing = Array.isArray(entry.achievements) && (entry.achievements as unknown[]).length > 0;
@@ -238,7 +269,7 @@ async function entryBulletsContext(deps: AppDeps, userId: string, resumeId: stri
   return {
     feature: 'entry_bullets',
     prompt: module.system(input),
-    input: module.user(input),
+    input: profileWrapped(ctx.profile, module.user(input)),
     revision,
     output: saveLine(
       'entry_bullets',
@@ -249,15 +280,15 @@ async function entryBulletsContext(deps: AppDeps, userId: string, resumeId: stri
 }
 
 async function entryBulletsSave(
-  deps: AppDeps,
-  userId: string,
+  ctx: OwnCtx,
   input: { resumeId: string; entryId: string; output: unknown; mode?: 'replace' | 'append'; revision?: number },
 ) {
+  const { deps, userId } = ctx;
   // Saving a resume's document: refused at or over the plan's limit (A15: "at the limit, block ... edits").
   await assertResumeEditable(deps, userId);
   const parsed = z.object({ bullets: z.array(z.string()).min(1).max(20) }).safeParse(input.output);
   if (!parsed.success) throw validationFailed('output: expected {"bullets": ["...", "..."]}: 1 to 8 one-line bullets.');
-  refuseContent(parsed.data.bullets);
+  refuseContent(parsed.data.bullets, ctx.canaries);
   const bullets = finishBullets(parsed.data.bullets);
   if (bullets.length === 0) throw validationFailed('output: no usable bullet. Write them again.');
   return deps.db.tx(async () => {
@@ -319,14 +350,21 @@ async function letterTemplateOf(deps: AppDeps, userId: string) {
   return id ? await visibleTemplate(deps, userId, id) : null;
 }
 
-async function coverLetterContext(deps: AppDeps, userId: string, applicationId: string, resumeId?: string) {
+async function coverLetterContext(ctx: OwnCtx, applicationId: string, resumeId?: string) {
+  const { deps, userId } = ctx;
   const job = await ownApplication(deps, userId, applicationId);
   const evidence = await letterResume(deps, userId, job, resumeId);
+  // v33 SHARE-8: another person's resume and their template's guidance in the profile's wrapper (review: those slots
+  // alone, so the job's own wrappers stay TailorIT's; the guidance cut so the prompt's own limit keeps the wrapper's end).
+  const wrap = ownerWrap(ctx.profile);
+  const template = (await letterTemplateOf(deps, userId))?.aiPrompt ?? '';
   const input = {
     job: { companyName: job.company, jobTitle: job.title, jobDescription: job.description },
-    resume: resumeForPrompt(evidence),
-    templatePrompt: (await letterTemplateOf(deps, userId))?.aiPrompt ?? '',
+    resume: wrap(resumeForPrompt(evidence)),
+    templatePrompt: ctx.profile.grant && template.trim() ? wrappedWithin(wrap, template, LETTER_GUIDANCE_MAX) : template,
     customPrompt: '',
+    // v33 PROMPTS (F5): in the person's field's words (the letter's resume; the job's when theirs is general).
+    family: await writtenFamily(deps, userId, evidence.resumeId, { jobId: job.jobId, title: job.title }),
   };
   return {
     feature: 'cover_letter',
@@ -340,12 +378,13 @@ async function coverLetterContext(deps: AppDeps, userId: string, applicationId: 
   };
 }
 
-async function coverLetterSave(deps: AppDeps, userId: string, applicationId: string, output: unknown, resumeId?: string) {
+async function coverLetterSave(ctx: OwnCtx, applicationId: string, output: unknown, resumeId?: string) {
+  const { deps, userId } = ctx;
   const job = await ownApplication(deps, userId, applicationId);
   const evidence = await letterResume(deps, userId, job, resumeId);
   const parsed = LetterOutputSchema.safeParse(output);
   if (!parsed.success) throw validationFailed('output: expected {"paragraphs": ["...", "..."]}, 1 to 6 paragraphs of plain text.');
-  refuseContent(parsed.data.paragraphs);
+  refuseContent(parsed.data.paragraphs, ctx.canaries);
   const paragraphs = parsed.data.paragraphs
     .flatMap((paragraph) => tidyAiText(paragraph).split(/\n\s*\n/))
     .map((paragraph) => paragraph.trim())
@@ -396,26 +435,27 @@ const need = (value: string | undefined, name: string, feature: string): string 
   return value;
 };
 
-export async function ownAiContext(deps: AppDeps, userId: string, input: OwnAiContextInput) {
+export async function ownAiContext(ctx: OwnCtx, input: OwnAiContextInput) {
   switch (input.feature) {
     case 'resume_copy':
-      return resumeCopyContext(deps, userId, need(input.resumeId, 'resumeId', input.feature));
+      return resumeCopyContext(ctx, need(input.resumeId, 'resumeId', input.feature));
     case 'entry_bullets':
-      return entryBulletsContext(deps, userId, need(input.resumeId, 'resumeId', input.feature), input.entryId, input.task);
+      return entryBulletsContext(ctx, need(input.resumeId, 'resumeId', input.feature), input.entryId, input.task);
     case 'cover_letter':
-      return coverLetterContext(deps, userId, need(input.applicationId, 'applicationId', input.feature), input.resumeId);
+      return coverLetterContext(ctx, need(input.applicationId, 'applicationId', input.feature), input.resumeId);
     case 'tailor':
-      return tailorContext(deps, userId, input);
+      return tailorContext(ctx, input);
   }
 }
 
-export async function ownAiSave(deps: AppDeps, userId: string, input: OwnAiSaveInput) {
+export async function ownAiSave(ctx: OwnCtx, input: OwnAiSaveInput) {
+  const { deps, userId } = ctx;
   const result = await (() => {
     switch (input.feature) {
       case 'resume_copy':
-        return resumeCopySave(deps, userId, need(input.resumeId, 'resumeId', input.feature), input.output);
+        return resumeCopySave(ctx, need(input.resumeId, 'resumeId', input.feature), input.output);
       case 'entry_bullets':
-        return entryBulletsSave(deps, userId, {
+        return entryBulletsSave(ctx, {
           resumeId: need(input.resumeId, 'resumeId', input.feature),
           entryId: need(input.entryId, 'entryId', input.feature),
           output: input.output,
@@ -423,9 +463,9 @@ export async function ownAiSave(deps: AppDeps, userId: string, input: OwnAiSaveI
           ...(input.revision !== undefined ? { revision: input.revision } : {}),
         });
       case 'cover_letter':
-        return coverLetterSave(deps, userId, need(input.applicationId, 'applicationId', input.feature), input.output, input.resumeId);
+        return coverLetterSave(ctx, need(input.applicationId, 'applicationId', input.feature), input.output, input.resumeId);
       case 'tailor':
-        return tailorSave(deps, userId, input, input.output);
+        return tailorSave(ctx, input, input.output);
     }
   })();
   deps.log.debug(`[mcp] account ${userId}: own_ai_save ${input.feature} stored`);

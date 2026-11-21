@@ -12,6 +12,7 @@ import { HeaderToneProvider } from './header/tone';
 import { PAGE_GUTTER } from './layout';
 import { LogoMark, Wordmark } from './Logo';
 import { FOCUS_ON_DARK, HeaderNav } from './Nav';
+import { ProfileChip } from './profile/ProfileChip';
 
 export interface TopBarProps {
   /** The section's name (layout.ts sectionTitle) below 1024 px, or any node a page puts there. Never a heading: pages own the h1. */
@@ -32,6 +33,8 @@ export interface TopBarProps {
  * tape), then on the right HEADER's usage chip and bell and the account menu (Integrations, Settings, Autofill, Admin,
  * Log out). Below 1024 px: the menu button (the links in a sheet), the logo mark and the section's name in Bricolage
  * Grotesque (left out on a page with a PageHeader, which names it), then the same right cluster.
+ * v33 SHARE-4: the profile chip (whose profile the tab works on) leads the right cluster once the person has a shared
+ * profile; nothing of it otherwise.
  */
 export function TopBar({ title, path = null, onOpenMenu, menuOpen, account, signingOut = false, onSignOut }: TopBarProps) {
   return (
@@ -78,6 +81,7 @@ export function TopBar({ title, path = null, onOpenMenu, menuOpen, account, sign
       <HeaderNav path={path} className="ml-4 xl:ml-8" />
       <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
         <HeaderToneProvider value="dark">
+          <ProfileChip />
           <HeaderUsage />
           <HeaderNotifications />
           {account ? (

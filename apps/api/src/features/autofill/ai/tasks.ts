@@ -9,6 +9,10 @@ import {
   type AutofillTaskKind,
 } from '@tailorit/shared/autofill';
 import { requireAi, sendAccepted } from '../../../ai/index';
+import { thrownRefusalForReader } from '../../../ai/queue'; // v33 SHARE-3 (review)
+import { taskViewerOf } from '../../../ai/viewer'; // v33 SHARE-3 (review)
+import type { PersonPayer } from '../../../core/accounts/payer'; // v33 SHARE-3
+import { actorOf } from '../../../core/auth/guards'; // v33 SHARE-3 (review)
 import type { AppDeps } from '../../../core/context';
 import { AppError } from '../../../core/http/errors';
 import { detectionViews } from './fold';
@@ -47,20 +51,33 @@ export function prefersAsync(header: string | undefined): boolean {
  * queue's: 409 `ai_busy` at two tasks of the kind in flight, 503 `ai_unavailable` when Claude cannot run. The debug
  * line holds the task's id, counts and the time only. v5: a request that prefers it (prefersAsync) is answered 202 at
  * once, with `Preference-Applied`, and reads the task's stream instead.
+ * v33 SHARE-3 (PLAN F9 "Who pays"): `payer` pays (payer.ts autofillPayerOf: B for the extension's help on a job B
+ * prepared, else the owner); the queue scopes the dedupe key by it, so B's request never joins a task A pays for. The
+ * review (PLAN-sharing §5 "Refusal wording"): when the one asking (A's token) is not the payer, a refusal of the payer's
+ * own limit, thrown at the queue's gate or in the finished task, reads as `payer_limit` (MSG_AI_PAYER_LIMIT), never as
+ * the payer's AI use, reset time or credit; the finished task is read as the asker may see it (getTaskFor).
  */
 export async function answerTask(
   deps: AppDeps,
   res: Response,
-  task: { kind: AutofillTaskKind; userId: string; input: unknown; items: number; screened: number },
+  task: { kind: AutofillTaskKind; userId: string; payer: PersonPayer; input: unknown; items: number; screened: number }, // v33 INT-1: payer required
 ): Promise<void> {
   const started = performance.now();
   const ai = requireAi(deps);
-  const accepted = await ai.enqueue({
-    kind: task.kind,
-    userId: task.userId,
-    input: task.input,
-    dedupeKey: dedupeKeyOf(task.kind, task.input),
-  });
+  // v33 SHARE-3 (review): someone else pays (B, for A's extension's help on a job B prepared).
+  const theirs = task.payer.id !== actorOf(res.req).id;
+  let accepted: Awaited<ReturnType<typeof ai.enqueue>>;
+  try {
+    accepted = await ai.enqueue({
+      kind: task.kind,
+      userId: task.userId,
+      input: task.input,
+      dedupeKey: dedupeKeyOf(task.kind, task.input),
+      chargeTo: task.payer, // v33 SHARE-3; INT-1: always named
+    });
+  } catch (error) {
+    throw theirs ? thrownRefusalForReader(deps, error, actorOf(res.req).id === task.userId ? 'owner' : 'other') : error;
+  }
   let finished: AiTaskView | null = null;
   const respondAsync = prefersAsync(res.req.get('prefer'));
   if (respondAsync) {
@@ -71,6 +88,8 @@ export async function answerTask(
     } catch {
       finished = null; // still queued or running: the extension polls it
     }
+    // v33 SHARE-3 (review): as the asker may read it (a payer's own limit is payer_limit to anyone else).
+    if (finished && theirs) finished = (await ai.getTaskFor(accepted.taskId, taskViewerOf(res.req))) ?? finished;
   }
   deps.log.debug(
     `[autofill] ${task.kind} for account ${task.userId}: task ${accepted.taskId} ` +

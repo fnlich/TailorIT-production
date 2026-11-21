@@ -296,12 +296,7 @@ export async function claimNext(deps: ClaimDeps, userId: string, tokenId: string
       const allowance = await allowanceOf(deps, userId);
       if (own) return { item: own, dailyLimit: dailyLimitOf(deps, allowance, allowance.used) };
       if (allowance.reached) return { item: null, dailyLimit: dailyLimitOf(deps, allowance, allowance.used) };
-      const rows = await t.all<Pick<QueueRow, 'id' | 'job_id' | 'resume_id' | 'prepare_id'>>(
-        `SELECT id, job_id, resume_id, prepare_id FROM autofill_agent_queue
-         WHERE user_id = ? AND state = 'queued' AND run IS DISTINCT FROM 'manual'
-         ORDER BY created_at, ${t.dialect.seq()}`,
-        [userId],
-      );
+      const rows = await t.all<Pick<QueueRow, 'id' | 'job_id' | 'resume_id' | 'prepare_id'>>(CLAIM_ORDER_SQL(t.dialect), [userId]);
       for (const row of rows) {
         const now = nowIso(deps);
         const finish = (state: AutofillAgentState, reason: AutofillAgentReason) =>
@@ -334,6 +329,17 @@ export async function claimNext(deps: ClaimDeps, userId: string, tokenId: string
     { label: 'claimNext' },
   );
 }
+
+/**
+ * claimNext's candidates (the account bound): its queued rows a run may take, in the order the agent takes them. v33
+ * SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §6 "Jobs wait for A's OK"): a row someone the profile is shared with prepared
+ * that waits for the owner's OK (awaiting_owner) is never taken; the owner's own rows go first (oldest first), then the
+ * ones others prepared, in the order the owner approved them (an unheld one, under "Apply without my OK", when it was
+ * queued). idx_autofill_agent_queue_claim.
+ */
+export const CLAIM_ORDER_SQL = (d: Dialect) => `SELECT id, job_id, resume_id, prepare_id FROM autofill_agent_queue
+         WHERE user_id = ? AND state = 'queued' AND run IS DISTINCT FROM 'manual' AND NOT awaiting_owner
+         ORDER BY CASE WHEN prepared_by = user_id THEN 0 ELSE 1 END, coalesce(approved_at, created_at), created_at, ${d.seq()}`;
 
 /**
  * The resume a run attaches: the queued kit's (the row's resume, frozen when Prepare & Queue queued it, A30) for a row
@@ -494,6 +500,11 @@ export async function finishRun(deps: ClaimDeps, userId: string, id: string, bod
  */
 export interface QueueReadOptions {
   omitManual?: boolean;
+  /**
+   * v33 SHARE-5 (PLAN F9): leave out the rows that wait for the owner's OK (awaiting_owner): a token's read (the
+   * extension, API 9, never sees a held row; the list's shape is unchanged).
+   */
+  omitHeld?: boolean;
   autoApply?: { used: number; limit: number | null; resetsAt: string };
 }
 
@@ -524,6 +535,8 @@ export interface PlacedItem {
     resumeMode: 'default' | 'similar' | 'tailor' | null;
     logoPath: string | null;
     applyUrl: string;
+    /** v33 SHARE-5: someone the profile is shared with prepared it, and it waits for the owner's OK. */
+    awaitingOwner: boolean;
   };
 }
 
@@ -538,21 +551,26 @@ export type OrderedRow = QueueRow & {
   locations_text: string;
   apply_url: string;
   active: number | boolean;
+  awaiting_owner: boolean; // v33 SHARE-5
 };
 
 /**
  * orderedQueue's statement, with the account's id bound. A row's place (`position`: the tie-break of the list's order
  * and part of the Queue tab's page cursor) is its insertion order, `d.seq('q')`: it never changes while the row lives.
  */
-export function orderedQueueSql(d: Dialect, options: Pick<QueueReadOptions, 'omitManual'>): string {
-  return orderedRowsSql(d, `q.user_id = ?${options.omitManual ? " AND q.run IS DISTINCT FROM 'manual'" : ''}`);
+export function orderedQueueSql(d: Dialect, options: Pick<QueueReadOptions, 'omitManual' | 'omitHeld'>): string {
+  return orderedRowsSql(
+    d,
+    `q.user_id = ?${options.omitManual ? " AND q.run IS DISTINCT FROM 'manual'" : ''}${options.omitHeld ? ' AND NOT q.awaiting_owner' : ''}`,
+  );
 }
 
 /** The list's rows (OrderedRow) of the queue rows `where` names (over `q`). */
 function orderedRowsSql(d: Dialect, where: string): string {
   return `SELECT ${d.seq('q')} AS position, q.id, q.job_id, q.state, q.reason, q.source, q.attempts, q.ai_guesses, q.created_at,
          q.started_at, q.finished_at, q.run, q.application_id, q.prepare_id, q.resume_id, p.resume_mode,
-         j.title, c.name AS company, (SELECT cp.logo_path FROM company_profiles cp WHERE cp.company_id = c.id) AS logo_path, j.primary_location, j.locations_text, j.apply_url, j.active
+         j.title, c.name AS company, (SELECT cp.logo_path FROM company_profiles cp WHERE cp.company_id = c.id) AS logo_path, j.primary_location, j.locations_text, j.apply_url, j.active,
+         q.awaiting_owner
        FROM autofill_agent_queue q JOIN jobs j ON j.id = q.job_id JOIN companies c ON c.id = j.company_id
          LEFT JOIN prepare_jobs p ON p.id = q.prepare_id
        WHERE ${where}`;
@@ -573,6 +591,7 @@ export function placedRows(d: Dialect, rows: readonly OrderedRow[]): PlacedItem[
       resumeMode: row.resume_mode ?? null,
       logoPath: row.logo_path,
       applyUrl: row.apply_url,
+      awaitingOwner: d.isTrue(row.awaiting_owner ?? false), // v33 SHARE-5
     },
     item: {
       id: row.id,
@@ -604,7 +623,7 @@ export function placedRows(d: Dialect, rows: readonly OrderedRow[]): PlacedItem[
 export async function orderedQueue(
   deps: Pick<AppDeps, 'db'>,
   userId: string,
-  options: Pick<QueueReadOptions, 'omitManual'> = {},
+  options: Pick<QueueReadOptions, 'omitManual' | 'omitHeld'> = {},
 ): Promise<PlacedItem[]> {
   return placedRows(deps.db.dialect, await deps.db.all<OrderedRow>(orderedQueueSql(deps.db.dialect, options), [userId]));
 }
@@ -672,7 +691,7 @@ export async function pageQueue(
   const wanted = query.state ? new Set(query.state.split(',')) : null;
   const states = wanted ? AUTOFILL_AGENT_STATES.filter((state) => wanted.has(state)).join(',') : '';
   // v30 FIX-PERF (PGL-12): the page in SQL (orderedQueuePage), and the rows the query names counted.
-  const scope = { states: wanted ? [...wanted] : null, omitManual: options.omitManual };
+  const scope = { states: wanted ? [...wanted] : null, omitManual: options.omitManual, omitHeld: options.omitHeld };
   const { page, nextCursor } = await orderedQueuePage(deps, userId, scope, query.cursor, query.limit ?? AUTOFILL_AGENT_QUEUE_PAGE_DEFAULT, states);
   return {
     items: page.map(({ item }) => item),
@@ -722,6 +741,8 @@ const AFTER_PLACE = `(p.rank > @afterRank OR (p.rank = @afterRank AND (
 interface PageScope {
   states?: readonly string[] | null;
   omitManual?: boolean;
+  /** v33 SHARE-5: no row that waits for the owner's OK (a token's read). */
+  omitHeld?: boolean;
 }
 
 /** The scope's conditions on `q` (bound: @userId, @states). */
@@ -729,6 +750,7 @@ function scopeSql(scope: PageScope): string {
   return [
     'q.user_id = @userId',
     ...(scope.omitManual ? ["q.run IS DISTINCT FROM 'manual'"] : []),
+    ...(scope.omitHeld ? ['NOT q.awaiting_owner'] : []), // v33 SHARE-5
     ...(scope.states ? ["q.state = ANY(string_to_array(@states, ','))"] : []),
   ].join(' AND ');
 }
@@ -804,8 +826,9 @@ export async function openForTab(deps: ClaimDeps, userId: string, tokenId: strin
           run: AutofillAgentRunKind | null;
         }
       >(
+        // v33 SHARE-5: a row that waits for the owner's OK is not the extension's to see (as if it were not there).
         `SELECT id, job_id, state, run, claimed_by, resume_id, prepare_id FROM autofill_agent_queue
-         WHERE id = ? AND user_id = ?`,
+         WHERE id = ? AND user_id = ? AND NOT awaiting_owner`,
         [id, userId],
       );
       if (!row) throw notFound('That auto-apply job');

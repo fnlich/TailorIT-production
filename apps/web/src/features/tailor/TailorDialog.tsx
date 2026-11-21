@@ -28,13 +28,14 @@ import { Spinner } from '@/components/ui/Spinner';
 import { TapeMeter } from '@/components/ui/TapeMeter';
 import { useToast } from '@/components/ui/Toast';
 import { aiUsedUpLimit, limitOfTaskError, useAiDialogGate, useAiUsedUp, useLimitDialog } from '@/components/limits';
-import { ApiError, userMessage } from '@/lib/api';
+import { ApiError, isProfileRefusal, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { useAiTask } from '@/lib/useAiTask';
 import { autofillKeys, fetchAutofillProfile } from '../autofill/api';
 import { StatusLine } from '../documents/core/StatusLine';
 import { LetterPreviewDialog } from '../documents/preview/LetterPreviewDialog';
 import { ResumePreviewDialog } from '../documents/preview/ResumePreviewDialog';
+import { useFieldFirst } from '../cover-letter-editor/fieldFirst';
 import { downloadFile, fetchTemplates, letterExportPath, templateKeys } from '../letter-editor/data';
 import { fetchResumes, readImportResult, resumeEditorHref, resumeExportHref, resumeKeys, startEditableCopy } from '../resume-editor/api';
 import { downloadFrom } from '../resume-editor/files';
@@ -106,6 +107,7 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
   const profile = useQuery({ queryKey: autofillKeys.profile, queryFn: ({ signal }) => fetchAutofillProfile(signal) });
   const resumes = useQuery({ queryKey: resumeKeys.list(), queryFn: ({ signal }) => fetchResumes(signal) });
   const letterTemplates = useQuery({ queryKey: templateKeys.all, queryFn: fetchTemplates, staleTime: 60_000 });
+  const orderedLetterTemplates = useFieldFirst(letterTemplates.data?.items); // v33 PROMPTS: the field's starters first
 
   // The choices start once the profile and the resumes are known (a profile that cannot be read leaves the defaults).
   const ready = resumes.isSuccess && (profile.isSuccess || profile.isError);
@@ -138,6 +140,8 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
     },
     onError: (error) => {
       if (limits.show(error)) return;
+      // v33 FIX-1: a shared profile's refusal is the shell's one alert (a "Try again" here could only fail again).
+      if (isProfileRefusal(error)) return;
       setProblem(problemOfError(error instanceof ApiError ? error : null));
     },
   });
@@ -181,7 +185,8 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
 
   const shownProblem = problem ?? taskProblem ?? pollProblem;
   let body: ReactNode;
-  // v31 FIX-WEB (REV-REQ REQ-3): TailorIT's words, as the job page's "Tailor a resume" (never the copied CTA).
+  // v31 FIX-WEB (REV-REQ REQ-3): TailorIT's words, as the Tracker's "Tailor a resume" (v33 INT-A: the job details' button
+  // has the owner's own "Tailor my resume", LABEL_JOB_DETAIL_TAILOR).
   let title = TAILOR_TITLE;
   if (shownProblem) {
     body = (
@@ -220,7 +225,7 @@ function TailorWindow({ target, onClose }: { target: TailorTarget; onClose: () =
         choices={choices}
         resumes={resumes.data ?? null}
         resumesError={resumes.isError ? userMessage(resumes.error, 'Your resumes could not be listed.') : null}
-        letterTemplates={letterTemplates.data?.items ?? null}
+        letterTemplates={letterTemplates.data ? orderedLetterTemplates : null}
         copyReady={copyReady}
         starting={start.isPending}
         onChange={setChoices}

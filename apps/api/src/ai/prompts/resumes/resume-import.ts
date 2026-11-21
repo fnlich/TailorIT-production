@@ -77,17 +77,19 @@ is wrong.
 How to fill each part:
 - name: the person's name. title: the headline written under the name; when there is none, the most recent job
   title as written.
-- contact: the email, phone and location the resume shows, and its LinkedIn, GitHub and portfolio or website links.
+- contact: the email, phone and location the resume shows, and its profile links (LinkedIn, GitHub, a portfolio or a
+  website).
 - summary: the resume's own summary or profile paragraph, word for word. When it has none, leave it empty; never
   write one.
 - experience: every paid role, in the order the resume lists them, each with its title, company, dates, location,
   the resume's own sentence describing the role (if any) as description, every bullet under it as achievements
   (tidy the wording only if you must, never strengthen a claim, keep every figure exactly as stated) and the
-  technologies that role names as skills.
-- skills: every technical skill the resume names anywhere, spelled as the resume spells it. Never add a skill
-  because a job title, a project or another skill implies it.
-- skillCategories: only when the resume itself groups its technical skills under headings: those headings with
-  their skills. Otherwise an empty list.
+  software, tools, equipment and methods that role names as skills.
+- skills: every hard skill the resume names anywhere (software, tools, equipment, procedures, techniques, methods and
+  standards), spelled as the resume spells it. Never add a skill because a job title, a project or another skill
+  implies it.
+- skillCategories: only when the resume itself groups its skills under headings: those headings with their skills.
+  Otherwise an empty list.
 - softSkills: soft skills the resume states itself (communication, mentoring, ownership); never put them in skills.
 - strengths: only from a strengths or key-qualities section the resume actually has; otherwise an empty list.
 - education: each degree with its institution, dates, location, GPA when stated, and honours or bullets.
@@ -108,7 +110,9 @@ export interface ResumeImportInput {
 export const resumeImportPrompt = definePrompt<ResumeImportInput, ImportedResume>({
   area: 'resumes',
   name: 'resume-import',
-  version: 1,
+  // v33 PROMPTS (F5): 2, the neutral wording (skills of every field, not only technical ones): its cached copies
+  // (uploadReading.ts keys them by this version) are made again.
+  version: 2,
   description: "Copies an uploaded resume's text into a resume document, field by field (Make an editable copy).",
   kind: 'resume_import',
   system: () => SYSTEM,

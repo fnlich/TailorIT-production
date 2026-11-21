@@ -7,6 +7,8 @@ import {
   type AutofillCoverLetterState,
   type AutofillCoverLetterText,
 } from '@tailorit/shared/autofill';
+import { thrownRefusalForReader } from '../../ai/queue'; // v33 SHARE-6 (SHARE-3's review R3)
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-6
 import type { AppDeps } from '../../core/context';
 import { conflict, notFound, validationFailed } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse';
@@ -206,8 +208,25 @@ export interface FoundLetter {
   outcome: LetterOutcome;
 }
 
+/**
+ * v33 SHARE-6 (SHARE-3's exact edit 4 and review R3; PLAN-sharing §5 "A's extension applying B's jobs", "Refusal wording"):
+ * who pays for a letter written now, asked only when one is (autofillPayerOf: B when the extension runs a job B prepared
+ * on the owner's profile under a live grant, else the owner), and who asked (the token's owner): a refusal of the payer's
+ * own limit reads as `payer_limit` to anyone but the payer (thrownRefusalForReader). The letter's state is read from the
+ * letter itself (generationInFlight), never from its task, so no task read needs the payer's view.
+ */
+export interface LetterPayment {
+  payer: () => Promise<PersonPayer>;
+  askerId: string;
+}
+
 /** POST /cover-letters: the letter to upload for this application, written now when asked and there is none. */
-export async function coverLetterFor(deps: AppDeps, userId: string, asked: AutofillCoverLetterRequest): Promise<FoundLetter> {
+export async function coverLetterFor(
+  deps: AppDeps,
+  userId: string,
+  asked: AutofillCoverLetterRequest,
+  payment: LetterPayment, // v33 SHARE-6; INT-1 (SHARE-6 edit 4): required, the router always gives it
+): Promise<FoundLetter> {
   // A page job an upgrade closed stands for the shared job it gave way to; another account's is as good as none, and
   // where it went is never told (audit A3).
   const current = asked.jobId === undefined ? undefined : await currentJobId(deps, userId, asked.jobId);
@@ -287,11 +306,13 @@ export async function coverLetterFor(deps: AppDeps, userId: string, asked: Autof
     page: { canaries: request.canaries ?? [] },
     onlyIfEmpty: true,
   };
+  const payer = await payment.payer(); // v33 SHARE-6
   try {
-    await startGeneration(deps, userId, input, template);
+    await startGeneration(deps, userId, input, template, payer);
   } catch (error) {
     if (!first) await repository.remove(target.id, userId);
-    throw error;
+    // v33 SHARE-6: someone else's limit, as the owner (the asker) reads it.
+    throw payer.id !== payment.askerId ? thrownRefusalForReader(deps, error, 'owner') : error;
   }
   // The empty letter keeps what it is written about, as the Generate dialog's fields stay on a letter.
   if (first) await repository.update(first.id, userId, about);

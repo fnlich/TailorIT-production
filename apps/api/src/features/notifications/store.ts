@@ -13,6 +13,7 @@ import {
   type NotificationPrefs,
   type NotificationPrefsUpdate,
 } from '@tailorit/shared/notifications';
+import { sharingEnabled } from '../../core/auth/grants'; // v33 SHARE-7
 import { nowIso, type AppDeps } from '../../core/context';
 import { notFound, validationFailed } from '../../core/http/errors';
 
@@ -120,22 +121,30 @@ export async function markAllRead(deps: Deps, reader: Reader): Promise<number> {
   ).changes;
 }
 
-/** The groups the reader may get: every group, `admin` for admins only. */
-export const groupsOf = (reader: Reader): NotificationGroup[] =>
-  NOTIFICATION_GROUPS.filter((group) => reader.admin || !ADMIN_NOTIFICATION_GROUPS.includes(group));
+/**
+ * The groups the reader may get: every group, `admin` for admins only. v33 SHARE-7: `sharing` only while sharing is on
+ * (SHARING_ENABLED; `sharingOn` false hides its switch; a switch already stored is kept for when it is on again).
+ */
+export const groupsOf = (reader: Reader, sharingOn = true): NotificationGroup[] =>
+  NOTIFICATION_GROUPS.filter(
+    (group) => (reader.admin || !ADMIN_NOTIFICATION_GROUPS.includes(group)) && (sharingOn || group !== 'sharing'),
+  );
+
+/** v33 SHARE-7: what the switches' reads need (the constants, for SHARING_ENABLED). */
+type PrefsDeps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
 /** GET /api/notifications/prefs: each group the reader may get, on unless they turned it off. */
-export async function prefsOf(deps: Deps, reader: Reader): Promise<NotificationPrefs> {
+export async function prefsOf(deps: PrefsDeps, reader: Reader): Promise<NotificationPrefs> {
   const rows = await deps.db.all<{ kind_group: NotificationGroup; enabled: boolean }>(
     'SELECT kind_group, enabled FROM notification_prefs WHERE user_id = ?',
     [reader.id],
   );
   const off = new Set(rows.filter((row) => !deps.db.dialect.isTrue(row.enabled)).map((row) => row.kind_group));
-  return { groups: groupsOf(reader).map((group) => ({ group, enabled: !off.has(group) })) };
+  return { groups: groupsOf(reader, sharingEnabled(deps)).map((group) => ({ group, enabled: !off.has(group) })) };
 }
 
 /** PUT /api/notifications/prefs: sets the named groups' switches. 400 for a group the reader may not get. */
-export async function updatePrefs(deps: Deps, reader: Reader, update: NotificationPrefsUpdate): Promise<NotificationPrefs> {
+export async function updatePrefs(deps: PrefsDeps, reader: Reader, update: NotificationPrefsUpdate): Promise<NotificationPrefs> {
   const allowed = new Set(groupsOf(reader));
   const refused = update.groups.find((pref) => !allowed.has(pref.group));
   if (refused) throw validationFailed('Only admins get admin notifications.', { groups: 'Only admins get admin notifications.' });

@@ -10,6 +10,7 @@ import {
   type LetterProfile,
   type ResumeDocument,
 } from '@tailorit/shared';
+import type { Payer } from '../../core/accounts/payer'; // v33 SHARE-3 (review)
 import { nowIso, type AppDeps } from '../../core/context';
 import type { Dialect } from '../../core/db/index';
 import { AppError } from '../../core/http/errors';
@@ -169,6 +170,8 @@ export interface TailoredInput {
   letter: { html: string; templateId: string | null; fontFamily: string | null } | null;
   target: TrackerTarget;
   postingText: string;
+  /** v33 SHARE-3 (review): who pays (B on A's profile): the resume never takes A's last places (insertResume's lock). */
+  payer?: Payer;
 }
 
 /** The entry's documents: the person's choice now (v3.0 PG-F: resume_match_due is a boolean). */
@@ -187,6 +190,7 @@ export async function storeTailored(deps: AppDeps, userId: string, input: Tailor
         document: input.document,
         sourceResumeId: input.sourceResumeId,
         madeBy: 'tailor', // v1.5 W
+        ...(input.payer ? { payer: input.payer } : {}), // v33 SHARE-3 (review)
       });
       const applicationId = await trackerEntry(deps, userId, input.target, resumeId);
       const jobId =

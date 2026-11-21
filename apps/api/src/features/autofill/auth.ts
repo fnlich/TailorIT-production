@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import type { ExtensionScope } from '@tailorit/shared/autofill';
-import { userOf } from '../../core/auth/guards';
+import { rateKeyOf } from '../../core/auth/guards'; // v33 SHARE-1
 import { forbidden, notSignedIn } from '../../core/http/errors';
 import { keyedRateLimit } from '../../core/rate-limit';
 
@@ -45,12 +45,17 @@ export function waitSentence(seconds: number): string {
  * The per-account rate limit every autofill route but redeem has (redeem has one global failure limit), keyed by the
  * route's name and the account. It reads the account, so it goes after the route's allow(). A limit given as a function
  * is read on each request (a constant: an admin's edit applies at once).
+ *
+ * v33 SHARE-1 (PLAN F9 "Who pays": limits are counted per person): the account is the person who acts (rateKeyOf), never
+ * the profile they act on, so working on 3 shared profiles never triples an hourly or daily limit (AUTOFILL_AI_PER_HOUR,
+ * AUTOFILL_DRAFTS_PER_DAY, the cover-letter hour, the credential reads...); a window under an hour (an anti-flood
+ * limit) counts the person on each profile apart. A request that names no profile keys as before (`<name>:<account>`).
  */
 export function perAccountLimit(name: string, limit: number | (() => number), windowMs: number): RequestHandler {
   return keyedRateLimit({
     windowMs,
     limit: typeof limit === 'number' ? limit : () => limit(),
-    key: (req) => `${name}:${userOf(req).id}`,
+    key: (req) => `${name}:${rateKeyOf(req, windowMs)}`, // v33 SHARE-1
     message: (seconds) => `There have been too many autofill requests. ${waitSentence(seconds)}`,
   });
 }

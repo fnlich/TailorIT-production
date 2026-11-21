@@ -1,4 +1,5 @@
 import { ApiError, UNREACHABLE_MESSAGE } from '../../lib/api';
+import { profileHeaders } from '../../lib/profile';
 import { PUBLIC_CONSTANT_DEFAULTS } from '../../lib/constants';
 import { defaultT, type MessageRenderer } from '../../lib/messages';
 
@@ -107,7 +108,8 @@ export function saveBlob(blob: Blob, name: string): void {
 export async function downloadFrom(url: string, fallbackName: string): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(url, { credentials: 'same-origin' });
+    // v33 SHARE-4: the profile the page works on, as every API request names it (lib/profile.ts).
+    response = await fetch(url, { credentials: 'same-origin', headers: profileHeaders(url) });
   } catch {
     throw new ApiError({ status: 0, code: 'internal', message: UNREACHABLE_MESSAGE, path: url });
   }

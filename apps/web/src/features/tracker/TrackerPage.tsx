@@ -5,15 +5,14 @@ import { clsx } from 'clsx';
 import { Suspense, useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   APPLICATION_STATUSES,
-  DISPLAY_STATUS_DRAFT,
   RESUME_ZIP_MAX_APPLICATIONS,
   STATUS,
   hideColumn,
   showColumn,
+  visibleColumns,
   type ApplicationDetail,
   type ApplicationStatus,
   type ApplicationSummary,
-  type DisplayStatus,
   type TrackerTab,
   type TrackerView,
 } from '@tailorit/shared';
@@ -27,9 +26,9 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { PlusIcon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/Toast';
 import { isFeatureLocked, useAccount } from '@/lib/account';
-import { userMessage } from '@/lib/api';
+import { isProfileRefusal, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
-import { savedMarker, type MarkerView } from '../auto-apply/copy';
+import type { MarkerView } from '../auto-apply/copy';
 import { usePrepareAndQueue } from '../prepare/usePrepareAndQueue';
 import { useRetryRead } from '../jobs/verification/useRetryRead'; // v31 JOBSWEB
 import type { CardHandlers } from './board/ApplicationCard';
@@ -53,13 +52,25 @@ import {
   type ColumnLimits,
 } from './data';
 import { DetailSheet } from './detail/DetailSheet';
-import { boardColumnsShown, prepareBlockReason, shownStatusOf } from './draft';
-import { useArchivedColumn, useColumnPrefs, useDebouncedValue, useDraftColumn, useTrackerUrl } from './hooks';
+import { toastFailure } from './failure';
+import { prepareBlockReason, trackerMarker } from './draft';
+import { useArchivedColumn, useColumnPrefs, useDebouncedValue, useTrackerUrl } from './hooks';
 import { ListView, type ListEmptyKind } from './list/ListView';
+import { AllProfilesToggle } from './profiles/AllProfilesToggle';
+import { AllProfilesView } from './profiles/AllProfilesView';
+import { useTrackerScope, type TrackerScope } from './profiles/useTrackerProfiles';
 import { AddApplicationSheet } from './sheets/AddApplicationSheet';
-import { activeFilterCount, chooseView, effectiveView, filterKey, DEFAULT_FILTERS, type FilterState } from './state';
+import {
+  activeFilterCount,
+  chooseView,
+  effectiveView,
+  filterKey,
+  DEFAULT_FILTERS,
+  type FilterState,
+  type TrackerUrlState,
+} from './state';
 import { FilterChipsRow, ManageBar, PrepareBar, SearchRow, TabsRow, ViewSwitch, type BulkKind } from './toolbar/Toolbar';
-import { OptionsMenu } from './toolbar/OptionsMenu';
+import { OptionsMenu, type TrackerActions } from './toolbar/OptionsMenu';
 import { buildingProgress, buildingTitle, buildResumeZip, resumeZipRun, zipOutcomeText } from './zip/resumeZip';
 
 const EMPTY_LIMITS: ColumnLimits = {};
@@ -86,19 +97,53 @@ function ZipProgressLine() {
  * application and the application detail, with the state in the URL: ?view=board|list|chart&tab=active|archived&app=<id>.
  * v31 FIX-DOCS (REV-UX UX-1): the page header, then one toolbar row; the board's cards and the list's table are
  * TailorIT's own (CardFace, StageMeter); the words are the constants'.
+ *
+ * v33 SHARE-9 (PLAN F9; SP v33 PLAN-sharing.md §8): `?profiles=all` shows the All profiles view (profiles/AllProfilesView)
+ * once a profile shared with the person lets them see its Job Tracker ("All profiles" in the header switches). On a
+ * shared profile the page offers only what its owner lets the person do (`can`): Change for adding, moving, archiving,
+ * selecting and importing; Prepare for Prepare & Queue; Exports for the CSV and the zip.
  */
 function Tracker() {
+  const [url, setUrl] = useTrackerUrl();
+  const scope = useTrackerScope();
+  // Until the person's profiles are read, a link to the All profiles view shows it (their own Job Tracker first).
+  if (url.all && (scope.available || !scope.settled)) return <AllProfilesView url={url} setUrl={setUrl} scope={scope} />;
+  return <SingleProfileTracker url={url} setUrl={setUrl} scope={scope} />;
+}
+
+/** The tab's own profile's Job Tracker (the person's own, or the shared profile the tab works on). */
+function SingleProfileTracker({
+  url,
+  setUrl,
+  scope,
+}: {
+  url: TrackerUrlState;
+  setUrl: (next: TrackerUrlState) => void;
+  scope: TrackerScope;
+}) {
   const client = useQueryClient();
   const toast = useToast();
-  const [url, setUrl] = useTrackerUrl();
   const view = effectiveView(url);
+  // v33 SHARE-9: what the tab's profile lets the person do (everything on their own).
+  const { can } = scope.view;
+  const canEdit = can('tracker:edit');
+  const actions: TrackerActions = {
+    select: canEdit,
+    prepare: can('prepare:run'),
+    import: canEdit,
+    export: can('exports'),
+    buildResumes: can('exports'),
+    archiveAll: canEdit,
+  };
+  /** A shared profile's refusal is the shell's to say (one alert); anything else is said here. */
+  const failed = (error: unknown, fallback: string) => toastFailure(toast, error, fallback);
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [search, setSearch] = useState('');
   const q = useDebouncedValue(search, 500);
   const key = filterKey(filters, q);
   // "Load more" per column (and which column asked last), forgotten when the search or filters change.
-  const [limitState, setLimitState] = useState<{ key: string; limits: ColumnLimits; loading: DisplayStatus | null }>({
+  const [limitState, setLimitState] = useState<{ key: string; limits: ColumnLimits; loading: ApplicationStatus | null }>({
     key,
     limits: EMPTY_LIMITS,
     loading: null,
@@ -106,10 +151,8 @@ function Tracker() {
   const limits = limitState.key === key ? limitState.limits : EMPTY_LIMITS;
   const loadingColumn = limitState.key === key ? limitState.loading : null;
   const [prefs, setPrefs] = useColumnPrefs();
-  const [draftMode, setDraftMode] = useDraftColumn();
   const [archivedShown, setArchivedShown] = useArchivedColumn();
   const { t } = usePublicConstants();
-  const draftLabel = t('STATUS_DRAFT_LABEL');
   const addButton = useRef<HTMLButtonElement>(null);
   const prepare = usePrepareAndQueue();
   // v31 JOBSWEB: Retry read of an entry's job only the person sees (the card and row menu).
@@ -154,10 +197,11 @@ function Tracker() {
     () => Object.fromEntries((columns ?? []).map((column) => [column.status, column.total])) as Record<string, number>,
     [columns],
   );
-  // v20 A30: Draft between Saved and Applied. v32 LAYOUT (E11): the board always keeps a lane (Saved, when every one
-  // was hidden before Lanes shown and the eyes kept the last one).
-  const lanesChosen = boardColumnsShown(prefs, draftMode, totals);
-  const visible: DisplayStatus[] = lanesChosen.length > 0 || archivedShown ? lanesChosen : [STATUS.saved];
+  // v33 TRACKER (F1): the stored statuses' lanes only (no Draft lane: a queued Saved entry is a Saved card with a Draft
+  // badge). v32 LAYOUT (E11): the board always keeps a lane (Saved, when every one was hidden before Lanes shown and the
+  // eyes kept the last one).
+  const lanesChosen = visibleColumns(prefs, totals);
+  const visible: ApplicationStatus[] = lanesChosen.length > 0 || archivedShown ? lanesChosen : [STATUS.saved];
   const listItems = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? null, [list.data]);
   const archivedItems = useMemo(() => archivedList.data?.pages.flatMap((page) => page.items) ?? null, [archivedList.data]);
   // "Select all" takes what is on screen: the shown columns' cards (and the Archived column's), or the list's rows.
@@ -178,14 +222,9 @@ function Tracker() {
   const namesOf = (items: readonly ApplicationSummary[]) =>
     new Map(items.map((item) => [item.id, { title: item.title, company: item.companyName }] as const));
 
-  /** A Saved entry's marker: Draft when it is in the queue (A30), else the Saved pane's (Preparing, Filtered: …). */
-  const markerOf = (application: ApplicationSummary): MarkerView | null => {
-    if (shownStatusOf(application) === DISPLAY_STATUS_DRAFT) return { tone: 'success', icon: 'check', label: draftLabel };
-    if (application.currentStatus !== STATUS.saved || application.archivedAt) return null;
-    const item = markers.data?.get(application.id);
-    if (!item || item.marker === 'queued') return null;
-    return savedMarker(item, t);
-  };
+  /** A Saved entry's marker: Draft when it is in the queue (A30, v33 F1), else the Saved pane's (trackerMarker). */
+  const markerOf = (application: ApplicationSummary): MarkerView | null =>
+    trackerMarker(application, markers.data?.get(application.id), t);
 
   // ------------------------------------------------------------------------------------------------- actions
 
@@ -220,7 +259,7 @@ function Tracker() {
     if (view === 'board' && !visible.includes(status)) setPrefs(showColumn(prefs, status));
     move.mutate(
       { id: application.id, status, from: application.currentStatus },
-      { onError: (error) => toast.error(userMessage(error, "We couldn't move the application. Please try again.")) },
+      { onError: (error) => failed(error, "We couldn't move the application. Please try again.") },
     );
   };
 
@@ -238,7 +277,7 @@ function Tracker() {
         },
       });
     } catch (error) {
-      toast.error(userMessage(error, "We couldn't update the application. Please try again."));
+      failed(error, "We couldn't update the application. Please try again.");
     }
   };
 
@@ -253,7 +292,7 @@ function Tracker() {
       }
       toast.success('Application restored');
     } catch (error) {
-      toast.error(userMessage(error, "We couldn't restore the application. Please try again."));
+      failed(error, "We couldn't restore the application. Please try again.");
     } finally {
       void invalidateApplications(client);
     }
@@ -267,8 +306,12 @@ function Tracker() {
     onToggleFavorite: (application) => favorite.mutate({ id: application.id, favorite: !application.favorite }),
     selectBlocked: prepareMode ? prepareBlockReason : undefined,
     markerOf,
+    // v33 SHARE-9: a shared profile without the Job Tracker's Change box: no drag, no Move to, no Archive, no heart.
+    canEdit: canEdit ? undefined : () => false,
     // The card menu's Prepare & Queue (Saved entries with a job).
-    onPrepare: (application) => prepare.prepare({ applicationIds: [application.id], names: namesOf([application]) }),
+    onPrepare: actions.prepare
+      ? (application) => prepare.prepare({ applicationIds: [application.id], names: namesOf([application]) })
+      : undefined,
     onRetryRead: (application) => {
       if (application.jobId !== null) retryRead.retry(application.jobId);
     },
@@ -282,7 +325,7 @@ function Tracker() {
   };
 
   const loadMoreColumn = useCallback(
-    (status: DisplayStatus) => {
+    (status: ApplicationStatus) => {
       setLimitState((current) => {
         const base = current.key === key ? current.limits : EMPTY_LIMITS;
         return { key, limits: { ...base, [status]: (base[status] ?? PAGE_STEP) + PAGE_STEP }, loading: status };
@@ -321,7 +364,7 @@ function Tracker() {
       toast.success('Export ready', name);
     } catch (error) {
       toast.dismiss(id);
-      toast.error(userMessage(error, "We couldn't export your applications. Please try again."));
+      failed(error, "We couldn't export your applications. Please try again.");
     }
   };
 
@@ -369,7 +412,8 @@ function Tracker() {
       toast.toast({ type: 'success', title: 'Resumes ready', description: zipOutcomeText(ready), timeout: 10_000 });
     } catch (error) {
       toast.dismiss(waiting);
-      if (!zipLimits.show(error)) toast.error("We couldn't build your resumes", userMessage(error, 'Please try again.'));
+      // v33 SHARE-9 fix (review): a shared profile's refusal is the shell's alert, not a second toast.
+      if (!isProfileRefusal(error) && !zipLimits.show(error)) toast.error("We couldn't build your resumes", userMessage(error, 'Please try again.'));
     } finally {
       resumeZipRun.set({ running: false, build: resumeZipRun.get().build });
       // Building first makes the selection's pending resume choices, which the detail sheets show.
@@ -413,16 +457,20 @@ function Tracker() {
           actions={
             <>
               <ViewSwitch view={view} onViewChange={changeView} className="sm:hidden" />
-              <Button
-                ref={addButton}
-                icon={<PlusIcon size={16} weight="bold" />}
-                onClick={openAdd}
-                aria-label="Add application"
-                className="max-sm:size-11 max-sm:px-0"
-                data-add-application=""
-              >
-                <span className="max-sm:sr-only">Add application</span>
-              </Button>
+              {/* v33 SHARE-9: the All profiles view, once a shared profile's Job Tracker can be seen. */}
+              {scope.available && <AllProfilesToggle on={false} onChange={() => setUrl({ ...url, all: true, app: null, edit: false })} />}
+              {canEdit && (
+                <Button
+                  ref={addButton}
+                  icon={<PlusIcon size={16} weight="bold" />}
+                  onClick={openAdd}
+                  aria-label="Add application"
+                  className="max-sm:size-11 max-sm:px-0"
+                  data-add-application=""
+                >
+                  <span className="max-sm:sr-only">Add application</span>
+                </Button>
+              )}
             </>
           }
           className="max-sm:items-center sm:mb-3"
@@ -449,14 +497,13 @@ function Tracker() {
               onArchivedToggle={setArchivedShown}
               onManage={() => startSelecting('manage')}
               onPrepare={() => startSelecting('prepare')}
-              draftColumn={{ count: totals[DISPLAY_STATUS_DRAFT] ?? 0, visible: visible.includes(DISPLAY_STATUS_DRAFT), label: draftLabel }}
-              onDraftToggle={(on) => setDraftMode(on ? 'forced' : 'hidden')}
               onImport={() => setImportOpen(true)}
               onExport={() => void exportCsv()}
               onBuildResumes={() => void buildResumes(null)}
               buildingResumes={buildingResumes}
               resumesLocked={resumesLocked}
               onArchiveAll={() => setArchiveAllOpen(true)}
+              actions={actions}
             />
           }
         />
@@ -482,9 +529,11 @@ function Tracker() {
             allSelected={loadedIds.length > 0 && loadedIds.every((id) => selected.has(id))}
             onSelectAll={(on) => setSelected(on ? new Set(loadedIds) : new Set())}
             onBulk={bulk}
-            onBuildResumes={buildSelectedResumes}
+            // v33 SHARE-9 fix (review): the zip only with Exports; Delete only on the person's own profile (F9).
+            onBuildResumes={actions.buildResumes ? buildSelectedResumes : undefined}
             buildingResumes={buildingResumes}
             resumesLocked={resumesLocked}
+            deletable={!scope.view.acting}
             onDone={() => {
               setSelectMode(false);
               setSelected(new Set());
@@ -506,8 +555,6 @@ function Tracker() {
             visible={visible}
             prefs={prefs}
             onPrefsChange={setPrefs}
-            onHideDraft={() => setDraftMode('hidden')}
-            draftLabel={draftLabel}
             handlers={handlers}
             openId={url.app}
             selectMode={selectMode}
@@ -551,7 +598,7 @@ function Tracker() {
               loadingMore={list.isFetchingNextPage}
               failed={list.isFetchNextPageError}
               onLoadMore={() => void list.fetchNextPage()}
-              onAdd={openAdd}
+              onAdd={canEdit ? openAdd : null}
             />
           )}
         </div>

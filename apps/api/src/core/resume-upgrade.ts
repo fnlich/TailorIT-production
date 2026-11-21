@@ -4,6 +4,7 @@ import {
   isEditorDocument,
   languageLevelOf,
   layoutFromLegacy,
+  legacyPrintedSections,
   normalizeResumeDocument,
   parsePeriod,
   RESUME_TEMPLATES,
@@ -13,17 +14,19 @@ import {
   type ResumeDocument,
   type ResumeTemplateId,
 } from '@tailorit/shared';
-import { skillGroupsFor, type SkillIndex, type TemplateStore } from '@tailorit/render';
+import { skillGroupsFor } from './skills/groups';
+import type { SkillIndex } from './skills/library';
 
 // A resume saved before the on-page editor, as that editor opens it: the same content in the new model. The old
 // renderer worked several things out as it printed (the skill groups from the library, which sections its template
 // had room for, a headline when there was none); the editor shows what prints, so those are written into the document
-// here. Only the server can do it, since the grouping needs the person's skill library. The first save stores the
-// result; until then every read upgrades again and gets the same document, ids included.
+// here. Only the server can do it, since the grouping needs the person's skill library. v33 LEGACY: the retired
+// templates and their engine are gone; what each printed is baked into shared (`legacyPrintedSections`). Every write
+// stores the result (insertResume, updateResumeDocument); a read of an older row upgrades again and gets the same
+// document, ids included. Callers go through core/skills' `editorDocumentOf`.
 
 export interface UpgradeContext {
-  templates: TemplateStore;
-  /** The skill library with the person's own skills (the engine's `skillsFor`). */
+  /** The skill library with the person's own skills (core/skills' `skillsFor`). */
   skills: SkillIndex;
   /**
    * A new resume of the editor made from another's content (an upload read into one): on this template, at its own
@@ -46,7 +49,7 @@ export function upgradeLegacyDocument(document: ResumeDocument, context: Upgrade
   const spec = RESUME_TEMPLATES[context.into ?? resolveTemplateId(document.preferredTemplate)];
 
   // The sections the old template printed; one it had no room for stays in the layout, switched off.
-  const printed = new Set<string>(context.into ? [] : (context.templates.resolve(document.preferredTemplate)?.printsSections ?? []));
+  const printed = new Set<string>(context.into ? [] : legacyPrintedSections(document.preferredTemplate));
   let layout = layoutFromLegacy(document, spec);
   if (printed.size > 0) {
     for (const item of layout) {
@@ -78,7 +81,9 @@ export function upgradeLegacyDocument(document: ResumeDocument, context: Upgrade
     skillCategories: groups.length > 0 ? groups.map((group) => ({ category: group.category, skills: [...group.skills] })) : undefined,
     templateId: spec.id,
     layout,
-    header: { hidden: [] },
+    // v33 LEGACY: a header the document already has (its photo, say) is kept; every write upgrades now, and the editor's
+    // fields may come without a template (a posted draft).
+    header: document.header ?? { hidden: [] },
     // The old templates printed on A4; a new resume takes its template's own size.
     design: context.into ? {} : { pageSize: 'a4' as const },
     markupVersion: 1 as const,

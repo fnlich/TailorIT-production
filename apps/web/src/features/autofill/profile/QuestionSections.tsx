@@ -55,7 +55,7 @@ import {
   TextField,
   hintOf,
 } from './fields';
-import { useProfileForm } from './form';
+import { SensitiveFields, useProfileForm } from './form';
 import { ONCE_SECTIONS, onceChecklist, onceStatus } from './onceChecklist';
 import { SectionLinkContext } from './sectionLink';
 
@@ -418,6 +418,8 @@ export function SelfIdentificationSection() {
 export function OnceChecklistSection() {
   const form = useProfileForm();
   const linkTo = useContext(SectionLinkContext);
+  // v33 SHARE-7: the checklist counts sensitive answers: not shown where they are not shared (never read).
+  if (form.sensitive === 'hidden') return null;
   const items = onceChecklist(form.state.draft);
   const answered = items.filter((item) => item.state !== 'not_provided').length;
   return (
@@ -611,19 +613,22 @@ export function OtherQuestionsSection() {
         </div>
         <RelocateField />
         <WorkArrangementsField />
-        <SensitiveBooleanField path="sensitive.legal.atLeast18" label="Are you 18 or older?" />
-        <SensitiveBooleanField
-          path="sensitive.legal.criminalRecord"
-          label="Have you ever been convicted of a crime?"
-          hint="Never sent to AI; not answered, it is left for you."
-        />
-        <AnswerField<ExpectedSalary>
-          path="sensitive.compensation.expectedSalary"
-          label="Expected salary"
-          blank={() => ({ min: 0, max: null, currency: currencyForCountry(country) ?? 'USD', period: 'year' })}
-        >
-          {(value) => <SalaryEditor value={value} />}
-        </AnswerField>
+        {/* v33 SHARE-7: sensitive answers: not drawn without the owner's Sensitive answers See box, off without Change. */}
+        <SensitiveFields>
+          <SensitiveBooleanField path="sensitive.legal.atLeast18" label="Are you 18 or older?" />
+          <SensitiveBooleanField
+            path="sensitive.legal.criminalRecord"
+            label="Have you ever been convicted of a crime?"
+            hint="Never sent to AI; not answered, it is left for you."
+          />
+          <AnswerField<ExpectedSalary>
+            path="sensitive.compensation.expectedSalary"
+            label="Expected salary"
+            blank={() => ({ min: 0, max: null, currency: currencyForCountry(country) ?? 'USD', period: 'year' })}
+          >
+            {(value) => <SalaryEditor value={value} />}
+          </AnswerField>
+        </SensitiveFields>
         <ChipListField
           path="profile.preferences.relocationPlaces"
           label="Places you would relocate to or work from"

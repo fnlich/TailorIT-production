@@ -1,7 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import { IdParam, MINUTE_MS } from '@tailorit/shared';
 import { McpTokenCreateBodySchema } from '@tailorit/shared/mcp';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { rateKeyOf, requireUser, userOf } from '../../core/auth/guards';
 import type { AppDeps } from '../../core/context';
 import { forbidden, notFound } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -24,7 +24,7 @@ function perAccount(name: string, limit: number): RequestHandler {
   return keyedRateLimit({
     windowMs: MINUTE_MS,
     limit,
-    key: (req) => `${name}:${userOf(req).id}`,
+    key: (req) => `${name}:${rateKeyOf(req, MINUTE_MS)}`, // v33 SHARE-8: the person (the route is never used while acting)
     message: (seconds) => `There have been too many requests about MCP tokens. ${waitSentence(seconds)}`,
   });
 }

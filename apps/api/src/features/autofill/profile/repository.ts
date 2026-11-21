@@ -20,7 +20,7 @@ import { AppError, forbidden, validationFailed } from '../../../core/http/errors
 import { parseInput } from '../../../core/http/validate';
 import { visibleTemplate } from '../../cover-letters/context';
 import { readLeniently } from './lenient';
-import { flaggedNoteLines, mergeHiddenNoteLines, noteWithoutSensitive } from './note-flags';
+import { dropSensitiveLines, flaggedNoteLines, maskSensitiveLines, mergeHiddenNoteLines, noteWithoutSensitive } from './note-flags'; // v33 SHARE-6: maskSensitiveLines, dropSensitiveLines
 
 // The autofill profile's row (autofill_profiles, one per account). Its two parts are separate columns, so code that
 // needs only the profile never selects the sensitive part (work authorization, self-identification, age, pay). Only
@@ -233,6 +233,18 @@ function sendsAnythingElse(input: unknown): boolean {
 export interface SaveOptions {
   /** The caller may read (and so send) the sensitive part. */
   mayReadSensitive: boolean;
+  /**
+   * v33 SHARE-6: the caller may change the sensitive answers (default: mayReadSensitive). A caller that reads them but
+   * may not change them (Sensitive answers' See without its Change, on a shared profile) never sends the part (the route
+   * leaves it out) and never changes a note line that states one (maskSensitiveLines).
+   */
+  mayWriteSensitive?: boolean;
+  /**
+   * v33 SHARE-6 (PLAN-sharing §3 "Autofill info", §4 "Where applications go"; the SHARE-6 review): a save made on a
+   * profile shared with the signed-in person. It keeps the stored contact block and links whatever the body says
+   * (employers reach the owner), and without `mayWriteSensitive` the note's sensitive lines as stored.
+   */
+  shared?: boolean;
 }
 
 /**
@@ -300,10 +312,30 @@ export async function saveAutofillProfile(
     if (revision === 0 && profileUnsent.includes('documents.coverLetters')) {
       profile.documents.coverLetters = newProfileLetterMode(deps);
     }
-    if (revision !== 0 && (keepsAnythingElse || !options.mayReadSensitive)) {
-      const note = (await readAutofillProfile(deps, userId)).value.anythingElse;
+    // v33 SHARE-6 (PLAN-sharing §3 "Autofill info": the contact block is never editable by B; the SHARE-6 review): on a
+    // shared profile the whole contact block (email, phone, address) and the links (LinkedIn, portfolio, the others) stay
+    // the owner's, as the preferences' contact details do (me/router.ts): what employers reach and read on every form.
+    // The first save keeps the empty ones (GET answers an empty email as the owner's sign-in address).
+    if (options.shared) {
+      const kept = (await readAutofillProfile(deps, userId)).value;
+      profile.contact = kept.contact;
+      profile.links = kept.links;
+    }
+    // v33 SHARE-6: a caller that may not change the sensitive answers never writes, rewrites or erases a note line that
+    // states one (on a shared profile without Sensitive answers' Change, with its See or without).
+    const mayWriteSensitive = options.mayWriteSensitive ?? options.mayReadSensitive;
+    const noteLocked = options.shared === true ? !mayWriteSensitive : options.mayReadSensitive && !mayWriteSensitive;
+    if ((revision !== 0 && (keepsAnythingElse || !options.mayReadSensitive)) || (noteLocked && !keepsAnythingElse)) {
+      const note = revision === 0 ? '' : (await readAutofillProfile(deps, userId)).value.anythingElse;
       // A caller that may not read the sensitive part never saw the note's sensitive lines: they are kept (audit A2).
-      profile.anythingElse = keepsAnythingElse ? note : mergeHiddenNoteLines(note, profile.anythingElse);
+      // v33 SHARE-6: a locked caller who saw them sends them back as placeholders again (maskSensitiveLines); one who never
+      // saw them adds none (dropSensitiveLines: a line of theirs that states a sensitive answer is left out).
+      const sent = !noteLocked
+        ? profile.anythingElse
+        : options.mayReadSensitive
+          ? maskSensitiveLines(profile.anythingElse)
+          : dropSensitiveLines(profile.anythingElse);
+      profile.anythingElse = keepsAnythingElse ? note : mergeHiddenNoteLines(note, sent);
       if (profile.anythingElse.length > AUTOFILL_ANYTHING_ELSE_MAX) {
         // v30 ST3: the words are the constant MSG_AUTOFILL_NOTE_TOO_LONG.
         const tooLong = constantsOf(deps).message('MSG_AUTOFILL_NOTE_TOO_LONG', { max: AUTOFILL_ANYTHING_ELSE_MAX });

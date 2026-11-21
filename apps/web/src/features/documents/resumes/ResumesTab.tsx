@@ -25,8 +25,9 @@ import {
 } from '../core';
 import { createPollClock } from '../../resume-editor/analysis';
 import { BatchDownloadButton } from './BatchDownload'; // v20 P10
-import { NEW_RESUME_HREF, bulkDeleteResumes, fetchResumes, fetchTemplates, resumeEditorHref, resumeKeys } from '../../resume-editor/api';
+import { NEW_RESUME_HREF, bulkDeleteResumes, fetchResumes, resumeEditorHref, resumeKeys } from '../../resume-editor/api';
 import { dropResumesFromList, invalidateResumes, putResumeInList } from '../../resume-editor/cache';
+import { tabCan, tabDeletes, useTabProfile } from '../../sharing/access'; // v33 FIX-1; FIX-2: tabDeletes
 import { EditableCopiesNotices } from './EditableCopiesNotices';
 import { ImportTaskNotices, type ImportTask } from './ImportTaskNotices';
 import {
@@ -95,27 +96,24 @@ export function ResumesTab() {
   const [uploading, setUploading] = useState(false);
   const [tasks, setTasks] = useState<ImportTask[]>([]);
   const [readingPoll] = useState(createPollClock);
+  // v33 FIX-1 (PLAN-sharing §9): no New, Upload or Delete on a profile shared without Documents' Change. v33 FIX-2: no
+  // Delete on any shared profile (tabDeletes: Documents' Change never deletes).
+  const tab = useTabProfile();
+  const canEdit = tabCan(tab, 'documents:edit');
+  const canDelete = canEdit && tabDeletes(tab);
 
   const listQuery = useQuery({
     queryKey: resumeKeys.list(),
     queryFn: ({ signal }) => fetchResumes(signal),
     refetchInterval: (current) => readingPoll.next(readingsPending(current.state.data), Date.now()),
   });
-  const templatesQuery = useQuery({
-    queryKey: resumeKeys.templates(),
-    queryFn: ({ signal }) => fetchTemplates(signal),
-    staleTime: 5 * 60_000,
-  });
-  const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
   const all = useMemo(() => sortResumes(listQuery.data ?? []), [listQuery.data]);
   // v1.5 W: the place's own resumes; a search finds them in every folder.
   const searching = query.trim() !== '';
   const atFolders = showsFolders(location);
   const here = useMemo(() => itemsAt(all, location), [all, location]);
   const items = useMemo(() => itemsShown(all, location, searching), [all, location, searching]);
-  const templateName = (resume: ResumeSummary) => templateNameOf(resume, templates);
-  const searchFields = (resume: ResumeSummary) =>
-    searchFieldsOf(resume, templateNameOf(resume, templates), resume.analysis?.hardSkills);
+  const searchFields = (resume: ResumeSummary) => searchFieldsOf(resume, templateNameOf(resume), resume.analysis?.hardSkills);
   const visibleIds = items.filter((item) => matchesQuery(query, searchFields(item))).map((item) => item.id);
 
   // v1.5 W: every folder is a link to its own address (the page's other parameters kept); focus follows a move.
@@ -192,7 +190,7 @@ export function ResumesTab() {
       key: 'template',
       header: 'Template',
       track: 'minmax(0,1.4fr)',
-      cell: (resume) => <span className="block truncate text-foreground">{templateName(resume) || '-'}</span>,
+      cell: (resume) => <span className="block truncate text-foreground">{templateNameOf(resume) || '-'}</span>,
     },
     {
       key: 'edited',
@@ -207,7 +205,7 @@ export function ResumesTab() {
   const summary = folderSummary(location, here, now);
   const folderEmpty = location.folder ? emptyFolderCopy(location) : null;
   const newTile =
-    searching || atFolders ? undefined : location.folder === 'edited' ? (
+    searching || atFolders || !canEdit ? undefined : location.folder === 'edited' ? (
       // v20 P8: at the resume limit, New says why instead of opening the editor.
       resumeGate.info ? (
         <NewTile kind="resume" label="New resume" hint="Start from a template" onClick={resumeGate.blocks} />
@@ -317,7 +315,7 @@ export function ResumesTab() {
                 ) : undefined
               }
               meta={[
-                cardMeta(editedText(resume, now), templateName(resume)),
+                cardMeta(editedText(resume, now), templateNameOf(resume)),
                 <ProfileLine key="profile" resume={resume} />,
                 ...(searching ? [<FolderPathLink key="folder" resume={resume} hrefOf={hrefOf} onNavigate={() => setQuery('')} />] : []),
               ]}
@@ -332,7 +330,7 @@ export function ResumesTab() {
         selectable={searching || !atFolders}
         bulkDeleteNote={(selected) => bulkDeleteNote(selected)}
         bulkActions={(selected) => <BatchDownloadButton resumes={selected} />} // v20 P10 (A28): Download, left of Delete
-        onBulkDelete={async (ids) => {
+        onBulkDelete={!canDelete ? undefined : async (ids) => {
           const result = await bulkDeleteResumes(ids);
           dropResumesFromList(queryClient, ids.filter((id) => !result.skippedIds.includes(id)));
           void invalidateResumes(queryClient);

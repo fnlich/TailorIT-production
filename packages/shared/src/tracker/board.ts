@@ -67,15 +67,16 @@ export function readColumnPrefs(value: unknown): ColumnPrefs {
 }
 
 // v32 FIX-UX (UXREQ-15, PLAN E11 "saved per person"): the board's Lanes shown is the person's, saved on the server
-// (GET / PUT /api/me/tracker-lanes): the status columns' modes, Draft's mode and whether Archived shows. The browser
-// keeps a copy for the first paint, and a choice saved in a browser before v3.2 is sent once (the server's wins after).
+// (GET / PUT /api/me/tracker-lanes): the status columns' modes and whether Archived shows. The browser keeps a copy for
+// the first paint, and a choice saved in a browser before v3.2 is sent once (the server's wins after).
+// v33 TRACKER (F1): no Draft lane. A choice saved before v3.3 holds a `draft` mode: it still reads (zod drops the key, so
+// it is gone at the next save), and a v3.2 tab that still sends one is answered the same way.
 
 /** The board's lanes shown, as saved. `columns` is keyed by status (its number, as a JSON key). */
 export const TrackerLanesSchema = z.object({
   columns: z.record(z.string().regex(/^\d{1,3}$/), z.enum(COLUMN_MODES)).refine((value) => Object.keys(value).length <= 40, {
     message: 'Too many lanes.',
   }),
-  draft: z.enum(COLUMN_MODES),
   archived: z.boolean(),
 });
 export type TrackerLanes = z.infer<typeof TrackerLanesSchema>;

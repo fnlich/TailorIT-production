@@ -1,6 +1,7 @@
 import { adapt, STARTS_WITH_BRACE, type TailorPromptText } from '../tailor/render';
 import { REVISE_RESUME_ATS } from '../tailor/revise-resume-ats';
 import { defineTextPrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { rendered, stepFooter, type StepPromptInput } from './render';
 
 // v30 ST2: the MCP step prompt `revise`, moved from features/mcp/prompts.ts. tailor_builder0's revise-resume-ats,
@@ -23,14 +24,22 @@ export const MCP_REVISE_TEXT: TailorPromptText = {
   sharedVariables: [],
 };
 
+/** v33 PROMPTS (F5): the step in the person's family's words, then the MCP adaptations; technical: MCP_REVISE_TEXT. */
+export const mcpReviseTextFor = perFamily(
+  (family): TailorPromptText => ({
+    ...MCP_REVISE_TEXT,
+    content: adapt(familyText(REVISE_RESUME_ATS, 'revise-resume-ats', family), 'revise-resume-ats', MCP_REVISE_ADAPTATIONS),
+  }),
+);
+
 export const mcpRevisePrompt = defineTextPrompt<StepPromptInput>({
   area: 'mcp',
   name: 'revise-resume-ats',
   version: 1,
   description: "The step `revise` for the person's AI: the edits that fix a round's issues, saved with prepare_save_resume.",
-  text: ({ jobId, values }) =>
+  text: ({ jobId, values, family }) =>
     rendered(
-      MCP_REVISE_TEXT,
+      mcpReviseTextFor(family),
       values,
       false,
       stepFooter(

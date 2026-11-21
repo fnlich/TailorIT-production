@@ -17,6 +17,7 @@ import type { AutofillDraft } from '../draft';
 import { Section } from '../Section';
 import { KeptAnswers } from './KeptAnswers';
 import { OnceChecklistSection } from './QuestionSections';
+import { NOT_SHARED_COPY } from '../../sharing/access'; // v33 SHARE-7
 import {
   WIZARD_STEPS,
   stepIndex,
@@ -24,6 +25,7 @@ import {
   stepSummary,
   wizardStep,
   type SummaryNames,
+  type SummaryReach,
   type WizardStepId,
 } from './wizard';
 
@@ -37,16 +39,19 @@ export function ProfileStepper({
   draft,
   errorSteps,
   onSelect,
+  reach = {},
 }: {
   current: WizardStepId;
   draft: AutofillDraft;
   errorSteps: readonly WizardStepId[];
   onSelect: (step: WizardStepId) => void;
+  /** v33 SHARE-7: what the summaries may read (a shared profile without its sensitive answers). */
+  reach?: SummaryReach;
 }) {
   const steps: WizardStepperStep[] = WIZARD_STEPS.map((step) => ({
     key: step.id,
     label: step.label,
-    state: errorSteps.includes(step.id) ? 'error' : step.id !== 'review' && stepSummary(step.id, draft).filled ? 'complete' : 'upcoming',
+    state: errorSteps.includes(step.id) ? 'error' : step.id !== 'review' && stepSummary(step.id, draft, {}, reach).filled ? 'complete' : 'upcoming',
   }));
   return (
     <WizardStepper
@@ -188,11 +193,14 @@ export function ReviewStep({
   errorSteps,
   names,
   onEdit,
+  reach = {},
 }: {
   draft: AutofillDraft;
   errorSteps: readonly WizardStepId[];
   names: SummaryNames;
   onEdit: (step: WizardStepId) => void;
+  /** v33 SHARE-7: what the summaries may read (a shared profile without its sensitive answers). */
+  reach?: SummaryReach;
 }) {
   return (
     <>
@@ -201,7 +209,7 @@ export function ReviewStep({
         <ul className="divide-y divide-divider-soft">
           {REVIEWED.map((id) => {
             const step = wizardStep(id);
-            const summary = stepSummary(id, draft, names);
+            const summary = stepSummary(id, draft, names, reach);
             const needsChange = errorSteps.includes(id);
             return (
               <li
@@ -214,6 +222,9 @@ export function ReviewStep({
                     <h3 className="text-[15px] leading-6 font-semibold text-foreground">{step.title}</h3>
                     {needsChange ? (
                       <Badge tone="destructive">Needs a change</Badge>
+                    ) : summary.notShared ? (
+                      // v33 SHARE-7: the owner's sensitive answers, not shared with the person: never read or counted.
+                      <Badge tone="neutral">Not shared</Badge>
                     ) : summary.filled ? (
                       <CheckCircleIcon size={18} weight="fill" className="text-success" aria-label="Filled in" role="img" />
                     ) : id === 'documents' ? (
@@ -232,7 +243,9 @@ export function ReviewStep({
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-1 text-[13px] leading-5 text-muted-foreground">Nothing here yet.</p>
+                    <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
+                      {summary.notShared ? NOT_SHARED_COPY.title : 'Nothing here yet.'}
+                    </p>
                   )}
                 </div>
                 <Button

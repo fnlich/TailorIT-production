@@ -4,6 +4,7 @@ import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import type { Account } from '@tailorit/shared/auth';
 import { clsx } from 'clsx';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { BACKDROP } from '@/components/ui/Dialog';
 import {
   BriefcaseIcon,
@@ -17,8 +18,11 @@ import {
   XIcon,
   type Icon,
 } from '@/components/ui/icons';
+import { isOwnOnlyPath } from '@/lib/profile';
 import { APP_NAV, accountNavFor, activeNavHref, type NavItem } from './layout';
 import { LogoMark, Wordmark } from './Logo';
+import { SheetProfiles } from './profile/ProfilesMenu';
+import { useProfile } from './profile/useProfile';
 
 /*
  * v3.2 SHELL (E2; docs/design/v3.1/20-visual-identity.md §5 "The shell"): the app's navigation lives in the header bar,
@@ -30,6 +34,8 @@ import { LogoMark, Wordmark } from './Logo';
  *   Settings, Autofill, Admin for administrators) in a sheet from the left edge: a modal dialog named "Menu", focus kept
  *   inside, Escape or the × closes it and focus goes back to the button, a link closes it.
  * Setting up (and Log out) is in the account menu at every width.
+ * v33 SHARE-4: the sheet's third group is Profiles (You, each shared profile, All profiles, invites) once the person
+ * has one; while the tab works on a shared profile, setting up leaves out the pages only done on one's own.
  */
 
 /** Each destination's icon (the header's links, the sheet's rows, the account menu's rows). */
@@ -106,9 +112,23 @@ function SheetLink({ item, active, onNavigate }: { item: NavItem; active: boolea
   );
 }
 
-/** The sheet's links: the work, then setting up (Admin for administrators). */
-export function SheetNav({ path, account, onNavigate }: { path: string | null; account: Account | null; onNavigate: () => void }) {
-  const setup = accountNavFor(account?.role);
+/** The sheet's links: the work, then setting up (Admin for administrators), then (v33 SHARE-4) `profiles`. */
+export function SheetNav({
+  path,
+  account,
+  onNavigate,
+  acting = false,
+  profiles,
+}: {
+  path: string | null;
+  account: Account | null;
+  onNavigate: () => void;
+  /** v33 SHARE-4: the tab works on a shared profile (Integrations and Admin are left out). */
+  acting?: boolean;
+  /** v33 SHARE-4: the Profiles group (SheetProfiles), after setting up. */
+  profiles?: ReactNode;
+}) {
+  const setup = accountNavFor(account?.role).filter((item) => !acting || !isOwnOnlyPath(item.href));
   const active = activeNavHref(path, [...APP_NAV, ...setup]);
   return (
     <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-3 pt-2 pb-3">
@@ -126,6 +146,7 @@ export function SheetNav({ path, account, onNavigate }: { path: string | null; a
           </li>
         ))}
       </ul>
+      {profiles}
     </nav>
   );
 }
@@ -143,6 +164,7 @@ export function MenuSheet({
   account: Account | null;
 }) {
   const close = () => onOpenChange(false);
+  const view = useProfile();
   return (
     <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
       <BaseDialog.Portal>
@@ -176,7 +198,13 @@ export function MenuSheet({
               <XIcon size={20} />
             </BaseDialog.Close>
           </div>
-          <SheetNav path={path} account={account} onNavigate={close} />
+          <SheetNav
+            path={path}
+            account={account}
+            onNavigate={close}
+            acting={view.acting}
+            profiles={<SheetProfiles view={view} onNavigate={close} />}
+          />
         </BaseDialog.Popup>
       </BaseDialog.Portal>
     </BaseDialog.Root>

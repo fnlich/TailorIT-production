@@ -55,6 +55,14 @@ export const NOTIFICATION_WORDS: Readonly<Record<NotificationKind, { title: Mess
   credit_used_up: { title: 'MSG_NOTIFY_CREDIT_USED_UP_TITLE', body: 'MSG_NOTIFY_CREDIT_USED_UP_BODY' },
   paid_ending: { title: 'MSG_NOTIFY_PAID_ENDING_TITLE', body: 'MSG_NOTIFY_PAID_ENDING_BODY' },
   extension_disconnected: { title: 'MSG_NOTIFY_EXTENSION_DISCONNECTED_TITLE', body: 'MSG_NOTIFY_EXTENSION_DISCONNECTED_BODY' },
+  // v33 SHARE-0: shared profiles ({name}: the other person; sharing_prepared also {count}). SHARE-2 and SHARE-5 write them.
+  sharing_invited: { title: 'MSG_NOTIFY_SHARING_INVITED_TITLE', body: 'MSG_NOTIFY_SHARING_INVITED_BODY' },
+  sharing_changed: { title: 'MSG_NOTIFY_SHARING_CHANGED_TITLE', body: 'MSG_NOTIFY_SHARING_CHANGED_BODY' },
+  sharing_accepted: { title: 'MSG_NOTIFY_SHARING_ACCEPTED_TITLE', body: 'MSG_NOTIFY_SHARING_ACCEPTED_BODY' },
+  sharing_declined: { title: 'MSG_NOTIFY_SHARING_DECLINED_TITLE', body: 'MSG_NOTIFY_SHARING_DECLINED_BODY' },
+  sharing_prepared: { title: 'MSG_NOTIFY_SHARING_PREPARED_TITLE', body: 'MSG_NOTIFY_SHARING_PREPARED_BODY' },
+  sharing_ended: { title: 'MSG_NOTIFY_SHARING_ENDED_TITLE', body: 'MSG_NOTIFY_SHARING_ENDED_BODY' },
+  // end v33 SHARE-0
   admin_review_items: { title: 'MSG_NOTIFY_ADMIN_REVIEW_TITLE', body: 'MSG_NOTIFY_ADMIN_REVIEW_BODY' },
   admin_run_failed: { title: 'MSG_NOTIFY_ADMIN_RUN_FAILED_TITLE', body: 'MSG_NOTIFY_ADMIN_RUN_FAILED_BODY' },
   admin_source_disabled: { title: 'MSG_NOTIFY_ADMIN_SOURCE_DISABLED_TITLE', body: 'MSG_NOTIFY_ADMIN_SOURCE_DISABLED_BODY' },

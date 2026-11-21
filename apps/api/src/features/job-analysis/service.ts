@@ -1,8 +1,15 @@
 import { z } from 'zod';
-import { EXPERIENCE_LEVELS, type ExperienceLevel, type JobAnalysisView } from '@tailorit/shared';
+import {
+  EXPERIENCE_LEVELS,
+  NEW_CATEGORY_IDS_V33,
+  resolveJobFamily,
+  type ExperienceLevel,
+  type JobAnalysisView,
+} from '@tailorit/shared';
 import type { AiService, AiTaskContext, AiTaskHandler } from '../../ai/index';
 import { taskInputSql } from '../../ai/payloads';
 import type { EnqueueOptions } from '../../ai/queue';
+import { serverCost, type Payer, type PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3 (INT-1: PersonPayer)
 import { constantsOf } from '../../core/constants/index';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/index';
@@ -143,7 +150,12 @@ export function analysisView(
   );
   const fromAi = record.source === 'ai';
   const experienceLevels = fromAi && record.experienceLevels.length ? record.experienceLevels : jobLevels.length ? jobLevels : record.experienceLevels;
-  const aiCategory = fromAi && record.categoryId && record.categoryId !== 'other';
+  // v33 (ROLES's exact edit, PROMPTS): a stored v3.3 category (NEW_CATEGORY_IDS_V33) beats an AI answer that names none
+  // of v3.3's parents (v3.2's AI could not file a nurse as healthcare), as resolveJobFamily reads them.
+  const newParents: readonly string[] = NEW_CATEGORY_IDS_V33;
+  const storedNew = Boolean(job.category_id && newParents.includes(job.category_id));
+  const aiCategory =
+    fromAi && record.categoryId && record.categoryId !== 'other' && (!storedNew || newParents.includes(record.categoryId));
   const categoryId = aiCategory ? record.categoryId : (job.category_id ?? record.categoryId);
   const jobSubcategories = parseList(job.subcategory_ids);
   const subcategoryIds = aiCategory ? record.subcategoryIds : jobSubcategories.length ? jobSubcategories : record.subcategoryIds;
@@ -176,7 +188,7 @@ export interface JobAnalysisServiceInternals extends JobAnalysisService {
    * (v2.0) a text read at an older version that JOB_ANALYSIS_V2_REREAD leaves out.
    */
   enqueueTask(jobId: number, priority: 'interactive' | 'background'): Promise<{ taskId: string; deduped: boolean } | null>;
-  forceAnalysis(jobId: number, chargeTo: string, prepare?: { id: string }): Promise<{ taskId: string; deduped: boolean } | null>;
+  forceAnalysis(jobId: number, chargeTo: PersonPayer, prepare?: { id: string }): Promise<{ taskId: string; deduped: boolean } | null>; // v33 SHARE-3: a Payer (INT-1: only)
   /**
    * `enqueueTask` as the lazy warm-up asks it: true when an analysis is queued or running now; false also while the
    * text's last AI analysis failed less than RETRY_AFTER_FAILURE_MS ago.
@@ -294,11 +306,19 @@ export function spendAnalysisBudget(memory: JobAnalysisMemory, userId: string, n
   if (memory.startedBy.size > 1000) for (const id of [...memory.startedBy.keys()]) recentStarts(memory, id, nowMs);
 }
 
+/**
+ * v33 SHARE-3 (PLAN F9 "Who pays"; PLAN-sharing §5): the backlog's, the warm-up's and a lazy view's readings are a server
+ * cost (nobody pays: the reading serves everyone who opens the job). A reading a Prepare forces is its starter's (a
+ * Payer: B for B's Prepare on A's profile), tied to no grant: its result is public, so it is never cancelled when a
+ * grant ends.
+ */
+const ANALYSIS_SERVER_COST = serverCost('job analysis backlog');
+
 /** The queue options of a job's `job_analysis` task (system-owned, deduplicated by its text). */
 export function analysisEnqueueOptions(
   job: Pick<JobRow, 'id' | 'content_hash'>,
-  options: { priority: 'interactive' | 'background'; chargeTo: string | null; prepare?: { id: string } },
-): EnqueueOptions & { chargeTo: string | null } {
+  options: { priority: 'interactive' | 'background'; chargeTo: Payer; prepare?: { id: string } }, // v33 INT-1: a Payer (serverCost or the starter's)
+): EnqueueOptions {
   const input: JobAnalysisTaskInput = {
     jobId: job.id,
     contentHash: job.content_hash,
@@ -384,7 +404,7 @@ export function createJobAnalysisService(deps: AppDeps, memory: JobAnalysisMemor
   function enqueueAnalysis(
     service: AiService,
     job: JobRow,
-    options: { priority: 'interactive' | 'background'; chargeTo: string | null; prepare?: { id: string } },
+    options: { priority: 'interactive' | 'background'; chargeTo: Payer; prepare?: { id: string } },
   ): Promise<{ taskId: string; deduped: boolean }> {
     return service.enqueue(analysisEnqueueOptions(job, options));
   }
@@ -397,7 +417,7 @@ export function createJobAnalysisService(deps: AppDeps, memory: JobAnalysisMemor
     job: JobRow,
     priority: 'interactive' | 'background',
     requestedBy?: string,
-    chargeTo: string | null = null,
+    chargeTo: Payer = ANALYSIS_SERVER_COST, // v33 SHARE-3
   ): Promise<{ taskId: string; deduped: boolean } | null> {
     const service = ai();
     if (!service || deps.config.ai.jobAnalysis === 'off' || !readableForAi(job.description_text)) return null;
@@ -431,7 +451,7 @@ export function createJobAnalysisService(deps: AppDeps, memory: JobAnalysisMemor
    * AI gate (ai_unavailable, ai_usage_exhausted) is thrown as the AppError. `prepare` names the Prepare in the task's
    * input (`$.prepare.id`), so the queue adds the cost to that Prepare.
    */
-  async function forceAnalysis(jobId: number, chargeTo: string, prepare?: { id: string }): Promise<{ taskId: string; deduped: boolean } | null> {
+  async function forceAnalysis(jobId: number, chargeTo: PersonPayer, prepare?: { id: string }): Promise<{ taskId: string; deduped: boolean } | null> {
     const job = await jobOf(jobId);
     const service = ai();
     if (!job || !service || deps.config.ai.jobAnalysis === 'off' || !readableForAi(job.description_text)) return null;
@@ -519,6 +539,8 @@ export function createJobAnalysisService(deps: AppDeps, memory: JobAnalysisMemor
         locations: target.locations_text,
         description: target.description_text,
         fromPage: (await db.one(SERVICE_SQL.fromPage, [target.content_hash, target.content_hash, ADDED_BY_AUTOFILL])) !== undefined,
+        // v33 PROMPTS (F5): the job's field, from its stored category or its title (the analysis is about to name its own).
+        family: resolveJobFamily({ categoryId: target.category_id, subcategoryIds: parseList(target.subcategory_ids), title: target.title }),
       });
       const deterministic = (await analysesOf(target)).find((record) => record.source === 'deterministic' && record.version === DETERMINISTIC_VERSION);
       const finished = finishAiAnalysis(

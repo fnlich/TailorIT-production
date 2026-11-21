@@ -8,7 +8,6 @@ import {
   duplicateTitle,
   effectiveTemplateId,
   IdParam,
-  isEditorDocument,
   normalizeResumeDocument,
   PatchResumeBodySchema,
   readResumeImport,
@@ -19,33 +18,29 @@ import {
   LAYOUT_HEIGHT_TOLERANCE_PX,
   ResumeLayoutCheckBodySchema,
   ResumeListQuerySchema,
-  ResumePreviewRequestSchema,
   ResumeUploadQuerySchema,
   resolveTemplateId,
   TECHNICAL_SKILLS_LAYOUTS,
   UpdateResumeBodySchema,
   type ResumeBulkDeleteResponse,
-  type ResumeDocument,
   type ResumeEditTarget,
   type ResumeImportJsonResponse,
   type ResumeLayoutCheckResponse,
-  type ResumePreviewResponse,
   type ResumeThumbnail,
   type ResumeUploadResponse,
 } from '@tailorit/shared';
-import { RENDER_ENGINE_VERSION, renderResumePreview } from '@tailorit/render';
 import { requireAi, sendAccepted } from '../../ai/index';
-import { requireUser, userOf } from '../../core/auth/guards';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3 (INT-1: a person's)
+import { payerOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-3: payerOf
 import { nowIso, type AppDeps } from '../../core/context';
-import { upgradeLegacyDocument } from '../../core/resume-upgrade';
 import { contentDisposition, getFileStore, MIME_BY_KIND, withExtension } from '../../core/files/index';
 import { AppError, asyncHandler, notFound, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
+import { editorDocumentOf } from '../../core/skills/index';
 import { cancelResumeAnalysis, flushResumeAnalysis } from './analysis/deferred';
 import { currentResumeAnalyses, resumeAnalysisBrief, resumeAnalysisView } from './analysis/store';
 import { adoptableCopyTemplate, adoptCopyTask, requestBatchCopy } from './copies/store';
 import { forgetUploadReading } from './ai/uploadReading'; // v32 FIX-API (SF-3)
-import { getResumeEngine } from './engine';
 import { editorResumePlan, exportBuiltResume } from './export';
 import { prunePhotos, withOwnPhoto } from './photos';
 import {
@@ -67,13 +62,19 @@ import {
   type ResumeWithFile,
 } from './repository';
 import { readableForImport, readUpload, UNREADABLE_TEXT } from './upload';
+import { setUploadReadingPayer } from './backlog-payer'; // v33 SHARE-3
+import { assertUploadContactIsOwners, keepStoredContact, ownerContactFor } from './contact-lock'; // v33 SHARE-3
 
-// Resumes: CRUD, upload and import, the live preview and thumbnails, downloads, what TailorIT read from each resume
+// Resumes: CRUD, upload and import, thumbnails, downloads, what TailorIT read from each resume
 // (GET /:id/analysis and the list's line), and the two AI tasks (an editable copy of an upload, and Write with AI).
 // An editable copy of one upload starts here; those of several files uploaded together wait in the copy line
 // (copies/), each one's row written with its upload. Owned by work package R1 (the analysis parts: WP3). Every query
 // is scoped to the signed-in account. An upload, once stored, is kept: nothing here deletes or changes one except the
 // person's own Delete (and Rename of its title).
+// v33 SHARE-3 (PLAN F9 "Who pays"; SP v33 PLAN-sharing.md §4, §5): on a profile shared with them (acting.ts), B works on
+// A's resumes and pays for the AI B starts there (payerOf: the editable copy, Write with AI, the upload's reading, a
+// copy in line); B's new resumes never take A's last SHARING_RESUME_RESERVE places (assertRoomForResumes with the
+// payer); and the contact email and phone stay A's (contact-lock.ts).
 
 const UPLOAD_HAS_NO_DOCUMENT =
   'An uploaded resume has no editable content. Make an editable copy of it first, then edit the copy.';
@@ -106,29 +107,11 @@ async function detailOf(deps: AppDeps, userId: string, id: string) {
   return toDetail(deps, await requireResume(deps, userId, id), await defaultResumeId(deps, userId));
 }
 
-/** A built resume as the on-page editor opens it: an older document upgraded as it is read (nothing is stored). */
-async function editorDocumentOf(deps: AppDeps, userId: string, document: ResumeDocument): Promise<ResumeDocument> {
-  const engine = getResumeEngine(deps);
-  return upgradeLegacyDocument(document, { templates: engine.templates, skills: await engine.skillsFor(userId) });
-}
-
 function sendFile(res: Response, file: { buffer: Buffer; mime: string; fileName: string }, inline = false): void {
   res.setHeader('Content-Type', file.mime);
   res.setHeader('Content-Disposition', contentDisposition(file.fileName, inline ? 'inline' : 'attachment'));
   res.setHeader('Content-Length', String(file.buffer.length));
   res.send(file.buffer);
-}
-
-/** Thumbnails of built resumes, by resume version, template, the user's skills and the engine version. */
-const THUMBNAIL_CACHE_SIZE = 300;
-const thumbnails = new Map<string, Extract<ResumeThumbnail, { kind: 'html' }>>();
-
-function rememberThumbnail(key: string, value: Extract<ResumeThumbnail, { kind: 'html' }>): void {
-  thumbnails.set(key, value);
-  if (thumbnails.size > THUMBNAIL_CACHE_SIZE) {
-    const oldest = thumbnails.keys().next().value;
-    if (oldest !== undefined) thumbnails.delete(oldest);
-  }
 }
 
 /**
@@ -142,9 +125,15 @@ function rememberThumbnail(key: string, value: Extract<ResumeThumbnail, { kind: 
  * the copy row adopts it right after. Its dedupe key (resume_import:<uploadId>) keeps the copy line from starting a
  * second copy of the same upload meanwhile: it would join this task.
  */
-async function enqueueImport(deps: AppDeps, userId: string, row: ResumeWithFile, choice: z.infer<typeof ImportChoiceSchema>) {
+async function enqueueImport(
+  deps: AppDeps,
+  userId: string,
+  row: ResumeWithFile,
+  choice: z.infer<typeof ImportChoiceSchema>,
+  payer: PersonPayer, // v33 SHARE-3: who asked pays (B on A's profile); INT-1: required
+) {
   if (!readableForImport(row.extracted_text)) throw validationFailed(UNREADABLE_TEXT);
-  await assertRoomForResumes(deps, userId, 1);
+  await assertRoomForResumes(deps, userId, 1, payer);
   const ai = requireAi(deps);
   const templateId = choice.templateId || resolveTemplateId(await adoptableCopyTemplate(deps, userId, row.id));
   const accepted = await ai.enqueue({
@@ -152,8 +141,9 @@ async function enqueueImport(deps: AppDeps, userId: string, row: ResumeWithFile,
     userId,
     input: { sourceResumeId: row.id, ...(templateId ? { templateId } : {}), ...(choice.layout ? { layout: choice.layout } : {}) },
     dedupeKey: `resume_import:${row.id}`,
+    chargeTo: payer, // v33 SHARE-3; INT-1: always named
   });
-  await adoptCopyTask(deps, userId, row.id, accepted.taskId);
+  await adoptCopyTask(deps, userId, row.id, accepted.taskId, payer);
   return accepted;
 }
 
@@ -204,7 +194,8 @@ export function bulletsHandler(deps: AppDeps) {
     }
     const userId = userOf(req).id;
     await assertResumeEditable(deps, userId);
-    sendAccepted(res, await requireAi(deps).enqueue({ kind: 'entry_bullets', userId, input: body }));
+    // v33 SHARE-3: who asks pays (B writing A's bullets).
+    sendAccepted(res, await requireAi(deps).enqueue({ kind: 'entry_bullets', userId, input: body, chargeTo: payerOf(req) }));
   };
 }
 
@@ -233,39 +224,19 @@ export function createResumesRouter(deps: AppDeps): Router {
   router.post('/', async (req, res) => {
     const body = parseInput(CreateResumeBodySchema, req.body);
     const userId = userOf(req).id;
+    await assertRoomForResumes(deps, userId, 1, payerOf(req)); // v33 SHARE-3: B never takes A's last places
+    // v33 SHARE-3: a resume B makes on A's profile has A's contact email and phone.
+    const document = await ownerContactFor(deps, req, normalizeResumeDocument(body.document));
     const id = await insertResume(deps, userId, {
       kind: 'built',
       title: body.title ?? null,
-      document: await withOwnPhoto(deps, userId, normalizeResumeDocument(body.document)),
+      document: await withOwnPhoto(deps, userId, document),
+      payer: payerOf(req), // v33 SHARE-3 (review): the reserve again, behind the lock
     });
     res.status(201).json(await detailOf(deps, userId, id));
   });
 
-  // -------------------------------------------------------------------------------------- preview, bulk, import
-
-  router.post('/preview', async (req, res) => {
-    const body = parseInput(ResumePreviewRequestSchema, req.body);
-    const userId = userOf(req).id;
-    const engine = getResumeEngine(deps);
-    let stored = null;
-    if (body.resumeId) {
-      const row = await requireResume(deps, userId, parseInput(IdParam, body.resumeId, 'resume id'));
-      stored = documentOf(row);
-      if (!stored) throw validationFailed(UPLOAD_HAS_NO_DOCUMENT);
-    }
-    const templateId = body.templateId?.trim() || null;
-    if (templateId && !engine.templates.get(templateId)) {
-      throw new AppError('not_found', 'That resume template was not found. Choose another template.');
-    }
-    const preview: ResumePreviewResponse = renderResumePreview({
-      document: normalizeResumeDocument(body.document ?? {}, stored),
-      templates: engine.templates,
-      templateId,
-      skills: await engine.skillsFor(userId),
-      sample: body.sample === false ? null : engine.sample,
-    });
-    res.json(preview);
-  });
+  // ----------------------------------------------------------------------------------------------- bulk, import
 
   router.post('/bulk-delete', async (req, res) => {
     const { ids } = parseInput(ResumeBulkDeleteBodySchema, req.body);
@@ -303,8 +274,9 @@ export function createResumesRouter(deps: AppDeps): Router {
       const titleField = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 120) : '';
       const upload = req.file!;
       const store = getFileStore(deps);
-      // A full account is told so before anything is stored.
-      await assertRoomForResumes(deps, userId, 1);
+      const payer = payerOf(req); // v33 SHARE-3: B's upload on A's profile: B pays for its reading and copy
+      // A full account is told so before anything is stored (v33 SHARE-3: nor A's last places for B's upload).
+      await assertRoomForResumes(deps, userId, 1, payer);
       // The store checks the size and what the bytes are (PDF or DOCX; a .doc is refused with a hint).
       const stored = await store.save({ userId, purpose: 'resume', buffer: upload.buffer, originalName: upload.originalname });
       let reading: Awaited<ReturnType<typeof readUpload>>;
@@ -313,6 +285,13 @@ export function createResumesRouter(deps: AppDeps): Router {
       } catch (error) {
         // The reader refused the file (too large unpacked, damaged, timed out) or is busy: no resume exists yet, so
         // nothing is kept.
+        await store.remove(stored.id, userId);
+        throw error;
+      }
+      try {
+        // v33 SHARE-3 (review): an upload B makes on A's profile shows A's contact details, or none (it is never changed).
+        await assertUploadContactIsOwners(deps, req, reading.text ?? '');
+      } catch (error) {
         await store.remove(stored.id, userId);
         throw error;
       }
@@ -333,9 +312,12 @@ export function createResumesRouter(deps: AppDeps): Router {
               title: titleField || null,
               fileId: stored.id,
               extractedText: reading.text,
+              payer, // v33 SHARE-3 (review): the reserve again, behind the lock
             });
+            // v33 SHARE-3: the upload's reading is paid by who uploaded it (B on A's profile).
+            await setUploadReadingPayer(deps, id, payer);
             // Several files: the copy waits in line, written with its upload, so a stored upload always has it.
-            const lined = batchId ? await requestBatchCopy(deps, userId, id, { batchId, templateId: choice.templateId || null }) : false;
+            const lined = batchId ? await requestBatchCopy(deps, userId, id, { batchId, templateId: choice.templateId || null }, payer) : false;
             return { id, lined };
           },
           { label: 'resume upload' },
@@ -354,7 +336,7 @@ export function createResumesRouter(deps: AppDeps): Router {
         else copyError = COPY_NOT_STARTED;
       } else if (parse) {
         try {
-          taskId = (await enqueueImport(deps, userId, await requireResume(deps, userId, id), choice)).taskId;
+          taskId = (await enqueueImport(deps, userId, await requireResume(deps, userId, id), choice, payer)).taskId;
         } catch (error) {
           // The upload is kept either way; only the editable copy could not start (its text cannot be read, the AI is
           // busy or off, or the account has no room for the copy).
@@ -376,15 +358,18 @@ export function createResumesRouter(deps: AppDeps): Router {
     const userId = userOf(req).id;
     const read = readResumeImport(body.data);
     if (!read.ok) throw validationFailed(read.message);
-    await assertRoomForResumes(deps, userId, read.resumes.length);
+    const payer = payerOf(req);
+    await assertRoomForResumes(deps, userId, read.resumes.length, payer); // v33 SHARE-3: the payer's reserve
     const ids = await deps.db.tx(
       async () => {
         const made: string[] = [];
         for (const resume of read.resumes) {
           const preferred = resume.document.preferredTemplate || resume.templateId || '';
-          const document = preferred === resume.document.preferredTemplate ? resume.document : { ...resume.document, preferredTemplate: preferred };
+          const given = preferred === resume.document.preferredTemplate ? resume.document : { ...resume.document, preferredTemplate: preferred };
+          // v33 SHARE-3: an import B makes on A's profile has A's contact email and phone.
+          const document = await ownerContactFor(deps, req, given);
           // A file's photo id is another account's (or none at all): an imported resume starts without a photo.
-          made.push(await insertResume(deps, userId, { kind: 'built', title: resume.title, document: await withOwnPhoto(deps, userId, document) }));
+          made.push(await insertResume(deps, userId, { kind: 'built', title: resume.title, document: await withOwnPhoto(deps, userId, document), payer }));
         }
         return made;
       },
@@ -408,7 +393,7 @@ export function createResumesRouter(deps: AppDeps): Router {
   /**
    * The PDF's pages against the editor's, before a download: the answer's page count is what the PDF will have, and
    * a difference is logged (resume_layout_drift: the ids of the boxes only, never the resume's words). An older resume
-   * is measured as the editor shows it and its Download prints it (`upgraded=1`), upgraded as it is read.
+   * is measured as the editor shows it and its Download prints it, upgraded as it is read.
    */
   router.post(
     '/:id/layout',
@@ -473,7 +458,8 @@ export function createResumesRouter(deps: AppDeps): Router {
     if (!stored) throw validationFailed(UPLOAD_HAS_NO_DOCUMENT);
     // v2.0 (A15): at the resume limit a resume's document is not saved (its title still is, by PATCH).
     await assertResumeEditable(deps, userId);
-    const document = await withOwnPhoto(deps, userId, normalizeResumeDocument(body.document, stored));
+    // v33 SHARE-3: on a shared profile the contact email and phone stay as stored (where employers write back is A's).
+    const document = await withOwnPhoto(deps, userId, keepStoredContact(req, normalizeResumeDocument(body.document, stored), stored));
     await updateResumeDocument(deps, userId, id, document, body.title, { baseRevision: body.baseRevision });
     await prunePhotos(deps, userId);
     res.json(await detailOf(deps, userId, id));
@@ -502,11 +488,12 @@ export function createResumesRouter(deps: AppDeps): Router {
     const { title } = parseInput(DuplicateResumeBodySchema, req.body ?? {});
     const label = toSummary(deps, row, null).label;
     const copyTitle = title ?? duplicateTitle(label);
-    await assertRoomForResumes(deps, userId, 1);
+    const payer = payerOf(req);
+    await assertRoomForResumes(deps, userId, 1, payer); // v33 SHARE-3: B never takes A's last places
     let id: string;
     if (row.kind === 'built') {
       // v1.5 W: a duplicate is the same kind of resume as its original (a tailored one stays in Tailored resumes).
-      id = await insertResume(deps, userId, { kind: 'built', title: copyTitle, document: documentOf(row), madeBy: builtMadeBy(row) });
+      id = await insertResume(deps, userId, { kind: 'built', title: copyTitle, document: documentOf(row), madeBy: builtMadeBy(row), fieldFrom: row.id, payer }); // v33 ROLES: fieldFrom; SHARE-3: payer
     } else {
       // A byte copy of the file and its text (the person asked for a copy); Claude's reading of the same text is
       // copied too, so it is not asked for again.
@@ -518,7 +505,7 @@ export function createResumesRouter(deps: AppDeps): Router {
         const thumbnail = await store.readThumbnail(file.id, userId);
         if (thumbnail) await store.saveThumbnail(copy.id, thumbnail);
         if (file.pageCount) await store.setPageCount(copy.id, file.pageCount);
-        id = await insertResume(deps, userId, { kind: 'uploaded', title: copyTitle, fileId: copy.id, extractedText: row.extracted_text });
+        id = await insertResume(deps, userId, { kind: 'uploaded', title: copyTitle, fileId: copy.id, extractedText: row.extracted_text, fieldFrom: row.id, payer }); // v33 ROLES: fieldFrom; SHARE-3: payer
       } catch (error) {
         await store.remove(copy.id, userId);
         throw error;
@@ -534,7 +521,7 @@ export function createResumesRouter(deps: AppDeps): Router {
       throw validationFailed('Only an uploaded resume can be turned into an editable copy; this one is editable already.');
     }
     const choice = ImportChoiceSchema.parse(req.body && typeof req.body === 'object' ? req.body : {});
-    sendAccepted(res, await enqueueImport(deps, userId, row, choice));
+    sendAccepted(res, await enqueueImport(deps, userId, row, choice, payerOf(req))); // v33 SHARE-3
   });
 
   // v1.5 W (decision 3): what the web's /resumes/<id>/edit opens (ResumeEditTargetSchema). A built resume is opened as
@@ -555,7 +542,7 @@ export function createResumesRouter(deps: AppDeps): Router {
       res.json(answer(copyId, null));
       return;
     }
-    res.status(202).json(answer(null, (await enqueueImport(deps, userId, row, {})).taskId));
+    res.status(202).json(answer(null, (await enqueueImport(deps, userId, row, {}, payerOf(req))).taskId)); // v33 SHARE-3
   });
 
   router.get('/:id/thumbnail', async (req, res) => {
@@ -569,26 +556,11 @@ export function createResumesRouter(deps: AppDeps): Router {
       res.json(image);
       return;
     }
-    const engine = getResumeEngine(deps);
-    const document = documentOf(row)!;
-    if (isEditorDocument(document)) {
-      // The page draws it, with the same components as the editor: the server has no layout to measure it with.
-      const page: ResumeThumbnail = { kind: 'document', templateId: effectiveTemplateId(document), document };
-      res.json(page);
-      return;
-    }
-    const template = engine.templates.resolve(null, document.preferredTemplate);
-    const key = [userId, row.id, row.updated_at, template?.id ?? '', await engine.skillsStamp(userId), RENDER_ENGINE_VERSION].join('|');
-    let thumbnail = thumbnails.get(key);
-    if (thumbnail) {
-      thumbnails.delete(key);
-      thumbnails.set(key, thumbnail);
-    } else {
-      const preview = renderResumePreview({ document, templates: engine.templates, skills: await engine.skillsFor(userId), sample: null });
-      thumbnail = { kind: 'html', html: preview.html, page: preview.page };
-      rememberThumbnail(key, thumbnail);
-    }
-    res.json(thumbnail);
+    // The page draws it, with the same components as the editor: the server has no layout to measure it with. An
+    // older resume is drawn as the editor opens it (upgraded as it is read; nothing is stored).
+    const document = await editorDocumentOf(deps, userId, documentOf(row)!);
+    const page: ResumeThumbnail = { kind: 'document', templateId: effectiveTemplateId(document), document };
+    res.json(page);
   });
 
   router.get(
@@ -596,7 +568,7 @@ export function createResumesRouter(deps: AppDeps): Router {
     asyncHandler(async (req, res) => {
       const userId = userOf(req).id;
       const row = await requireResume(deps, userId, idOf(req));
-      const { format, name, upgraded } = parseInput(ResumeExportQuerySchema, req.query, 'query');
+      const { format, name } = parseInput(ResumeExportQuerySchema, req.query, 'query');
       const summary = toSummary(deps, row, null);
       if (row.kind === 'uploaded') {
         // An upload downloads as itself, in its own format.
@@ -609,13 +581,12 @@ export function createResumesRouter(deps: AppDeps): Router {
         return;
       }
       const stored = documentOf(row)!;
-      // The editor's Download prints what the editor shows, an older resume upgraded as it is read; the JSON file is
-      // the stored resume, which Import JSON reads back.
-      const document = upgraded && format !== 'json' ? await editorDocumentOf(deps, userId, stored) : stored;
+      // Every download prints what the editor shows (exportBuiltResume upgrades an older resume as it is read); the JSON
+      // file is the stored resume, which Import JSON reads back.
       const exported = await exportBuiltResume(
         deps,
         userId,
-        { label: summary.label, title: summary.title, templateId: stored.preferredTemplate || null, document },
+        { label: summary.label, title: summary.title, templateId: stored.preferredTemplate || null, document: stored },
         format,
         { name },
       );

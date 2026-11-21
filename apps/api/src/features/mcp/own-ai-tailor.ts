@@ -1,6 +1,7 @@
 import { normalizeResumeDocument, HOUR_MS, UNLIMITED } from '@tailorit/shared';
 import { AUTOFILL_TAILOR_LIMITS } from '@tailorit/shared/autofill';
 import { hourlyLimitOf } from '../../core/accounts/entitlements';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-8
 import type { AppDeps } from '../../core/context';
 import { AppError, validationFailed } from '../../core/http/errors';
 import { stringsOf } from '../autofill/ai/tasks';
@@ -16,11 +17,14 @@ import { tailoredTitle } from '../tailor/output';
 import { finishedDraft, withProfileFiguresKept } from '../tailor/pipeline';
 import { tailorRateLimited } from '../tailor/service';
 import { postingHashOf } from '../tailor/store';
-import { builtProfile, heldAnalysis, type McpJob, type SourceProfile } from './job';
+import { builtProfile, heldAnalysis, personFitOf, type McpJob, type SourceProfile } from './job';
+import { jobFamilyOf } from '../roles/index'; // v33 PROMPTS
+import { referenceFor } from '../tailor/skills/reference';
 import { assertRoomForResumes } from './limits';
 import { normalizeAnalysis } from './normalize/analysis';
 import { isRecord } from './normalize/refuse';
-import { atsSummary, draftOfResume, FACTS_CHANGED, NO_KEYWORDS_KEPT, refuseContent, sourceAsTailored } from './save';
+import { ownerWrap } from './profiles'; // v33 SHARE-8
+import { atsSummary, draftOfResume, FACTS_CHANGED, NO_KEYWORDS_KEPT, refuseContent, refuseGrantTripwire, sourceAsTailored, tripwiresOf, type SaveContext } from './save';
 import { contentProblem, tripwireLine } from './screen';
 import { ownAnalyzeParts, ownTailorParts } from './step-text';
 import { keepAnalysis, workFor } from './work';
@@ -40,6 +44,10 @@ import { keepAnalysis, workFor } from './work';
 // (FREE_/PAID_TAILOR_PER_HOUR, v32 FIX-PLAN: Paid's unlimited by default), the server Tailor's cap and message
 // (MSG_TAILOR_PER_HOUR), counted over this feature's saves. That count is kept in memory, as the MCP endpoint's request
 // limits are: a restart starts the hour afresh. Nothing here runs or charges TailorIT's AI.
+// v33 SHARE-8 (SHARE-3's edit 7): the hourly cap is the PAYER's (the caller's plan, hourlyLimitOf by the payer, the
+// count keyed by the payer: tailoring on several profiles never multiplies it); the resume room keeps the owner's last
+// places on another person's profile (the caller's payer); the owner's resume in the context is in the profile's
+// wrapper, and a save holding a tripwire of the caller's grants is refused.
 
 export const NO_JOB_TO_TAILOR =
   'This Tracker entry has no job TailorIT holds, so your AI cannot tailor to it here. Tailor it on its page with ' +
@@ -69,13 +77,17 @@ async function tailorJob(deps: AppDeps, userId: string, ids: TailorIds): Promise
   if (facts.jobId === null) throw new AppError('validation_failed', NO_JOB_TO_TAILOR);
   const posting = untrustedLines(facts.jobDescription ?? '', AUTOFILL_TAILOR_LIMITS.jobDescription);
   if (!readableForAi(posting)) throw new AppError('validation_failed', POSTING_TOO_SHORT);
+  const title = facts.jobTitle.trim().slice(0, AUTOFILL_TAILOR_LIMITS.title);
   return {
     applicationId: facts.applicationId ?? '',
     jobId: facts.jobId,
     company: facts.companyName.trim().slice(0, AUTOFILL_TAILOR_LIMITS.company),
-    title: facts.jobTitle.trim().slice(0, AUTOFILL_TAILOR_LIMITS.title),
+    title,
     postingUrl: '',
     posting,
+    // v33 PROMPTS (F5): the job's family (jobFamilyOf reads its stored and AI categories).
+    categoryId: null,
+    family: await jobFamilyOf(deps, { jobId: facts.jobId, title }),
   };
 }
 
@@ -85,7 +97,7 @@ const tailorSource = async (deps: AppDeps, userId: string, resumeId?: string): P
 
 // ------------------------------------------------------------------------------------------- the hourly cap
 
-/** When each account's own-AI tailorings were saved within the hour, per app (its database), oldest first. */
+/** When each payer's own-AI tailorings were saved within the hour, per app (its database), oldest first. */
 const savedAt = new WeakMap<object, Map<string, number[]>>();
 
 function savesWithinHour(deps: Pick<AppDeps, 'db' | 'now'>, userId: string): number[] {
@@ -106,10 +118,10 @@ function savesWithinHour(deps: Pick<AppDeps, 'db' | 'now'>, userId: string): num
  * Paid term that ended is held to Free's) of saves within the hour, with the minutes until one leaves it (the server
  * Tailor's refusal). UNLIMITED (Paid's default): never refused. Every save is noted, whatever the plan.
  */
-async function assertUnderHourlyCap(deps: AppDeps, userId: string): Promise<void> {
-  const max = await hourlyLimitOf(deps, userId, 'tailorsPerHour');
+async function assertUnderHourlyCap(deps: AppDeps, payer: PersonPayer): Promise<void> {
+  const max = await hourlyLimitOf(deps, payer, 'tailorsPerHour');
   if (max === UNLIMITED) return;
-  const saves = savesWithinHour(deps, userId);
+  const saves = savesWithinHour(deps, payer.id);
   if (saves.length < max) return;
   const freesAt = saves[saves.length - max]! + HOUR_MS;
   const seconds = Math.max(1, Math.ceil((freesAt - deps.now().getTime()) / 1000));
@@ -132,11 +144,16 @@ function namedIds(ids: TailorIds, job: McpJob, source: SourceProfile): string {
 
 const saveLine = (ids: string, output: string) => `own_ai_save {"feature": "tailor", ${ids}, "output": ${output}}`;
 
-export async function tailorContext(deps: AppDeps, userId: string, ids: TailorIds) {
+/** v33 SHARE-8: the call's profile and payer (SaveContext's parts the tailoring reads). */
+type TailorCtx = Pick<SaveContext, 'deps' | 'userId' | 'profile' | 'canaries'>;
+
+export async function tailorContext(ctx: TailorCtx, ids: TailorIds) {
+  const { deps, userId } = ctx;
+  const payer = ctx.profile.payer;
   const job = await tailorJob(deps, userId, ids);
   // Refused before the person's AI does any work, and again at the save.
-  await assertRoomForResumes(deps, userId, 1);
-  await assertUnderHourlyCap(deps, userId);
+  await assertRoomForResumes(deps, userId, 1, payer);
+  await assertUnderHourlyCap(deps, payer);
   const source = await tailorSource(deps, userId, ids.resumeId);
   const work = await workFor(deps, userId, job.jobId);
   const held = await heldAnalysis(deps, userId, job, work);
@@ -145,24 +162,30 @@ export async function tailorContext(deps: AppDeps, userId: string, ids: TailorId
     return {
       feature: 'tailor',
       step: 'analysis',
-      ...ownAnalyzeParts(job.posting, tripwireLine(work.canary)),
+      ...ownAnalyzeParts(job.posting, tripwireLine(work.canary), job.family),
       output: saveLine(named, '{"analysis": <the JSON object>}'),
       next: 'After that save, call own_ai_context again with the same ids: it answers the resume prompt.',
     };
   }
+  // v33 SHARE-8: another person's resume in the profile's wrapper (review: the resume's slot alone, so the posting's own
+  // wrappers in the input stay TailorIT's).
+  const parts = ownTailorParts(source.profile, held.analysis, personFitOf(source, job), ownerWrap(ctx.profile));
   return {
     feature: 'tailor',
     step: 'resume',
-    ...ownTailorParts(source.profile, held.analysis),
+    ...parts,
     output: saveLine(named, '{"resume": <the JSON object>}'),
   };
 }
 
-export async function tailorSave(deps: AppDeps, userId: string, ids: TailorIds, output: unknown) {
+export async function tailorSave(ctx: TailorCtx, ids: TailorIds, output: unknown) {
+  const { deps, userId } = ctx;
+  const payer = ctx.profile.payer;
   const job = await tailorJob(deps, userId, ids);
   if (!isRecord(output) || (output.analysis === undefined) === (output.resume === undefined)) {
     throw validationFailed(OUTPUT_SHAPE);
   }
+  refuseGrantTripwire(ctx, output); // v33 SHARE-8
   const work = await workFor(deps, userId, job.jobId);
   const held = await heldAnalysis(deps, userId, job, work);
 
@@ -170,7 +193,7 @@ export async function tailorSave(deps: AppDeps, userId: string, ids: TailorIds, 
     // A held analysis is kept as it is: one of a Prepare of the same job is never replaced from here.
     if (held) throw new AppError('conflict', ANALYSIS_HELD);
     const raw = normalizeAnalysis(output.analysis);
-    const keywords = toJobAnalysis(raw, job.posting).atsKeywords ?? [];
+    const keywords = toJobAnalysis(raw, job.posting, referenceFor(job.family)).atsKeywords ?? [];
     if (keywords.length === 0) throw new AppError('validation_failed', NO_KEYWORDS_KEPT);
     await keepAnalysis(deps, userId, job.jobId, postingHashOf(job.posting), raw);
     return {
@@ -184,16 +207,19 @@ export async function tailorSave(deps: AppDeps, userId: string, ids: TailorIds, 
 
   if (!held) throw new AppError('validation_failed', NO_TAILOR_ANALYSIS);
   // No resume is made past the plan's limit or the hourly cap, whatever the person's AI wrote.
-  await assertRoomForResumes(deps, userId, 1);
-  await assertUnderHourlyCap(deps, userId);
+  await assertRoomForResumes(deps, userId, 1, payer);
+  await assertUnderHourlyCap(deps, payer);
   const source = await tailorSource(deps, userId, ids.resumeId);
   const { profile } = source;
   const { analysis } = held;
-  const { draft, dropped } = draftOfResume(output.resume, 'resume', profile, analysis, work.canary);
-  const problem = contentProblem(stringsOf(draft), work.canary);
+  // v33 PROMPTS (F5): written for the person's field (else the job's): its numbers and its skill library.
+  const fit = personFitOf(source, job);
+  const canaries = tripwiresOf(ctx, work.canary); // v33 SHARE-8
+  const { draft, dropped } = draftOfResume(output.resume, 'resume', profile, analysis, canaries, fit);
+  const problem = contentProblem(stringsOf(draft), canaries);
   if (problem) throw refuseContent(problem);
-  const finished = withProfileFiguresKept(finishedDraft(draft, analysis, profile), profile);
-  const document = tailoredDocument(source.editor, finished, { templateId: source.templateId, profile });
+  const finished = withProfileFiguresKept(finishedDraft(draft, analysis, profile, fit), profile);
+  const document = tailoredDocument(source.editor, finished, { templateId: source.templateId, profile, skills: fit.skills });
   if (!keptFacts(normalizeResumeDocument({ ...source.editor, templateId: source.templateId }), document)) {
     throw new AppError('internal', FACTS_CHANGED);
   }
@@ -211,16 +237,17 @@ export async function tailorSave(deps: AppDeps, userId: string, ids: TailorIds, 
       postingUrl: '',
     },
     postingText: job.posting,
+    payer, // v33 SHARE-8: the owner's last resume places kept (insertResume, behind the person's lock)
   });
-  noteSave(deps, userId);
-  const scoreBefore = buildAtsReport(sourceAsTailored(source), analysis, profile).score;
+  noteSave(deps, payer.id);
+  const scoreBefore = buildAtsReport(sourceAsTailored(source), analysis, profile, fit.numbers).score;
   return {
     feature: 'tailor',
     step: 'resume',
     resumeId: saved.resumeId,
     name: title,
     applicationId: saved.applicationId,
-    ats: atsSummary(buildAtsReport(finished, analysis, profile), scoreBefore),
+    ats: atsSummary(buildAtsReport(finished, analysis, profile, fit.numbers), scoreBefore),
     ...(dropped.length > 0 ? { dropped } : {}),
   };
 }

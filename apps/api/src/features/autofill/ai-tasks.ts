@@ -16,6 +16,9 @@ import { readDraftFacts } from './draft-facts';
 // (ai/router.ts, ai/tasks.ts answerTask) with the account that asked, which pays (charge 'person'). A stored input
 // that does not read fails the task as ai_failed (ai/tasks.ts readTaskInput). A draft's and an answer's facts are read
 // here, outside ai/, whose modules never read the profile (draft-facts.ts).
+// v33 SHARE-3 (PLAN F9 "Who pays"): 'person' is the person who pays, not always the profile's owner: the route names it
+// (ai/payer.ts autofillPayerOf: the grantee who prepared the job A's extension is running, else the owner), and the
+// task still reads the owner's facts (ctx.userId).
 
 export const autofillPickTask = defineAiTask({
   kind: 'autofill_pick',

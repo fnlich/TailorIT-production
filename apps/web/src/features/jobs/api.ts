@@ -1,13 +1,12 @@
 import {
   BulkApplicationsResponseSchema,
-  JobAnalysisViewSchema,
   JobDetailSchema,
   JobFacetResponseSchema,
   JobFacetsSummarySchema,
+  JobInsightsSchema, // v33 JOBDETAIL: the shared contract
+  JobMatchWithLevelSchema, // v33 JOBDETAIL
   JobRowMatchesResponseSchema, // v31 FIX-JOBS
   JobSummarySchema,
-  LevelMatchSchema,
-  MatchResultSchema,
   SaveAllPreviewSchema,
   SaveAllResponseSchema,
   SavedSearchListSchema,
@@ -19,6 +18,8 @@ import {
   type JobFacet,
   type JobFacetResponse,
   type JobFacetsSummary,
+  type JobInsights, // v33 JOBDETAIL
+  type JobMatchWithLevel, // v33 JOBDETAIL
   type JobRowMatchesResponse, // v31 FIX-JOBS
   type JobsQuery,
   type SaveAllBody,
@@ -40,16 +41,13 @@ export type JobListItem = z.infer<typeof JobListItemSchema>;
 export const JobListPageSchema = listResponse(JobListItemSchema);
 export type JobListPage = z.infer<typeof JobListPageSchema>;
 
-/** Your match (the drawer's keyword match) plus the spec sheet's experience-level check. */
-export const JobMatchSchema = MatchResultSchema.extend({ levelMatch: LevelMatchSchema.optional() });
-export type JobMatch = z.infer<typeof JobMatchSchema>;
-
 /**
- * GET /api/jobs/:id/insights: the analysis ("About the role") and the match computed from that same analysis (the
- * keyword card), so the two always change together. `match` is null when it could not be computed.
+ * The job's Skills (its keyword match) plus the experience-level check. v33 JOBDETAIL: GET /api/jobs/:id/insights'
+ * contract is the shared JobInsightsSchema (the analysis, this match and the requirements at a glance).
  */
-export const JobInsightsSchema = z.object({ analysis: JobAnalysisViewSchema, match: JobMatchSchema.nullable() });
-export type JobInsights = z.infer<typeof JobInsightsSchema>;
+export const JobMatchSchema = JobMatchWithLevelSchema;
+export type JobMatch = JobMatchWithLevel;
+export { JobInsightsSchema, type JobInsights };
 
 const HiddenSchema = z.object({ hidden: z.boolean() });
 const CountSchema = z.object({ total: z.number().int().nonnegative() });

@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover
 import { Skeleton } from '@/components/ui/Skeleton';
 import { toggled } from '../filters';
 import { useFacet } from '../hooks';
+import { MyFieldChip } from '../../roles/MyFieldChip'; // v33 ROLES
 
 interface CategoryNode {
   id: string;
@@ -74,6 +75,15 @@ export function CategoryPicker({
 
   return (
     <div className={clsx('flex flex-col', className)}>
+      {/* v33 ROLES (F4): one click filters to the person's field; hidden without one. */}
+      <div className="px-3 pt-3 empty:hidden">
+        <MyFieldChip
+          query={query}
+          categories={categories.data?.items ?? []}
+          subcategories={subcategories.data?.items ?? []}
+          onChange={(patch) => onChange(patch as Partial<JobsQuery>)}
+        />
+      </div>
       <div className="p-3">
         <Input
           aria-label="Search categories"

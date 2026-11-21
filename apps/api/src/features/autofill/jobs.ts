@@ -19,7 +19,7 @@ import { fetchPosting, type AshbyBoardReads, type PostingAnswer } from '../inges
 import { RobotsRefusal } from '../ingest/robots';
 import { requireIngest } from '../ingest/service';
 import { IngestError, type SourceRecord } from '../ingest/types';
-import { holdNewJob, noteHeldAdd } from '../job-reviews/new-jobs'; // v30 X1-API
+import { holdNewJob, noteHeldAdd, type HeldAdder } from '../job-reviews/new-jobs'; // v30 X1-API; v33 SHARE-6: HeldAdder
 import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
 import { readPageToSharedJob } from '../jobs/add/page'; // v31 LINK
 import { readWaitsForAdmin, settleHeldAfterRead } from '../jobs/add/held'; // v31 FIX-LINK
@@ -240,12 +240,13 @@ async function readAndStore(
  * ready leaves the entry due and wakes the match worker. With `resumeId` (one of the account's: the resume the person
  * chose in the extension, or the one an auto-apply run attached) that resume is the person's choice instead, for a new
  * entry and for one the save brings back from the archive. An entry that exists is restored if archived and keeps its
- * status (Saved never moves one back) and, unless brought back, its resume.
+ * status (Saved never moves one back) and, unless brought back, its resume. v33 SHARE-6: `adder`, who adds a held job
+ * (noteHeldAdd: B on the person's profile hears its approval there).
  */
-export async function saveToTracker(deps: AppDeps, userId: string, jobId: number, resumeId?: string): Promise<void> {
+export async function saveToTracker(deps: AppDeps, userId: string, jobId: number, resumeId?: string, adder?: HeldAdder): Promise<void> {
   // v30 X1-API (14 §4.1): the account's report row on a held job comes before its tracker entry (the held rule shows a
   // held job to its adders alone; createApplication reads the job through it). Nothing for a job that is not held.
-  await noteHeldAdd(deps, userId, jobId);
+  await noteHeldAdd(deps, userId, jobId, adder);
   const body: CreateApplicationBody = { jobId, status: STATUS.saved, ...(resumeId ? { resumeId } : {}) };
   const options: CreateOptions = {};
   if (await wantsResumeMatch(deps.db, userId, body)) {

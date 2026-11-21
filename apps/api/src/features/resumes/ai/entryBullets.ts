@@ -1,11 +1,13 @@
 import {
   BulletsRequestSchema,
   BulletsResultSchema,
+  detectProfileFamily,
   MAX_AI_BULLETS,
   MAX_BULLET_LENGTH,
   toPlainText,
   type BulletsRequest,
   type BulletsResult,
+  type RoleFamilyId,
 } from '@tailorit/shared';
 import type { AiTaskContext } from '../../../ai/index';
 import { entryBulletsPrompt, entryBulletsTask } from '../../../ai/prompts/resumes/entry-bullets';
@@ -107,6 +109,20 @@ export async function runEntryBullets(raw: unknown, ctx: AiTaskContext): Promise
   return writeEntryBullets(BulletsRequestSchema.parse(raw), ctx);
 }
 
+/**
+ * v33 PROMPTS (F5): the field the bullets are written in, detected from the headline and the entry's own title or role
+ * (then the skills), as a resume's field is (detectProfileFamily). v33 INT-1: the editor's Field when the request names
+ * it (the resume's chosen or detected field), else detected here. v33 FIX-1: general stays general (the general pack's
+ * words, as the same person's tailoring uses); it was the engineer's v3.2 words.
+ */
+export function bulletsFamily(request: BulletsRequest): RoleFamilyId {
+  const entry = request.entry;
+  return request.roleFamily ?? detectProfileFamily({
+    roles: [request.resume?.title ?? '', entry.title ?? entry.role ?? ''],
+    hardSkills: [...(request.resume?.skills ?? []), ...(entry.skills ?? [])],
+  });
+}
+
 /** The `entry_bullets` task (resumes/tasks.ts) on its read request. */
 export async function writeEntryBullets(parsed: BulletsRequest, ctx: AiTaskContext): Promise<BulletsResult> {
   const request = plainBulletsRequest(parsed);
@@ -122,6 +138,7 @@ export async function writeEntryBullets(parsed: BulletsRequest, ctx: AiTaskConte
     entry: entryForPrompt(request),
     task: taskSentence(request),
     note: clean(request.instructions, 300),
+    family: bulletsFamily(request),
   });
   const bullets = finishBullets(answer.bullets);
   if (bullets.length === 0) throw new AppError('ai_failed', 'The AI answered with no usable bullets. Please try again.');

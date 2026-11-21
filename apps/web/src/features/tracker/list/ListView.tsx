@@ -2,13 +2,7 @@
 
 import { clsx } from 'clsx';
 import { useEffect, useRef, type CSSProperties } from 'react';
-import {
-  APPLICATION_STATUSES,
-  STATUS_INFO,
-  displayStatusLabel,
-  type ApplicationStatus,
-  type ApplicationSummary,
-} from '@tailorit/shared';
+import { APPLICATION_STATUSES, STATUS_INFO, type ApplicationStatus, type ApplicationSummary } from '@tailorit/shared';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger } from '@/components/ui/Menu';
@@ -21,9 +15,10 @@ import { RowCredit } from '@/features/jobs/credits/JobCredit'; // v30 FIX-WEB (R
 import { creditOf } from '@/features/jobs/credits/credit';
 import { FavoriteButton, MarkerBadge, NextStepTag, SelectionBox, StageTime, type CardHandlers } from '../board/ApplicationCard';
 import { CompanyLogo } from '../CompanyLogo';
-import { shownStatusOf } from '../draft';
+import { ProfileBadge } from '../profiles/ProfileBadge';
+import type { LoadMoreItem } from '../profiles/scope';
 import { stageMeter, stageMeterText } from '../stage';
-import { DisplayStatusIcon, StatusIcon } from '../status';
+import { StatusIcon } from '../status';
 import { StageMeter } from './StageMeter';
 
 /** The stage button's look: an outline control naming the stage it is at, with a caret. */
@@ -34,7 +29,8 @@ const STAGE_TRIGGER =
 
 /**
  * A row's stage button (v31 FIX-DOCS: it shows the stage the application is at, "Applied ⌄", named "Stage: Applied";
- * a Saved entry in the queue shows Draft): every status, the current one ticked.
+ * v33 TRACKER, F1: a Saved entry in the queue shows Saved, its Draft mark is a badge on the row): every status, the
+ * current one ticked.
  */
 export function StatusMenuButton({
   application,
@@ -44,8 +40,8 @@ export function StatusMenuButton({
   onMove: (application: ApplicationSummary, status: ApplicationStatus) => void;
 }) {
   const { t } = usePublicConstants();
-  const shown = shownStatusOf(application);
-  const label = displayStatusLabel(shown, t('STATUS_DRAFT_LABEL'));
+  const shown = application.currentStatus;
+  const label = STATUS_INFO[shown].label;
   return (
     <Menu>
       <MenuTrigger
@@ -55,7 +51,7 @@ export function StatusMenuButton({
         data-shown-status={shown}
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <DisplayStatusIcon status={shown} size={15} className="shrink-0 text-muted-foreground" />
+          <StatusIcon status={shown} size={15} className="shrink-0 text-muted-foreground" />
           <span className="truncate">{label}</span>
         </span>
         <CaretDownIcon size={14} className="shrink-0 text-muted-foreground" />
@@ -76,6 +72,20 @@ export function StatusMenuButton({
         </MenuRadioGroup>
       </MenuContent>
     </Menu>
+  );
+}
+
+/**
+ * v33 SHARE-9: a row's stage where its profile is shared to see only: the stage's name, nothing to press (the button's
+ * shape, so the column lines up).
+ */
+export function StageLabel({ application }: { application: ApplicationSummary }) {
+  const label = STATUS_INFO[application.currentStatus].label;
+  return (
+    <span className="inline-flex h-9 w-full min-w-0 items-center gap-1.5 px-2.5 text-sm font-medium text-foreground" data-stage-label="">
+      <StatusIcon status={application.currentStatus} size={15} className="shrink-0 text-muted-foreground" />
+      <span className="truncate">{label}</span>
+    </span>
   );
 }
 
@@ -113,9 +123,12 @@ function ListRow({
 }) {
   const { t } = usePublicConstants();
   const model = stageMeter(application.events);
-  const shown = shownStatusOf(application);
-  const shownLabel = displayStatusLabel(shown, t('STATUS_DRAFT_LABEL'));
+  const shown = application.currentStatus;
+  const shownLabel = STATUS_INFO[shown].label;
   const marker = handlers.markerOf?.(application) ?? null;
+  // v33 SHARE-9: the All profiles view's badge, and nothing that changes a profile shared to see only.
+  const profile = handlers.profileOf?.(application) ?? null;
+  const editable = handlers.canEdit?.(application) ?? true;
   const activate = () => {
     if (!selectMode) handlers.onOpen(application);
     else if (!handlers.selectBlocked?.(application)) handlers.onToggleSelected(application, !checked);
@@ -137,7 +150,7 @@ function ListRow({
         </span>
       )}
       <span role="cell" className="flex self-start sm:self-auto" onClick={(event) => event.stopPropagation()}>
-        <FavoriteButton application={application} onToggle={handlers.onToggleFavorite} size="sm" />
+        <FavoriteButton application={application} onToggle={handlers.onToggleFavorite} size="sm" readOnly={!editable} />
       </span>
       <div role="cell" className="flex min-w-0 items-start gap-3">
         <CompanyLogo name={application.companyName} logoUrl={application.logoUrl} size={36} className="mt-0.5 max-sm:hidden" />
@@ -158,11 +171,13 @@ function ListRow({
           {/* v30 FIX-WEB (REQ-1): the credit its source asks for. */}
           <RowCredit credit={creditOf(application)} />
           <span className="mt-1 flex flex-wrap items-center gap-1.5">
+            {profile && <ProfileBadge profile={profile} />}
             {/* Below 1024 px the next step stands in for the stage meter. */}
             <span className="flex lg:hidden">
               <NextStepTag status={shown} />
             </span>
-            {marker && shown !== 'draft' && <MarkerBadge marker={marker} />}
+            {/* v33 TRACKER (F1): every marker, Draft included (the row's stage says Saved). */}
+            {marker && <MarkerBadge marker={marker} />}
             {/* v31 JOBSWEB: "From your browser, not verified" (or "Waiting for approval") for the job only its adder sees. */}
             <VerificationBadge held={application.held} verification={application.verification} />
             <ClosedBadge closed={isClosed(application)} />
@@ -180,7 +195,7 @@ function ListRow({
         className={clsx('flex min-w-0 max-sm:w-40 max-sm:row-start-2', selectMode ? 'max-sm:col-start-3' : 'max-sm:col-start-2')}
         onClick={(event) => event.stopPropagation()}
       >
-        <StatusMenuButton application={application} onMove={handlers.onMove} />
+        {editable ? <StatusMenuButton application={application} onMove={handlers.onMove} /> : <StageLabel application={application} />}
       </span>
     </div>
   );
@@ -223,6 +238,7 @@ export function ListView({
   failed,
   onLoadMore,
   onAdd,
+  more,
 }: {
   items: ApplicationSummary[] | null;
   loading: boolean;
@@ -236,7 +252,10 @@ export function ListView({
   /** The last "Load more" failed: the button retries, scrolling does not. */
   failed: boolean;
   onLoadMore: () => void;
-  onAdd: () => void;
+  /** Add application (null: not offered here, v33 SHARE-9's All profiles view). */
+  onAdd: (() => void) | null;
+  /** v33 SHARE-9: one "Load more" per profile that has more (the All profiles view), in place of the one button. */
+  more?: readonly LoadMoreItem[];
 }) {
   const { t } = usePublicConstants();
   const sentinel = useRef<HTMLDivElement>(null);
@@ -274,9 +293,11 @@ export function ListView({
             title={t('MSG_TRACKER_EMPTY_TITLE')}
             description={t('MSG_TRACKER_EMPTY_TEXT')}
             action={
-              <Button icon={<PlusIcon size={16} />} onClick={onAdd} data-add-application="">
-                Add application
-              </Button>
+              onAdd ? (
+                <Button icon={<PlusIcon size={16} />} onClick={onAdd} data-add-application="">
+                  Add application
+                </Button>
+              ) : undefined
             }
             className="m-3"
           />
@@ -332,12 +353,32 @@ export function ListView({
           ))}
         </div>
       </div>
-      {hasMore && (
-        <div ref={sentinel} className="flex justify-center pt-5">
-          <Button variant="ghost" size="sm" onClick={onLoadMore} loading={loadingMore}>
-            Load more applications
-          </Button>
-        </div>
+      {more ? (
+        more.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-2 pt-5" data-list-more="">
+            {more.map((item) => (
+              <Button
+                key={item.id}
+                variant="ghost"
+                size="sm"
+                onClick={item.onLoad}
+                loading={item.loading}
+                aria-label={item.ariaLabel}
+                data-load-more-profile={item.id}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+        )
+      ) : (
+        hasMore && (
+          <div ref={sentinel} className="flex justify-center pt-5">
+            <Button variant="ghost" size="sm" onClick={onLoadMore} loading={loadingMore}>
+              Load more applications
+            </Button>
+          </div>
+        )
       )}
     </>
   );

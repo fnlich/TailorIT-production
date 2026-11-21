@@ -2,6 +2,7 @@
 
 import type { PrepareFilters as Filters, PrepareFiltersPreview, PrepareFiltersResponse } from '@tailorit/shared/filters';
 import { EXPERIENCE_LEVELS, EMPLOYMENT_TYPES_V2, INDUSTRIES, INDUSTRY_IDS, WORK_ARRANGEMENTS } from '@tailorit/shared/jobs';
+import type { SharePermission } from '@tailorit/shared/sharing';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -14,7 +15,7 @@ import { Input, Textarea } from '../../../components/ui/Input';
 import { SegmentedControl } from '../../../components/ui/SegmentedControl';
 import { Spinner } from '../../../components/ui/Spinner';
 import { useToast } from '../../../components/ui/Toast';
-import { ApiError, userMessage } from '../../../lib/api';
+import { ApiError, isProfileRefusal, userMessage } from '../../../lib/api';
 import { usePublicConstants } from '../../../lib/constants';
 import { EXPERIENCE_CHOICES, LOCATION_TYPE_CHOICES } from '../choices';
 import { CharacterCount, ChoiceGroup, SwitchRow } from '../parts';
@@ -175,6 +176,8 @@ export function useSaveFilters({ onSaved, onError }: { onSaved?: () => void; onE
     },
     onError: (error) => {
       onError?.(error);
+      // v33 SHARE-7: a shared profile's refusal is the shell's one alert, not a toast too.
+      if (isProfileRefusal(error)) return;
       toast.error(FILTERS_COPY.saveFailed, userMessage(error));
     },
   });
@@ -186,17 +189,54 @@ function FilterRow({ children }: { children: ReactNode }) {
 }
 
 /**
+ * v33 SHARE-7 (PLAN F9 "Permissions"): how the filters show on a profile shared with the person. `readOnly` (no Job
+ * settings Change box): every field shown and off, nothing changes. `eligibility` (the visa sponsorship and clearance
+ * switches, under Sensitive answers): `hidden` without its See box, `readOnly` without its Change box.
+ */
+export interface FiltersAccess {
+  readOnly?: boolean;
+  eligibility?: 'shown' | 'readOnly' | 'hidden';
+}
+
+/**
+ * v33 SHARE-7: the filters' access from what the tab's profile may do (`can`: always true on the person's own): Job
+ * settings' Change box to change them; Sensitive answers' See box to show the eligibility switches, its Change box to
+ * change them.
+ */
+export function filtersAccessOf(can: (perm: SharePermission) => boolean): FiltersAccess {
+  return {
+    readOnly: !can('settings:edit'),
+    eligibility: !can('sensitive:view') ? 'hidden' : can('sensitive:edit') ? 'shown' : 'readOnly',
+  };
+}
+
+/**
  * The filters' fields, one per row. `whereYouLiveHref`: where the location notice's link goes (in Settings the anchor
  * on the same page; elsewhere Settings' own).
  */
 export function PrepareFiltersFields({
   state,
   whereYouLiveHref = `#${WHERE_YOU_LIVE_ANCHOR}`,
+  access = {},
 }: {
   state: PrepareFiltersFormState;
   whereYouLiveHref?: string;
+  /** v33 SHARE-7: on a shared profile (the person's own: everything). */
+  access?: FiltersAccess;
 }) {
-  const { form, set, errors, saved, promptMax } = state;
+  const { form, errors, saved, promptMax } = state;
+  // v33 SHARE-7: a read-only form changes nothing (the switches are spans a disabled fieldset does not reach).
+  const readOnly = access.readOnly === true;
+  const eligibility = access.eligibility ?? 'shown';
+  const eligibilityOff = readOnly || eligibility === 'readOnly';
+  // v33 FIX-2 (final review, sharing 1): the qualification filter's citizenship part decides by the owner's
+  // citizenships, so only Sensitive answers' Change changes it (the server keeps it otherwise); it shows either way.
+  const qualificationLocked = !readOnly && eligibility !== 'shown';
+  const set: PrepareFiltersFormState['set'] = (key, value) => {
+    if (readOnly || (eligibilityOff && (key === 'noSponsorship' || key === 'clearanceMismatch'))) return;
+    if (qualificationLocked && key === 'qualificationMismatch') return;
+    state.set(key, value);
+  };
   const locationMissing = form.locationMismatch && (!saved.locationKnown || !saved.timeZoneKnown);
   return (
     <div className="flex flex-col divide-y divide-divider-soft" data-prepare-filters-fields="">
@@ -249,6 +289,7 @@ export function PrepareFiltersFields({
           title={FILTERS_COPY.locationMismatch}
           hint={FILTERS_COPY.locationMismatchHint}
           checked={form.locationMismatch}
+          disabled={readOnly}
           onCheckedChange={(on) => set('locationMismatch', on)}
         >
           {/* v32 COPY (E4): a state, so a small chip with its "?" and the link, never a banner. */}
@@ -270,8 +311,9 @@ export function PrepareFiltersFields({
       <FilterRow>
         <SwitchRow
           title={FILTERS_COPY.qualifications}
-          hint={FILTERS_COPY.qualificationsHint}
+          hint={qualificationLocked ? `${FILTERS_COPY.qualificationsHint} ${FILTERS_COPY.qualificationsLocked}` : FILTERS_COPY.qualificationsHint}
           checked={form.qualificationMismatch}
+          disabled={readOnly || qualificationLocked}
           onCheckedChange={(on) => set('qualificationMismatch', on)}
         />
       </FilterRow>
@@ -280,6 +322,7 @@ export function PrepareFiltersFields({
           title={FILTERS_COPY.certifications}
           hint={FILTERS_COPY.certificationsHint}
           checked={form.certificationMismatch}
+          disabled={readOnly}
           onCheckedChange={(on) => set('certificationMismatch', on)}
         >
           {/* v32 COPY: a link is an action, so it stays visible (the hint is a "?" now). */}
@@ -327,27 +370,35 @@ export function PrepareFiltersFields({
           onToggle={(value) => set('experienceLevels', toggleIn(form.experienceLevels, value, EXPERIENCE_LEVELS))}
         />
       </FilterRow>
-      <FilterRow>
-        <SwitchRow
-          title={FILTERS_COPY.sponsorshipSwitch}
-          hint={FILTERS_COPY.sponsorshipHint}
-          checked={form.noSponsorship}
-          onCheckedChange={(on) => set('noSponsorship', on)}
-        />
-      </FilterRow>
-      <FilterRow>
-        <SwitchRow
-          title={FILTERS_COPY.clearance}
-          hint={FILTERS_COPY.clearanceHint}
-          checked={form.clearanceMismatch}
-          onCheckedChange={(on) => set('clearanceMismatch', on)}
-        />
-      </FilterRow>
+      {/* v33 SHARE-7: the eligibility switches follow the owner's Sensitive answers boxes on a shared profile. */}
+      {eligibility !== 'hidden' && (
+        <FilterRow>
+          <SwitchRow
+            title={FILTERS_COPY.sponsorshipSwitch}
+            hint={FILTERS_COPY.sponsorshipHint}
+            checked={form.noSponsorship}
+            disabled={eligibilityOff}
+            onCheckedChange={(on) => set('noSponsorship', on)}
+          />
+        </FilterRow>
+      )}
+      {eligibility !== 'hidden' && (
+        <FilterRow>
+          <SwitchRow
+            title={FILTERS_COPY.clearance}
+            hint={FILTERS_COPY.clearanceHint}
+            checked={form.clearanceMismatch}
+            disabled={eligibilityOff}
+            onCheckedChange={(on) => set('clearanceMismatch', on)}
+          />
+        </FilterRow>
+      )}
       <FilterRow>
         <SwitchRow
           title={FILTERS_COPY.custom}
           hint={FILTERS_COPY.customHint}
           checked={form.customEnabled}
+          disabled={readOnly}
           onCheckedChange={(on) => set('customEnabled', on)}
         >
           {form.customEnabled && (

@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { IdParam } from '@tailorit/shared';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { rateKeyOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-6: rateKeyOf
 import type { AppDeps } from '../../core/context';
 import { AppError, asyncHandler } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -40,7 +40,7 @@ export function createResumeMatchRouter(deps: AppDeps): Router {
     keyedRateLimit({
       windowMs: WINDOW_MS,
       limit,
-      key: (req) => `${name}:${userOf(req).id}`,
+      key: (req) => `${name}:${rateKeyOf(req, WINDOW_MS)}`, // v33 SHARE-6: the person on each profile (anti-flood)
       message: waitSentence,
     });
   const rankLimit = perAccount('resume-matches', RANK_LIMIT);

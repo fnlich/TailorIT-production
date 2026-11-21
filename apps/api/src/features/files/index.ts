@@ -1,6 +1,7 @@
 import type { Feature } from '../../core/feature';
 import { createFileStore } from '../../core/files/index';
 import { createPdfService } from '../../core/pdf/index';
+import { FILES_ACTING } from './acting'; // v33 SHARE-6
 import { createFilesRouter } from './router';
 
 // Uploaded file storage, downloads and thumbnails, plus the shared PDF/screenshot pool. Owned by work package F3.
@@ -11,7 +12,7 @@ export const filesFeature: Feature = {
     deps.services.files = createFileStore(deps);
     deps.services.pdf = createPdfService(deps);
   },
-  routes: [{ path: '/api/files', router: createFilesRouter }],
+  routes: [{ path: '/api/files', router: createFilesRouter, acting: FILES_ACTING /* v33 SHARE-6 */ }],
   start: (deps) => async () => {
     await deps.services.pdf?.close();
   },

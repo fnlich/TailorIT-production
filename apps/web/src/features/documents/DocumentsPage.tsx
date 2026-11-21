@@ -18,6 +18,7 @@ import { fetchResumes, resumeKeys } from '../resume-editor/api';
 import { CoverLettersTab } from './cover-letters/CoverLettersTab';
 import { HeaderUploadButton, HeaderUploadProvider, useHeaderUploadState } from './headerUpload';
 import { NewDocumentMenu } from './NewDocumentMenu';
+import { tabCan, useTabProfile } from '../sharing/access'; // v33 FIX-1
 import { ResumesTab } from './resumes/ResumesTab';
 import { TemplatesTab } from './templates/TemplatesTab';
 
@@ -74,6 +75,8 @@ export function DocumentsPage() {
   const counts = useSectionCounts();
   const upload = useHeaderUploadState();
   const column = useMediaQuery('(min-width: 1024px)', true);
+  // v33 FIX-1 (PLAN-sharing §9): no Upload or New on a profile shared without Documents' Change (each was refused).
+  const canEdit = tabCan(useTabProfile(), 'documents:edit');
   const ids = useId();
 
   const selectTab = (next: DocumentsTab) => {
@@ -88,10 +91,12 @@ export function DocumentsPage() {
         title="Documents"
         description={t('MSG_DOCS_PAGE_DESCRIPTION')}
         actions={
-          <>
-            <HeaderUploadButton action={upload.actions[tab]} />
-            <NewDocumentMenu />
-          </>
+          canEdit ? (
+            <>
+              <HeaderUploadButton action={upload.actions[tab]} />
+              <NewDocumentMenu />
+            </>
+          ) : undefined
         }
       />
 

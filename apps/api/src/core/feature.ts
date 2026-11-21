@@ -1,4 +1,5 @@
 import type { Router } from 'express';
+import type { SharePermission } from '@tailorit/shared/sharing'; // v33 SHARE-0
 import type { AiTask } from '../ai/task';
 import type { AppDeps } from './context';
 
@@ -16,8 +17,12 @@ export interface Feature {
    * be async (setupServices awaits it), for a service that reads the database when it is made.
    */
   services?: (deps: AppDeps) => void | Promise<void>;
-  /** Routers to mount; several features may share a prefix (e.g. /api/admin/...). */
-  routes?: Array<{ path: string; router: (deps: AppDeps) => Router }>;
+  /**
+   * Routers to mount; several features may share a prefix (e.g. /api/admin/...). v33 SHARE-0: `acting`, what each route
+   * does on a shared profile (ActingSpec below). Optional in the type; the strict structure test (structure-acting)
+   * fails the build for any route without one.
+   */
+  routes?: Array<{ path: string; router: (deps: AppDeps) => Router; acting?: ActingSpec }>;
   // v1.5 M
   /**
    * Routers mounted before the app's cookie, bearer token, JSON body and Origin middleware (after helmet and the
@@ -47,6 +52,82 @@ export interface Feature {
   worker?: (deps: AppDeps) => void | (() => void | Promise<void>);
   // end v30 ST0
 }
+
+// v33 SHARE-0 (PLAN F9; SP v33 PLAN-sharing.md §4 "The route guard"): every mounted route declares what it does when the
+// request names a shared profile (X-TailorIT-Profile, ?profile=). SHARE-1's guard reads it; a route with none counts as
+// `never` and fails the structure test (a reviewed snapshot). Policies live in an `acting.ts` beside each router.
+//
+//   routes: [{ path: '/api/applications', router: createApplicationsRouter, acting: APPLICATIONS_ACTING }]
+//   // features/applications/acting.ts
+//   export const APPLICATIONS_ACTING: ActingTable = {
+//     'GET /': 'tracker:view',
+//     'PUT /:id/status': 'tracker:edit',
+//     'GET /export.csv': { policy: 'exports', query: true },
+//     'GET /lanes': 'self',
+//   };
+//   // a whole mount: acting: 'never'
+
+/**
+ * What a route does on a shared profile:
+ * - `self`: it always serves the signed-in person (sign-in, the header, notifications, tracker lanes, sharing's reads);
+ * - `never`: refused while acting (own_profile_only): account security, sharing's writes, admin, dev routes;
+ * - a permission: allowed when the grant holds it (else profile_not_shared); userOf is the owner, payerOf the grantee.
+ */
+export type ActingPolicy = 'self' | 'never' | SharePermission | ActingAnyOf;
+
+/**
+ * v33 INT-1: allowed when the grant holds any one of these boxes (else profile_not_shared): for a mount that serves
+ * several areas and checks each answer's own box itself (the AI tasks: getTaskFor reads a task only with its kind's box,
+ * and answers any other as an unknown task). The request acts under the first box of the list the grant holds.
+ */
+export interface ActingAnyOf {
+  readonly anyOf: readonly SharePermission[];
+}
+
+/** A policy with options: `query: true` also takes the profile from ?profile= (GET and HEAD only: browser-loaded URLs). */
+export interface ActingRoutePolicy {
+  policy: ActingPolicy;
+  query?: true;
+}
+
+/** One route's rule: a policy, or a policy with options. */
+export type ActingRule = ActingPolicy | ActingRoutePolicy;
+
+/**
+ * The routes of one mount, keyed `'<METHOD> <path>'` as the router declares them ('GET /', 'PUT /:id/status'); HEAD
+ * follows GET. A key that names no route fails the structure test.
+ */
+export type ActingTable = { readonly [route: `${ActingMethod} /${string}`]: ActingRule };
+
+/** A mount's `acting`: one rule for every route of the mount (a nested router needs this), or a table per route. */
+export type ActingSpec = ActingRule | ActingTable;
+
+/** The HTTP methods a table key may name. */
+export const ACTING_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+export type ActingMethod = (typeof ACTING_METHODS)[number];
+
+/** Whether `spec` is a table per route (else one rule for the whole mount). */
+export function isActingTable(spec: ActingSpec): spec is ActingTable {
+  return typeof spec === 'object' && spec !== null && !('policy' in spec) && !('anyOf' in spec);
+}
+
+/** A rule's policy and options, the short form expanded. */
+export function actingRuleOf(rule: ActingRule): { policy: ActingPolicy; query: boolean } {
+  return typeof rule === 'string' || 'anyOf' in rule ? { policy: rule, query: false } : { policy: rule.policy, query: rule.query === true };
+}
+
+/**
+ * v33 INT-1: the box a grant holding `permissions` acts under at a route whose policy is a permission or an `anyOf`: the
+ * permission itself, or the first of the list the grant holds; null when it holds none (profile_not_shared).
+ */
+export function actingPermissionOf(policy: SharePermission | ActingAnyOf, permissions: readonly SharePermission[]): SharePermission | null {
+  if (typeof policy === 'string') return permissions.includes(policy) ? policy : null;
+  return policy.anyOf.find((perm) => permissions.includes(perm)) ?? null;
+}
+
+/** v33 INT-1: a policy as the coverage report and its snapshot print it (`any of a|b` for an anyOf). */
+export const actingPolicyLabel = (policy: ActingPolicy): string => (typeof policy === 'string' ? policy : `any of ${policy.anyOf.join('|')}`);
+// end v33 SHARE-0
 
 // v30 ST0
 /** One step of the daily housekeeping (Feature.daily). */

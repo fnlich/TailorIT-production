@@ -8,7 +8,9 @@ import {
 } from '@tailorit/shared/autofill';
 import { isResumeTemplateId, MINUTE_MS, ProfileSeedBodySchema } from '@tailorit/shared';
 import { sendAccepted } from '../../../ai/index';
-import { userOf } from '../../../core/auth/guards';
+import { payerOf } from '../../../core/accounts/payer'; // v33 SHARE-6
+import { holds, isActing, userOf } from '../../../core/auth/guards'; // v33 SHARE-6: holds, isActing
+import { profileNotShared } from '../../../core/auth/grants'; // v33 SHARE-6
 import type { AppDeps, SessionUser } from '../../../core/context';
 import { parseInput } from '../../../core/http/validate';
 import { visibleTemplate } from '../../cover-letters/context';
@@ -34,9 +36,36 @@ import { startUploadReading } from './upload-reading';
 // The extension asks for the sensitive part only when a form asks such a question. Neither part is ever logged: the
 // log names the account, the token and the revision only.
 
-/** Whether the caller may read the sensitive part: the session, or a token with profile:sensitive. */
-const mayReadSensitive = (req: Request) =>
-  req.authVia !== 'token' || req.extensionToken?.scopes.includes('profile:sensitive') === true;
+// v33 SHARE-6 (PLAN F9; SP v33 PLAN-sharing.md §3 "Autofill info", "Sensitive answers"; §4 "Sensitive facts", "Where
+// applications go"): on a profile shared with the signed-in person (autofill/acting.ts) the profile is Autofill info's
+// (See to read, Change to save and to fill from a resume), the sensitive part Sensitive answers' See. A save there keeps
+// the owner's contact block (email, phone, address) and links (employers reach and read them; the SHARE-6 review),
+// answers the sensitive part only with See, and leaves it as stored without Change (a part sent anyway is left out; a
+// note line that states one is kept as stored, and none is added).
+// "Fill from my resume" reads one of the owner's resumes (Documents' See too) and its reading is paid by B (payerOf).
+// No upload is made here (a resume's file is uploaded through the resumes routes, which check its contact details).
+
+/**
+ * Whether the caller may read the sensitive part: the session, or a token with profile:sensitive. v33 SHARE-6 (holds(),
+ * PLAN-sharing §4 "Helpers"): on a profile shared with the signed-in person, only with Sensitive answers' See.
+ */
+const mayReadSensitive = (req: Request) => holds(req, 'sensitive:view', 'profile:sensitive');
+
+/** v33 SHARE-6: whether the caller may change the sensitive answers (on a shared profile, Sensitive answers' Change). */
+const mayWriteSensitive = (req: Request) => holds(req, 'sensitive:edit', 'profile:sensitive');
+
+/** v33 SHARE-6: a save on a shared profile without Sensitive answers' Change leaves a `sensitive` part it sends out. */
+function bodyFor(req: Request): unknown {
+  const body: unknown = req.body ?? {};
+  if (!isActing(req) || mayWriteSensitive(req) || typeof body !== 'object' || body === null) return body;
+  const { sensitive: _ignored, ...rest } = body as Record<string, unknown>;
+  return rest;
+}
+
+/** v33 SHARE-6: "Fill from my resume" reads one of the owner's resumes: on a shared profile Documents' See too. */
+function assertMayReadResumes(req: Request): void {
+  if (isActing(req) && !holds(req, 'documents:view')) throw profileNotShared();
+}
 
 /**
  * GET /profile: an empty email is answered as the account's sign-in address when the contract's email rule takes it
@@ -84,6 +113,8 @@ export function createAutofillProfileRouter(deps: AppDeps): Router {
   });
 
   router.get('/profile/sensitive', allow('either', 'profile:sensitive'), readLimit, async (req, res) => {
+    // v33 SHARE-6: the route's policy asks for Sensitive answers' See on a shared profile; checked here again.
+    if (!mayReadSensitive(req)) throw profileNotShared();
     const { revision, updatedAt, value: sensitive } = await readSensitiveAnswers(deps, userOf(req).id);
     if (req.extensionToken) deps.log.debug(`[autofill] token ${req.extensionToken.id} read the sensitive answers`);
     const envelope: AutofillSensitiveEnvelope = { apiVersion: AUTOFILL_API_VERSION, revision, updatedAt, sensitive };
@@ -93,7 +124,11 @@ export function createAutofillProfileRouter(deps: AppDeps): Router {
   router.put('/profile', allow('either', 'profile:write'), saveLimit, async (req, res) => {
     const userId = userOf(req).id;
     const filterKey = await profileFilterKey(deps, userId);
-    const saved = await saveAutofillProfile(deps, userId, req.body ?? {}, { mayReadSensitive: mayReadSensitive(req) });
+    const saved = await saveAutofillProfile(deps, userId, bodyFor(req), {
+      mayReadSensitive: mayReadSensitive(req),
+      mayWriteSensitive: mayWriteSensitive(req), // v33 SHARE-6
+      shared: isActing(req), // v33 SHARE-6: the contact block, the links and (without Change) the note's sensitive lines
+    });
     // v2.0 (INT): the prepare filters read the degree, the certifications, the citizenships, the clearance and the years
     // of experience from this profile; a save that changes one makes every stored verdict stale.
     if ((await profileFilterKey(deps, userId)) !== filterKey) await touchFilterRevision(deps, userId);
@@ -103,6 +138,7 @@ export function createAutofillProfileRouter(deps: AppDeps): Router {
   });
 
   router.get('/profile/seed', allow('session'), seedLimit, async (req, res) => {
+    assertMayReadResumes(req); // v33 SHARE-6
     const user = userOf(req);
     const { resumeId } = parseInput(AutofillSeedQuerySchema, req.query, 'query');
     const seed = await seedAutofillProfile(deps, user, resumeId);
@@ -114,9 +150,10 @@ export function createAutofillProfileRouter(deps: AppDeps): Router {
   // v32 FILL: "Fill from my resume". An upload not read yet starts its reading (202 { taskId }); without AI it is
   // seeded at once from what its text shows, with the reason in a note. The log names the account and the resume only.
   router.post('/profile/seed', allow('session'), seedLimit, async (req, res) => {
+    assertMayReadResumes(req); // v33 SHARE-6
     const user = userOf(req);
     const { resumeId } = parseInput(ProfileSeedBodySchema, req.body ?? {});
-    const reading = await startUploadReading(deps, user, resumeId);
+    const reading = await startUploadReading(deps, user, resumeId, payerOf(req)); // v33 SHARE-6 (SHARE-3's edit 3): B pays
     if (reading.kind === 'started') {
       deps.log.debug(`[autofill] account ${user.id} is having resume ${reading.resumeId} read (task ${reading.taskId})`);
       sendAccepted(res, { taskId: reading.taskId });

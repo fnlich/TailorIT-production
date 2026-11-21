@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CoverLetterParagraphsSchema } from '@tailorit/shared';
 import { definePrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { adapt, tailorPromptParts, type TailorPromptText } from './render';
 
 // v30 ST2: tailor_builder0's write-cover-letter, moved from features/tailor/prompts/{text,index}.ts. The letter beside
@@ -60,6 +61,14 @@ export const WRITE_LETTER_PROMPT: TailorPromptText = {
   sharedVariables: ['jobTitle', 'companyName', 'responsibilitiesJson', 'keywordsJson'],
 };
 
+/** v33 PROMPTS (F5): the prompt in a role family's words (the person's); the technical family's is WRITE_LETTER_PROMPT. */
+export const writeLetterPromptFor = perFamily(
+  (family): TailorPromptText => ({
+    ...WRITE_LETTER_PROMPT,
+    content: adapt(familyText(WRITE_COVER_LETTER, 'write-cover-letter', family), 'write-cover-letter', WRITE_COVER_LETTER_ADAPTATIONS),
+  }),
+);
+
 /**
  * A letter's paragraphs, each as TailorIT's own letters check it (CoverLetterParagraphsSchema's paragraph). Two to four:
  * tailor_builder0's prompts ask for 2-3 (write-cover-letter) and 2-4 (generate-cover-letter) paragraphs, where TailorIT's
@@ -76,6 +85,6 @@ export const writeCoverLetterPrompt = definePrompt({
   name: 'write-cover-letter',
   version: 1,
   description: "The cover letter beside a tailored resume: its body as paragraphs, from the profile and the job's duties.",
-  ...tailorPromptParts(WRITE_LETTER_PROMPT, { quotesPosting: true }),
+  ...tailorPromptParts(writeLetterPromptFor, { quotesPosting: true }),
   output: TailorLetterOutputSchema,
 });

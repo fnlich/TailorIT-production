@@ -47,6 +47,10 @@ import {
   type DocumentColumn,
 } from '../core';
 import { LetterPreviewDialog } from '../preview/LetterPreviewDialog';
+import { tabCan, tabDeletes, useTabProfile } from '../../sharing/access'; // v33 FIX-1; FIX-2: tabDeletes
+
+/** v33 FIX-1: the letter menu's items that only read (offered on a profile shared without Documents' Change). */
+const READS: ReadonlySet<string> = new Set(['preview', 'pdf', 'docx']);
 
 /*
  * Documents › Cover letters: the documents table (Name + Generated / Uploaded badge, Created, Edited, ✎ and ⋮;
@@ -95,7 +99,14 @@ export function CoverLettersTab() {
     }
   };
 
-  const menu = (letter: CoverLetterSummary): ActionMenuItem[] => [
+  // v33 FIX-1 (PLAN-sharing §9): on a profile shared without Documents' Change, only what reads. v33 FIX-2: no Delete
+  // (nor the selection, which only deletes) on any shared profile (tabDeletes).
+  const tab = useTabProfile();
+  const canEdit = tabCan(tab, 'documents:edit');
+  const canDelete = canEdit && tabDeletes(tab);
+  const menu = (letter: CoverLetterSummary): ActionMenuItem[] =>
+    allMenu(letter).filter((item) => (canEdit || READS.has(item.key)) && (canDelete || item.key !== 'delete'));
+  const allMenu = (letter: CoverLetterSummary): ActionMenuItem[] => [
     { key: 'preview', label: 'Preview', title: 'The whole letter as it prints', icon: <EyeIcon size={16} />, onSelect: () => setViewing(letter) },
     { key: 'rename', label: 'Rename', icon: <PencilSimpleIcon size={16} />, onSelect: () => setRenaming(letter) },
     { key: 'pdf', label: 'Download PDF', icon: <DownloadSimpleIcon size={16} />, onSelect: () => void download(letter, 'pdf') },
@@ -173,10 +184,12 @@ export function CoverLettersTab() {
           />
         )}
         newTile={
-          <NewTile kind="cover-letter" label="New cover letter" hint={t('LABEL_DOCS_NEW_LETTER_HINT')} href="/cover-letter/new" page={PAGE_LETTER} />
+          canEdit ? (
+            <NewTile kind="cover-letter" label="New cover letter" hint={t('LABEL_DOCS_NEW_LETTER_HINT')} href="/cover-letter/new" page={PAGE_LETTER} />
+          ) : undefined
         }
-        selectable
-        onBulkDelete={async (ids) => {
+        selectable={canDelete}
+        onBulkDelete={!canDelete ? undefined : async (ids) => {
           const { deleted } = await bulkDeleteLetters(ids);
           for (const id of ids) forgetThumbs(`cover-letter:${id}:`);
           await refresh();

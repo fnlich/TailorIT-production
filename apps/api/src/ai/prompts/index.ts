@@ -6,6 +6,7 @@ import { JOBS_PROMPTS } from './jobs/index';
 import { MCP_PROMPTS } from './mcp/index';
 import { PREPARE_FILTERS_PROMPTS } from './prepare-filters/index';
 import { RESUMES_PROMPTS } from './resumes/index';
+import { ROLES_PROMPTS } from './roles/index'; // v33 PROMPTS
 import { SYSTEM_PROMPTS } from './system/index';
 import { TAILOR_PROMPTS } from './tailor/index';
 import { promptTexts } from '../runPrompt';
@@ -38,6 +39,7 @@ export const PROMPTS_BY_AREA: ReadonlyArray<{ area: PromptArea; prompts: readonl
   { area: 'jobs', prompts: JOBS_PROMPTS },
   { area: 'companies', prompts: COMPANIES_PROMPTS },
   { area: 'system', prompts: SYSTEM_PROMPTS },
+  { area: 'roles', prompts: ROLES_PROMPTS }, // v33 PROMPTS
 ];
 
 /**

@@ -69,9 +69,12 @@ export function fetchNotifications({ cursor, unread, limit }: NotificationsQuery
   });
 }
 
-/** POST /api/notifications/:id/read (204; already read stays as it was). */
+/**
+ * POST /api/notifications/:id/read (204; already read stays as it was). v33 SHARE-4: keepalive, as opening another
+ * profile's notification loads a new document at once.
+ */
 export function markNotificationRead(id: string): Promise<void> {
-  return api.post<void>(`/api/notifications/${encodeURIComponent(id)}/read`);
+  return api.post<void>(`/api/notifications/${encodeURIComponent(id)}/read`, undefined, { keepalive: true });
 }
 
 /** POST /api/notifications/read-all. */

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { EditorBar } from '@/components/shell/EditorBar';
+import { profileUrl } from '@/lib/profile';
 import { limitOfTaskError, toLimit, useLimitDialog } from '@/components/limits';
 import { PAGE_GUTTER } from '@/components/shell/layout';
 import { Button, buttonClasses } from '@/components/ui/Button';
@@ -15,6 +16,7 @@ import { SparkleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { Spinner } from '@/components/ui/Spinner';
 import { useAiTask } from '@/lib/useAiTask';
+import { useChangeAccess } from '../../sharing/access'; // v33 FIX-1
 import { RESUMES_TAB_HREF, fetchEditTarget, readImportResult, resumeEditorHref, resumeFileHref, resumeKeys } from '../api';
 import { editRoutePhase, type EditRoutePhase } from './editRoute';
 
@@ -31,10 +33,18 @@ export function ResumeEditRoute({ resumeId }: { resumeId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [attempt, setAttempt] = useState(0);
+  // v33 FIX-1 (PLAN-sharing §9): on a profile shared without Documents' Change, Edit opens the resume as it is (its
+  // static view: the read-only editor, or an upload's own page), never asks for an editable copy (refused there); on a
+  // shared profile nothing is asked before its boxes are read.
+  const access = useChangeAccess('documents:edit');
+  useEffect(() => {
+    if (access.ready && !access.change) router.replace(resumeEditorHref(resumeId));
+  }, [access.ready, access.change, router, resumeId]);
   // One ask per visit and per Try again (the API follows a copy already being made, so a second ask starts nothing).
   const target = useQuery({
     queryKey: ['resumes', 'edit-target', resumeId, attempt],
     queryFn: () => fetchEditTarget(resumeId),
+    enabled: access.change,
     retry: false,
     gcTime: 0,
     staleTime: Infinity,
@@ -72,7 +82,7 @@ export function ResumeEditRoute({ resumeId }: { resumeId: string }) {
       <EditRouteView
         phase={phase}
         label={target.data?.label ?? null}
-        fileHref={target.data?.kind === 'uploaded' ? resumeFileHref(resumeId, true) : null}
+        fileHref={target.data?.kind === 'uploaded' ? profileUrl(resumeFileHref(resumeId, true)) : null}
         onRetry={() => setAttempt((current) => current + 1)}
         limited={limit !== null}
       />

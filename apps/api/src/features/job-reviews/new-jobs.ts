@@ -69,11 +69,23 @@ async function reviewForAdd(
 }
 
 /**
+ * v33 SHARE-6 (the SHARE-6 review; migration 0052): who added a held job to `userId`'s tracker. Someone working on that
+ * person's profile under a grant (B) is named beside the report row, which stays the owner's (who sees the held job), so
+ * the approval's notice goes to them there (service.ts noticeApprovedJob, jobs/add/notify.ts linkNoticeTarget). The
+ * owner themself (or null): an own add, which names nobody.
+ */
+export interface HeldAdder {
+  addedBy: string | null;
+  grantId: string | null;
+}
+
+/**
  * The account's add of a held job (Add job, From page's ATS read, Applied): its report row (via `add`) on the job's
  * review, written before its tracker entry, then the automatic rule of new ATS jobs. Nothing for a job that is not held.
- * Behind the account's lock, as its tracker entry is.
+ * Behind the account's lock, as its tracker entry is. v33 SHARE-6: `adder` names who added it (an add names its adder;
+ * left out, the row keeps whom it named).
  */
-export async function noteHeldAdd(deps: AppDeps, userId: string, jobId: number): Promise<void> {
+export async function noteHeldAdd(deps: AppDeps, userId: string, jobId: number, adder?: HeldAdder): Promise<void> {
   // v31 FIX-LINK: a job the legacy pass holds (no review holds it: jobs/add/held.ts) is no new job to review: an add of
   // it opens no review (an approval would publish the row's or the browser's words); its own read settles it.
   const held = await deps.db.one(
@@ -93,6 +105,16 @@ export async function noteHeldAdd(deps: AppDeps, userId: string, jobId: number):
       if (!still) return [];
       const review = await reviewForAdd(t, jobReviewSubject(jobId), { jobId, origin: 'ats' }, at);
       await upsertReport(t, review.id, userId, { via: 'add', seenAt: at, dayKey: dayKeyAt(deps, now), at });
+      if (adder) {
+        // v33 SHARE-6: someone else's add on this person's profile is named with its grant; an own add names nobody.
+        const other = adder.addedBy !== null && adder.addedBy !== userId;
+        await t.run('UPDATE job_review_reports SET added_by = ?, grant_id = ? WHERE review_id = ? AND user_id = ?', [
+          other ? adder.addedBy : null,
+          other ? adder.grantId : null,
+          review.id,
+          userId,
+        ]);
+      }
       const tally = await recountReview(deps, t, review.id, now);
       return review.pending ? autoDecide(deps, t, review.id, tally, now) : [];
     },

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ApplicationDetail } from '@tailorit/shared';
 import { trackerApi, trackerKeys } from '../data';
 import { RichTextEditor } from '../RichTextEditor';
+import { useTrackerEditable } from './editable';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -28,6 +29,8 @@ export function NotesPanel({ application }: { application: ApplicationDetail }) 
   const pending = useRef<string | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const id = application.id;
+  // v33 SHARE-9: a profile shared to see only shows its notes, nothing to type.
+  const editable = useTrackerEditable();
 
   const save = useRef((html: string) => {
     queue.current = queue.current.then(async () => {
@@ -70,13 +73,21 @@ export function NotesPanel({ application }: { application: ApplicationDetail }) 
           {SAVE_LABEL[state]}
         </span>
       </header>
-      <RichTextEditor
-        value={application.notesHtml}
-        onChange={setDraft}
-        placeholder="Add notes, reminders, or contacts for this job"
-        label="Notes"
-        minHeight={150}
-      />
+      {editable || application.notesHtml ? (
+        <RichTextEditor
+          value={application.notesHtml}
+          onChange={setDraft}
+          placeholder="Add notes, reminders, or contacts for this job"
+          label="Notes"
+          minHeight={editable ? 150 : 60}
+          readOnly={!editable}
+        />
+      ) : (
+        // v33 SHARE-9: a profile shared to see only, with no notes: nothing to show but that.
+        <p className="text-sm text-muted-foreground" data-no-notes="">
+          No notes yet.
+        </p>
+      )}
     </section>
   );
 }

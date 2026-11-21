@@ -12,7 +12,7 @@ import {
   type CoverLetterPreviewResponse,
 } from '@tailorit/shared';
 import { sendAccepted } from '../../ai/index';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { payerOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-3: payerOf
 import type { AppDeps } from '../../core/context';
 import { getFileStore } from '../../core/files/index';
 import { asyncHandler, notFound } from '../../core/http/errors';
@@ -32,11 +32,14 @@ import { letterDocx, letterPdf } from './export';
 import { fontFaceCss, bundledFamilyNames, readFontFile } from './fonts';
 import { generationInFlight, requireEvidence, startGeneration, type GenerateTaskInput } from './generate';
 import { downloadName, DOCX_MIME, explainLetterIssue, parseBody, sendFile, uploadFile } from './http';
+import { saveFromVersion } from './precondition'; // v33 SHARE-3
 import { createLetterRepository, toDetail, type LetterRow } from './repository';
 import { sanitizeLetterHtml } from './sanitize';
 
 // /api/cover-letters: the Cover Letters tab, the letter editor, generation, upload/import, preview and export.
 // Owner-scoped throughout: another account's letter answers 404.
+// v33 SHARE-3 (PLAN F9): on a profile shared with them, B works on A's letters (acting.ts) and pays for their writing
+// (payerOf); a save may name the version it changes (baseUpdatedAt: 409 revision_conflict when saved since).
 
 const FONT_CACHE = 'public, max-age=31536000, immutable';
 
@@ -139,7 +142,9 @@ export function createCoverLettersRouter(deps: AppDeps): Router {
     const contentHtml = body.contentHtml === undefined ? undefined : sanitizeLetterHtml(body.contentHtml);
     const contentChanged = contentHtml !== undefined && contentHtml !== current.content_html;
     const fontChanged = body.fontFamily !== undefined && body.fontFamily !== current.font_family;
-    const row = await letters.update(current.id, user.id, {
+    // v33 SHARE-3: saved only from the version the editor names (baseUpdatedAt), behind the row's lock.
+    const ref = { id: current.id, userId: user.id, base: body.baseUpdatedAt };
+    const row = await saveFromVersion(deps, 'cover_letters', ref, 'MSG_LETTER_CHANGED', () => letters.update(current.id, user.id, {
       title: body.title,
       contentHtml: contentChanged ? contentHtml : undefined,
       fontFamily: body.fontFamily,
@@ -151,7 +156,7 @@ export function createCoverLettersRouter(deps: AppDeps): Router {
       resumeId: body.resumeId,
       applicationId: body.applicationId,
       edited: contentChanged || fontChanged,
-    });
+    }));
     res.json(toDetail(row));
   });
 
@@ -218,7 +223,7 @@ export function createCoverLettersRouter(deps: AppDeps): Router {
       customPrompt: body.customPrompt,
       resumeId: body.resumeId ?? null,
     };
-    sendAccepted(res, await startGeneration(deps, user.id, input, template));
+    sendAccepted(res, await startGeneration(deps, user.id, input, template, payerOf(req))); // v33 SHARE-3: B pays on A's letter
   });
 
   router.get('/:id/preview', async (req, res) => {

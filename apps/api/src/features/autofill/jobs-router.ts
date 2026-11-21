@@ -7,7 +7,7 @@ import {
   AutofillSubmissionRequestSchema,
   type AutofillJobSearchResponse,
 } from '@tailorit/shared/autofill';
-import { userOf } from '../../core/auth/guards';
+import { holds, userOf } from '../../core/auth/guards'; // v33 SHARE-6: holds
 import type { AppDeps } from '../../core/context';
 import { asyncHandler } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -122,7 +122,7 @@ export function createAutofillJobsRouter(deps: AppDeps): Router {
       const request = parseInput(AutofillAppliedRequestSchema, req.body ?? {}, 'request');
       const started = performance.now();
       // Adding a posting TailorIT lacks is Add job's: the session, or a token with jobs:add.
-      const mayAdd = req.authVia !== 'token' || req.extensionToken?.scopes.includes('jobs:add') === true;
+      const mayAdd = holds(req, 'tracker:edit', 'jobs:add'); // v33 SHARE-6 (holds(): the session, or a token with jobs:add)
       const { answer, via, moved, kind } = await markApplied(deps, userId, request, inFlight, { mayAdd });
       deps.log.debug(
         `[autofill] applied for account ${userId}: ${kind ?? 'no ATS'}, ${VIA[via]}, ` +
@@ -142,7 +142,7 @@ export function createAutofillJobsRouter(deps: AppDeps): Router {
       const userId = userOf(req).id;
       const request = parseInput(AutofillSubmissionRequestSchema, req.body ?? {}, 'request');
       const started = performance.now();
-      const mayAdd = req.authVia !== 'token' || req.extensionToken?.scopes.includes('jobs:add') === true;
+      const mayAdd = holds(req, 'tracker:edit', 'jobs:add'); // v33 SHARE-6 (holds(): the session, or a token with jobs:add)
       const { body, via, moved, kind } = await submitApplication(deps, userId, request, inFlight, { mayAdd });
       // Counts only: never a question, an answer, the address or the job.
       const answers = body.answersKept === null ? 'answers not kept (setting off)' : `${body.answersKept} answer(s) kept`;

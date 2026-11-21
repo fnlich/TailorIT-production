@@ -4,9 +4,11 @@ import { queryBoolean, queryEnum } from '../format/params';
 import { ResumeAnalysisBriefSchema } from './analysis';
 import { ENTRY_BULLETS_KINDS, MAX_RESUME_SKILLS, MAX_SKILL_LENGTH } from './catalogue';
 import { MAX_AI_BULLETS, MAX_BULLET_LENGTH, MAX_BULLETS_NOTE_LENGTH } from './display';
-import { ResumeDocumentInputSchema, ResumeDocumentSchema, TECHNICAL_SKILLS_LAYOUTS } from './document';
+import { ResumeDocumentInputSchema, ResumeDocumentSchema } from './document';
+import { RoleFamilyIdSchema } from '../roles/dto'; // v33 SKILLS: the skill picker's field
 
-// Contracts of the resume endpoints (/api/resumes, /api/resume-templates, /api/skills, /api/ai/resume-bullets).
+// Contracts of the resume endpoints (/api/resumes, /api/skills, /api/ai/resume-bullets). v33 LEGACY: the retired
+// templates' list and previews (and the live preview route) went with their engine.
 // Resume ids are strings. A resume is `built` (a document edited in TailorIT) or `uploaded` (a stored PDF/DOCX).
 
 export const RESUME_KINDS = ['built', 'uploaded'] as const;
@@ -271,40 +273,12 @@ export type ResumeImportJsonResponse = z.infer<typeof ResumeImportJsonResponseSc
 export const ResumeImportTaskResultSchema = z.object({ resumeId: z.string() });
 export type ResumeImportTaskResult = z.infer<typeof ResumeImportTaskResultSchema>;
 
-export const PageBoxSchema = z.object({
-  widthPx: z.number().positive(),
-  heightPx: z.number().positive(),
-  contentHeightPx: z.number().positive(),
-});
-export type PageBox = z.infer<typeof PageBoxSchema>;
-
 /**
- * POST /api/resumes/preview: a draft drawn as HTML (no browser needed). The draft is laid over the stored resume
- * (`resumeId`) by the normaliser's rules. `sample` (default on) fills empty fields with the sample person.
+ * GET /api/resumes/:id/thumbnail: an upload's first page as an image; a built resume as its document, which the page
+ * draws with the editor's templates (an older one as the editor opens it).
  */
-export const ResumePreviewRequestSchema = z.object({
-  document: ResumeDocumentInputSchema.optional(),
-  resumeId: z.string().optional(),
-  templateId: z.string().optional(),
-  sample: z.boolean().optional(),
-});
-export type ResumePreviewRequest = z.infer<typeof ResumePreviewRequestSchema>;
-
-export const ResumePreviewResponseSchema = z.object({
-  html: z.string(),
-  /** The template actually drawn (it differs when the chosen one is no longer offered). */
-  templateId: z.string(),
-  page: PageBoxSchema,
-  /** The fields filled from the sample person (`sampledNotice`). */
-  sampled: z.array(z.string()),
-});
-export type ResumePreviewResponse = z.infer<typeof ResumePreviewResponseSchema>;
-
-/** GET /api/resumes/:id/thumbnail: the first page as HTML (built) or as an image (uploads). */
 export const ResumeThumbnailSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('html'), html: z.string(), page: PageBoxSchema }),
   z.object({ kind: z.literal('image'), url: z.string() }),
-  /** An on-page editor resume: the page draws its first page from the document with the templates. */
   z.object({ kind: z.literal('document'), templateId: z.string(), document: ResumeDocumentSchema }),
 ]);
 export type ResumeThumbnail = z.infer<typeof ResumeThumbnailSchema>;
@@ -316,44 +290,8 @@ export const ResumeExportQuerySchema = z.object({
   format: queryEnum(RESUME_EXPORT_FORMATS).transform((value) => value ?? 'pdf'),
   /** The file name the person chose in the Download dialog, without its extension (an editor resume's download). */
   name: z.string().max(200).optional(),
-  /**
-   * The editor's Download (`upgraded=1`): an older resume, not yet stored in the on-page editor's format, prints as the
-   * editor shows it (upgraded as it is read, nothing stored). The JSON file is the stored document either way.
-   */
-  upgraded: queryBoolean,
-});
-
-export const TEMPLATE_CATEGORIES = ['simple', 'modern', 'creative', 'ats'] as const;
-export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
-/** The chooser's filter pills (after "All Templates"). */
-export const TEMPLATE_CATEGORY_LABEL: Record<TemplateCategory, string> = {
-  simple: 'Simple',
-  modern: 'Modern',
-  creative: 'Creative',
-  ats: 'ATS',
-};
-
-/** GET /api/resume-templates: the light list (no markup). The capability fields are read off each template's markup. */
-export const ResumeTemplateSummarySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  category: z.enum(TEMPLATE_CATEGORIES),
-  supportsSoftSkills: z.boolean(),
-  supportsStrengths: z.boolean(),
-  /** Section kinds the template prints. ATS templates have no extra-sections block, so no projects and the like. */
-  printsSections: z.array(z.string()),
-  /** The template's own section order (kind ids). */
-  nativeSectionOrder: z.array(z.string()),
-});
-export type ResumeTemplateSummary = z.infer<typeof ResumeTemplateSummarySchema>;
-export const ResumeTemplateListResponseSchema = listResponse(ResumeTemplateSummarySchema);
-
-/** GET /api/resume-templates/:id/preview?layout=&softSkills=&strengths= (HTML with the sample person). */
-export const ResumeTemplatePreviewQuerySchema = z.object({
-  layout: queryEnum(TECHNICAL_SKILLS_LAYOUTS).transform((value) => value ?? 'categorized'),
-  softSkills: queryBoolean,
-  strengths: queryBoolean,
+  // v33 LEGACY: `upgraded=1` is no longer read: every download prints as the editor shows the resume (an older one
+  // upgraded as it is read). The JSON file is the stored document.
 });
 
 export const SKILL_TYPES = ['hard', 'soft'] as const;
@@ -363,8 +301,13 @@ export type SkillType = (typeof SKILL_TYPES)[number];
  * GET /api/skills?type= : the library (skills.json) overlaid with the user's own. Hard skills are the main skills only;
  * `aliases` gives each one's other spellings ("ASP.NET Core" of ".NET"), so a picker can find a main skill by them. An
  * alias is still a known skill when typed (POST /api/skills answers it in its own spelling).
+ * v33 SKILLS: `family` (a role family id: the open resume's field) lists that field's hard skills first, its own ones
+ * leading; every other skill follows, so a skill of another field is still offered.
  */
-export const SkillsQuerySchema = z.object({ type: queryEnum(SKILL_TYPES).transform((value) => value ?? 'hard') });
+export const SkillsQuerySchema = z.object({
+  type: queryEnum(SKILL_TYPES).transform((value) => value ?? 'hard'),
+  family: RoleFamilyIdSchema.optional(), // v33 SKILLS
+});
 export const SkillsResponseSchema = z.object({
   type: z.enum(SKILL_TYPES),
   skills: z.array(z.string()),
@@ -372,11 +315,15 @@ export const SkillsResponseSchema = z.object({
 });
 export type SkillsResponse = z.infer<typeof SkillsResponseSchema>;
 
-/** POST /api/skills: a skill the library lacks, kept for this user only. */
+/**
+ * POST /api/skills: a skill the library lacks, kept for this user only. v33 SKILLS: `family` (the resume's field) files
+ * a hard skill no rule places under that field's heading, not "Frameworks and Libraries".
+ */
 export const AddSkillBodySchema = z.object({
   type: z.enum(SKILL_TYPES),
   skill: z.string().trim().min(1).max(100),
   category: z.string().trim().max(100).optional(),
+  family: RoleFamilyIdSchema.optional(), // v33 SKILLS
 });
 export const AddSkillResponseSchema = z.object({
   added: z.boolean(),
@@ -437,6 +384,11 @@ export const BulletsRequestSchema = z.object({
   instructions: z.string().trim().max(MAX_BULLETS_NOTE_LENGTH).optional(),
   /** 1: the description, the bullets and the summary hold inline markup (the on-page editor's). Absent: literal text. */
   markupVersion: z.literal(1).optional(),
+  /**
+   * v33 INT-1: the resume's field as the editor shows it (its Field select): the bullets are written in that field's
+   * words. Absent (an older client, or the field not known yet): the server detects it from the headline and the entry.
+   */
+  roleFamily: RoleFamilyIdSchema.optional(),
 });
 export type BulletsRequest = z.infer<typeof BulletsRequestSchema>;
 

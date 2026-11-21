@@ -1,4 +1,4 @@
-import { STATUS } from '@tailorit/shared';
+import { isEligibilityReason, STATUS, type FilterReasonEntry } from '@tailorit/shared';
 import { PrepareFiltersExtraSchema, type PrepareFiltersExtra } from '@tailorit/shared/filters';
 import type { PrepareStartResponse } from '@tailorit/shared/prepare';
 import type { FilterCheck } from '../../core/seams';
@@ -6,12 +6,14 @@ import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { AppError, validationFailed } from '../../core/http/errors';
 import { untrustedText } from '../autofill/ai/untrusted';
+import { reasonsFor } from '../prepare/kit'; // v33 SHARE-8
 import { rulesPointer } from './instructions';
 import { mcpJobOf } from './job';
 import { finishIfDone } from './next';
 import { assertRoomForResumes } from './limits';
-import { loadResultSet, readSetCursor, saveResultSet, setCursor } from './result-sets';
-import type { SaveContext } from './save';
+import { profileWrapped } from './profiles'; // v33 SHARE-8
+import { loadResultSet, readSetCursor, saveResultSet, setCursor, SET_GONE, type SetScope } from './result-sets';
+import { refuseGrantTripwire, type SaveContext } from './save';
 
 // v2.0 P5 (07-mcp.md "New"; 06-filters-analysis.md): which saved jobs the person's own AI prepares is decided by the
 // platform, never by that AI (R1).
@@ -26,6 +28,11 @@ import type { SaveContext } from './save';
 //   that pass with P2's startPrepare (mode `mcp`): a failing job is `filtered`, an unjudged one `skipped`
 //   (custom_pending). The resume limit is checked before (the `tailor` mode makes a resume, A29); no AI budget, since
 //   no server AI runs. A custom instruction such as "prepare every job" changes nothing here.
+// v33 SHARE-8 (PLAN-sharing.md §4 "Sensitive facts", §7): on another person's profile the runs are the caller's on that
+// profile (its result sets, ctx.sets), the owner's Custom filter prompt comes in the profile's wrapper with the grant's
+// tripwire, a reason from an eligibility answer reads as one `eligibility` without `sensitive:view` (maskEligibility),
+// verdict reasons holding a tripwire of the caller's grants are refused, and prepare_start starts the caller's Prepares
+// there, paid by the caller under the grant (payerOfGrant(grant, 'mcp')).
 
 /** One row of a run: [job id, 1 pass | 0 fail, the first reason code or ""]. */
 type FilterRow = [number, 0 | 1, string];
@@ -39,9 +46,46 @@ interface FilterRun {
   /** Passing jobs the Custom filter has not judged, under `promptHash`. */
   pending: number[];
   promptHash: string | null;
+  /**
+   * v33 SHARE-8 (review): whether the rows name eligibility reasons (made by a caller who could see them). Its later
+   * pages are gone for a caller who cannot (any more); missing (a run made before this): as if true.
+   */
+  sensitive?: boolean;
 }
 
 const FILTER_COLUMNS = ['id', 'ok', 'why'] as const;
+
+// v33 SHARE-8 (review; PLAN-sharing.md §4 "Sensitive facts and what can be inferred") ---------------------------------
+
+/** Which failing reasons a caller may not have the filters read from the owner's sensitive answers (null: none). */
+type UnknownToViewer = ((entry: FilterReasonEntry) => boolean) | null;
+
+/**
+ * Without Sensitive answers' See, an eligibility switch the AI adds in `extra` never reads the owner's citizenships or
+ * clearance, since whether a job passes would tell them (two owners differing only there must get the same rows): that
+ * part counts as unknown, so it passes, as in the web's preview (prepare-filters preview's `sensitive: false`). A
+ * switch the owner saved on decides the row without `extra` already (the documented leak: `eligibility`, never why) and
+ * stays as it is. The sponsorship switch reads the job alone. Each filter gives at most one reason, and the
+ * qualification filter's citizenship part only when its degree and years parts pass, so leaving that reason out is the
+ * check with the answer unknown.
+ */
+async function unknownToViewer(ctx: SaveContext, extra: PrepareFiltersExtra | undefined): Promise<UnknownToViewer> {
+  if (ctx.profile.sensitive || !extra || (extra.qualificationMismatch !== true && extra.clearanceMismatch !== true)) return null;
+  const { filters: saved } = await filters(ctx.deps).filtersOf(ctx.userId);
+  const citizenship = extra.qualificationMismatch === true && saved.qualificationMismatch !== true;
+  const clearance = extra.clearanceMismatch === true && saved.clearanceMismatch !== true;
+  if (!citizenship && !clearance) return null;
+  return (entry) => (citizenship && entry.code === 'qualification' && isEligibilityReason(entry)) || (clearance && entry.code === 'clearance');
+}
+
+/** A check as it reads with the reasons `unknown` names left out (no reason left: a pass). */
+function withUnknown(check: FilterCheck, unknown: UnknownToViewer): FilterCheck {
+  if (!unknown || check.verdict.verdict !== 'fail') return check;
+  const reasons = check.verdict.reasons.filter((entry) => !unknown(entry));
+  if (reasons.length === check.verdict.reasons.length) return check;
+  return { ...check, verdict: reasons.length > 0 ? { verdict: 'fail', reasons } : { verdict: 'pass', reasons: [] } };
+}
+// end v33 SHARE-8 (review)
 /** The why of a job the Custom filter has not judged yet. */
 export const CUSTOM_PENDING = 'custom_pending';
 
@@ -82,22 +126,24 @@ async function entriesOfJobs(deps: Pick<AppDeps, 'db'>, userId: string, jobIds: 
   return out;
 }
 
-/** A check's row: pass, a failing filter's first reason, the Custom filter's fail, or not judged yet. */
-function rowOf(check: FilterCheck): FilterRow {
-  if (check.verdict.verdict === 'fail') return [check.jobId, 0, check.verdict.reasons[0]?.code ?? 'filtered'];
+/**
+ * A check's row: pass, a failing filter's first reason, the Custom filter's fail, or not judged yet. v33 SHARE-8: the
+ * reason as the caller may see it on the profile (`sensitive` false: an eligibility reason is one `eligibility`).
+ */
+function rowOf(check: FilterCheck, sensitive = true): FilterRow {
+  if (check.verdict.verdict === 'fail') return [check.jobId, 0, reasonsFor({ sensitive }, check.verdict.reasons)[0]?.code ?? 'filtered'];
   if (check.custom === 'fail') return [check.jobId, 0, 'custom'];
   return [check.jobId, 1, check.custom === 'pending' ? CUSTOM_PENDING : ''];
 }
 
 async function pageOf(
-  deps: AppDeps,
-  userId: string,
-  tokenId: string | null,
+  ctx: SaveContext,
   runId: string,
   run: FilterRun,
   offset: number,
   prompt: string | null,
 ) {
+  const { deps } = ctx;
   const size = constantsOf(deps).get('MCP_FILTER_PAGE_MAX');
   const rows = run.rows.slice(offset, offset + size);
   const pendingHere = rows.filter((row) => row[2] === CUSTOM_PENDING).map((row) => row[0]);
@@ -109,9 +155,10 @@ async function pageOf(
     fail: run.rows.length - pass,
     cols: FILTER_COLUMNS,
     rows,
-    ...(pendingHere.length > 0 && prompt !== null ? { custom: { prompt, pending: pendingHere } } : {}),
+    // v33 SHARE-8: the owner's prompt in the profile's wrapper on another person's profile.
+    ...(pendingHere.length > 0 && prompt !== null ? { custom: { prompt: profileWrapped(ctx.profile, prompt), pending: pendingHere } } : {}),
     ...(offset + size < run.rows.length ? { nextCursor: setCursor(runId, offset + size) } : {}),
-    ...(await rulesPointer(deps, userId, tokenId)),
+    ...(await rulesPointer(deps, ctx.caller.id, ctx.tokenId ?? null)),
   };
 }
 
@@ -140,16 +187,17 @@ function extraOf(value: unknown): PrepareFiltersExtra | undefined {
 /** filter_jobs. */
 export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
   const { deps, userId } = ctx;
-  const tokenId = ctx.tokenId ?? null;
   const extra = extraOf(input.extra);
   const service = filters(deps);
   if (input.cursor !== undefined) {
     const { setId, offset } = readSetCursor(input.cursor);
-    const set = await loadResultSet(deps, userId, setId);
+    const set = await loadResultSet(deps, ctx.sets, setId);
     if (set.source !== 'filter') throw validationFailed('cursor: that cursor is not a filter_jobs cursor.');
     const run = set.query as FilterRun;
+    // v33 SHARE-8 (review): rows made while the caller saw eligibility reasons are not paged to one who no longer does.
+    if (!ctx.profile.sensitive && run.sensitive !== false) throw new AppError('not_found', SET_GONE);
     const custom = await service.customPrompt(userId);
-    return pageOf(deps, userId, tokenId, set.id, run, offset, custom && custom.hash === run.promptHash ? custom.prompt : null);
+    return pageOf(ctx, set.id, run, offset, custom && custom.hash === run.promptHash ? custom.prompt : null);
   }
   const named = [input.scope !== undefined, input.setId !== undefined, input.jobIds !== undefined].filter(Boolean).length;
   if (named !== 1) {
@@ -160,7 +208,7 @@ export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
   if (input.scope === 'saved') {
     entries = await savedEntries(deps, userId);
   } else {
-    const jobIds = input.setId !== undefined ? (await loadResultSet(deps, userId, input.setId)).ids : [...new Set(input.jobIds!)];
+    const jobIds = input.setId !== undefined ? (await loadResultSet(deps, ctx.sets, input.setId)).ids : [...new Set(input.jobIds!)];
     const saved = new Map((await savedEntries(deps, userId)).map((entry) => [entry.jobId, entry.applicationId]));
     entries = jobIds.flatMap((jobId) => {
       const applicationId = saved.get(jobId);
@@ -174,9 +222,10 @@ export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
     { ...(extra ? { extra } : {}), record: false },
   );
   const byApplication = new Map(checks.map((check) => [check.applicationId, check]));
+  const unknown = await unknownToViewer(ctx, extra); // v33 SHARE-8 (review)
   const rows = entries.flatMap((entry) => {
     const check = byApplication.get(entry.applicationId);
-    return check ? [rowOf(check)] : [];
+    return check ? [rowOf(withUnknown(check, unknown), ctx.profile.sensitive)] : [];
   });
   const custom = await service.customPrompt(userId);
   const run: FilterRun = {
@@ -187,12 +236,13 @@ export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
     rows,
     pending: rows.filter((row) => row[2] === CUSTOM_PENDING).map((row) => row[0]),
     promptHash: custom?.hash ?? null,
+    sensitive: ctx.profile.sensitive, // v33 SHARE-8 (review)
   };
   const passing = rows.filter((row) => row[1] === 1).map((row) => row[0]);
-  const set = await saveResultSet(deps, userId, 'filter', run, passing, passing.length);
+  const set = await saveResultSet(deps, ctx.sets, 'filter', run, passing, passing.length);
   deps.log.debug(`[mcp] account ${userId}: filter_jobs ran over ${rows.length} job(s), ${passing.length} pass`);
   return {
-    ...(await pageOf(deps, userId, tokenId, set.id, run, 0, custom?.prompt ?? null)),
+    ...(await pageOf(ctx, set.id, run, 0, custom?.prompt ?? null)),
     ...(notSaved > 0 ? { notSaved } : {}),
   };
 }
@@ -203,11 +253,18 @@ export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
 export const VERDICTS_MAX = 100;
 export const VERDICT_REASON_MAX = 80;
 
-/** The jobs this person's live filter runs listed as pending under `promptHash`. */
-async function listedPending(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, promptHash: string): Promise<Set<number>> {
+/**
+ * The jobs this person's live filter runs listed as pending under `promptHash`. v33 SHARE-8: the caller's runs on this
+ * profile (under this grant: a run on another profile, or under an earlier grant, lists nothing here).
+ */
+async function listedPending(deps: Pick<AppDeps, 'db' | 'now'>, sets: SetScope, promptHash: string): Promise<Set<number>> {
+  const shared = sets.grantId !== null;
   const rows = await deps.db.all<{ query: string }>(
-    `SELECT query FROM mcp_result_sets WHERE user_id = ? AND source = 'filter' AND expires_at > ?`,
-    [userId, deps.now().toISOString()],
+    `SELECT query FROM mcp_result_sets WHERE user_id = ? AND source = 'filter' AND expires_at > ?
+        AND ${shared ? 'grant_id = ? AND profile_user_id = ?' : 'grant_id IS NULL'}`,
+    shared
+      ? [sets.callerId, deps.now().toISOString(), sets.grantId, sets.profileUserId]
+      : [sets.callerId, deps.now().toISOString()],
   );
   const out = new Set<number>();
   for (const row of rows) {
@@ -228,11 +285,12 @@ export async function customFilterVerdicts(
   verdicts: ReadonlyArray<{ jobId: number; pass: boolean; reason?: string }>,
 ) {
   const { deps, userId } = ctx;
+  refuseGrantTripwire(ctx, verdicts.map((verdict) => verdict.reason ?? '')); // v33 SHARE-8
   const service = filters(deps);
   const custom = await service.customPrompt(userId);
   const ignored: number[] = [];
   if (!custom) return { saved: 0, ignored: verdicts.map((verdict) => verdict.jobId), why: 'The custom filter is off.' };
-  const listed = await listedPending(deps, userId, custom.hash);
+  const listed = await listedPending(deps, ctx.sets, custom.hash);
   const seen = new Set<number>();
   const candidates: Array<{ jobId: number; pass: boolean; reason?: string }> = [];
   for (const verdict of verdicts) {
@@ -306,7 +364,7 @@ export async function prepareStart(ctx: SaveContext, input: PrepareStartInput) {
   } else {
     let jobIds: number[];
     if (input.runId !== undefined) {
-      const set = await loadResultSet(deps, userId, input.runId);
+      const set = await loadResultSet(deps, ctx.sets, input.runId);
       if (set.source !== 'filter') throw validationFailed('runId: use the runId filter_jobs answered.');
       jobIds = set.ids;
     } else {
@@ -338,21 +396,28 @@ export async function prepareStart(ctx: SaveContext, input: PrepareStartInput) {
       toStart.push(entry.applicationId);
       continue;
     }
-    const [, ok, why] = rowOf(check);
+    const [, ok, why] = rowOf(check, ctx.profile.sensitive);
     if (ok === 0) rows.set(entry.applicationId, [entry.key, 'filtered', why]);
     else if (why === CUSTOM_PENDING) rows.set(entry.applicationId, [entry.key, 'skipped', CUSTOM_PENDING]);
     else toStart.push(entry.applicationId);
   }
 
   // A29: the resume limit refuses a Prepare that makes a resume (`tailor`) at or over the plan's limit, before any start.
-  if (toStart.length > 0 && (await ctx.prepare.resumeMode(deps, userId)) === 'tailor') await assertRoomForResumes(deps, userId, 1);
+  // v33 SHARE-8: the caller's room on another person's profile keeps the owner's last places (the reserve).
+  if (toStart.length > 0 && (await ctx.prepare.resumeMode(deps, userId)) === 'tailor') await assertRoomForResumes(deps, userId, 1, ctx.profile.payer);
 
   const keys = new Map(known.map((entry) => [entry.applicationId, entry.key]));
   let stopped: { code: string; message: string } | undefined;
   for (let at = 0; at < toStart.length && !stopped; at += batch) {
     const chunk = toStart.slice(at, at + batch);
     try {
-      const answer = await ctx.prepare.start(deps, userId, { applicationIds: chunk, rebuild: input.rebuild ?? false });
+      // v33 SHARE-8 (SHARE-5's edit 7): the caller starts and pays (under the grant on another person's profile).
+      const answer = await ctx.prepare.start(
+        deps,
+        userId,
+        { applicationIds: chunk, rebuild: input.rebuild ?? false },
+        { payer: ctx.profile.payer, viewer: { sensitive: ctx.profile.sensitive } },
+      );
       for (const result of answer.results) {
         const key = keys.get(result.applicationId) ?? result.applicationId;
         // A kit that needs nothing of the person's AI (a chosen resume, no letter wanted, no question to answer) is
@@ -382,6 +447,8 @@ export async function prepareStart(ctx: SaveContext, input: PrepareStartInput) {
     next:
       started > 0
         ? 'Call prepare_queue: it lists the jobs waiting for your AI.'
-        : 'No job was started for your AI: tell the person, with the outcomes above.',
+        : ctx.hint
+          ? 'No job was started for your AI on this profile: tell the person, with the outcomes above, then go on with the next profile.'
+          : 'No job was started for your AI: tell the person, with the outcomes above.',
   };
 }

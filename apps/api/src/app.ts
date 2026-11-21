@@ -1,7 +1,9 @@
-import express, { type Express, type NextFunction } from 'express';
+import express, { Router, type Express, type NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import { attachActing } from './core/auth/acting'; // v33 SHARE-1
 import { attachBearer, CONNECT_REDEEM_PATH, tokenScope } from './core/auth/extension-tokens';
+import { RoutePolicies } from './core/auth/route-policy'; // v33 SHARE-1
 import { attachUser } from './core/auth/session';
 import { grantAdminsPaidOnce } from './core/accounts/admin-grant';
 import { constantsOf, loadConstants } from './core/constants/index';
@@ -77,10 +79,15 @@ export function createApp(deps: AppDeps, features: Feature[] = FEATURES): Expres
   // Content-Security-Policy is set per response by the routes that return HTML (previews); JSON needs none.
   app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'same-origin' } }));
   app.use(requestId);
+  // v33 SHARE-1: every feature route is guarded for shared profiles as it is mounted (core/auth/route-policy.ts).
+  const policies = new RoutePolicies(deps); // v33 INT-B: deps, so the guard counts the shared profiles' activity
   // v1.5 M: routes that read no cookie and no body parser's body (the MCP endpoint at /mcp, features/mcp): before the
   // cookie, the extension's bearer, the JSON body and the Origin check, none of which applies to them.
   for (const feature of features) {
-    for (const route of feature.earlyRoutes ?? []) app.use(route.path, route.router(deps));
+    for (const route of feature.earlyRoutes ?? []) {
+      policies.early({ feature: feature.name, path: route.path }); // v33 SHARE-1: no session there, so no profile named
+      app.use(route.path, route.router(deps));
+    }
   }
   // end v1.5 M
   app.use('/api', noStore);
@@ -94,14 +101,24 @@ export function createApp(deps: AppDeps, features: Feature[] = FEATURES): Expres
   app.use(originCheck(deps.config.appOrigin, { cookieFree: [CONNECT_REDEEM_PATH] }));
   app.use(attachUser(deps));
   app.use(tokenScope);
+  // v33 SHARE-1 (PLAN F9 "Acting"): which shared profile the request names (X-TailorIT-Profile, or ?profile= on GET and
+  // HEAD), and its grant, read again on every request; each route's guard then decides (core/auth/route-policy.ts).
+  app.use(attachActing(deps));
 
-  app.get('/api/health', (_req, res) => {
+  // v33 SHARE-1: the health check is a router of its own, so the guard covers it too (`self`: no one's data).
+  const health = Router();
+  health.get('/', (_req, res) => {
     res.json({ ok: true, service: 'tailorit-api', time: deps.now().toISOString() });
   });
+  app.use('/api/health', policies.guard(health, 'self', { feature: 'core', path: '/api/health' }));
 
   for (const feature of features) {
-    for (const route of feature.routes ?? []) app.use(route.path, route.router(deps));
+    for (const route of feature.routes ?? []) {
+      // v33 SHARE-1: the guard wraps the first handler of each method of each route, by the mount's `acting`.
+      app.use(route.path, policies.guard(route.router(deps), route.acting, { feature: feature.name, path: route.path }));
+    }
   }
+  policies.finish(app, deps.log); // v33 SHARE-1: the coverage report (actingCoverageOf) and the boot log line
 
   app.use('/api', notFoundHandler);
   app.use(errorHandler(deps.log));

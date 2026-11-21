@@ -221,8 +221,8 @@ export function experienceSections(lines: readonly string[]): Array<[number, num
   return spans.length > 0 ? spans : null;
 }
 
-/** The nouns a job title ends in (lower case): roles, so an institution on the same line is an employer. */
-export const ROLE_NOUNS: ReadonlySet<string> = new Set([
+/** v3.2's role nouns (lower case): also the words a person's name line may never hold (`isCoreRoleNoun`). */
+const CORE_ROLE_NOUNS: readonly string[] = [
   'engineer', 'developer', 'manager', 'designer', 'analyst', 'scientist', 'architect', 'consultant', 'specialist',
   'administrator', 'lead', 'director', 'intern', 'officer', 'coordinator', 'associate', 'recruiter', 'accountant',
   'researcher', 'technician', 'strategist', 'programmer', 'tester', 'writer', 'producer', 'owner', 'founder',
@@ -230,7 +230,37 @@ export const ROLE_NOUNS: ReadonlySet<string> = new Set([
   'advisor', 'adviser', 'assistant', 'teacher', 'professor', 'lecturer', 'instructor', 'tutor', 'fellow', 'postdoc',
   'counselor', 'librarian', 'nurse', 'physician', 'attorney', 'counsel', 'paralegal', 'auditor', 'controller',
   'bookkeeper', 'marketer', 'agent', 'ceo', 'cto', 'cfo', 'coo', 'cio', 'ciso', 'cmo', 'cpo', 'vp', 'sre',
-]);
+];
+
+// v33 ROLES (F4): the titles of every field, so a nurse's, a cook's or an electrician's roles are read too. Many are
+// also surnames (Cook, Baker, Carpenter), so a name line is still checked against v3.2's nouns only.
+const FIELD_ROLE_NOUNS: readonly string[] = [
+  'supervisor', 'driver', 'cashier', 'clerk', 'receptionist', 'electrician', 'mechanic', 'operator', 'cook', 'chef',
+  'server', 'caregiver', 'carer', 'aide', 'therapist', 'pharmacist', 'guard', 'dispatcher', 'installer', 'inspector',
+  'teller', 'worker', 'attendant', 'bartender', 'barista', 'host', 'hostess', 'housekeeper', 'janitor', 'custodian',
+  'cleaner', 'landscaper', 'groundskeeper', 'laborer', 'labourer', 'carpenter', 'plumber', 'welder', 'machinist',
+  'assembler', 'fabricator', 'painter', 'roofer', 'pipefitter', 'foreman', 'superintendent', 'estimator', 'handler',
+  'picker', 'packer', 'loader', 'courier', 'chauffeur', 'pilot', 'deckhand', 'firefighter', 'paramedic', 'emt', 'cna',
+  'rn', 'lpn', 'lvn', 'phlebotomist', 'sonographer', 'technologist', 'hygienist', 'dentist', 'veterinarian', 'surgeon',
+  'practitioner', 'pathologist', 'audiologist', 'optometrist', 'psychologist', 'counsellor', 'caseworker', 'stylist',
+  'barber', 'cosmetologist', 'esthetician', 'trainer', 'coach', 'nanny', 'groomer', 'farmer', 'rancher', 'lineman',
+  'lineworker', 'miner', 'merchandiser', 'stocker', 'buyer', 'planner', 'scheduler', 'secretary', 'typist',
+  'transcriptionist', 'paraprofessional', 'educator', 'dean', 'registrar', 'interpreter', 'translator', 'journalist',
+  'reporter', 'photographer', 'videographer', 'illustrator', 'animator', 'chemist', 'biologist', 'microbiologist',
+  'geologist', 'physicist', 'statistician', 'economist', 'actuary', 'underwriter', 'adjuster', 'appraiser', 'realtor',
+  'broker', 'banker', 'surveyor', 'drafter', 'detective', 'sheriff', 'trooper', 'ranger', 'lifeguard', 'dietitian',
+  'nutritionist', 'optician', 'midwife', 'concierge', 'valet', 'baker', 'butcher', 'dishwasher', 'busser', 'helper',
+  'apprentice',
+];
+
+/** The nouns a job title ends in (lower case): roles, so an institution on the same line is an employer. */
+export const ROLE_NOUNS: ReadonlySet<string> = new Set([...CORE_ROLE_NOUNS, ...FIELD_ROLE_NOUNS]);
+const CORE_ROLE_NOUN_SET: ReadonlySet<string> = new Set(CORE_ROLE_NOUNS);
+
+// v33 ROLES: a technology's name that ends in one of the role nouns above ("SQL Server", "Device Driver", "Kubernetes
+// Operator", "Message Broker") is not a job title.
+const TECH_COMPOUND =
+  /(?:^|\s)(?:sql|web|application|app|file|mail|game|media|proxy|dns|dhcp|build|print|database|linux|windows|exchange|ci|api|http|graphql|mcp|language|device|kernel|printer|graphics|gpu|usb|jdbc|odbc|kubernetes|k8s|message|kafka|event|task|job|cron|garbage|data|load|boot)\s+(?:servers?|drivers?|operators?|brokers?|handlers?|schedulers?|collectors?|loaders?|hosts?)$/i;
 
 const DEGREE_WORDS =
   /(?<![\p{L}\p{N}])(?:bachelor(?:['’]?s)?|master(?:['’]s|s)|master\s+of|associate['’]?s?\s+degree|doctorate|doctoral|ph\.?\s?d\.?|m\.b\.a\.?|mba|b\.\s?sc?\.?|m\.\s?sc\.?|m\.\s?s\.|b\.\s?a\.|m\.\s?a\.|b\.?\s?eng\.?|m\.?\s?eng\.?|msc|bsc|degree|diploma|gpa|class\s+of|boot\s?camp|coursework|graduated|graduation)(?![\p{L}\p{N}])/iu;
@@ -243,6 +273,20 @@ export function isRoleNoun(word: string): boolean {
   const lower = word.toLowerCase().replace(/['’]s$/, '');
   return ROLE_NOUNS.has(lower) || (lower.endsWith('s') && ROLE_NOUNS.has(lower.slice(0, -1)));
 }
+
+// v33 ROLES
+/** Whether a word is one of v3.2's role nouns: a person's name line holding one is a title ("Jane Cook" stays a name). */
+export function isCoreRoleNoun(word: string): boolean {
+  const lower = word.toLowerCase().replace(/['’]s$/, '');
+  return CORE_ROLE_NOUN_SET.has(lower) || (lower.endsWith('s') && CORE_ROLE_NOUN_SET.has(lower.slice(0, -1)));
+}
+
+/** Whether a title's last word is its role: a role noun, unless the word before makes it a technology ("SQL Server"). */
+export function isRoleHead(head: string, previous?: string): boolean {
+  if (!isRoleNoun(head)) return false;
+  return !(previous && TECH_COMPOUND.test(`${previous} ${head}`));
+}
+// end v33 ROLES
 
 function hasRoleNoun(line: string): boolean {
   return (line.match(WORDS) ?? []).some(isRoleNoun);

@@ -6,7 +6,6 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Spinner } from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { fetchSaveAllPreview, listQueryString } from '../api';
 import {
@@ -18,7 +17,7 @@ import {
   saveAllResultCopy,
   saveAllUndoneCopy,
 } from '../format';
-import { useSaveAll, useUndoSaveAll, type useJobsList } from '../hooks';
+import { failure, useSaveAll, useUndoSaveAll, type useJobsList } from '../hooks';
 import { BookmarksSimpleIcon } from '../icons';
 import { BAR_BUTTON, BAR_WORD } from './styles'; // v31 FIX-JOBS: the results bar's button look
 
@@ -84,7 +83,7 @@ export function SaveAllButton({ query, list }: SaveAllButtonProps) {
       setConfirming({ preview, queryString: asked });
       setOpen(true);
     } catch (error) {
-      if (shownQuery.current === asked) toast.error(SAVE_ALL_FAILED, userMessage(error));
+      if (shownQuery.current === asked) failure(toast, SAVE_ALL_FAILED, error);
     } finally {
       counting.current = false;
       setPendingCount(false);
@@ -97,7 +96,7 @@ export function SaveAllButton({ query, list }: SaveAllButtonProps) {
         const copy = saveAllUndoneCopy(affected);
         toast.info(copy.title, copy.description);
       },
-      onError: (error) => toast.error(UNDO_SAVE_ALL_FAILED, userMessage(error)),
+      onError: (error) => failure(toast, UNDO_SAVE_ALL_FAILED, error),
     });
   };
 

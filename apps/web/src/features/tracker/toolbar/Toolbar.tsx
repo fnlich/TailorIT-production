@@ -81,15 +81,26 @@ export function TabsRow({
   );
 }
 
-/** Board | List | Chart (icons with their words; a phone keeps the words for screen readers). */
+const VIEW_ITEMS = [
+  { value: 'board', label: <span className="max-sm:sr-only">Board</span>, icon: <KanbanIcon size={16} /> },
+  { value: 'list', label: <span className="max-sm:sr-only">List</span>, icon: <RowsIcon size={16} /> },
+  { value: 'chart', label: <span className="max-sm:sr-only">Chart</span>, icon: <ChartLineIcon size={16} /> },
+] as const;
+
+/**
+ * Board | List | Chart (icons with their words; a phone keeps the words for screen readers). v33 SHARE-9: `chart`
+ * false leaves Chart out (the All profiles view has no chart).
+ */
 export function ViewSwitch({
   view,
   onViewChange,
   className,
+  chart = true,
 }: {
   view: TrackerView;
   onViewChange: (view: TrackerView) => void;
   className?: string;
+  chart?: boolean;
 }) {
   return (
     <SegmentedControl
@@ -98,11 +109,7 @@ export function ViewSwitch({
       onValueChange={onViewChange}
       className={className}
       listClassName="max-sm:h-11"
-      items={[
-        { value: 'board', label: <span className="max-sm:sr-only">Board</span>, icon: <KanbanIcon size={16} /> },
-        { value: 'list', label: <span className="max-sm:sr-only">List</span>, icon: <RowsIcon size={16} /> },
-        { value: 'chart', label: <span className="max-sm:sr-only">Chart</span>, icon: <ChartLineIcon size={16} /> },
-      ]}
+      items={VIEW_ITEMS.filter((item) => chart || item.value !== 'chart').map((item) => ({ ...item }))}
     />
   );
 }
@@ -120,6 +127,7 @@ export function SearchRow({
   onViewChange,
   tabs,
   options,
+  chart = true,
 }: {
   view: TrackerView;
   search: string;
@@ -128,6 +136,8 @@ export function SearchRow({
   /** Active | Archived (TabsRow). */
   tabs?: ReactNode;
   options: ReactNode;
+  /** v33 SHARE-9: the view switch offers Chart (not in the All profiles view). */
+  chart?: boolean;
 }) {
   const { t } = usePublicConstants();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -177,7 +187,7 @@ export function SearchRow({
         </>
       )}
       {tabs}
-      <ViewSwitch view={view} onViewChange={onViewChange} className="max-sm:hidden" />
+      <ViewSwitch view={view} onViewChange={onViewChange} className="max-sm:hidden" chart={chart} />
       <div className="ml-auto flex items-center gap-2">{options}</div>
     </div>
   );
@@ -289,6 +299,7 @@ export function ManageBar({
   onBuildResumes,
   buildingResumes,
   resumesLocked = false,
+  deletable = true,
   onDone,
 }: {
   tab: TrackerTab;
@@ -297,11 +308,14 @@ export function ManageBar({
   allSelected: boolean;
   onSelectAll: (selected: boolean) => void;
   onBulk: (kind: BulkKind) => Promise<void>;
-  onBuildResumes: () => void;
+  /** v33 SHARE-9 fix (review): left out where the zip is not offered (a shared profile without Exports). */
+  onBuildResumes?: () => void;
   /** A zip is being built (the button waits for it). */
   buildingResumes: boolean;
   /** v2.0 fix (SEC-6): a Free account: the button shows a lock and opens the Paid feature's dialog. */
   resumesLocked?: boolean;
+  /** v33 SHARE-9 fix (review; F9's Change box archives but never deletes): false on a shared profile (no Delete). */
+  deletable?: boolean;
   onDone: () => void;
 }) {
   const [pending, setPending] = useState<BulkKind | null>(null);
@@ -358,9 +372,11 @@ export function ManageBar({
         >
           Restore
         </Button>
-        <Button variant="destructive-outline" size="sm" icon={<TrashIcon size={14} />} disabled={none} onClick={() => setPending('delete')}>
-          Delete
-        </Button>
+        {deletable && (
+          <Button variant="destructive-outline" size="sm" icon={<TrashIcon size={14} />} disabled={none} onClick={() => setPending('delete')}>
+            Delete
+          </Button>
+        )}
         <Menu>
           <MenuTrigger
             disabled={none}
@@ -376,17 +392,19 @@ export function ManageBar({
             ))}
           </MenuContent>
         </Menu>
-        <Button
-          variant="outline"
-          size="sm"
-          icon={resumesLocked ? <LockSimpleIcon size={14} data-lock-icon="" /> : <FileZipIcon size={14} />}
-          disabled={none || buildingResumes}
-          onClick={onBuildResumes}
-          data-locked={resumesLocked ? '' : undefined}
-        >
-          {buildingResumes ? 'Building resumes...' : 'Build resumes'}
-          {resumesLocked && <span className="sr-only"> ({LIMIT_COPY.paidOnly})</span>}
-        </Button>
+        {onBuildResumes && (
+          <Button
+            variant="outline"
+            size="sm"
+            icon={resumesLocked ? <LockSimpleIcon size={14} data-lock-icon="" /> : <FileZipIcon size={14} />}
+            disabled={none || buildingResumes}
+            onClick={onBuildResumes}
+            data-locked={resumesLocked ? '' : undefined}
+          >
+            {buildingResumes ? 'Building resumes...' : 'Build resumes'}
+            {resumesLocked && <span className="sr-only"> ({LIMIT_COPY.paidOnly})</span>}
+          </Button>
+        )}
         <Button size="sm" onClick={onDone}>
           Done
         </Button>

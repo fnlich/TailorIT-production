@@ -15,9 +15,30 @@ import { headingOfLine, namesPostingSection } from './sections';
 // The answer may differ only where Claude would have read a cut line, which the prompt tells it not to, so the prompt
 // version stays: no stored analysis is asked for again (job-analysis/prompt.ts).
 
+// v33 JOBDETAIL: the benefits part of the cut headings, exported for the job page's Benefits (job-analysis/benefits.ts);
+// BOILERPLATE_HEADING is built from it.
+// v33 FIX-2 (final review, security 1): a heading names the person's benefits, not a role or a duty of the job (v3.3's
+// HR families: "Benefits Specialist", "Benefits Administration:", "Benefits and Leave Coordinator") nor what a firm
+// offers its clients ("What we offer our clients"): both are the job's own text, so the Benefits card no longer lists
+// them and the analysis reads them again. Only those headings changed: "Benefits", "Perks & Benefits", "What we offer"
+// and "What we offer you" are cut as before.
+/**
+ * After "benefit(s)" or "rewards", right away or one word on ("and" or "&" allowed between): a role or a function, so
+ * the heading is a job title or a duty group ("Benefits Specialist", "Benefits Administration", "Total Rewards Analyst").
+ */
+export const NOT_A_ROLE_AFTER = String.raw`(?![\s/&-]+(?:(?:and|&)\s+)?(?:[a-z]+[\s/&-]+)?(?:administration|administrators?|admins?|specialists?|coordinators?|analysts?|managers?|management|consultants?|advisors?|advisers?|partners?|representatives?|reps?|associates?|leads?|directors?|clerks?|generalists?|assistants?|officers?|supervisors?|brokers?|counsell?ors?|technicians?|auditors?|audits?|team|enrol(?:l)?ments?|operations|compliance|strategy|claims|billing|processing|accounting|communications)\b)`;
+/** After "we offer": what a firm sells or whom it serves ("What we offer our clients"), not what the person gets. */
+const NOT_TO_OTHERS_AFTER = String.raw`(?!\s+(?:to\s+)?(?:our\s+|the\s+|your\s+)?(?:clients?|customers?|patients?|partners?|businesses|brands?|companies|organi[sz]ations?|communit(?:y|ies)|members|students|residents|guests|families|consumers|users|services?|products?|solutions?)\b)`;
+/** Headings of a posting's benefits part ("Benefits", "Perks", "What we offer"). */
+export const BENEFITS_HEADING = new RegExp(
+  String.raw`\bbenefits?\b${NOT_A_ROLE_AFTER}|\bperks\b|\bwhat we offer\b${NOT_TO_OTHERS_AFTER}|\bwe offer\b${NOT_TO_OTHERS_AFTER}`,
+  'i',
+);
 /** Headings of the parts the analysis never reads. */
-const BOILERPLATE_HEADING =
-  /\bbenefits?\b|\bperks\b|\bwhat we offer\b|\bwe offer\b|\bequal (?:opportunity|employment)\b|\beeo\b|\bdiversity\b|\binclusion\b|\baccommodations?\b|\bprivacy\b|\bdata protection\b/i;
+const BOILERPLATE_HEADING = new RegExp(
+  `${BENEFITS_HEADING.source}|\\bequal (?:opportunity|employment)\\b|\\beeo\\b|\\bdiversity\\b|\\binclusion\\b|\\baccommodations?\\b|\\bprivacy\\b|\\bdata protection\\b`,
+  'i',
+);
 /** A heading that also names pay is kept whole: salary is one of the analysis's facts. */
 const PAY_HEADING = /\bcompensation\b|\bsalary\b|\bpay\b|\bwages?\b|\bremuneration\b/i;
 /** A line that states one of the analysis's facts: kept wherever it stands. */

@@ -1,5 +1,6 @@
 import type { Feature } from '../../core/feature';
 import { createResumeZipService } from './registry';
+import { RESUME_ZIP_ACTING } from './acting'; // v33 SHARE-6
 import { createResumeZipRouter } from './router';
 
 // "Build resumes" (work package WP11): a ZIP of each application's resume as {Company}/{Role}/{First_Last}_Resume.{ext},
@@ -15,7 +16,7 @@ export const resumeZipFeature: Feature = {
   services(deps) {
     deps.services.resumeZip = createResumeZipService(deps);
   },
-  routes: [{ path: '/api/applications/resume-zip', router: createResumeZipRouter }],
+  routes: [{ path: '/api/applications/resume-zip', router: createResumeZipRouter, acting: RESUME_ZIP_ACTING /* v33 SHARE-6 */ }],
   start(deps) {
     const service = deps.services.resumeZip;
     if (!service) return;

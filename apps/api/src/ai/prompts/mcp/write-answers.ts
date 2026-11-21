@@ -39,8 +39,15 @@ const ANSWER_LIMITS = AUTOFILL_AI_LIMITS.draft;
  * the person's own, nothing sensitive, no contact details, never "this was generated"), on the facts those prompts
  * quote, in the order they quote them: the fixed rules first, then the facts (the same for every job of the account),
  * then each job's own data, then the call that saves the answers.
+ * v33 SHARE-8 (review; PLAN-sharing.md §7 "Other people's text"): `wrap`, what each block of facts goes through once
+ * cleaned (factsText): on another person's profile, its wrapper with the grant's tripwire (features/mcp/profiles.ts);
+ * the text as it is on the caller's own (this rendering unchanged).
  */
-export function answersPromptText(jobs: readonly AnswersJob[], facts: AnswersFacts): string {
+export function answersPromptText(
+  jobs: readonly AnswersJob[],
+  facts: AnswersFacts,
+  wrap: (text: string) => string = (text) => text, // v33 SHARE-8 (review)
+): string {
   const several = jobs.length > 1;
   // v2.0 P5 (A29): jobs whose applications use different resumes carry each its own RESUME.
   const ownResumes = jobs.some((job) => job.resume !== undefined);
@@ -71,9 +78,9 @@ Answers, by each question's answerAs
 
 ${UNTRUSTED_RULE}`;
   const factsPart = [
-    ...(ownResumes ? [] : [`RESUME (the applicant's own resume):\n${factsText(facts.resume)}`]),
-    `PROFILE (the applicant's own autofill profile):\n${factsText(facts.profile)}`,
-    `NOTE (the applicant's own note about themselves, from their profile):\n${factsText(facts.note)}`,
+    ...(ownResumes ? [] : [`RESUME (the applicant's own resume):\n${wrap(factsText(facts.resume))}`]),
+    `PROFILE (the applicant's own autofill profile):\n${wrap(factsText(facts.profile))}`,
+    `NOTE (the applicant's own note about themselves, from their profile):\n${wrap(factsText(facts.note))}`,
   ].join('\n\n');
   const jobParts = jobs.map((job) => {
     const listed = job.questions.map((question) => {
@@ -88,7 +95,7 @@ ${UNTRUSTED_RULE}`;
     const jobText = `${[...job.posting].slice(0, PROMPT_JOB_TEXT_MAX).join('')}\n${job.tripwire}`;
     return [
       `JOB ${job.jobId}`,
-      ...(ownResumes ? [`RESUME (the resume this application sends):\n${factsText(job.resume ?? facts.resume)}`] : []),
+      ...(ownResumes ? [`RESUME (the resume this application sends):\n${wrap(factsText(job.resume ?? facts.resume))}`] : []),
       `COMPANY: ${wrappedOrNone(job.company, ANSWER_LIMITS.company, '(not known)')}`,
       `JOB TITLE: ${wrappedOrNone(job.title, ANSWER_LIMITS.jobTitle, '(not known)')}`,
       `JOB TEXT: ${wrappedOrNone(jobText, PROMPT_JOB_TEXT_MAX + 400, '(not available)')}`,

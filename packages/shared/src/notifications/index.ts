@@ -14,8 +14,11 @@ import { IsoDateTime } from '../core/list';
 //   PUT  /api/notifications/prefs                   (session) NotificationPrefsUpdate → NotificationPrefs
 //   GET  /api/me/header                             (session) → HeaderSummary (every page, every 60 s: one query)
 
-/** The groups a person turns on or off (Settings › Notifications). `admin` is listed for admins only. */
-export const NOTIFICATION_GROUPS = ['applications', 'jobs', 'account', 'extension', 'admin'] as const;
+/**
+ * The groups a person turns on or off (Settings › Notifications). `admin` is listed for admins only. v33 SHARE-0:
+ * `sharing`, shared profiles (PLAN F9): invites, changes, answers, jobs prepared for you, ends.
+ */
+export const NOTIFICATION_GROUPS = ['applications', 'jobs', 'account', 'extension', 'sharing', 'admin'] as const;
 export type NotificationGroup = (typeof NOTIFICATION_GROUPS)[number];
 
 /** Every kind of notification, by group (NOTIFICATION_KIND_GROUP). */
@@ -38,6 +41,15 @@ export const NOTIFICATION_KINDS = [
   'paid_ending',
   // extension
   'extension_disconnected',
+  // v33 SHARE-0, sharing (PLAN F9; PLAN-sharing.md §10): to the person a profile is shared with (B): invited, changed;
+  // to its owner (A): accepted, declined, prepared (B prepared jobs on A's profile); to the other side: ended.
+  'sharing_invited',
+  'sharing_changed',
+  'sharing_accepted',
+  'sharing_declined',
+  'sharing_prepared',
+  'sharing_ended',
+  // end v33 SHARE-0
   // admin (admins only)
   'admin_review_items',
   'admin_run_failed',
@@ -62,6 +74,14 @@ export const NOTIFICATION_KIND_GROUP: Readonly<Record<NotificationKind, Notifica
   credit_used_up: 'account',
   paid_ending: 'account',
   extension_disconnected: 'extension',
+  // v33 SHARE-0
+  sharing_invited: 'sharing',
+  sharing_changed: 'sharing',
+  sharing_accepted: 'sharing',
+  sharing_declined: 'sharing',
+  sharing_prepared: 'sharing',
+  sharing_ended: 'sharing',
+  // end v33 SHARE-0
   admin_review_items: 'admin',
   admin_run_failed: 'admin',
   admin_source_disabled: 'admin',
@@ -91,6 +111,14 @@ export const NOTIFICATION_KIND_TONE: Readonly<Record<NotificationKind, Notificat
   credit_used_up: 'danger',
   paid_ending: 'warning',
   extension_disconnected: 'warning',
+  // v33 SHARE-0
+  sharing_invited: 'info',
+  sharing_changed: 'info',
+  sharing_accepted: 'success',
+  sharing_declined: 'info',
+  sharing_prepared: 'info',
+  sharing_ended: 'warning',
+  // end v33 SHARE-0
   admin_review_items: 'info',
   admin_run_failed: 'danger',
   admin_source_disabled: 'danger',
@@ -200,5 +228,9 @@ export const HeaderSummarySchema = z.object({
   plan: z.enum(['free', 'paid']),
   /** The Paid term's end; null on Free or for a term with no end. */
   paidUntil: IsoDateTime.nullable(),
+  // v33 SHARE-0 (PLAN-sharing.md §2): sharing invites waiting for this person's answer (the account menu's "1 invite").
+  // SHARE-2 fills it; absent until then, and when sharing is off.
+  invites: z.number().int().nonnegative().optional(),
+  // end v33 SHARE-0
 });
 export type HeaderSummary = z.infer<typeof HeaderSummarySchema>;

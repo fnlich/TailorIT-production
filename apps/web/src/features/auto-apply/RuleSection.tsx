@@ -33,7 +33,7 @@ function percentOf(text: string): number | null {
  * pressed. One save runs at a time: a change made meanwhile waits for it, then goes, so the last one always wins. The
  * new jobs are those TailorIT first sees after the rule is turned on.
  */
-export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
+export function RuleSection({ settings, readOnly = false }: { settings: AutofillAgentSettings; readOnly?: boolean }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const hintId = useId();
@@ -174,6 +174,8 @@ export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
         <span className="flex items-center gap-1.5">
           <Switch
             checked={ruleEnabled}
+            // v33 INT-1: shown, not changed, on a shared profile without the owner's Job settings Change box.
+            disabled={readOnly}
             label={`Save new jobs of at least ${minMatch}% match to Saved Jobs`}
             // Never disabled while saving, which would take the focus away: a change made meanwhile is sent after it.
             onCheckedChange={(on) => {
@@ -199,6 +201,7 @@ export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
               step={1}
               thumbLabels={['Minimum match']}
               formatValue={(value) => `${value}%`}
+              disabled={readOnly}
               onValueChange={(value) => {
                 setMinMatch(value);
                 setTyped(String(value));
@@ -211,6 +214,7 @@ export function RuleSection({ settings }: { settings: AutofillAgentSettings }) {
               aria-describedby={hintId}
               inputMode="numeric"
               value={typed}
+              disabled={readOnly}
               maxLength={4}
               onChange={(event) => setTyped(event.target.value)}
               onBlur={commitTyped}

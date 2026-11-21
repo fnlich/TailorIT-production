@@ -1,4 +1,5 @@
 import { requireAi } from '../../../ai/index';
+import type { PersonPayer } from '../../../core/accounts/payer'; // v33 SHARE-3 (INT-1: a person's)
 import type { AppDeps, SessionUser } from '../../../core/context';
 import { AppError, notFound } from '../../../core/http/errors';
 import { uploadReadingDedupeKey, uploadReadingOf } from '../../resumes/ai/uploadReading';
@@ -24,8 +25,12 @@ export type UploadReadingStart =
  */
 const SEED_WITHOUT_AI: ReadonlySet<string> = new Set(['ai_unavailable', 'ai_usage_exhausted', 'ai_busy']);
 
-/** Starts the AI's reading of the resume "Fill from my resume" reads, when it is an upload that needs one. */
-export async function startUploadReading(deps: AppDeps, user: SessionUser, resumeId?: string): Promise<UploadReadingStart> {
+/**
+ * Starts the AI's reading of the resume "Fill from my resume" reads, when it is an upload that needs one. v33 SHARE-3
+ * (PLAN F9 "Who pays"): `payer` pays (B filling A's profile: payerOf(req); v33 INT-1: required). B's reading never
+ * joins one A pays for (the queue scopes the dedupe key by payer).
+ */
+export async function startUploadReading(deps: AppDeps, user: SessionUser, resumeId: string | undefined, payer: PersonPayer): Promise<UploadReadingStart> {
   const evidence = await getResumeEvidence(deps, user.id, resumeId ?? null);
   if (resumeId && !evidence) throw notFound(RESUME_NOT_FOUND);
   if (!evidence || evidence.kind !== 'uploaded' || !readableForImport(evidence.text)) return { kind: 'none' };
@@ -37,6 +42,7 @@ export async function startUploadReading(deps: AppDeps, user: SessionUser, resum
       userId: user.id,
       input: { sourceResumeId: evidence.resumeId, readOnly: true },
       dedupeKey: uploadReadingDedupeKey(evidence.resumeId),
+      chargeTo: payer, // v33 SHARE-3; INT-1: always named
     });
     return { kind: 'started', resumeId: evidence.resumeId, taskId: accepted.taskId };
   } catch (error) {

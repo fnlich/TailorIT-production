@@ -15,6 +15,7 @@ import { matchCount } from './format';
 import { useFacet, useJobDetail, useJobsList, useRowMatches, useSaveToggle } from './hooks';
 import type { OpenHow } from './list/JobCard';
 import { JobList, ResultsBar, needsResume, type JobSelection } from './list/JobList';
+import { tabCan, useTabProfile } from '../sharing/access'; // v33 FIX-1
 import { saveBlockReason, useSaveSelected } from './list/useSaveSelected';
 import { JobsToolbar } from './toolbar/JobsToolbar';
 import { queryKeyOf } from './url';
@@ -55,6 +56,9 @@ function JobsPageContent() {
   const split = useSplitLayout();
   const list = useJobsList(query);
   const { toggle } = useSaveToggle();
+  // v33 FIX-1 (PLAN-sharing §9: write controls hidden or off without the Change box): on a profile shared without the
+  // Job Tracker's Change, no Add job, Select, Save all or row Save (each was refused).
+  const trackerEdit = tabCan(useTabProfile(), 'tracker:edit');
   const companies = useFacet('companies', '', query.companies.length > 0);
   const pages = useMemo(() => list.data?.pages ?? [], [list.data]);
   const matches = useRowMatches(pages);
@@ -272,7 +276,7 @@ function JobsPageContent() {
         title="Jobs"
         // v32 JOBS2 (E5): one short sentence; the kit's PageHeader draws it as the title's "?" (COPY).
         description={t('MSG_JOBS_INTRO')}
-        actions={<AddJobButton onOpenJob={(id) => open(id)} />}
+        actions={trackerEdit ? <AddJobButton onOpenJob={(id) => open(id)} /> : undefined}
         className="mb-4"
       />
       <JobsToolbar
@@ -283,8 +287,11 @@ function JobsPageContent() {
         companyNames={companyNames}
       />
       <div className="mt-4" data-jobs-feed="" data-jobs-layout={split === null ? undefined : split ? 'split' : 'stack'}>
+        {/* v33 JOBDETAIL (F2): the list takes 40% (340 to 560 px), less when the pane would then lack the 764 px its two
+            columns need (43 rem inside its 24 px gutters, its border and a scrollbar of up to 17 px): two columns from
+            1280 px, with a scrollbar or without. */}
         <div
-          className={clsx(showPane && 'lg:grid lg:grid-cols-[clamp(340px,40%,560px)_minmax(0,1fr)] lg:items-start lg:gap-4')}
+          className={clsx(showPane && 'lg:grid lg:grid-cols-[clamp(340px,min(40%,100%_-_780px),560px)_minmax(0,1fr)] lg:items-start lg:gap-4')}
           data-jobs-frame=""
         >
           <JobList
@@ -295,6 +302,7 @@ function JobsPageContent() {
             onSelect={open}
             onApply={split === false ? quickApply : undefined}
             onToggleSave={toggleSave}
+            canSave={trackerEdit}
             onClearAll={() => setQuery(clearedQuery(query))}
             companyNames={companyNames}
             selection={selectionProps}
@@ -306,6 +314,7 @@ function JobsPageContent() {
                 selection={selectionProps}
                 needsResume={needsResume(items, matches)}
                 onQueryChange={updateQuery}
+                canSave={trackerEdit}
               />
             }
           />

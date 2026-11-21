@@ -13,6 +13,7 @@ import type { AiService, AiTaskContext } from '../../ai/index';
 import { taskInputSql } from '../../ai/payloads';
 import { customFilterPrompt } from '../../ai/prompts/prepare-filters/custom-filter';
 import { defineAiTask } from '../../ai/task';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3 (INT-1: a person's)
 import { constantsOf } from '../../core/constants/index';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/index';
@@ -252,15 +253,25 @@ export const customFilterTask = defineAiTask({
 /** How long the server path waits for one batch (the queue's own timeout is longer still). */
 const BATCH_WAIT_MS = 10 * 60_000;
 
-/** v20 FIX-A: the person's `custom_filter` batches still queued or running under the prompt `promptHash`, oldest first. */
-async function liveCustomBatches(deps: Pick<AppDeps, 'db'>, userId: string, promptHash: string): Promise<Array<{ id: string; jobIds: number[] }>> {
+/**
+ * v20 FIX-A: the person's `custom_filter` batches still queued or running under the prompt `promptHash`, oldest first.
+ * v33 SHARE-3 (review; PLAN-sharing §6 "Fairness for the owner"): only those `payerId` pays for, and another payer's
+ * only while it runs: a batch waiting in someone else's line (B's, on every profile B works on) is never waited for.
+ */
+async function liveCustomBatches(
+  deps: Pick<AppDeps, 'db'>,
+  userId: string,
+  promptHash: string,
+  payerId: string,
+): Promise<Array<{ id: string; jobIds: number[] }>> {
   // The insertion order breaks a tie: ai_tasks.seq (dialect.seq; v3.0 PG-F, SQLite's rowid before). v30 D5L: the
   // input lives in ai_task_payloads (ai/payloads.ts).
   const input = taskInputSql(deps.db.dialect);
   const rows = await deps.db.all<{ id: string; input: string | null }>(
-    `SELECT id, ${input} AS input FROM ai_tasks WHERE user_id = ? AND kind = 'custom_filter' AND status IN ('queued', 'running')
+    `SELECT id, ${input} AS input FROM ai_tasks WHERE user_id = ? AND kind = 'custom_filter'
+       AND (status = 'running' OR (status = 'queued' AND coalesce(charge_user_id, user_id) = ?))
        AND ${deps.db.dialect.jsonText(input, '$.promptHash')} = ? ORDER BY created_at, ${deps.db.dialect.seq()}`,
-    [userId, promptHash],
+    [userId, payerId, promptHash],
   );
   return rows.flatMap((row) => {
     const parsed = CustomFilterTaskInputSchema.safeParse(JSON.parse(row.input ?? 'null'));
@@ -274,12 +285,16 @@ async function liveCustomBatches(deps: Pick<AppDeps, 'db'>, userId: string, prom
  * missing from the answer was not judged (gone, or the prompt changed meanwhile). With the filter off, every job
  * passes. A refusal of the AI gate, or a failed task, is thrown as its AppError. `prepareId` (P2's runner) puts
  * `prepare: {id}` in each task's input, so the cost adds up on that Prepare.
+ * v33 SHARE-3 (PLAN F9 "Who pays"): `payer` pays for the batches (B's Prepare on A's profile: payerOfRow; the grant is
+ * checked again by the queue; v33 INT-1: required, the owner's own Prepare names the owner). A batch another payer has
+ * live under the same prompt is waited for (its verdicts are stored for the profile, shared and free), never joined.
  */
 export async function judgeOnServer(
   deps: AppDeps,
   userId: string,
   jobIds: readonly number[],
-  prepareId?: string,
+  prepareId: string | undefined,
+  payer: PersonPayer,
 ): Promise<Map<number, 'pass' | 'fail'>> {
   const ids = [...new Set(jobIds.filter((id) => Number.isInteger(id) && id > 0))];
   const out = new Map<number, 'pass' | 'fail'>();
@@ -305,7 +320,8 @@ export async function judgeOnServer(
     // previous process's, which the AI queue's start() runs again after a restart, or another Prepare's) is waited for,
     // never started a second time beside it: the work would be done, and charged, twice. A batch that failed leaves its
     // jobs pending, and they are judged below.
-    const waiting = (await liveCustomBatches(deps, userId, prompt.hash)).filter((live) => live.jobIds.some((id) => pending.includes(id)));
+    // v33 SHARE-3 (review): never behind a batch waiting in another payer's line.
+    const waiting = (await liveCustomBatches(deps, userId, prompt.hash, payer.id)).filter((live) => live.jobIds.some((id) => pending.includes(id)));
     for (const live of waiting) await ai.waitFor(live.id, BATCH_WAIT_MS).catch(() => undefined);
     if (waiting.length > 0) pending = await pendingOf();
   }
@@ -316,8 +332,8 @@ export async function judgeOnServer(
     for (let index = 0; index < pending.length; index += batch) {
       const options = customFilterTask.enqueueOptions({
         userId,
-        // The person's own task: the queue charges it to them (03-ai-usage.md, A7).
-        chargeTo: userId,
+        // The person's own task: the queue charges it to them (03-ai-usage.md, A7). v33 SHARE-3: or to who started it.
+        chargeTo: payer,
         input: {
           promptHash: prompt.hash,
           jobIds: pending.slice(index, index + batch),

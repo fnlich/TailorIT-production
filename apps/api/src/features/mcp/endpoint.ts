@@ -193,7 +193,7 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
     }
     // v2.0 P5: the plan's MCP access, read per request (an admin's change applies to the next one).
     try {
-      await assertFeature(deps, caller.user.id, 'mcp');
+      await assertFeature(deps, caller.payer, 'mcp'); // v33 SHARE-8: the caller's plan (B's on every profile)
     } catch (error) {
       if (!(error instanceof AppError) || error.status >= 500) {
         deps.log.error("[mcp] could not read an account's plan", error instanceof Error ? error.name : 'unknown');
@@ -231,7 +231,8 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
     });
     try {
       // v3.0 D2: the server's instructions read the person's settings, so it is built by an async call.
-      server = await createMcpServer(deps, caller.user.id, prepare, version, caller.tokenId); // v1.5 Q2: tokenId
+      // v33 SHARE-8: built for the caller (McpCaller {id, payer}); each tool call names its profile (profiles.ts).
+      server = await createMcpServer(deps, caller, prepare, version);
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (error) {

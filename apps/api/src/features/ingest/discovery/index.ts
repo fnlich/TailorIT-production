@@ -7,6 +7,7 @@ import { commonCrawlPass } from './common-crawl';
 import { sweepLinks } from './links';
 import { measureBoards } from './measures';
 import { probePass } from './probes';
+import { DISCOVERY_ACTING } from './acting'; // v33 SHARE-6
 import { createCandidatesRouter } from './router';
 import { pruneCounters } from './state';
 import { validateCandidates, validationAllowed } from './validate';
@@ -83,7 +84,7 @@ export function discoveryWorker(deps: AppDeps, options: { everyMs?: number } = {
 
 export const discoveryFeature: Feature = {
   name: 'discovery',
-  routes: [{ path: '/api/admin/candidates', router: createCandidatesRouter }],
+  routes: [{ path: '/api/admin/candidates', router: createCandidatesRouter, acting: DISCOVERY_ACTING /* v33 SHARE-6 */ }],
   worker: discoveryWorker,
   daily: [
     { name: 'links', run: async (deps) => (await sweepLinks(deps)).added },

@@ -1,14 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { AI_TASK_KINDS, DAY_MS, type AiHealth, type AiTaskKind, type AiTaskStatus, type AiTaskView } from '@tailorit/shared';
+import { isSharePermission, type SharePermission } from '@tailorit/shared/sharing'; // v33 SHARE-3
 import type { AppConfig } from '../config/env';
 import { AI_KIND_MODEL_CONSTANTS } from '../config/models';
 import { chargeAi } from '../core/accounts/money';
+import { isPersonPayer, payerOfTask, type Payer } from '../core/accounts/payer'; // v33 SHARE-3
+import { assertGrantLive, profileEnded } from '../core/auth/grants'; // v33 SHARE-3
 import { dayKeyAt } from '../core/constants/day';
 import { constantsOf } from '../core/constants/service';
 import type { AppDeps } from '../core/context';
 import type { Dialect } from '../core/db/dialect';
 import type { DbQueries } from '../core/db/types';
 import { AppError } from '../core/http/errors';
+import { refuse } from '../core/http/refuse'; // v33 SHARE-3
 import { capacityOf } from './capacity';
 import { AI_DETAILS, AI_ERROR_MESSAGES, AiError, aboutMinutes, holdError } from './errors';
 import { capacityOrBudgetRefusal, refusalError } from './gate';
@@ -34,6 +38,12 @@ export interface AiTaskContext {
   runPrompt: RunPrompt;
   userId: string | null;
   taskId: string;
+  /**
+   * v33 SHARE-3: who pays for the task (payerOfTask of its row): B under a grant for work on A's profile (a handler that
+   * stores a resume keeps A's last places free of B's work: assertRoomForResumes). A handler run outside the queue (a
+   * test) may have none: the owner's own.
+   */
+  payer?: Payer;
   /**
    * v5 (the autofill stream): publishes one item of the result before the task finishes, for its stream's watchers
    * (watch). Only an item the finished result will hold unchanged may be published. Kept in memory while the task runs.
@@ -61,9 +71,181 @@ export interface EnqueueOptions {
    * v2.0 (03-ai-usage.md, "Attribution"): whose daily budget and extra credit this task's prompt runs are charged to.
    * Absent: `userId` (null for system work, a server cost never charged). A job analysis that Prepare forces names the
    * person. A task joined through its dedupe key charges whoever the existing task names.
+   * v33 SHARE-3 (PLAN F9 "Who pays"): a Payer (core/accounts/payer.ts): B under a grant pays for work on A's profile
+   * (userId A), and the grant is checked here and again when the task runs. v33 INT-1: required at every enqueue
+   * (payerOf, payerOfGrant, payerOfRow, a listed ownPayer, or serverCost for nobody); the v3.2 forms (an id, null,
+   * absent) are gone, so a call that does not say who pays does not compile.
    */
-  chargeTo?: string | null;
+  chargeTo: Payer;
 }
+
+// v33 SHARE-3 (PLAN F9 "Who pays"; SP v33 PLAN-sharing.md §4 "Mixed routes", §5): who pays for a task, as the queue
+// stores and counts it, and who may read it.
+
+/** A task's payer as its row stores it: who pays (null: nobody, a server cost) and the grant it runs under. */
+export interface TaskPayer {
+  charge_user_id: string | null;
+  grant_id: string | null;
+  grant_perm: SharePermission | null;
+}
+
+/** The payer an enqueue names (`chargeTo`, see EnqueueOptions), as the row stores it. */
+export function taskPayerOf(userId: string | null, chargeTo: Payer): TaskPayer {
+  // v33 INT-1: the compiler refuses a call without a Payer; a caller the compiler did not see is refused here.
+  if (typeof chargeTo !== 'object' || chargeTo === null) throw new Error('An AI task names who pays (chargeTo: a Payer).');
+  // Public work (no owner: a job analysis B's Prepare forces) is paid by its person and tied to no grant: its result
+  // serves everyone, so it is never cancelled when a grant ends (PLAN-sharing §5).
+  if (userId === null) return { charge_user_id: chargeTo.id, grant_id: null, grant_perm: null };
+  // B pays for work on A's profile: only on someone else's profile, and with the permission that allowed it.
+  if (chargeTo.grantId !== null && (userId === null || !isPersonPayer(chargeTo) || chargeTo.id === userId || chargeTo.perm === null)) {
+    throw new Error("A task paid under a grant is work on its owner's profile, paid by the grantee.");
+  }
+  return { charge_user_id: chargeTo.id, grant_id: chargeTo.grantId, grant_perm: chargeTo.perm };
+}
+
+/**
+ * Whose places a task takes (the two-per-kind cap, the person's lock and the CLI line): the payer, so B's work on 3
+ * profiles never takes 3 x the places and A's own work never waits behind B's (coalesce(charge_user_id, user_id)); none
+ * for public work (no owner: a job analysis), as before.
+ */
+export const lineOf = (userId: string | null, chargeUserId: string | null): string | null =>
+  userId === null ? null : (chargeUserId ?? userId);
+
+/**
+ * The kinds whose dedupe key names one row they write (a letter: `cover-letter:<letterId>`). Their key is the owner's
+ * alone: a twin still live is joined by its own payer only; anyone else gets 409 conflict (MSG_LETTER_BEING_WRITTEN), so
+ * two people never write one letter at once and nobody joins work another person pays for.
+ */
+export const SHARED_ROW_KINDS: ReadonlySet<AiTaskKind> = new Set<AiTaskKind>(['cover_letter', 'template_fill']);
+
+/**
+ * v33 SHARE-3 (review): the kinds whose dedupe key names the one upload they read (`resume_import:<uploadId>`: its
+ * editable copy; `resume_import:reading:<uploadId>`: its reading). Keyed by the owner alone too, but a twin still live
+ * is joined by anyone (its answer is the profile's either way): A's "Make editable copy" while the copy B asked for is
+ * being made answers B's task, and the reverse, so one upload is never copied twice at two payers' cost. Joining charges
+ * nobody more.
+ */
+export const OWNER_KEYED_JOIN_KINDS: ReadonlySet<AiTaskKind> = new Set<AiTaskKind>(['resume_import']);
+
+/**
+ * A task's stored dedupe key, scoped by whose profile and who pays (PLAN-sharing §5 "Deduplication"): one person's
+ * request never joins a task another person pays for. The owner's own work keeps the v3.2 form `<owner>:<key>` (tasks
+ * queued before v3.3 still join), work someone else pays for is `<owner>><payer>:<key>`, public work (no owner: a job
+ * analysis, whose result serves everyone) stays `-:<key>`, and a SHARED_ROW_KINDS or OWNER_KEYED_JOIN_KINDS task is keyed
+ * by its owner alone.
+ */
+export function scopedDedupeKey(kind: AiTaskKind, userId: string | null, chargeUserId: string | null, key: string): string {
+  if (userId === null) return `-:${key}`;
+  if (SHARED_ROW_KINDS.has(kind) || OWNER_KEYED_JOIN_KINDS.has(kind) || chargeUserId === userId) return `${userId}:${key}`;
+  return `${userId}>${chargeUserId ?? 'server'}:${key}`;
+}
+
+/**
+ * Who reads a task on a route (getTaskFor, watchFor, cancelFor): whose profile (userOf), who pays (payerOf) and the
+ * permissions of the grant the request acts under (req.acting.permissions; null on the person's own profile).
+ */
+export interface TaskViewer {
+  ownerId: string;
+  payer: Payer;
+  permissions: readonly SharePermission[] | null;
+}
+
+/** The permission B needs to read a task of each kind on A's profile (PLAN-sharing §4 "Mixed routes"). */
+export const TASK_KIND_PERMISSION: Readonly<Record<AiTaskKind, SharePermission>> = Object.freeze({
+  resume_import: 'documents:view',
+  entry_bullets: 'documents:view',
+  job_analysis: 'prepare:view',
+  cover_letter: 'documents:view',
+  template_fill: 'documents:view',
+  resume_analysis: 'documents:view',
+  autofill_pick: 'autofill:view',
+  autofill_classify: 'autofill:view',
+  autofill_draft: 'autofill:view',
+  autofill_answer: 'autofill:view',
+  tailor: 'documents:view',
+  job_search: 'tracker:view',
+  custom_filter: 'prepare:view',
+  company_summary: 'tracker:view',
+});
+
+/** The document kinds B may read on A's profile whoever paid (with documents:view): A's tailorings, copies, letters. */
+const DOCUMENT_KINDS: ReadonlySet<AiTaskKind> = new Set<AiTaskKind>([
+  'resume_import',
+  'entry_bullets',
+  'cover_letter',
+  'template_fill',
+  'resume_analysis',
+  'tailor',
+]);
+
+/**
+ * Whether `viewer` may read a task: on the own profile (permissions null) a task of the owner's, as getTask; acting on
+ * A's profile, a task of A's that B pays for or of a document kind, when B holds the kind's permission.
+ */
+export function taskVisibleTo(row: { user_id: string | null; kind: AiTaskKind; charge_user_id: string | null }, viewer: TaskViewer): boolean {
+  if (row.user_id === null || row.user_id !== viewer.ownerId) return false;
+  if (viewer.permissions === null) return true;
+  if (!viewer.permissions.includes(TASK_KIND_PERMISSION[row.kind])) return false;
+  return row.charge_user_id === viewer.payer.id || DOCUMENT_KINDS.has(row.kind);
+}
+
+/** Whether `viewer` may cancel a task it reads: its own profile's, or on A's profile only one B pays for. */
+export function taskCancellableBy(row: { charge_user_id: string | null }, viewer: TaskViewer): boolean {
+  return viewer.permissions === null || (viewer.payer.id !== null && row.charge_user_id === viewer.payer.id);
+}
+
+/** The refusals that are the payer's own limit: their AI use spent, their plan's hourly limit or feature. */
+export const PAYER_LIMIT_CODES: ReadonlySet<string> = new Set(['ai_usage_exhausted', 'rate_limited', 'paid_feature']);
+
+/** The code a task paid by someone else shows for that person's own limit (PLAN-sharing §5 "Refusal wording"). */
+export const PAYER_LIMIT_CODE = 'payer_limit';
+
+type QueueDeps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
+
+/**
+ * v33 SHARE-3 (PLAN-sharing §5 "Refusal wording"; review): a refusal of work someone else pays for, as anyone but the
+ * payer reads it (a stored task's error, or a refusal thrown while the work is asked for). The payer's own limit (their
+ * AI use, their plan's hour or feature) reads as `payer_limit` (MSG_AI_PAYER_LIMIT: no reset time, no credit to buy:
+ * those are the payer's alone); a resume place refused to the profile's owner (`owner`: B's work never takes A's last
+ * places, SHARING_RESUME_RESERVE) is said in the owner's words. Anything else reads as it was.
+ */
+export function refusalForReader<E extends { code: string; message: string }>(
+  deps: QueueDeps,
+  error: E,
+  reader: 'owner' | 'other',
+): E | { code: string; message: string } {
+  const constants = constantsOf(deps);
+  if (PAYER_LIMIT_CODES.has(error.code)) return { code: PAYER_LIMIT_CODE, message: constants.message('MSG_AI_PAYER_LIMIT') };
+  if (reader === 'owner' && error.code === 'resume_limit_reached') {
+    const reserve = constants.get('SHARING_RESUME_RESERVE');
+    return { code: error.code, message: constants.message('MSG_SHARING_RESUME_RESERVE_OWNER', { reserve }) };
+  }
+  return error;
+}
+
+/**
+ * refusalForReader of a thrown refusal (the extension's AI help and Tailor on a job B prepared, answered to A's token):
+ * a payer's own limit is 403 `payer_limit`, with none of the payer's buttons, reset or retry time.
+ */
+export function thrownRefusalForReader(deps: QueueDeps, error: unknown, reader: 'owner' | 'other'): unknown {
+  if (!(error instanceof AppError)) return error;
+  const seen = refusalForReader(deps, error, reader);
+  if (seen === error) return error;
+  if (seen.code === PAYER_LIMIT_CODE) return refuse(deps, 'payer_limit', 'MSG_AI_PAYER_LIMIT');
+  return new AppError(error.code, seen.message);
+}
+
+/**
+ * v33 SHARE-3 (review): the grant a task is paid under is live, holds the permission it is queued under, and is this
+ * task's: its owner is the task's owner and its grantee the payer (profile_ended otherwise, profile_not_shared without
+ * the box). A task under no grant passes.
+ */
+async function assertTaskGrant(deps: QueueDeps, userId: string | null, payer: TaskPayer): Promise<void> {
+  if (payer.grant_id === null) return;
+  const grant = await assertGrantLive(deps, payer.grant_id, payer.grant_perm ?? []);
+  if (grant.owner.id !== userId || grant.granteeId !== payer.charge_user_id) throw profileEnded();
+}
+// end v33 SHARE-3
 
 export interface AiTestResult {
   ok: boolean;
@@ -90,6 +272,23 @@ export interface AiService {
   enqueue(options: EnqueueOptions): Promise<AiTaskAcceptedIds>;
   /** Owner-only: null when the task does not exist or belongs to someone else. `userId` null reads any task. */
   getTask(taskId: string, userId: string | null): Promise<AiTaskView | null>;
+  /**
+   * v33 SHARE-3 (PLAN-sharing §4 "Mixed routes"): a task as a route's reader may see it (taskVisibleTo: on the own
+   * profile the owner's tasks; acting on A's profile, A's tasks B pays for or of a document kind, with the kind's
+   * permission); null otherwise (the usual 404). A refusal of the payer's own limit reads as `payer_limit` to anyone but
+   * the payer.
+   */
+  getTaskFor(taskId: string, viewer: TaskViewer): Promise<AiTaskView | null>;
+  /** v33 SHARE-3: cancel as `viewer` (its own profile's tasks; on A's profile only those B pays for). */
+  cancelFor(taskId: string, viewer: TaskViewer): Promise<boolean>;
+  /** v33 SHARE-3: watch as `viewer` (getTaskFor's rule); null when it may not read the task. */
+  watchFor(taskId: string, viewer: TaskViewer, listener: (event: AiTaskEvent) => void): Promise<(() => void) | null>;
+  /**
+   * v33 SHARE-3 (endGrant's `ai_tasks` step): cancels the queued and running tasks paid under `grantId` (only those
+   * queued under one of `permissions`, when given), stopping their CLI child; answers how many. Their cost so far stays
+   * the payer's.
+   */
+  cancelGrant(grantId: string, permissions?: readonly SharePermission[] | null): Promise<number>;
   /** Resolves when the task has finished (tests and internal callers). Rejects after `timeoutMs`. */
   waitFor(taskId: string, timeoutMs?: number): Promise<AiTaskView>;
   /** True when a queued/running task of this owner (`null`: anyone's) was cancelled; its CLI child is stopped. */
@@ -149,6 +348,9 @@ interface TaskRow {
   attempts: number;
   /** v2.0: whose budget the task's runs are charged to; null: a server cost. */
   charge_user_id: string | null;
+  /** v33 SHARE-0/SHARE-3: the grant it runs under (B pays on A's profile) and the permission it was queued under. */
+  grant_id: string | null;
+  grant_perm: string | null;
   dedupe_key: string | null;
   created_at: string;
   started_at: string | null;
@@ -245,8 +447,13 @@ function prepareIdOf(input: unknown): string | null {
 const SQL = {
   // v30 D5L: the row with its payload (ai/payloads.ts).
   get: (d: Dialect) => `${taskRowSql(d)} WHERE t.id = ?`,
-  findDedupe: "SELECT id FROM ai_tasks WHERE dedupe_key = ? AND status IN ('queued', 'running')",
-  countActive: "SELECT count(*) AS n FROM ai_tasks WHERE user_id = ? AND kind = ? AND status IN ('queued', 'running')",
+  // v33 SHARE-3: with its payer (a shared-row twin is joined by its own payer only).
+  findDedupe: "SELECT id, charge_user_id, grant_id FROM ai_tasks WHERE dedupe_key = ? AND status IN ('queued', 'running')",
+  // v33 SHARE-3: per payer (coalesce(charge_user_id, user_id), migration 0049's idx_ai_payer_kind_active).
+  countActive:
+    "SELECT count(*) AS n FROM ai_tasks WHERE coalesce(charge_user_id, user_id) = ? AND kind = ? AND status IN ('queued', 'running')",
+  // v33 SHARE-3: endGrant's `ai_tasks` step (idx_ai_grant_active).
+  grantActive: "SELECT id, grant_perm FROM ai_tasks WHERE grant_id = ? AND status IN ('queued', 'running')",
   // v30 D5L: the insert (ON CONFLICT DO NOTHING on idx_ai_dedupe) and the success are ai/payloads.ts's.
   // v2.0: what a task's runs were charged, and its Prepare's sum of them.
   charged: 'UPDATE ai_tasks SET charged_micros = charged_micros + ? WHERE id = ?',
@@ -269,7 +476,7 @@ const SQL = {
   running: "SELECT id FROM ai_tasks WHERE status = 'running'",
   // v3.0 PG-0: the insert order breaks ties (SQLite's rowid, the baseline's ai_tasks.seq).
   queued: (d: Dialect) =>
-    `SELECT id, kind, priority, user_id FROM ai_tasks WHERE status = 'queued' ORDER BY priority DESC, created_at, ${d.seq()}`,
+    `SELECT id, kind, priority, user_id, charge_user_id FROM ai_tasks WHERE status = 'queued' ORDER BY priority DESC, created_at, ${d.seq()}`,
   prune: "DELETE FROM ai_tasks WHERE status IN ('succeeded', 'failed', 'cancelled') AND finished_at < ?",
 } as const;
 
@@ -501,9 +708,15 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
     if (!handler) throw unavailable(AI_DETAILS.noHandler);
     const hold = provider.holdFor(row.kind);
     if (hold) throw held(hold);
+    // v33 SHARE-3 (PLAN F9 "Who pays"): a task paid under a grant runs only while that grant is live and holds the
+    // permission it was queued under: a revoke, a removed box or a disabled account (since it was queued, a crash
+    // between the end of the access and endGrant included) stops it here (profile_ended / profile_not_shared).
+    const payer = payerOfTask(row);
+    // review: and the grant is this task's (A's profile, B paying).
+    await assertTaskGrant(deps, row.user_id, { charge_user_id: payer.id, grant_id: payer.grantId, grant_perm: payer.perm });
     // v2.0 (A8): the gate again, for a task that waited in line: the capacity block may have come, or the person's
     // budget and credit run out, since it was queued. From here on the task runs to its end.
-    const refusal = await capacityOrBudgetRefusal(deps, row.charge_user_id);
+    const refusal = await capacityOrBudgetRefusal(deps, payer);
     if (refusal) throw refusalError(deps, refusal);
     // v30 D5L: a queued task's payload day is kept (11 §8.2); none means it was lost.
     if (row.input === null) throw new Error(`AI task ${taskId} has no stored input.`);
@@ -515,6 +728,7 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
       signal: controller.signal,
       userId: row.user_id,
       taskId,
+      payer, // v33 SHARE-3
       publish: (item) => publish(taskId, item),
       runPrompt: (module, input, opts = {}) =>
         bound(module, input, {
@@ -551,12 +765,12 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
   }
 
   /** Takes a slot in priority/FIFO order (dispatch order is enqueue order), then runs the task. v5: its account's
-   *  place first (AI_CLI_PER_ACCOUNT). */
-  function dispatch(taskId: string, priority: AiPriority, userId: string | null): void {
+   *  place first (AI_CLI_PER_ACCOUNT). v33 SHARE-3: the payer's line (lineOf), not the profile owner's. */
+  function dispatch(taskId: string, priority: AiPriority, line: string | null): void {
     if (live.has(taskId)) return;
     const controller = new AbortController();
     live.set(taskId, controller);
-    acquireFor(userId, priority, controller.signal).then(
+    acquireFor(line, priority, controller.signal).then(
       (release) => void execute(taskId, controller, release),
       // Cancelled or stopped while waiting: the row says which (a stop leaves it queued for the next start).
       () => settle(taskId),
@@ -573,6 +787,21 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
 
   const busy = () => new AppError('ai_busy', constantsOf(deps).message('MSG_AI_BUSY'));
 
+  /**
+   * v33 SHARE-3 (PLAN-sharing §5 "Refusal wording"): a task's view as `viewer` reads it. A task someone else paid for
+   * that stopped at that person's own limit reads as `payer_limit` (MSG_AI_PAYER_LIMIT): the full refusal (their AI
+   * use, their reset time) is the payer's alone.
+   */
+  function viewOfView(row: TaskRow, view: AiTaskView, viewer: TaskViewer): AiTaskView {
+    const theirs = row.charge_user_id !== null && row.charge_user_id !== viewer.payer.id;
+    if (!theirs || !view.error) return view;
+    // review: the profile's owner, on their own profile, is told a refused resume place in their own words.
+    const reader = viewer.permissions === null && viewer.ownerId === row.user_id ? 'owner' : 'other';
+    const error = refusalForReader(deps, view.error, reader);
+    return error === view.error ? view : { ...view, error };
+  }
+  const viewOf = (row: TaskRow, viewer: TaskViewer) => viewOfView(row, toView(row), viewer);
+
   const service: AiService = {
     provider,
 
@@ -586,39 +815,65 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
       assertCanQueue(kind, priority);
       // Its own transaction: never inside a caller's (that would hold every request while the queue is asked).
       db.assertNoTx('the AI queue');
-      const chargeUserId = chargeTo === undefined ? userId : chargeTo;
-      // Scoped by owner, so one account's key never hands it another account's task.
-      const key = dedupeKey ? `${userId ?? '-'}:${dedupeKey}` : null;
+      // v33 SHARE-3: who pays and under which grant (v33 INT-1: always a Payer).
+      const payer = taskPayerOf(userId, chargeTo);
+      const chargeUserId = payer.charge_user_id;
+      // Scoped by owner, so one account's key never hands it another account's task; v33 SHARE-3: and by payer.
+      const key = dedupeKey ? scopedDedupeKey(kind, userId, chargeUserId, dedupeKey) : null;
+      /** v33 SHARE-3: a live twin is joined by its own payer; a shared row's twin paid by someone else is refused. */
+      const joinable = (twin: { id: string; charge_user_id: string | null; grant_id: string | null }): AiTaskAcceptedIds => {
+        // review: an OWNER_KEYED_JOIN_KINDS twin is joined by anyone (one copy of one upload, paid once).
+        if (SHARED_ROW_KINDS.has(kind) && (twin.charge_user_id !== chargeUserId || (twin.grant_id ?? null) !== payer.grant_id)) {
+          throw refuse(deps, 'conflict', 'MSG_LETTER_BEING_WRITTEN');
+        }
+        return { taskId: twin.id, deduped: true };
+      };
+      const line = lineOf(userId, chargeUserId);
       const json = JSON.stringify(input ?? null);
       // v30 D5L: the input goes to its day's payload partition (made now when the clock is past the ones made ahead).
       const createdAt = nowIso();
       await ensureTaskPartition(db, createdAt);
       const accepted = await db.tx(
         async (t): Promise<AiTaskAcceptedIds> => {
-          const existing = key ? await t.one<{ id: string }>(SQL.findDedupe, [key]) : undefined;
-          if (existing) return { taskId: existing.id, deduped: true };
+          // v33 SHARE-3 (PLAN F9 "Who pays"): work paid under a grant is queued only while the grant is live and holds
+          // the permission it is queued under (profile_ended / profile_not_shared otherwise); checked again at the run.
+          await assertTaskGrant(deps, userId, payer); // review: the grant is A's, shared with this payer
+          const existing = key ? await t.one<{ id: string; charge_user_id: string | null; grant_id: string | null }>(SQL.findDedupe, [key]) : undefined;
+          if (existing) return joinable(existing);
           const hold = provider.holdFor(kind);
           if (hold) throw held(hold);
           // v2.0 (03, "Check points"): the capacity block, then the charged person's budget and credit.
-          const refusal = await capacityOrBudgetRefusal(deps, chargeUserId);
+          const refusal = await capacityOrBudgetRefusal(deps, chargeTo);
           if (refusal) throw refusalError(deps, refusal);
           // v3.0 D2 (the concurrency audit): "at most MAX_ACTIVE_PER_USER_KIND of a kind per person" counts, then
           // inserts, behind the person's lock (a no-op on SQLite, whose writer is one; FOR UPDATE on PostgreSQL).
-          if (userId !== null) {
-            await t.lockPerson(userId);
-            if (((await t.one<{ n: number }>(SQL.countActive, [userId, kind]))?.n ?? 0) >= MAX_ACTIVE_PER_USER_KIND) throw busy();
+          // v33 SHARE-3: the person is the payer (lineOf): B's places are B's own on every profile.
+          if (line !== null) {
+            await t.lockPerson(line);
+            if (((await t.one<{ n: number }>(SQL.countActive, [line, kind]))?.n ?? 0) >= MAX_ACTIVE_PER_USER_KIND) throw busy();
           }
           const taskId = randomUUID();
-          const task = { id: taskId, userId, kind, priority: PRIORITY[priority], input: json, chargeUserId, dedupeKey: key, createdAt };
+          const task = {
+            id: taskId,
+            userId,
+            kind,
+            priority: PRIORITY[priority],
+            input: json,
+            chargeUserId,
+            grantId: payer.grant_id, // v33 SHARE-3
+            grantPerm: payer.grant_perm, // v33 SHARE-3
+            dedupeKey: key,
+            createdAt,
+          };
           if (await insertTask(t, task)) return { taskId, deduped: false }; // v30 D5L
           // The dedupe key's unique index (idx_ai_dedupe) refused it: a twin went live meanwhile; join it.
-          const twin = key ? await t.one<{ id: string }>(SQL.findDedupe, [key]) : undefined;
-          if (twin) return { taskId: twin.id, deduped: true };
+          const twin = key ? await t.one<{ id: string; charge_user_id: string | null; grant_id: string | null }>(SQL.findDedupe, [key]) : undefined;
+          if (twin) return joinable(twin);
           throw new Error(`AI task ${taskId} could not be queued.`);
         },
         { label: 'ai enqueue' },
       );
-      if (!accepted.deduped) dispatch(accepted.taskId, priority, userId);
+      if (!accepted.deduped) dispatch(accepted.taskId, priority, line);
       return accepted;
     },
 
@@ -627,6 +882,35 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
       if (!row || (userId !== null && row.user_id !== userId)) return null;
       return toView(row);
     },
+
+    // v33 SHARE-3 (PLAN-sharing §4 "Mixed routes"; §5 "Refusal wording")
+    async getTaskFor(taskId, viewer) {
+      const row = await rowOf(taskId);
+      if (!row || !taskVisibleTo(row, viewer)) return null;
+      return viewOf(row, viewer);
+    },
+
+    async cancelFor(taskId, viewer) {
+      const row = await rowOf(taskId);
+      if (!row || !taskVisibleTo(row, viewer) || !taskCancellableBy(row, viewer)) return false;
+      return service.cancel(taskId, row.user_id);
+    },
+
+    async watchFor(taskId, viewer, listener) {
+      const row = await rowOf(taskId);
+      if (!row || !taskVisibleTo(row, viewer)) return null;
+      return service.watch(taskId, row.user_id, (event) => listener(event.type === 'task' ? { type: 'task', view: viewOfView(row, event.view, viewer) } : event));
+    },
+
+    async cancelGrant(grantId, permissions = null) {
+      let cancelled = 0;
+      for (const task of await db.all<{ id: string; grant_perm: string | null }>(SQL.grantActive, [grantId])) {
+        if (permissions !== null && !(isSharePermission(task.grant_perm) && permissions.includes(task.grant_perm))) continue;
+        if (await service.cancel(task.id, null)) cancelled += 1;
+      }
+      return cancelled;
+    },
+    // end v33 SHARE-3
 
     async waitFor(taskId, timeoutMs = 2 * ai.timeoutMs + 60_000) {
       const row = await rowOf(taskId);
@@ -772,14 +1056,16 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
       await prune();
       const pruneTimer = setInterval(() => void prune(), PRUNE_EVERY_MS);
       pruneTimer.unref?.();
-      const queued = await db.all<{ id: string; kind: AiTaskKind; priority: number; user_id: string | null }>(SQL.queued(db.dialect));
+      const queued = await db.all<{ id: string; kind: AiTaskKind; priority: number; user_id: string | null; charge_user_id: string | null }>(
+        SQL.queued(db.dialect),
+      );
       for (const row of queued) {
         if (live.has(row.id)) continue;
         const priority: AiPriority = row.priority > 0 ? 'interactive' : 'background';
         if (!ai.enabled) await fail(row.id, unavailable(AI_DETAILS.disabled));
         else if (!handlers.has(row.kind)) await fail(row.id, unavailable(AI_DETAILS.noHandler));
         else if (priority === 'background' && backgroundSlots === 0) await fail(row.id, unavailable(AI_DETAILS.noBackground));
-        else dispatch(row.id, priority, row.user_id);
+        else dispatch(row.id, priority, lineOf(row.user_id, row.charge_user_id)); // v33 SHARE-3: the payer's line
       }
       return async () => {
         stopping = true;

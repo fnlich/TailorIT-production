@@ -1,5 +1,7 @@
 import { ANALYZE_JOB_DESCRIPTION } from '../tailor/analyze-job-description';
+import type { RoleFamilyId } from '@tailorit/shared';
 import { adapt, type PromptValues, type TailorPromptText } from '../tailor/render';
+import { familyText, perFamily } from '../roles/variants';
 import { defineTextPrompt } from '../types';
 import { OWN_TAILOR_SAVE, ownParts } from './render';
 
@@ -23,16 +25,24 @@ export const OWN_ANALYZE_TEXT: TailorPromptText = {
   sharedVariables: [],
 };
 
-/** own_ai_context's `prompt` and `input` for the analysis, from analyze-job-description's values. */
-export const ownAnalyzeParts = (values: PromptValues) => ownParts(OWN_ANALYZE_TEXT, values);
+/** v33 PROMPTS (F5): the prompt in the job's family's words, then the own-AI adaptations; technical: OWN_ANALYZE_TEXT. */
+export const ownAnalyzeTextFor = perFamily(
+  (family): TailorPromptText => ({
+    ...OWN_ANALYZE_TEXT,
+    content: adapt(familyText(ANALYZE_JOB_DESCRIPTION, 'analyze-job-description', family), 'analyze-job-description', OWN_ANALYZE_ADAPTATIONS),
+  }),
+);
 
-export const ownAnalyzePrompt = defineTextPrompt<{ values: PromptValues }>({
+/** own_ai_context's `prompt` and `input` for the analysis, from analyze-job-description's values (v33: in the job's family's words). */
+export const ownAnalyzeParts = (values: PromptValues, family?: RoleFamilyId | null) => ownParts(ownAnalyzeTextFor(family), values);
+
+export const ownAnalyzePrompt = defineTextPrompt<{ values: PromptValues; family?: RoleFamilyId | null }>({
   area: 'mcp',
   name: 'own-analyze-job-description',
   version: 1,
   description: "The own-AI tailor's first prompt: the posting's ATS keywords, saved as output.analysis of own_ai_save.",
-  text: ({ values }) => {
-    const parts = ownAnalyzeParts(values);
+  text: ({ values, family }) => {
+    const parts = ownAnalyzeParts(values, family);
     return `${parts.prompt}\n\n${parts.input}`;
   },
 });

@@ -5,6 +5,7 @@ import { IsoDate, IsoDateTime, listResponse } from '../core/list';
 import { JobKeywordsSchema, JobTermsSchema, LevelMatchSchema, MatchResultSchema } from '../match/schemas';
 import { EMPLOYMENT_TYPES, EXPERIENCE_LEVELS, LEADERSHIP, SALARY_PERIODS, WORK_ARRANGEMENTS } from './enums';
 import { JobVerificationSchema } from './add'; // v31 LINK
+import { DEGREE_LEVELS_V2 } from './facts'; // v33 JOBDETAIL
 import { JobsQuerySchema } from './query';
 import { COMPANY_SIZE_IDS, JOB_REPORT_REASONS } from './taxonomy';
 
@@ -186,6 +187,14 @@ export const JOB_ADDED_FROM_LABEL: Record<JobAddedFrom, string> = {
   page: 'Added from the job page',
 };
 
+// v33 JOBDETAIL (F2): the limits of the job detail's benefits and of the glance's licences.
+/** The most benefits a job detail lists. */
+export const JOB_BENEFITS_MAX = 12;
+/** The longest benefit, in characters (longer ones are cut at a word with "…"). */
+export const JOB_BENEFIT_MAX_CHARS = 200;
+/** The most required licences and certifications the glance lists. */
+export const JOB_GLANCE_CERTIFICATIONS_MAX = 4;
+
 /** GET /api/jobs/:id: the detail panel. Chips and facts are derived from these fields. */
 export const JobDetailSchema = JobSummarySchema.extend({
   company: CompanyDetailSchema,
@@ -209,8 +218,47 @@ export const JobDetailSchema = JobSummarySchema.extend({
   lastVerifiedAt: IsoDateTime.nullable(),
   closedAt: IsoDateTime.nullable(),
   userState: JobUserStateSchema,
+  /**
+   * v33 JOBDETAIL (F2): the posting's benefits, read from its own words without AI (a "Benefits", "Perks" or "What we
+   * offer" part): at most JOB_BENEFITS_MAX items of JOB_BENEFIT_MAX_CHARS each; [] when it lists none. Absent from an API
+   * older than v3.3.
+   */
+  benefits: z.array(z.string().min(1).max(JOB_BENEFIT_MAX_CHARS)).max(JOB_BENEFITS_MAX).optional(),
 });
 export type JobDetail = z.infer<typeof JobDetailSchema>;
+
+// v33 JOBDETAIL (F2): "Requirements at a glance". The job's side as labels; the person's side only as a verdict per row,
+// computed on the server (the person's degree, years and certifications never reach the browser).
+/**
+ * One row's verdict: `meets` (the person's profile meets it), `below` (it asks for more than the profile shows) or
+ * `unknown` (either side does not say).
+ */
+export const GLANCE_VERDICTS = ['meets', 'below', 'unknown'] as const;
+export type GlanceVerdict = (typeof GLANCE_VERDICTS)[number];
+const GlanceVerdictSchema = z.enum(GLANCE_VERDICTS);
+
+export const JobGlanceSchema = z.object({
+  experience: z.object({
+    /** The posting's levels, in level order; [] when it names none. */
+    levels: z.array(z.enum(EXPERIENCE_LEVELS)),
+    /** The years of experience the posting asks for at least; null when it does not say. */
+    minYears: z.number().int().min(0).max(40).nullable(),
+    /** The years against the person's, with QUALIFICATION_YEARS_GRACE (the Prepare qualification filter's rule). */
+    verdict: GlanceVerdictSchema,
+  }),
+  education: z.object({
+    /** The lowest degree the posting asks for; null when it does not say. */
+    degreeLevel: z.enum(DEGREE_LEVELS_V2).nullable(),
+    /** The posting takes equivalent experience instead. */
+    orEquivalent: z.boolean(),
+    verdict: GlanceVerdictSchema,
+  }),
+  /** Up to JOB_GLANCE_CERTIFICATIONS_MAX required licences and certifications, by the posting's names. */
+  certifications: z
+    .array(z.object({ name: z.string().min(1).max(120), verdict: z.enum(['meets', 'unknown']) }))
+    .max(JOB_GLANCE_CERTIFICATIONS_MAX),
+});
+export type JobGlance = z.infer<typeof JobGlanceSchema>;
 
 export const JOB_ANALYSIS_SOURCES = ['deterministic', 'ft_lake', 'ai'] as const;
 export type JobAnalysisSource = (typeof JOB_ANALYSIS_SOURCES)[number];
@@ -245,6 +293,24 @@ export type JobMatchResponse = z.infer<typeof JobMatchResponseSchema>;
 
 /** The facts grid's level check, computed with `levelMatch(job.experienceLevels, preferences.experienceLevels)`. */
 export const JobLevelMatchSchema = LevelMatchSchema;
+
+// v33 JOBDETAIL: the job page's poll, one contract for the API and the web (it was written out on both sides).
+/** The job page's match: the keyword match plus the experience-level check against the person's preferences. */
+export const JobMatchWithLevelSchema = MatchResultSchema.extend({ levelMatch: LevelMatchSchema.optional() });
+export type JobMatchWithLevel = z.infer<typeof JobMatchWithLevelSchema>;
+
+/**
+ * GET /api/jobs/:id/insights: the analysis ("About the job"), the match computed from that same analysis (Skills), so
+ * the two always change together, and (v3.3) the requirements at a glance. `match` is null when it could not be
+ * computed; `glance` is absent when it could not be (and from an API older than v3.3).
+ */
+export const JobInsightsSchema = z.object({
+  analysis: JobAnalysisViewSchema,
+  match: JobMatchWithLevelSchema.nullable(),
+  glance: JobGlanceSchema.optional(),
+});
+export type JobInsights = z.infer<typeof JobInsightsSchema>;
+// end v33 JOBDETAIL
 
 /** POST/DELETE /api/jobs/:id/hide and POST /api/companies/:id/hide. */
 export const JobHideResponseSchema = z.object({ hidden: z.boolean() });

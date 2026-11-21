@@ -67,5 +67,6 @@ export const GROUP_LABEL: Readonly<Record<NotificationGroup, string>> = {
   jobs: 'Jobs you added',
   account: 'Account',
   extension: 'Browser extension',
+  sharing: 'Sharing', // v33 SHARE-0
   admin: 'Admin',
 };

@@ -13,8 +13,11 @@ import { userMessage } from '../../lib/api';
 import { fetchPrepareFilters, prepareSettingsKeys } from '../settings/prepare/api';
 import { FILTERS_COPY } from '../settings/prepare/copy';
 import { previewLine, REASON_SHORT } from '../settings/prepare/filters';
+import { useTabProfile } from '../sharing/access'; // v33 SHARE-7
 import {
+  filtersAccessOf,
   PrepareFiltersFields,
+  type FiltersAccess,
   previewStateOf,
   usePrepareFiltersForm,
   useSaveFilters,
@@ -102,6 +105,10 @@ export function FiltersDialogForm({
 }) {
   const state = usePrepareFiltersForm(saved);
   const save = useSaveFilters({ onError: state.showServerErrors });
+  // v33 SHARE-7: on a shared profile the filters change only with the owner's Job settings Change box (else they are
+  // shown and Filter and Prepare uses them as stored); the eligibility switches follow Sensitive answers.
+  const tab = useTabProfile();
+  const access: FiltersAccess = tab.key === null ? {} : filtersAccessOf((perm) => tab.profile?.permissions.includes(perm) ?? false);
 
   /** Saves when the form changed something, then runs `then`; a wrong field keeps the dialog open. */
   const finish = (then: () => void) => {
@@ -119,7 +126,10 @@ export function FiltersDialogForm({
   return (
     <>
       <div className="-mx-6 mt-4 min-h-0 flex-1 overflow-y-auto border-t border-divider-soft px-6 pt-3 max-sm:-mx-4 max-sm:px-4">
-        <PrepareFiltersFields state={state} whereYouLiveHref={`/settings#${WHERE_YOU_LIVE_ANCHOR}`} />
+        {/* v33 SHARE-7: read-only on a shared profile without Job settings' Change box (a disabled fieldset). */}
+        <fieldset disabled={access.readOnly} className="m-0 min-w-0 border-0 p-0" data-filters-read-only={access.readOnly ? '' : undefined}>
+          <PrepareFiltersFields state={state} whereYouLiveHref={`/settings#${WHERE_YOU_LIVE_ANCHOR}`} access={access} />
+        </fieldset>
       </div>
       <div
         className="-mx-6 -mb-6 flex flex-col gap-3 rounded-b-popup border-t border-border bg-surface-low px-6 py-4 max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 sm:flex-row sm:items-center"

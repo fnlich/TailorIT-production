@@ -6,6 +6,8 @@ import { pruneAutofillTasks } from './ai/tasks';
 import { createAutofillAnswersRouter } from './answers/router';
 import { pruneConnectCodes } from './connect';
 import { createAutofillAgentRouter } from './agent/router';
+import { AGENT_ACTING } from './agent/acting'; // v33 SHARE-5
+import * as ACTING from './acting'; // v33 SHARE-6
 import { AUTOFILL_AI_TASKS } from './ai-tasks'; // v30 ST3
 import { createAutofillConnectRouter } from './connect-router';
 import { createAutofillCoverLettersRouter } from './cover-letters-router';
@@ -74,21 +76,21 @@ export const autofillFeature: Feature = {
   // v30 ST3: the AI task kinds (pick, classify, draft, answer), registered on the AI queue by setupServices.
   aiTasks: AUTOFILL_AI_TASKS,
   routes: [
-    { path: '/api/autofill', router: createAutofillConnectRouter },
-    { path: '/api/autofill', router: createAutofillProfileRouter },
-    { path: '/api/autofill', router: createAutofillLookupRouter },
-    { path: '/api/autofill', router: createAutofillJobsRouter },
-    { path: '/api/autofill', router: createAutofillResumesRouter },
-    { path: '/api/autofill', router: createAutofillAiRouter },
-    { path: '/api/autofill', router: createAutofillAnswersRouter },
-    { path: '/api/autofill', router: createAutofillCoverLettersRouter },
-    { path: '/api/autofill', router: createAutofillSiteRequestsRouter },
-    { path: '/api/autofill', router: createAutofillAgentRouter },
-    { path: '/api/autofill', router: createAutofillCredentialsRouter },
+    { path: '/api/autofill', router: createAutofillConnectRouter, acting: ACTING.AUTOFILL_CONNECT_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillProfileRouter, acting: ACTING.AUTOFILL_PROFILE_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillLookupRouter, acting: ACTING.AUTOFILL_LOOKUP_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillJobsRouter, acting: ACTING.AUTOFILL_JOBS_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillResumesRouter, acting: ACTING.AUTOFILL_RESUMES_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillAiRouter, acting: ACTING.AUTOFILL_AI_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillAnswersRouter, acting: ACTING.AUTOFILL_ANSWERS_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillCoverLettersRouter, acting: ACTING.AUTOFILL_COVER_LETTERS_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillSiteRequestsRouter, acting: ACTING.AUTOFILL_SITE_REQUESTS_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/autofill', router: createAutofillAgentRouter, acting: AGENT_ACTING /* v33 SHARE-5 */ },
+    { path: '/api/autofill', router: createAutofillCredentialsRouter, acting: ACTING.AUTOFILL_CREDENTIALS_ACTING /* v33 SHARE-6 */ },
     // v1.3 A: a job's known form (POST /forms/known); POST /submissions is the jobs router's.
-    { path: '/api/autofill', router: createAutofillFormsRouter },
+    { path: '/api/autofill', router: createAutofillFormsRouter, acting: ACTING.AUTOFILL_FORMS_ACTING /* v33 SHARE-6 */ },
     // v30 X1-API: autofill API 9's closed-link report (POST /jobs/:jobId/closed).
-    { path: '/api/autofill', router: createAutofillClosedRouter },
+    { path: '/api/autofill', router: createAutofillClosedRouter, acting: ACTING.AUTOFILL_CLOSED_ACTING /* v33 SHARE-6 */ },
   ],
   start: startAutofill,
 };

@@ -7,13 +7,17 @@ import { IsoDateTime } from '../core/list';
 // "Keywords" are the screening terms that are neither tools nor traits: roles held (the headline first),
 // certifications, and industries (INDUSTRIES ids).
 
-/** Bump when the rule-based reading or Claude's prompt changes what a stored reading holds. */
-export const RESUME_READING_VERSION = 1;
+/**
+ * Bump when the rule-based reading or Claude's prompt changes what a stored reading holds. v33 ROLES: 2, the roles of
+ * every field are read (resume/years.ts ROLE_NOUNS) and each reading stores the field it shows (resume_analyses.role_family).
+ */
+export const RESUME_READING_VERSION = 2;
 /**
  * The edition of the skill library (apps/api/static/skills/skills.json) the reading matches against. Bump it whenever
- * the file's skill lists change, so every resume is read again; the API tests compare it with the file.
+ * the file's skill lists change, so every resume is read again; the API tests compare it with the file. v33 SKILLS: 6,
+ * the one skill library (v2: tailor_builder0's tailoring library merged in, every field's skills added).
  */
-export const RESUME_SKILLS_STAMP = 5;
+export const RESUME_SKILLS_STAMP = 6;
 /** Stored on every reading and on the AI backlog: a row of another version is stale and is read again. */
 export const RESUME_ANALYSIS_VERSION = RESUME_READING_VERSION * 1000 + RESUME_SKILLS_STAMP;
 

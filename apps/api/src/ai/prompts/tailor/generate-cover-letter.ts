@@ -1,4 +1,5 @@
 import { definePrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { adapt, tailorPromptParts, type TailorPromptText } from './render';
 import { TailorLetterOutputSchema } from './write-cover-letter';
 
@@ -52,12 +53,24 @@ export const GENERATE_LETTER_PROMPT: TailorPromptText = {
   sharedVariables: [],
 };
 
+/** v33 PROMPTS (F5): the prompt in a role family's words (the person's); the technical family's is GENERATE_LETTER_PROMPT. */
+export const generateLetterPromptFor = perFamily(
+  (family): TailorPromptText => ({
+    ...GENERATE_LETTER_PROMPT,
+    content: adapt(
+      familyText(GENERATE_COVER_LETTER, 'generate-cover-letter', family),
+      'generate-cover-letter',
+      GENERATE_COVER_LETTER_ADAPTATIONS,
+    ),
+  }),
+);
+
 /** generate-cover-letter (no posting text). */
 export const generateCoverLetterPrompt = definePrompt({
   area: 'tailor',
   name: 'generate-cover-letter',
   version: 1,
   description: 'A cover letter body as paragraphs from the profile, the company and the role, when there is no posting text.',
-  ...tailorPromptParts(GENERATE_LETTER_PROMPT, { quotesPosting: true }),
+  ...tailorPromptParts(generateLetterPromptFor, { quotesPosting: true }),
   output: TailorLetterOutputSchema,
 });

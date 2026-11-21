@@ -7,14 +7,13 @@ import {
   COLUMN_PREFS_STORAGE_KEY,
   TrackerLanesAnswerSchema,
   readColumnPrefs,
-  type ColumnMode,
   type ColumnPrefs,
   type TrackerLanes,
   type TrackerLanesAnswer,
 } from '@tailorit/shared';
 import { api } from '@/lib/api';
 import { readStored, useStoredValue, writeStored } from '@/lib/storage';
-import { DRAFT_COLUMN_DEFAULT, DRAFT_COLUMN_STORAGE_KEY, readDraftColumnMode } from './draft';
+import { LEGACY_DRAFT_COLUMN_STORAGE_KEY } from './draft';
 import { readTrackerUrl, trackerSearch, type TrackerUrlState } from './state';
 
 /** `value`, once it has stopped changing for `delay` ms (the search box's 500 ms). */
@@ -58,13 +57,6 @@ export function useArchivedColumn(): [boolean, (shown: boolean) => void] {
   return [lanes.archived, set];
 }
 
-/** v20 A30: the Draft column's mode (shown by default, between Saved and Applied): the person's Lanes shown. */
-export function useDraftColumn(): [ColumnMode, (mode: ColumnMode) => void] {
-  const { lanes, update } = useTrackerLanes();
-  const set = useCallback((next: ColumnMode) => update({ draft: next }), [update]);
-  return [lanes.draft, set];
-}
-
 // ------------------------------------------------------------------------------------------------- lanes shown
 
 /** GET / PUT /api/me/tracker-lanes. */
@@ -77,33 +69,42 @@ const UNSET = '\u0000';
 const storedOrUnset = (raw: string | null) => raw ?? UNSET;
 const unsetAsNull = (text: string) => (text === UNSET ? null : text);
 
-/** The lanes shown of a person who never chose: the statuses' own defaults, Draft shown, Archived not. */
-const DEFAULT_LANES: TrackerLanes = { columns: {}, draft: DRAFT_COLUMN_DEFAULT, archived: false };
+/** The lanes shown of a person who never chose: the statuses' own defaults, Archived not shown. */
+const DEFAULT_LANES: TrackerLanes = { columns: {}, archived: false };
 
 /** The record of a ColumnPrefs as the contract keys it (a status's number as text). */
 function columnsOf(prefs: ColumnPrefs): TrackerLanes['columns'] {
   return Object.fromEntries(Object.entries(prefs).filter(([, mode]) => Boolean(mode))) as TrackerLanes['columns'];
 }
 
-/** The browser's copy (v3.1's three keys): the first paint's lanes, and a pre-v3.2 choice to move once. */
-export function lanesOfBrowser(raw: { columns: string | null; draft: string | null; archived: string | null }): TrackerLanes {
+/** The browser's raw keys of its copy (v3.3 TRACKER: the Draft lane's key is gone; see LEGACY_DRAFT_COLUMN_STORAGE_KEY). */
+export interface BrowserLanes {
+  columns: string | null;
+  archived: string | null;
+}
+
+/** The browser's copy (v3.1's keys): the first paint's lanes, and a pre-v3.2 choice to move once. */
+export function lanesOfBrowser(raw: BrowserLanes): TrackerLanes {
   return {
     columns: columnsOf(readColumnPrefs(raw.columns ?? '')),
-    draft: readDraftColumnMode(raw.draft),
     archived: raw.archived === '1',
   };
 }
 
-/** Whether the browser holds a choice of its own (any of the three keys set). */
-export function browserHasChoice(raw: { columns: string | null; draft: string | null; archived: string | null }): boolean {
-  return raw.columns !== null || raw.draft !== null || raw.archived !== null;
+/** Whether the browser holds a choice of its own (either key set; a Draft lane choice alone is no longer one). */
+export function browserHasChoice(raw: BrowserLanes): boolean {
+  return raw.columns !== null || raw.archived !== null;
 }
 
 /** Writes the browser's copy, so the next first paint shows the person's lanes at once. */
 function writeBrowserCopy(lanes: TrackerLanes): void {
   writeStored(COLUMN_PREFS_STORAGE_KEY, JSON.stringify(lanes.columns));
-  writeStored(DRAFT_COLUMN_STORAGE_KEY, lanes.draft);
   writeStored(ARCHIVED_COLUMN_KEY, lanes.archived ? '1' : null);
+}
+
+/** v33 TRACKER (F1): the Draft lane's pre-v3.3 browser key, cleared once it is seen (nothing reads it). */
+export function clearLegacyDraftColumn(): void {
+  if (readStored(LEGACY_DRAFT_COLUMN_STORAGE_KEY) !== null) writeStored(LEGACY_DRAFT_COLUMN_STORAGE_KEY, null);
 }
 
 function fetchTrackerLanes(signal?: AbortSignal): Promise<TrackerLanesAnswer> {
@@ -124,12 +125,9 @@ function saveTrackerLanes(lanes: TrackerLanes): Promise<TrackerLanesAnswer> {
 export function useTrackerLanes(): { lanes: TrackerLanes; update: (patch: Partial<TrackerLanes>) => void } {
   const queryClient = useQueryClient();
   const [rawColumns] = useStoredValue<string>(COLUMN_PREFS_STORAGE_KEY, storedOrUnset);
-  const [rawDraft] = useStoredValue<string>(DRAFT_COLUMN_STORAGE_KEY, storedOrUnset);
   const [rawArchived] = useStoredValue<string>(ARCHIVED_COLUMN_KEY, storedOrUnset);
-  const raw = useMemo(
-    () => ({ columns: unsetAsNull(rawColumns), draft: unsetAsNull(rawDraft), archived: unsetAsNull(rawArchived) }),
-    [rawColumns, rawDraft, rawArchived],
-  );
+  const raw = useMemo(() => ({ columns: unsetAsNull(rawColumns), archived: unsetAsNull(rawArchived) }), [rawColumns, rawArchived]);
+  useEffect(clearLegacyDraftColumn, []);
   const browser = useMemo(() => lanesOfBrowser(raw), [raw]);
   const query = useQuery({ queryKey: TRACKER_LANES_QUERY_KEY, queryFn: ({ signal }) => fetchTrackerLanes(signal), staleTime: 60_000 });
   const saved = query.data?.lanes ?? null;
@@ -157,7 +155,6 @@ export function useTrackerLanes(): { lanes: TrackerLanes; update: (patch: Partia
     (patch: Partial<TrackerLanes>) => {
       const current = queryClient.getQueryData<TrackerLanesAnswer>(TRACKER_LANES_QUERY_KEY)?.lanes ?? lanesOfBrowser({
         columns: readStored(COLUMN_PREFS_STORAGE_KEY),
-        draft: readStored(DRAFT_COLUMN_STORAGE_KEY),
         archived: readStored(ARCHIVED_COLUMN_KEY),
       });
       const next: TrackerLanes = { ...current, ...patch };

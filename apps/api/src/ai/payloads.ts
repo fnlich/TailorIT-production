@@ -56,13 +56,16 @@ export interface NewTask {
   /** The input as JSON text. */
   input: string;
   chargeUserId: string | null;
+  /** v33 SHARE-3: the grant the task is paid under (B on A's profile) and the permission it was queued under. */
+  grantId?: string | null;
+  grantPerm?: string | null;
   dedupeKey: string | null;
   createdAt: string;
 }
 
 const INSERT_TASK =
-  'INSERT INTO ai_tasks(id, user_id, kind, status, priority, charge_user_id, dedupe_key, created_at) ' +
-  "VALUES (?, ?, ?, 'queued', ?, ?, ?, ?) ON CONFLICT DO NOTHING";
+  'INSERT INTO ai_tasks(id, user_id, kind, status, priority, charge_user_id, grant_id, grant_perm, dedupe_key, created_at) ' +
+  "VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING"; // v33 SHARE-3: grant_id, grant_perm
 const INSERT_PAYLOAD = 'INSERT INTO ai_task_payloads(task_id, created_on, input) VALUES (?, ?, ?)';
 
 /**
@@ -71,7 +74,7 @@ const INSERT_PAYLOAD = 'INSERT INTO ai_task_payloads(task_id, created_on, input)
  */
 export async function insertTask(t: DbQueries, task: NewTask): Promise<boolean> {
   const { changes } = await t.run(INSERT_TASK, [
-    task.id, task.userId, task.kind, task.priority, task.chargeUserId, task.dedupeKey, task.createdAt,
+    task.id, task.userId, task.kind, task.priority, task.chargeUserId, task.grantId ?? null, task.grantPerm ?? null, task.dedupeKey, task.createdAt,
   ]);
   if (changes !== 1) return false;
   await t.run(INSERT_PAYLOAD, [task.id, payloadDayOf(task.createdAt), task.input]);

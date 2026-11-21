@@ -1,7 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import { IdParam, MINUTE_MS } from '@tailorit/shared';
 import type { McpUnsupportedCleared } from '@tailorit/shared/mcp';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { rateKeyOf, requireUser, userOf } from '../../core/auth/guards';
 import type { AppDeps } from '../../core/context';
 import { forbidden, notFound } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -26,7 +26,7 @@ export function createMcpReportsRouter(deps: AppDeps): Router {
   const limit = keyedRateLimit({
     windowMs: MINUTE_MS,
     limit: 60,
-    key: (req) => `mcp-unsupported:${userOf(req).id}`,
+    key: (req) => `mcp-unsupported:${rateKeyOf(req, MINUTE_MS)}`, // v33 SHARE-8
     message: (seconds) => `There have been too many requests about your AI's reports. ${waitSentence(seconds)}`,
   });
 

@@ -9,14 +9,15 @@ import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { RadioGroup } from '@/components/ui/RadioGroup';
 import { api, userMessage } from '@/lib/api';
+import { profileUrl } from '@/lib/profile';
 import { ResumeCanvas } from '../pages/ResumeCanvas';
 
 // Enhancv's Download: first the empty fields the page still shows (the person may go back and fill them, or go on),
 // then the file's name (First_Last_Resume, theirs to change) and its format. For a PDF the page count is the PDF's
 // own: the resume is laid out here as it prints, off screen, and the server measures its PDF against that plan
 // (POST /:id/layout), so the dialog never promises a page count the file does not have. An older resume nobody has
-// edited yet is still stored in the form editor's format: the server prints it as the editor shows it (`upgraded=1`),
-// upgraded as it is read, and stores nothing.
+// edited yet is still stored in the form editor's format: the server prints it as the editor shows it, upgraded
+// as it is read, and stores nothing.
 
 const FORMATS: ReadonlyArray<{ value: ResumeDownloadExtension; label: string; hint: string }> = [
   { value: 'pdf', label: 'PDF', hint: 'Prints exactly as you see it.' },
@@ -105,7 +106,8 @@ export function DownloadDialog(props: DownloadDialogProps) {
         return;
       }
       const name = cleanDownloadStem(stem) || defaultResumeDownloadStem(document.name);
-      startDownload(`/api/resumes/${encodeURIComponent(id)}/export?format=${format}&name=${encodeURIComponent(name)}&upgraded=1`);
+      // v33 SHARE-4: the browser loads this address itself, so it names the page's profile in its query.
+      startDownload(profileUrl(`/api/resumes/${encodeURIComponent(id)}/export?format=${format}&name=${encodeURIComponent(name)}`));
       onClose();
     } catch (error) {
       setProblem(userMessage(error, 'The download did not start. Please try again.'));

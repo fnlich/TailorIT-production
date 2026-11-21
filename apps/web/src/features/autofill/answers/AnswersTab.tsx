@@ -14,13 +14,14 @@ import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
-import { ApiError, userMessage } from '@/lib/api';
+import { ApiError, isProfileRefusal, userMessage } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { autofillKeys, deleteSavedAnswer, fetchSavedAnswers } from '../api';
 import { Section } from '../Section';
 import { answerSummary, filterAnswers, platformName, scopeLabel } from './answers';
 import { EditAnswerDialog } from './EditAnswerDialog';
+import { NotShared, OWN_ACCESS, refusedRead, type ProfileAccess } from '../../sharing/access'; // v33 SHARE-7
 
 const DESCRIPTION = 'Answers the extension reuses when a form asks the same question.';
 
@@ -32,7 +33,7 @@ const SEARCH_FROM = 6;
  * flagged, which it gives again the next time a form asks the same question with the same choices. Each can be edited
  * (the answer only: its question and choices are the form's) or deleted.
  */
-export function AnswersTab() {
+export function AnswersTab({ access = OWN_ACCESS }: { access?: ProfileAccess } = {}) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const now = useNow();
@@ -40,7 +41,8 @@ export function AnswersTab() {
   const [editing, setEditing] = useState<AutofillSavedAnswer | null>(null);
   const [deleting, setDeleting] = useState<AutofillSavedAnswer | null>(null);
 
-  const answers = useQuery({ queryKey: autofillKeys.answers, queryFn: ({ signal }) => fetchSavedAnswers(signal) });
+  // v33 SHARE-7: read with the owner's Autofill info See box; Edit and Delete only with its Change box.
+  const answers = useQuery({ queryKey: autofillKeys.answers, queryFn: ({ signal }) => fetchSavedAnswers(signal), enabled: access.see });
   const items = answers.data?.items ?? [];
   const shown = filterAnswers(items, query);
 
@@ -66,7 +68,9 @@ export function AnswersTab() {
           ) : undefined
         }
       >
-        {answers.isError ? (
+        {!access.see || (answers.isError && refusedRead(answers.error)) ? (
+          <NotShared owner={access.owner} />
+        ) : answers.isError ? (
           <Notice
             tone="error"
             title="Your saved answers didn't load."
@@ -112,8 +116,8 @@ export function AnswersTab() {
                     key={item.id}
                     item={item}
                     now={now}
-                    onEdit={() => setEditing(item)}
-                    onDelete={() => setDeleting(item)}
+                    onEdit={access.change ? () => setEditing(item) : undefined}
+                    onDelete={access.change ? () => setDeleting(item) : undefined}
                   />
                 ))}
               </ul>
@@ -147,6 +151,8 @@ export function AnswersTab() {
           try {
             await deleteSavedAnswer(id);
           } catch (error) {
+            // v33 SHARE-7: a shared profile's refusal is the shell's one alert: the dialog closes, nothing changed.
+            if (isProfileRefusal(error)) return;
             // Already gone (deleted in another tab): the list just catches up.
             if (!(error instanceof ApiError && error.status === 404)) throw error;
           }
@@ -166,8 +172,9 @@ function AnswerRow({
 }: {
   item: AutofillSavedAnswer;
   now: number;
-  onEdit: () => void;
-  onDelete: () => void;
+  /** v33 SHARE-7: absent on a shared profile without the Change box (no button). */
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <li className="flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
@@ -182,20 +189,22 @@ function AnswerRow({
           </span>
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <IconButton
-          label={`Edit your answer to ${item.questionLabel}`}
-          tooltip="Edit"
-          icon={<PencilSimpleIcon size={16} />}
-          onClick={onEdit}
-        />
-        <IconButton
-          label={`Delete your answer to ${item.questionLabel}`}
-          tooltip="Delete"
-          icon={<TrashIcon size={16} />}
-          onClick={onDelete}
-        />
-      </div>
+      {onEdit && onDelete && (
+        <div className="flex shrink-0 items-center gap-1">
+          <IconButton
+            label={`Edit your answer to ${item.questionLabel}`}
+            tooltip="Edit"
+            icon={<PencilSimpleIcon size={16} />}
+            onClick={onEdit}
+          />
+          <IconButton
+            label={`Delete your answer to ${item.questionLabel}`}
+            tooltip="Delete"
+            icon={<TrashIcon size={16} />}
+            onClick={onDelete}
+          />
+        </div>
+      )}
     </li>
   );
 }

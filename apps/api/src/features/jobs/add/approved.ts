@@ -4,7 +4,7 @@ import { nowIso, type AppDeps } from '../../../core/context';
 import { closeLink, projectJob } from '../../../core/seams';
 import { upgradeOwnPageJob } from '../../autofill/jobs';
 import { retireLegacyJob } from './legacy';
-import { noticeVerification } from './notify';
+import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
 import { readLink } from './pipeline';
 import { noteUnverified, ownJobsOfLink } from './verification';
 
@@ -81,7 +81,8 @@ export async function settleApprovedRecheck(deps: AppDeps, jobId: number, url: s
     for (const row of key ? await ownJobsOfLink(deps.db, key) : []) {
       try {
         if (await upgradeOwnPageJob(deps, row.user_id, Number(row.job_id), read.jobId, { sameLink: true })) {
-          await noticeVerification(deps, { userId: row.user_id, jobId: read.jobId, state: 'published' });
+          const target = await linkNoticeTarget(deps, row); // v33 SHARE-6: who added it hears it
+          await noticeVerification(deps, { userId: target.userId, profile: target.profile, jobId: read.jobId, state: 'published' });
         }
       } catch (error) {
         deps.log.warn('[job-links] an own job could not give way to the job read', error instanceof Error ? error.name : 'unknown');

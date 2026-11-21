@@ -4,6 +4,8 @@ import { MeResponseSchema, type Account, type MeResponse } from '@tailorit/share
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { ApiError, apiFetch } from './api';
+import { leaveForSignIn } from './navigation';
+import { forgetProfile } from './profile';
 
 /** React Query key of GET /api/auth/me. Sign-in and rename put the new account here with setQueryData. */
 export const ME_QUERY_KEY = ['auth', 'me'] as const;
@@ -19,7 +21,7 @@ export interface AuthState {
   error: ApiError | null;
   isAdmin: boolean;
   signingOut: boolean;
-  /** POST /api/auth/logout, then a full-page move to /login. */
+  /** POST /api/auth/logout, then a full-page move to /login (v33 SHARE-4: the tab's profile is forgotten). */
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
   /** Replaces the cached account (after a rename) without a refetch. */
@@ -46,8 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Leaving is what was asked for; a failed call still ends on the sign-in page.
     }
     queryClient.clear();
+    // v33 SHARE-4: the tab forgets the profile it worked on; whoever signs in next starts on their own.
+    forgetProfile();
     // A full page load (not a router push), so no signed-in state survives in memory.
-    window.location.assign(new URL('/login', window.location.origin).href);
+    leaveForSignIn();
   }, [queryClient]);
 
   const { refetch } = query;

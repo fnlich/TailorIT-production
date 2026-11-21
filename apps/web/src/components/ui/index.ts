@@ -57,7 +57,7 @@ export {
   type MenuItemProps,
 } from './Menu';
 export { Notice, type NoticeTone } from './Notice';
-export { PageHeader, type PageHeaderProps } from './PageHeader';
+export { PageEyebrowContext, PageHeader, type PageHeaderProps } from './PageHeader'; // v33 SHARE-4: PageEyebrowContext
 export {
   Popover,
   PopoverClose,

@@ -1,4 +1,5 @@
 import type { JobAnalysisView } from '@tailorit/shared';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3 (INT-1: a person's)
 
 // The job analysis service contract (work package J1 implements it; J2's Jobs API and the resume match call it).
 // Registered on `deps.services.jobAnalysis` by the job-analysis feature's `services` hook.
@@ -47,7 +48,7 @@ export interface JobAnalysisService {
    * (AiService.waitFor), then read the facts again (PrepareFilterService.evaluate). Background and warm-up readings are
    * charged to no one.
    */
-  forceAnalysis?(jobId: number, chargeTo: string, prepare?: { id: string }): Promise<{ taskId: string; deduped: boolean } | null>;
+  forceAnalysis?(jobId: number, chargeTo: PersonPayer, prepare?: { id: string }): Promise<{ taskId: string; deduped: boolean } | null>; // v33 SHARE-3: a Payer (INT-1: only)
 }
 
 declare module '../../core/context' {

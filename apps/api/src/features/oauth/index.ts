@@ -1,4 +1,5 @@
 import type { Feature } from '../../core/feature';
+import { OAUTH_ACTING } from './acting'; // v33 SHARE-8
 import { createOAuthEndpointsRouter } from './endpoints';
 import { OAUTH_DAILY } from './housekeeping';
 import { createOAuthRouter } from './router';
@@ -15,7 +16,7 @@ import { createWellKnownRouter } from './well-known';
 
 export const oauthFeature: Feature = {
   name: 'oauth',
-  routes: [{ path: '/api/oauth', router: createOAuthRouter }],
+  routes: [{ path: '/api/oauth', router: createOAuthRouter, acting: OAUTH_ACTING /* v33 SHARE-8 */ }],
   earlyRoutes: [
     { path: '/.well-known', router: createWellKnownRouter },
     { path: '/oauth', router: createOAuthEndpointsRouter },

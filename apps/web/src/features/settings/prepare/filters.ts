@@ -197,6 +197,7 @@ export const REASON_SHORT: Record<FilterReason, string> = {
   sponsorship: 'no sponsorship',
   clearance: 'clearance',
   custom: 'custom filter',
+  eligibility: 'eligibility', // v33 SHARE-5: the masked reason (a shared profile without Sensitive answers)
 };
 
 /**

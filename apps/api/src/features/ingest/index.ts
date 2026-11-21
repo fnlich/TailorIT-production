@@ -1,5 +1,6 @@
 import { constantsOf } from '../../core/constants/index';
 import type { Feature } from '../../core/feature';
+import { INGEST_ACTING } from './acting'; // v33 SHARE-6
 import { createHostsRouter } from './hosts';
 import { createPurgesRouter, purgesDailyStep, rawKeepDailyStep } from './purge';
 import { createImportRouter, createRunsRouter, createSourcesRouter, createSourcingReportRouter } from './router';
@@ -30,13 +31,13 @@ export const ingestFeature: Feature = {
     });
   },
   routes: [
-    { path: '/api/admin/sources', router: createSourcesRouter },
-    { path: '/api/admin/runs', router: createRunsRouter },
-    { path: '/api/admin/import', router: createImportRouter },
+    { path: '/api/admin/sources', router: createSourcesRouter, acting: INGEST_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/runs', router: createRunsRouter, acting: INGEST_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/import', router: createImportRouter, acting: INGEST_ACTING /* v33 SHARE-6 */ },
     // v30 S1-API
-    { path: '/api/admin/hosts', router: createHostsRouter },
-    { path: '/api/admin/purges', router: createPurgesRouter },
-    { path: '/api/admin/sourcing', router: createSourcingReportRouter },
+    { path: '/api/admin/hosts', router: createHostsRouter, acting: INGEST_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/purges', router: createPurgesRouter, acting: INGEST_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/sourcing', router: createSourcingReportRouter, acting: INGEST_ACTING /* v33 SHARE-6 */ },
   ],
   async start(deps) {
     const service = requireIngest(deps);

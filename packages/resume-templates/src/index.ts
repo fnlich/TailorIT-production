@@ -25,6 +25,7 @@ export {
 export * from './templates/types';
 export * from './templates/registry';
 export * from './sample';
+export * from './archetype-samples'; // v33 ROLES: the sample person of each kind of work
 export * from './document';
 export { RESUME_BASE_CSS, designVariables, printPageCss } from './styles/base.css';
 export { templateScope } from './styles/templates.css';

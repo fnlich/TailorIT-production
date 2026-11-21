@@ -13,7 +13,7 @@ import {
 } from '@tailorit/shared';
 import { getTailoredResumeText } from './ats';
 import { buildSkillGroups } from './skills/groups';
-import { referenceSkillsInText } from './skills/reference';
+import { loadSkillsReference, referenceSkillsInText, type SkillsReference } from './skills/reference';
 import type { Profile, TailoredContent } from './types';
 
 // Between TailorIT's resume document and tailor_builder0's Profile (decision 15).
@@ -133,9 +133,9 @@ export function sourceGroupsSkills(document: ResumeDocument): boolean {
  * topped up only from the candidate's own skills (the profile's list, and library skills the resume's text names).
  * Null when the list is too short to group.
  */
-export function tailoredSkillGroups(tailored: TailoredContent, profile: Profile) {
+export function tailoredSkillGroups(tailored: TailoredContent, profile: Profile, skills: SkillsReference = loadSkillsReference()) {
   const text = getTailoredResumeText({ ...tailored, title: '', hardSkills: [], softSkills: [], skills: [] });
-  return buildSkillGroups(tailored.hardSkills, [...profile.skills, ...referenceSkillsInText(text, 'hard')]);
+  return buildSkillGroups(tailored.hardSkills, [...profile.skills, ...referenceSkillsInText(text, 'hard', skills)], skills);
 }
 
 /** New strengths take the source's entry ids by position, and fresh ones past them. */
@@ -159,7 +159,8 @@ function strengthEntries(source: ResumeDocument, strengths: TailoredContent['str
 export function tailoredDocument(
   source: ResumeDocument,
   tailored: TailoredContent | null,
-  options: { templateId: ResumeTemplateId; profile: Profile },
+  // v33 PROMPTS (F5): `skills`, the tailoring's skill library (its family's; missing: tailor_builder0's).
+  options: { templateId: ResumeTemplateId; profile: Profile; skills?: SkillsReference },
 ): ResumeDocument {
   const spec = RESUME_TEMPLATES[options.templateId];
   if (!tailored) return normalizeResumeDocument({ ...source, templateId: options.templateId });
@@ -168,7 +169,7 @@ export function tailoredDocument(
   if (tailored.softSkills.length > 0) layout = enableSection(layout, 'softSkills', spec);
   if (tailored.strengths.length > 0) layout = enableSection(layout, 'strengths', spec);
 
-  const grouped = sourceGroupsSkills(source) ? tailoredSkillGroups(tailored, options.profile) : null;
+  const grouped = sourceGroupsSkills(source) ? tailoredSkillGroups(tailored, options.profile, options.skills) : null;
   const skillCategories = grouped?.map((group) => ({ category: group.title, skills: [...group.items] }));
   const skills = [...new Set([...tailored.hardSkills, ...(skillCategories ?? []).flatMap((group) => group.skills)])];
 

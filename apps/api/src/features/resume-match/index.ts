@@ -1,5 +1,6 @@
 import type { AppDeps } from '../../core/context';
 import type { Feature } from '../../core/feature';
+import { RESUME_MATCH_ACTING } from './acting'; // v33 SHARE-6
 import { createResumeMatchRouter } from './router';
 import { createResumeMatchService } from './service';
 
@@ -17,7 +18,7 @@ export const resumeMatchFeature: Feature = {
     workers.set(deps, service);
     deps.services.resumeMatch = service;
   },
-  routes: [{ path: '/api/applications', router: createResumeMatchRouter }],
+  routes: [{ path: '/api/applications', router: createResumeMatchRouter, acting: RESUME_MATCH_ACTING /* v33 SHARE-6 */ }],
   start(deps) {
     return workers.get(deps)?.start();
   },

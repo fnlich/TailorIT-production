@@ -36,6 +36,7 @@ import {
   type PhonePart,
 } from './parts';
 import { FullScreenForm } from './sheets';
+import { useEditorField } from '../../roles/EditorField'; // v33 ROLES
 
 // A part's full-screen form on a phone: every part of it the page shows, labelled, in the order it prints. Plain
 // parts are text inputs, the description and the bullets the page's own rich fields (the same bridge, so Ctrl+B, I
@@ -211,6 +212,7 @@ function LevelField({ field }: { field: Extract<FormField, { type: 'level' }> })
 
 function EntryForm({ path, session, commands }: FormProps & { path: string }) {
   const document = session.document;
+  const { copy } = useEditorField(); // v33 ROLES
   const [date, setDate] = useState<DateTarget | null>(null);
   const entry = entryViewOf(document, path);
   const tools = entryTools(document, path);
@@ -262,10 +264,10 @@ function EntryForm({ path, session, commands }: FormProps & { path: string }) {
       ) : null}
       {tools && roleSkills ? (
         // A role's "Skills used", as in its Settings on the page.
-        <Group label="Skills used" help="Not printed; each skill also joins your Technical skills.">
+        <Group label="Skills used" help={copy.roleSkillsHelp}>
           <ChipAddForm
             label="Add a skill used in this role"
-            placeholder="e.g. Kubernetes"
+            placeholder={copy.examples.roleSkill}
             suggest
             onAdd={(text) => commands.addRoleSkill(tools, text)}
           />
@@ -416,6 +418,7 @@ function ChipGroupFields({
   commands,
 }: FormProps & { group: ChipGroup; noun: string; suggest: boolean }) {
   const { name, group: index } = group;
+  const { copy } = useEditorField(); // v33 ROLES
   const stored = name ? valueAt(session.document, name.path) : undefined;
   return (
     <div className="flex flex-col gap-3">
@@ -441,7 +444,7 @@ function ChipGroupFields({
       ) : null}
       <ChipAddForm
         label={name?.text ? `Add a ${noun.toLowerCase()} to ${name.text}` : `Add a ${noun.toLowerCase()}`}
-        placeholder={noun === 'Interest' ? 'e.g. Chess' : 'e.g. TypeScript'}
+        placeholder={noun === 'Interest' ? 'e.g. Chess' : copy.examples.skill}
         suggest={suggest}
         onAdd={(text) => commands.addChip(group.list, text)}
       />

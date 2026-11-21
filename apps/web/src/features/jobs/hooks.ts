@@ -23,7 +23,7 @@ import { useCallback } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { PREFERENCES_QUERY_KEY, fetchPreferences } from '@/features/settings/api';
 import { readLocation } from '@/features/settings/location';
-import { userMessage } from '@/lib/api';
+import { isProfileRefusal, userMessage } from '@/lib/api';
 import {
   APPLIED_STATUS,
   SAVED_STATUS,
@@ -341,6 +341,16 @@ export function useRestoreSavedJob() {
   });
 }
 
+/**
+ * v33 FIX-1 (PLAN-sharing §9: a refused write shows one alert): says why a job action failed in a toast, unless it is a
+ * shared profile's refusal, which the shell's alert already says (the toast and the alert disagreed on the owner's
+ * name). For the Jobs page's save, un-save, mark applied, hide and Save all.
+ */
+export function failure(toast: Pick<ReturnType<typeof useToast>, 'error'>, title: string, error: unknown): void {
+  if (isProfileRefusal(error)) return;
+  toast.error(title, userMessage(error));
+}
+
 /** What the bookmark needs to know about a job: the list card's fields, or the detail's user state and id. */
 export interface SaveTarget {
   jobId: number;
@@ -383,11 +393,11 @@ export function useSaveToggle() {
                   onClick: () =>
                     restoreJob(
                       { jobId, applicationId },
-                      { onError: (error) => toast.error('The job could not be saved again', userMessage(error)) },
+                      { onError: (error) => failure(toast, 'The job could not be saved again', error) },
                     ),
                 },
               }),
-            onError: (error) => toast.error('The job could not be removed from saved jobs', userMessage(error)),
+            onError: (error) => failure(toast, 'The job could not be removed from saved jobs', error),
           },
         );
         return;
@@ -398,7 +408,7 @@ export function useSaveToggle() {
           onSuccess: () => {
             if (options.confirmSave) toast.success('Job saved', 'Find it in your Job Tracker under Saved.');
           },
-          onError: (error) => toast.error('The job could not be saved', userMessage(error)),
+          onError: (error) => failure(toast, 'The job could not be saved', error),
         },
       );
     },

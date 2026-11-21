@@ -53,6 +53,11 @@ export const GROUP_SETTINGS: Readonly<Record<NotificationGroup, { title: string;
     title: 'Browser extension',
     hint: 'When the extension disconnects.',
   },
+  // v33 SHARE-0: shared profiles (PLAN F9).
+  sharing: {
+    title: 'Sharing',
+    hint: 'Profiles shared with you, and what people do on yours.',
+  },
   admin: {
     title: 'Admin',
     hint: 'Review items, failed runs and paused sources.',

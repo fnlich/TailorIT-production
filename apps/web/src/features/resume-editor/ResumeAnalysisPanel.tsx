@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
+import { FieldSelect } from '../roles/FieldSelect'; // v33 ROLES
 import { analysisNote, basisText, experienceText, industryNames, useResumeAnalysis, type AnalysisNoteKind } from './analysis';
 
 /** Chips shown per group before "Show N more". */
@@ -120,6 +121,8 @@ function Reading({ view }: { view: ResumeAnalysisView }) {
         <span className="mt-0.5 flex shrink-0">{NOTE_ICON[note.kind]}</span>
         <span>{note.text}</span>
       </p>
+      {/* v33 ROLES (F4): the resume's field, detected from this reading unless the person chooses one. */}
+      <FieldSelect resumeId={view.resumeId} className="mt-5" />
       <div className="mt-5 flex flex-col">
         <Group label="Experience">
           <p className="flex items-center gap-1.5 text-sm leading-6 font-semibold text-foreground">

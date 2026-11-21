@@ -38,6 +38,23 @@ export interface UnverifiedNote {
   url: string;
   origin: JobAddOrigin;
   reason: JobVerifyReason;
+  /**
+   * v33 SHARE-6 (migration 0052): who added it when that is someone else than `userId` (B adding on A's profile), and
+   * the grant they added it under: the link's notices go to them while that grant lets them (notify.ts). Left out (a
+   * Retry read, a recheck, an admin): the note keeps who it named. Named as `userId` itself: the owner's own add.
+   */
+  addedBy?: string | null;
+  grantId?: string | null;
+}
+
+/** v33 SHARE-6: a note's adder, as the link's notices read it (ownJobsOfLink, the approval's row). */
+export interface LinkAdder {
+  /** Whose own job it is (the profile's owner). */
+  user_id: string;
+  /** Who added it, when someone else did on that person's profile (migration 0052). */
+  added_by?: string | null;
+  /** The grant they added it under. */
+  grant_id?: string | null;
 }
 
 /**
@@ -49,12 +66,19 @@ export async function noteUnverified(db: DbQueries, note: UnverifiedNote, at: st
   const key = url ? linkKey(url) : null;
   if (!url || !key || url.length > 2100) return;
   const host = new URL(url).hostname;
+  // v33 SHARE-6: an add names its adder (someone else's, or the owner's own: none); other notes keep the one named.
+  const named = note.addedBy !== undefined;
+  const addedBy = named && note.addedBy !== note.userId ? note.addedBy : null;
+  const grantId = addedBy !== null ? (note.grantId ?? null) : null;
   await db.run(
-    `INSERT INTO job_verifications(job_id, user_id, url, url_key, host, origin, reason, checked_at, attempts, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `INSERT INTO job_verifications(job_id, user_id, url, url_key, host, origin, reason, checked_at, attempts, created_at,
+       added_by, grant_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
      ON CONFLICT (job_id) DO UPDATE SET reason = excluded.reason, checked_at = excluded.checked_at,
-       attempts = job_verifications.attempts + 1`,
-    [note.jobId, note.userId, url, key, host, note.origin, note.reason, at, at],
+       attempts = job_verifications.attempts + 1,
+       added_by = CASE WHEN ? THEN excluded.added_by ELSE job_verifications.added_by END,
+       grant_id = CASE WHEN ? THEN excluded.grant_id ELSE job_verifications.grant_id END`,
+    [note.jobId, note.userId, url, key, host, note.origin, note.reason, at, at, addedBy, grantId, named, named],
   );
 }
 
@@ -169,10 +193,13 @@ function parseJson(value: unknown): Record<string, unknown> | null {
   }
 }
 
-/** The jobs of a link's key that are their adders' own and still open (Retry read upgrades each). */
-export async function ownJobsOfLink(db: DbQueries, urlKey: string): Promise<Array<{ job_id: number; user_id: string }>> {
-  return db.all<{ job_id: number; user_id: string }>(
-    `SELECT v.job_id, v.user_id FROM job_verifications v JOIN jobs j ON j.id = v.job_id
+/**
+ * The jobs of a link's key that are their adders' own and still open (Retry read upgrades each). v33 SHARE-6: with who
+ * added each one on its owner's profile (LinkAdder), for the notices.
+ */
+export async function ownJobsOfLink(db: DbQueries, urlKey: string): Promise<Array<{ job_id: number } & LinkAdder>> {
+  return db.all<{ job_id: number } & LinkAdder>(
+    `SELECT v.job_id, v.user_id, v.added_by, v.grant_id FROM job_verifications v JOIN jobs j ON j.id = v.job_id
      WHERE v.url_key = ? AND j.owner_user_id = v.user_id AND j.superseded_by IS NULL ORDER BY v.job_id`,
     [urlKey],
   );

@@ -75,7 +75,10 @@ export interface ApplicationRow {
   /** The job's address (jobs.apply_url), when the entry is of a job. */
   job_apply_url?: string | null;
   // v20 P3 (A30)
-  /** The created_at of the job's live queue row (queued or running): the entry shows Draft while it is Saved. */
+  /**
+   * The created_at of the job's live queue row (queued or running): a Saved entry carries the Draft mark (v33 F1: a
+   * badge on its Saved card).
+   */
   queued_at?: string | null;
   // end v20 P3
 }
@@ -83,8 +86,8 @@ export interface ApplicationRow {
 /**
  * The SELECT list every application read uses (alias `a`, companies joined as `c`), with the job's address for the
  * auto-apply agent's `autoApply`, and (v20 A30) the created_at of the job's live queue row (DRAFT_QUEUE_STATES), the
- * Draft status's mark and date. The queue keeps one row per account and job (UNIQUE(user_id, job_id)), so the read is
- * one index lookup, and it finds rows queued before v2.0 too.
+ * Draft mark's date (v33 F1: a badge on its Saved card). The queue keeps one row per account and job
+ * (UNIQUE(user_id, job_id)), so the read is one index lookup, and it finds rows queued before v2.0 too.
  */
 export const LIVE_QUEUE_ROW_AT_SQL =
   "(SELECT q.created_at FROM autofill_agent_queue q WHERE q.user_id = a.user_id AND q.job_id = a.job_id AND q.state IN ('queued', 'running'))";
@@ -269,7 +272,8 @@ export function toSummary(row: ApplicationRow, events: readonly StatusEvent[]): 
     autoApply: row.job_id !== null && agentCanApply(row.job_apply_url ?? ''),
     // jr7 7a: the Queue tab opens it.
     queueApply: row.job_id !== null && queueCanOpen(row.job_apply_url ?? ''),
-    // v20 A30: its job has a live queue row, so a Saved entry shows Draft, dated by the row's created_at.
+    // v20 A30: its job has a live queue row, so a Saved entry carries the Draft mark (v33 F1: a badge on its Saved card),
+    // dated by the row's created_at.
     queued: row.queued_at != null,
     queuedAt: row.queued_at ?? null,
     // v30 INT-3: its job is held for review: "Waiting for approval" on the card and the row (14 §4.3).

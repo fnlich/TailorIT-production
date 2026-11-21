@@ -12,7 +12,7 @@ import { getPreferences } from '../me/preferences';
 // A route never returns them.
 
 /** The profile's degree levels as the filters' levels; `other` says nothing. */
-const DEGREE_OF: Record<DegreeLevel, DegreeLevelV2 | null> = {
+export const DEGREE_OF: Record<DegreeLevel, DegreeLevelV2 | null> = { // v33 JOBDETAIL: exported (the job page's glance)
   highSchool: 'high_school',
   associate: 'associate',
   bachelor: 'bachelor',
@@ -62,6 +62,17 @@ export function yearsOfExperience(
   return Math.max(0, Math.floor(months / 12));
 }
 
+// v33 JOBDETAIL: the highest degree, moved out of personFacts unchanged so the job page's glance reads it the same way.
+/** The highest of the profile's degrees as the filters' level; null when none says (`other` says nothing). */
+export function highestDegreeOf(education: ReadonlyArray<{ degree: { level: DegreeLevel } }>): DegreeLevelV2 | null {
+  const levels = education
+    .map((entry) => DEGREE_OF[entry.degree.level])
+    .filter((level): level is DegreeLevelV2 => level !== null);
+  const order: readonly DegreeLevelV2[] = ['none', 'high_school', 'associate', 'bachelor', 'master', 'doctorate'];
+  return levels.length > 0 ? levels.reduce((best, level) => (order.indexOf(level) > order.indexOf(best) ? level : best)) : null;
+}
+// end v33 JOBDETAIL
+
 const COUNTRY = /^[A-Z]{2}$/;
 const REGION = /^[A-Z0-9]{1,6}$/;
 
@@ -107,11 +118,7 @@ export async function personFacts(deps: Pick<AppDeps, 'db' | 'now'>, userId: str
   const profile = (await readAutofillProfile(deps, userId)).value;
   const sensitive = (await readSensitiveAnswers(deps, userId)).value;
 
-  const levels = profile.education
-    .map((entry) => DEGREE_OF[entry.degree.level])
-    .filter((level): level is DegreeLevelV2 => level !== null);
-  const order: readonly DegreeLevelV2[] = ['none', 'high_school', 'associate', 'bachelor', 'master', 'doctorate'];
-  const highestDegree = levels.length > 0 ? levels.reduce((best, level) => (order.indexOf(level) > order.indexOf(best) ? level : best)) : null;
+  const highestDegree = highestDegreeOf(profile.education);
 
   const citizenships = sensitive.legal.citizenships.state === 'value' ? [...sensitive.legal.citizenships.value] : null;
   const clearance = sensitive.legal.clearance.state === 'value' ? sensitive.legal.clearance.value.level : null;

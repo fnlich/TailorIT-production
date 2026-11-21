@@ -1,9 +1,11 @@
 'use client';
 
-import type {
-  AutofillProfileEnvelope,
-  AutofillResumeList,
-  AutofillSensitiveEnvelope,
+import {
+  EMPTY_AUTOFILL_SENSITIVE,
+  type AutofillProfileEnvelope,
+  type AutofillResumeList,
+  type AutofillSensitiveEnvelope,
+  type PutAutofillProfileResponse,
 } from '@tailorit/shared/autofill';
 import { isResumeTemplateId, RESUME_TEMPLATES } from '@tailorit/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,7 +27,7 @@ import { Button } from '@/components/ui/Button';
 import { Notice } from '@/components/ui/Notice';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
-import { ApiError, userMessage } from '@/lib/api';
+import { ApiError, isProfileRefusal, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { useAiTask } from '@/lib/useAiTask';
 import {
@@ -41,7 +43,7 @@ import { cleanDraft, type AutofillDraft } from '../draft';
 import { mergeSeed } from '../mergeSeed';
 import { SectionHeadingLevel } from '../Section';
 import { validateAutofillProfile } from '../validate';
-import { ProfileFormProvider, useProfileFormState } from './form';
+import { ProfileFormProvider, SensitiveFields, useProfileFormState, type SensitiveGate } from './form';
 import { CertificationsSection, EducationSection, ExperienceSection, LanguagesSkillsSection } from './HistorySections';
 import { ContactSection, LinksSection, NameSection } from './PersonalSections';
 import { ImportStep, OtherStepsNotice, ProfileStepper, ReviewStep, StepHeader, WizardFooter } from './ProfileWizard';
@@ -55,6 +57,7 @@ import {
   WorkAuthorizationSection,
 } from './QuestionSections';
 import { SectionLinkContext } from './sectionLink';
+import { NotShared, OWN_ACCESS, refusedRead, type ProfileAccess } from '../../sharing/access'; // v33 SHARE-7
 import { LetterTemplateSection, ResumeTemplateSection, useLetterTemplates } from './TemplateSections';
 import {
   messagesIn,
@@ -76,6 +79,21 @@ interface SeedReading {
 }
 
 /**
+ * v33 SHARE-7 (review: security 2): what a save leaves as the sensitive part's cached copy. Where the sensitive answers
+ * are not shared with the person (`hidden`) nothing: whatever the answer carries is never kept (null: remove the copy).
+ * Else the part the answer carries (a session gets it back), or the one that was sent.
+ */
+export function sensitiveAfterSave(
+  gate: SensitiveGate,
+  apiVersion: AutofillSensitiveEnvelope['apiVersion'],
+  saved: Pick<PutAutofillProfileResponse, 'revision' | 'updatedAt' | 'sensitive'>,
+  sent: AutofillSensitiveEnvelope['sensitive'],
+): AutofillSensitiveEnvelope | null {
+  if (gate === 'hidden') return null;
+  return { apiVersion, revision: saved.revision, updatedAt: saved.updatedAt, sensitive: saved.sensitive ?? sent };
+}
+
+/**
  * What outlives the form between saves: a save gives both queries new data, and the form starts again from it (a new
  * mount), so where focus goes next is kept here, above it.
  */
@@ -90,21 +108,55 @@ interface WizardMemory {
  * saved together, as a step-by-step wizard like jobright.ai's profile onboarding. The step is in the address
  * (`&step=`); a profile never saved starts on the import, one already saved on the Review.
  */
-export function ProfileTab() {
-  const profile = useQuery({ queryKey: autofillKeys.profile, queryFn: ({ signal }) => fetchAutofillProfile(signal) });
-  const sensitive = useQuery({ queryKey: autofillKeys.sensitive, queryFn: ({ signal }) => fetchAutofillSensitive(signal) });
+export function ProfileTab({
+  access = OWN_ACCESS,
+  sensitiveAccess = OWN_ACCESS,
+}: {
+  /** v33 SHARE-7: the owner's Autofill info boxes on a shared profile (the person's own: everything). */
+  access?: ProfileAccess;
+  /** v33 SHARE-7: the owner's Sensitive answers boxes: without See the sensitive part is never asked for. */
+  sensitiveAccess?: ProfileAccess;
+} = {}) {
+  const queryClient = useQueryClient();
+  // v33 SHARE-7: the sensitive part is asked for, kept and drawn only with the owner's Sensitive answers See box.
+  const sensitiveAsked = access.see && sensitiveAccess.see;
+  const profile = useQuery({
+    queryKey: autofillKeys.profile,
+    queryFn: ({ signal }) => fetchAutofillProfile(signal),
+    enabled: access.see, // v33 SHARE-7
+  });
+  const sensitive = useQuery({
+    queryKey: autofillKeys.sensitive,
+    queryFn: ({ signal }) => fetchAutofillSensitive(signal),
+    enabled: sensitiveAsked, // v33 SHARE-7
+  });
   const resumes = useQuery({ queryKey: autofillKeys.resumes, queryFn: ({ signal }) => fetchAutofillResumes(signal) });
   const memoryRef = useRef<WizardMemory>({ focus: null, anchor: null });
   const [savedThisVisit, setSavedThisVisit] = useState(false);
   // v32 FILL: kept above the form, so a save while the AI reads (Next) does not lose what the reading fills.
   const [reading, setReading] = useState<SeedReading | null>(null);
 
+  // v33 SHARE-7: a sensitive part read before the owner took the See box away is dropped from the cache.
+  useEffect(() => {
+    if (!sensitiveAsked) queryClient.removeQueries({ queryKey: autofillKeys.sensitive, exact: true });
+  }, [sensitiveAsked, queryClient]);
+
   const reload = () => {
     void profile.refetch();
-    void sensitive.refetch();
+    // v33 SHARE-7: refetch() ignores `enabled`: never asked for without the See box.
+    if (sensitiveAsked) void sensitive.refetch();
   };
 
-  if (profile.isError || sensitive.isError) {
+  // v33 SHARE-7: a sensitive read refused anyway (the owner unticked its See box since the list was read) hides the
+  // sensitive answers only; the rest of the profile still shows.
+  const sensitiveShown = sensitiveAsked && !(sensitive.isError && refusedRead(sensitive.error));
+  const sensitiveGate: SensitiveGate = !sensitiveShown ? 'hidden' : sensitiveAccess.change && access.change ? 'shown' : 'readOnly';
+
+  // v33 SHARE-7: not shared with the person, or a read refused because of it.
+  if (!access.see || (profile.isError && refusedRead(profile.error))) {
+    return <NotShared owner={access.owner} />;
+  }
+  if (profile.isError || (sensitiveShown && sensitive.isError)) {
     return (
       <Notice
         tone="error"
@@ -119,13 +171,24 @@ export function ProfileTab() {
       </Notice>
     );
   }
-  if (profile.isPending || sensitive.isPending) return <ProfileSkeleton />;
+  if (profile.isPending || (sensitiveShown && sensitive.isPending)) return <ProfileSkeleton />;
+  // v33 SHARE-7: without the Sensitive answers See box the sensitive part is not read (and a cached one is never used):
+  // an empty one stands in, never drawn (its sections say "Not shared with you.") and never sent.
+  const sensitiveData: AutofillSensitiveEnvelope = (sensitiveShown ? sensitive.data : undefined) ?? {
+    apiVersion: profile.data.apiVersion,
+    revision: profile.data.revision,
+    updatedAt: profile.data.updatedAt,
+    sensitive: EMPTY_AUTOFILL_SENSITIVE,
+  };
   return (
     <ProfileForm
       // A save (or a reload after a conflict) gives both queries new data: the form starts again from it.
-      key={`${profile.dataUpdatedAt}:${sensitive.dataUpdatedAt}`}
+      key={`${profile.dataUpdatedAt}:${sensitiveShown ? sensitive.dataUpdatedAt : 0}`}
       profile={profile.data}
-      sensitive={sensitive.data}
+      sensitive={sensitiveData}
+      access={access}
+      sensitiveGate={sensitiveGate}
+      sensitiveOwner={sensitiveAccess.owner}
       resumes={resumes.data ?? null}
       onReload={reload}
       memoryRef={memoryRef}
@@ -149,6 +212,9 @@ interface SaveRequest {
 function ProfileForm({
   profile,
   sensitive,
+  access,
+  sensitiveGate,
+  sensitiveOwner,
   resumes,
   onReload,
   memoryRef,
@@ -159,6 +225,11 @@ function ProfileForm({
 }: {
   profile: AutofillProfileEnvelope;
   sensitive: AutofillSensitiveEnvelope;
+  access: ProfileAccess;
+  /** v33 SHARE-7: the sensitive answers on this profile (the person's own: shown). */
+  sensitiveGate: SensitiveGate;
+  /** v33 SHARE-7: who did not share them (the owner's name), for "Not shared with you.". */
+  sensitiveOwner: string | null;
   resumes: AutofillResumeList | null;
   onReload: () => void;
   memoryRef: RefObject<WizardMemory>;
@@ -248,9 +319,17 @@ function ProfileForm({
     [goTo, step],
   );
 
+  // v33 SHARE-7: without the owner's Autofill info Change box everything is shown, nothing changes (every control is
+  // off, as while a save runs); the sensitive part is sent only when it was read and may be changed (never the empty
+  // stand-in).
+  const readOnly = !access.change;
   const save = useMutation({
     mutationFn: ({ draft }: SaveRequest) =>
-      saveAutofillProfile({ revision, profile: draft.profile, sensitive: draft.sensitive }),
+      saveAutofillProfile({
+        revision,
+        profile: draft.profile,
+        ...(sensitiveGate === 'shown' ? { sensitive: draft.sensitive } : {}),
+      }),
     onSuccess: (saved, { draft, from, after }) => {
       const flagged = saved.anythingElseFlaggedLines.length > 0;
       if (after.kind === 'move') {
@@ -276,19 +355,19 @@ function ProfileForm({
         profile: saved.profile,
         anythingElseFlaggedLines: saved.anythingElseFlaggedLines,
       });
-      queryClient.setQueryData<AutofillSensitiveEnvelope>(autofillKeys.sensitive, {
-        apiVersion: sensitive.apiVersion,
-        revision: saved.revision,
-        updatedAt: saved.updatedAt,
-        // The Settings session always gets the sensitive part back; a token without profile:sensitive does not.
-        sensitive: saved.sensitive ?? draft.sensitive,
-      });
+      // The Settings session always gets the sensitive part back; a token without profile:sensitive does not. v33
+      // SHARE-7: not shared with the person, whatever the answer carries is never kept or drawn.
+      const kept = sensitiveAfterSave(sensitiveGate, sensitive.apiVersion, saved, draft.sensitive);
+      if (kept) queryClient.setQueryData<AutofillSensitiveEnvelope>(autofillKeys.sensitive, kept);
+      else queryClient.removeQueries({ queryKey: autofillKeys.sensitive, exact: true });
     },
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'revision_conflict') {
         setConflict(true);
         return;
       }
+      // v33 SHARE-7: a shared profile's refusal is the shell's one alert, not a form error too.
+      if (isProfileRefusal(error)) return;
       if (error instanceof ApiError && error.fields) {
         dispatch({ type: 'refused', messages: error.fields });
         setAttempts((count) => count + 1);
@@ -323,6 +402,7 @@ function ProfileForm({
       }
     },
     onError: (error) => {
+      if (isProfileRefusal(error)) return; // v33 SHARE-7: the shell's one alert
       if (!limits.show(error)) toast.error('Your resume could not be read', userMessage(error));
     },
   });
@@ -495,7 +575,7 @@ function ProfileForm({
           onPickResume={setPickedResume}
           filling={filling}
           reading={reading !== null}
-          busy={save.isPending}
+          busy={save.isPending || readOnly}
           onFill={() => fill.mutate(seedResumeId)}
           notes={state.notes}
           kept={kept}
@@ -527,19 +607,34 @@ function ProfileForm({
       );
       break;
     case 'authorization':
-      content = (
-        <>
-          <OnceChecklistSection />
-          <WorkAuthorizationSection />
-          <SelfIdentificationSection />
-        </>
-      );
+      // v33 SHARE-7: every answer of this step is sensitive: shown with the owner's Sensitive answers See box (changed
+      // only with its Change box); else "Not shared with you." (the checklist counts them: not shown either).
+      content =
+        sensitiveGate === 'hidden' ? (
+          <NotShared owner={sensitiveOwner} />
+        ) : (
+          <>
+            <OnceChecklistSection />
+            <SensitiveFields>
+              <WorkAuthorizationSection />
+              <SelfIdentificationSection />
+            </SensitiveFields>
+          </>
+        );
       break;
     case 'questions':
       content = (
         <>
+          {/* v33 SHARE-7: its sensitive answers (18 or older, a conviction, the expected pay) follow the boxes inside. */}
           <OtherQuestionsSection />
-          <ScreeningSection />
+          {/* v33 SHARE-7: the screening answers are sensitive, all of them. */}
+          {sensitiveGate === 'hidden' ? (
+            <NotShared owner={sensitiveOwner} />
+          ) : (
+            <SensitiveFields>
+              <ScreeningSection />
+            </SensitiveFields>
+          )}
           {/* The saved note and its flagged lines, from the last save or the page's load. */}
           <AnythingElseSection flagged={{ note: profile.profile.anythingElse, lines: profile.anythingElseFlaggedLines }} />
         </>
@@ -555,17 +650,31 @@ function ProfileForm({
       );
       break;
     case 'review':
-      content = <ReviewStep draft={state.draft} errorSteps={errorSteps} names={names} onEdit={(target) => goTo(target)} />;
+      content = (
+        <ReviewStep
+          draft={state.draft}
+          errorSteps={errorSteps}
+          names={names}
+          onEdit={(target) => goTo(target)}
+          reach={{ sensitive: sensitiveGate !== 'hidden' }}
+        />
+      );
       break;
   }
 
   return (
-    <ProfileFormProvider state={state} dispatch={dispatch} busy={save.isPending}>
+    <ProfileFormProvider state={state} dispatch={dispatch} busy={save.isPending || readOnly} sensitive={sensitiveGate}>
       <SectionLinkContext.Provider value={linkToSection}>
         <SectionHeadingLevel.Provider value={3}>
           <form ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-profile-wizard={step}>
             <div ref={topRef} className="scroll-mt-20">
-              <ProfileStepper current={step} draft={state.draft} errorSteps={errorSteps} onSelect={select} />
+              <ProfileStepper
+                current={step}
+                draft={state.draft}
+                errorSteps={errorSteps}
+                onSelect={select}
+                reach={{ sensitive: sensitiveGate !== 'hidden' }}
+              />
             </div>
             <StepHeader step={step} headingRef={headingRef} />
 

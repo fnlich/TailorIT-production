@@ -1,4 +1,5 @@
 import type { MessageKey } from '@tailorit/shared';
+import { isProfileKey, linkAs } from '@tailorit/shared/sharing'; // v33 SHARE-6
 import { guarded, notify, notifyStats, type NotifyDeps, type NotifyOutcome } from './service';
 
 // v3.1 NOTIFY: a job a person added, read (or not) by TailorIT's server. LINK's add pipeline (features/jobs/add,
@@ -29,7 +30,16 @@ export interface JobVerificationEvent {
    * by an admin: theirs stays as they added it (MSG_NOTIFY_JOB_PUBLIC_VERSION_*); the link opens the published one.
    */
   publicVersion?: boolean;
+  /**
+   * v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"): the shared profile the job is on, for a notice to the person who
+   * added it there (jobs/add/notify.ts linkNoticeTarget): its link opens the job on that profile (?as=<key>).
+   */
+  profile?: string;
 }
+
+/** v33 SHARE-6: the job's page, on the shared profile it was added on when the notice names one. */
+const jobLink = (jobId: number, profile: string | undefined) =>
+  profile && isProfileKey(profile) ? linkAs(`/jobs?jobId=${jobId}`, profile) : `/jobs?jobId=${jobId}`;
 
 const KIND_OF = {
   published: 'job_verified',
@@ -83,7 +93,7 @@ export async function notifyJobVerification(deps: NotifyDeps, event: JobVerifica
     ...(words.body ? { body: words.body } : {}),
     bodyExtra: isSentence(event.reason) ? event.reason : null,
     // A refused job is not listed: nothing to open.
-    link: job && event.state !== 'refused' ? `/jobs?jobId=${jobId}` : null,
+    link: job && event.state !== 'refused' ? jobLink(jobId!, event.profile) : null, // v33 SHARE-6: on the profile it was added on
     // A refused link with no job kept is told each time (nothing names it twice).
     dedupeKey: job ? `job:${jobId}:${event.state}` : null,
   });

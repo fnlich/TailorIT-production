@@ -33,6 +33,7 @@ import {
   kitResumeText,
   liveSummary,
   postingHref,
+  queueEditOf, // v33 INT-1
   queueGroupTitle,
   rowActions,
   rowKey,
@@ -51,6 +52,8 @@ import { Pane, ROW_ACTION, StateLine, useReducedMotion, useRowFocus, useThrottle
 import { PaneLoadFailed, PaneOutOfDate } from '../../components/queue/PaneStates';
 import { RowCredit } from '../jobs/credits/JobCredit'; // v30 FIX-WEB (REQ-1)
 import { creditOf } from '../jobs/credits/credit';
+import { useTabProfile } from '../sharing/access'; // v33 SHARE-7
+import { heldLine } from './held'; // v33 SHARE-7
 
 // v2.0: the Queue pane, the right of the Auto-apply page (docs/design/v2.0/08-ui.md, "The Queue pane"): what is being
 // prepared, what is up next (supported jobs, in the order the extension takes them), what is applied to by hand, what
@@ -106,6 +109,10 @@ export function QueuePane({
   const toast = useToast();
   const { t, get } = usePublicConstants();
   const account = useAccount().data;
+  // v33 SHARE-7: on a shared profile, the rows the person prepared that wait for its owner's OK say so.
+  const { key: tabKey, ownerName, profile: tabProfile } = useTabProfile();
+  // v33 SHARE-6: Remove, Clear finished and Mark as applied are the owner's Queue changes box on a shared profile.
+  const queueEdit = queueEditOf(tabKey, tabProfile);
   const now = useNow();
   const reduced = useReducedMotion();
   const [clearing, setClearing] = useState(false);
@@ -260,14 +267,16 @@ export function QueuePane({
         onValueChange={onFilterChange}
         items={QUEUE_FILTERS.map((value) => ({ value, label: QUEUE_FILTER_LABEL[value] }))}
       />
-      <Button
-        variant="outline"
-        className="ml-auto max-sm:h-11"
-        disabled={finished === 0}
-        onClick={() => setClearing(true)}
-      >
-        Clear finished
-      </Button>
+      {queueEdit && (
+        <Button
+          variant="outline"
+          className="ml-auto max-sm:h-11"
+          disabled={finished === 0}
+          onClick={() => setClearing(true)}
+        >
+          Clear finished
+        </Button>
+      )}
     </div>
   );
 
@@ -330,14 +339,17 @@ export function QueuePane({
                     key={rowKey(row)}
                     row={row}
                     support={row.kind === 'queue' ? row.item.support : row.item.applicationId ? supportOf(row.item.applicationId) : undefined}
-                    line={stateLine(row, {
-                      t,
-                      now,
-                      resetText,
-                      queueMax: get('QUEUE_SIZE_MAX'),
-                      place: row.kind === 'queue' ? places.get(row.item.queueId) : undefined,
-                    })}
-                    actions={rowActions(row)}
+                    line={
+                      heldLine(row, { acting: tabKey !== null, ownerName }) ??
+                      stateLine(row, {
+                        t,
+                        now,
+                        resetText,
+                        queueMax: get('QUEUE_SIZE_MAX'),
+                        place: row.kind === 'queue' ? places.get(row.item.queueId) : undefined,
+                      })
+                    }
+                    actions={rowActions(row, queueEdit)}
                     busy={busy.has(rowKey(row)) || (row.item.applicationId !== null && prepare.pending.has(row.item.applicationId))}
                     flash={flashing.has(rowKey(row)) || highlight === rowKey(row)}
                     onAction={(action) => act(row, action)}

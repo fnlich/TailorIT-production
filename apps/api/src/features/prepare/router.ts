@@ -9,12 +9,12 @@ import {
   type PrepareAllResponse,
   type PrepareStartResponse,
 } from '@tailorit/shared';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { actorOf, payerOf, requireUser, userOf } from '../../core/auth/guards';
 import type { AppDeps } from '../../core/context';
 import { parseInput } from '../../core/http/validate';
 import { perAccountLimit } from '../autofill/auth';
 import { prepareAll, prepareAllPlan } from './all';
-import { applicationDraft } from './kit';
+import { applicationDraft, viewerOf } from './kit';
 import { prepareServiceOf } from './service';
 import { prepareSettingsOf, savePrepareSettings } from './settings';
 
@@ -29,6 +29,9 @@ import { prepareSettingsOf, savePrepareSettings } from './settings';
 //                                     PrepareAllResponse: of them, every saved job in To prepare that passes the filters,
 //                                     chosen by the server within the caps (all.ts); or one error for the whole request
 //   GET  /api/applications/:id/draft  → ApplicationDraftResponse (the Tracker's "Prepared" tab; the owner's alone)
+// v33 SHARE-5 (PLAN F9): on a profile shared with them (acting.ts), B starts Prepares as its payer (payerOf: B's AI
+// budget and Prepares an hour, within B's room there), cancels only the Prepares B started, and, without the Sensitive
+// answers permission, sees eligibility filter reasons as one word and held-back questions as not ready (viewerOf).
 
 /** Mounted at /api/prepare. */
 export function createPrepareRouter(deps: AppDeps): Router {
@@ -40,21 +43,28 @@ export function createPrepareRouter(deps: AppDeps): Router {
 
   router.post('/', startLimit, async (req, res) => {
     const body = parseInput(PrepareStartRequestSchema, req.body ?? {}, 'request');
-    const answer: PrepareStartResponse = await prepareServiceOf(deps).startPrepare(userOf(req).id, body, 'server');
+    const answer: PrepareStartResponse = await prepareServiceOf(deps).startPrepare(userOf(req).id, body, 'server', {
+      payer: payerOf(req), // v33 SHARE-5
+      viewer: viewerOf(req),
+    });
     res.status(202).json(answer);
   });
 
   // v31 AUTO (D10): Prepare All. The start counts toward Prepare & Queue's own per-minute limit.
   router.get('/all', planLimit, async (req, res) => {
     const user = userOf(req);
-    const answer: PrepareAllPlan = await prepareAllPlan(deps, user.id, { admin: user.role === 'admin' }); // v32 ADMINAPP (E7)
+    // v32 ADMINAPP (E7); v33 SHARE-5: the amounts by the signed-in person's role, the budget the payer's.
+    const answer: PrepareAllPlan = await prepareAllPlan(deps, user.id, { admin: actorOf(req).role === 'admin', payer: payerOf(req) });
     res.json(answer);
   });
 
   router.post('/all', startLimit, async (req, res) => {
     // v31 FIX-AUTH (BEH-8): the jobs the confirm named; no other starts.
     const body = parseInput(PrepareAllRequestSchema, req.body ?? {}, 'request');
-    const answer: PrepareAllResponse = await prepareAll(deps, userOf(req).id, prepareServiceOf(deps), body.applicationIds);
+    const answer: PrepareAllResponse = await prepareAll(deps, userOf(req).id, prepareServiceOf(deps), body.applicationIds, {
+      payer: payerOf(req), // v33 SHARE-5
+      viewer: viewerOf(req),
+    });
     res.status(answer.results.length > 0 ? 202 : 200).json(answer);
   });
 
@@ -69,7 +79,8 @@ export function createPrepareRouter(deps: AppDeps): Router {
 
   router.post('/:id/cancel', async (req, res) => {
     const prepareId = parseInput(IdParam, req.params.id, 'prepare id');
-    res.json(await prepareServiceOf(deps).cancel(userOf(req).id, prepareId));
+    // v33 SHARE-5: on a profile shared with them, B cancels only the Prepares B started.
+    res.json(await prepareServiceOf(deps).cancel(userOf(req).id, prepareId, { actorId: actorOf(req).id, viewer: viewerOf(req) }));
   });
 
   return router;
@@ -81,7 +92,7 @@ export function createApplicationDraftRouter(deps: AppDeps): Router {
   router.use('/:id/draft', requireUser);
   router.get('/:id/draft', async (req, res) => {
     const id = parseInput(IdParam, req.params.id, 'application id');
-    res.json(await applicationDraft(deps, userOf(req).id, id));
+    res.json(await applicationDraft(deps, userOf(req).id, id, viewerOf(req))); // v33 SHARE-5
   });
   return router;
 }

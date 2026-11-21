@@ -99,6 +99,10 @@ export const FILTER_REASONS = [
   'sponsorship',
   'clearance',
   'custom',
+  // v33 SHARE-5 (PLAN F9 "Sensitive answers"; PLAN-sharing.md §4): never stored or evaluated; what someone the profile
+  // is shared with sees, without the Sensitive answers permission, in place of a reason that comes from an eligibility
+  // answer (sponsorship, clearance, a citizenship): one reason, no value (maskEligibility, evaluate.ts).
+  'eligibility',
 ] as const;
 export type FilterReason = (typeof FILTER_REASONS)[number];
 
@@ -116,6 +120,7 @@ export const FILTER_REASON_LABELS = {
   sponsorship: 'FILTER_LABEL_SPONSORSHIP',
   clearance: 'FILTER_LABEL_CLEARANCE',
   custom: 'FILTER_LABEL_CUSTOM',
+  eligibility: 'FILTER_LABEL_ELIGIBILITY', // v33 SHARE-5
 } as const satisfies Record<FilterReason, MessageKey>;
 
 /**

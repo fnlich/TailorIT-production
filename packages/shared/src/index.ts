@@ -24,3 +24,9 @@ export * from './filters/index';
 export * from './sourcing/index';
 export * from './companies/index';
 export * from './reviews/index';
+// v33 ROLES: role families and the person's field (also `@tailorit/shared/roles`).
+export * from './roles/index';
+// v33 SHARE-0: shared profiles (PLAN F9), also `@tailorit/shared/sharing`.
+export * from './sharing/index';
+// v33 SHARE-5: the jobs a shared profile's owner approves (also `@tailorit/shared/auto-apply`).
+export * from './auto-apply/index';

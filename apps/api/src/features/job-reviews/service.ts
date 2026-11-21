@@ -6,7 +6,8 @@ import { AppError, conflict } from '../../core/http/errors';
 import { reviewDetail } from './admin';
 import { approveReview, rejectReview, reopenReview, runFollowUps, type CapturedApproval, type FollowUp, type PageReviewRead } from './decide';
 import { pageReviewUrl, readPageReview, readPageReviewLink } from './page-read'; // v31 LINK
-import { noticeVerification } from '../jobs/add/notify'; // v31 LINK
+import { linkNoticeTarget, noticeVerification } from '../jobs/add/notify'; // v31 LINK; v33 SHARE-6: linkNoticeTarget
+import type { LinkAdder } from '../jobs/add/verification'; // v33 SHARE-6
 import { assertPublishable, giveWayToApproved, takeApprovalSlot } from '../jobs/add/approve'; // v32 ADMINAPP (E6)
 import { sharedAddress } from '../jobs/add/address'; // v32 ADMINAPP (E6)
 import { reviewById } from './store';
@@ -91,13 +92,21 @@ async function capturedApprovalOf(
 
 /**
  * v31 LINK: after an approval of a held new job read from an ATS (or its page), its adders hear it is published. A page
- * review's reporters hear it from their follow-ups (decide.ts runFollowUps).
+ * review's reporters hear it from their follow-ups (decide.ts runFollowUps). v33 SHARE-6 (PLAN-sharing §4 "Explicit
+ * changes", §10: job-link notices go to the actor; the SHARE-6 review): someone who added it on an owner's profile hears
+ * it there while their grant lets them (linkNoticeTarget), else the owner does.
  */
 async function noticeApprovedJob(deps: AppDeps, reviewId: number): Promise<void> {
   const review = await reviewById(deps.db, reviewId);
   if (!review || review.kind !== 'new_job' || review.origin !== 'ats' || review.state !== 'approved') return;
-  const adders = await deps.db.all<{ user_id: string }>('SELECT user_id FROM job_review_reports WHERE review_id = ? ORDER BY user_id', [reviewId]);
-  for (const adder of adders) await noticeVerification(deps, { userId: adder.user_id, jobId: review.job_id, state: 'published' });
+  const adders = await deps.db.all<LinkAdder>(
+    'SELECT user_id, added_by, grant_id FROM job_review_reports WHERE review_id = ? ORDER BY user_id',
+    [reviewId],
+  );
+  for (const adder of adders) {
+    const target = await linkNoticeTarget(deps, adder); // v33 SHARE-6
+    await noticeVerification(deps, { userId: target.userId, profile: target.profile, jobId: review.job_id, state: 'published' });
+  }
 }
 
 type BulkResult = z.infer<typeof AdminReviewBulkResultSchema>;

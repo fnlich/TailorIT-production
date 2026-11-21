@@ -1,5 +1,6 @@
 import { ANALYZE_JOB_DESCRIPTION } from '../tailor/analyze-job-description';
 import { adapt, type TailorPromptText } from '../tailor/render';
+import { familyText, perFamily } from '../roles/variants';
 import { defineTextPrompt } from '../types';
 import { rendered, stepFooter, type StepPromptInput } from './render';
 
@@ -22,14 +23,22 @@ export const MCP_ANALYZE_TEXT: TailorPromptText = {
   sharedVariables: [],
 };
 
+/** v33 PROMPTS (F5): the step in the job's family's words, then the MCP adaptations; technical: MCP_ANALYZE_TEXT. */
+export const mcpAnalyzeTextFor = perFamily(
+  (family): TailorPromptText => ({
+    ...MCP_ANALYZE_TEXT,
+    content: adapt(familyText(ANALYZE_JOB_DESCRIPTION, 'analyze-job-description', family), 'analyze-job-description', MCP_ANALYZE_ADAPTATIONS),
+  }),
+);
+
 export const mcpAnalyzePrompt = defineTextPrompt<StepPromptInput>({
   area: 'mcp',
   name: 'analyze-job-description',
   version: 1,
   description: "The step `analyze` for the person's AI: the posting's ATS keywords, saved with prepare_save_analysis.",
-  text: ({ jobId, values }) =>
+  text: ({ jobId, values, family }) =>
     rendered(
-      MCP_ANALYZE_TEXT,
+      mcpAnalyzeTextFor(family),
       values,
       true,
       stepFooter(

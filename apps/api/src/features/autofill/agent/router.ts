@@ -270,12 +270,13 @@ export function createAutofillAgentRouter(deps: AppDeps): Router {
   );
 
   // v1.5 Q2: a token too (the Queue tab); a query answers one page. v2.0: the window's usage; a token never sees a
-  // `manual` row.
+  // `manual` row. v33 SHARE-5: nor one that waits for the owner's OK (a job someone the profile is shared with prepared).
   router.get('/agent/queue', allow('either', 'agent:run'), queueReadLimit, async (req, res) => {
     const userId = userOf(req).id;
     const query = parseInput(AutofillAgentQueueQuerySchema, req.query ?? {}, 'query');
     await releaseStaleRuns(deps, userId);
-    const options = { omitManual: req.extensionToken !== undefined, autoApply: await usageOf(deps, userId) };
+    const token = req.extensionToken !== undefined;
+    const options = { omitManual: token, omitHeld: token, autoApply: await usageOf(deps, userId) };
     const paged = query.state !== undefined || query.cursor !== undefined || query.limit !== undefined;
     res.json(paged ? await pageQueue(deps, userId, query, options) : await listQueue(deps, userId, options));
   });

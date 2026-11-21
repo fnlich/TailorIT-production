@@ -30,7 +30,7 @@ import { sharedAddress } from './address';
 import { legacyHeld } from './held';
 import { settleLegacyJob } from './legacy';
 import { readPageToSharedJob } from './page';
-import { noticeVerification } from './notify';
+import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
 import { linkRejected, noteUnverified, ownJobsOfLink } from './verification';
 
 // v31 LINK: addJobByLink, the ONE pipeline every add path runs (docs/design/v3.1/21-jobs-from-links.md §3; the build
@@ -73,6 +73,12 @@ export interface AddJobByLinkInput {
   save?: boolean;
   /** Reads under way, shared (a router's). */
   inFlight?: InFlight;
+  /**
+   * v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"): who adds, when that is someone working on `userId`'s profile (B),
+   * and the grant they work under: the link's later notices go to them (verification.ts LinkAdder; notify.ts). Left
+   * out: the person adds on their own profile.
+   */
+  actor?: { id: string; grantId: string | null };
 }
 
 export interface AddJobByLinkOutcome {
@@ -188,8 +194,10 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
   if (!given || !url || given.length > 2100 || !isAddableLink(given) || !isAddableLink(url)) return outcome('refused', null, 'invalid_link');
   const { userId } = input;
   const page = readPage(url, undefined, aliasValueHash(deps));
+  // v33 SHARE-6 (the SHARE-6 review): a held job's add names who added it (the actor on a shared profile, else nobody).
+  const heldAdder = { addedBy: input.actor?.id ?? userId ?? null, grantId: input.actor?.grantId ?? null };
   const save = async (jobId: number) => {
-    if (userId && input.save) await saveToTracker(deps, userId, jobId);
+    if (userId && input.save) await saveToTracker(deps, userId, jobId, undefined, heldAdder);
   };
 
   // 2. A job TailorIT has (an import's or an admin's link: a shared one only, as nobody's viewer).
@@ -237,7 +245,9 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
   // 4. A link TailorIT cannot read.
   const reason = read.reason;
   if (!userId) return outcome('refused', null, reason);
-  const note = (jobId: number) => noteUnverified(deps.db, { jobId, userId, url, origin: input.origin, reason }, nowIso(deps));
+  // v33 SHARE-6: the note names who added it (the actor on a shared profile, else the owner: nobody else).
+  const adder = { addedBy: input.actor?.id ?? userId, grantId: input.actor?.grantId ?? null };
+  const note = (jobId: number) => noteUnverified(deps.db, { jobId, userId, url, origin: input.origin, reason, ...adder }, nowIso(deps));
   if (own !== null) {
     await note(own);
     await save(own);
@@ -262,10 +272,20 @@ export async function verifyJob(
   deps: AppDeps,
   jobId: number,
   actor: { id: string; admin: boolean },
+  askerId: string = actor.id, // v33 SHARE-6: who asked (B on A's profile; `actor` is then A, the profile's owner)
 ): Promise<AddJobByLinkOutcome> {
   deps.db.assertNoTx('verifyJob');
-  const job = await deps.db.one<{ owner_user_id: string | null; apply_url: string; held: boolean; active: boolean; url: string | null; origin: string | null }>(
-    `SELECT j.owner_user_id, j.apply_url, j.held_since IS NOT NULL AS held, j.active, v.url, v.origin
+  const job = await deps.db.one<{
+    owner_user_id: string | null;
+    apply_url: string;
+    held: boolean;
+    active: boolean;
+    url: string | null;
+    origin: string | null;
+    added_by: string | null; // v33 SHARE-6
+    grant_id: string | null; // v33 SHARE-6
+  }>(
+    `SELECT j.owner_user_id, j.apply_url, j.held_since IS NOT NULL AS held, j.active, v.url, v.origin, v.added_by, v.grant_id
      FROM jobs j LEFT JOIN job_verifications v ON v.job_id = j.id WHERE j.id = ? AND j.superseded_by IS NULL`,
     [jobId],
   );
@@ -303,14 +323,21 @@ export async function verifyJob(
   if (read.kind === 'shared') {
     const key = linkKey(url);
     const owners = key ? await ownJobsOfLink(deps.db, key) : [];
-    if (!owners.some((row) => Number(row.job_id) === jobId)) owners.push({ job_id: jobId, user_id: job.owner_user_id });
+    if (!owners.some((row) => Number(row.job_id) === jobId)) {
+      owners.push({ job_id: jobId, user_id: job.owner_user_id, added_by: job.added_by, grant_id: job.grant_id }); // v33 SHARE-6: its adder
+    }
     for (const row of owners) {
       const moved = await upgradeOwnPageJob(deps, row.user_id, Number(row.job_id), read.jobId, { sameLink: true });
       // v31 FIX-LINK (D12): a job read now that waits for an admin counts each adder as one (their report row), so they
       // hear it once the admin approves it.
-      if (moved && read.held) await noteHeldAdd(deps, row.user_id, read.jobId);
-      // Each adder hears that TailorIT read their job (the one who asked sees the answer).
-      if (moved && row.user_id !== actor.id) await noticeVerification(deps, { userId: row.user_id, jobId: read.jobId, state: stateOf(read.held) });
+      // v33 SHARE-6: the report row names the note's adder (B on the owner's profile hears the approval there).
+      if (moved && read.held) await noteHeldAdd(deps, row.user_id, read.jobId, { addedBy: row.added_by ?? row.user_id, grantId: row.grant_id ?? null });
+      // Each adder hears that TailorIT read their job (the one who asked sees the answer). v33 SHARE-6: the one who
+      // added it on someone else's profile hears it there (linkNoticeTarget); the asker is whoever asked (askerId).
+      const target = moved ? await linkNoticeTarget(deps, row) : null;
+      if (target && target.userId !== askerId) {
+        await noticeVerification(deps, { userId: target.userId, profile: target.profile, jobId: read.jobId, state: stateOf(read.held) });
+      }
     }
     return { ...answer(stateOf(read.held), read.jobId, null), created: read.created };
   }
@@ -318,6 +345,8 @@ export async function verifyJob(
   const origin = (job.origin ?? 'web') as JobAddOrigin;
   await noteUnverified(deps.db, { jobId, userId: job.owner_user_id, url, origin, reason }, nowIso(deps));
   const state = read.kind === 'closed' ? 'refused' : 'private_unverified';
-  if (job.owner_user_id !== actor.id) await noticeVerification(deps, { userId: job.owner_user_id, jobId, state, reason });
+  // v33 SHARE-6: as above, the adder on the owner's profile hears it there; the asker sees the answer.
+  const target = await linkNoticeTarget(deps, { user_id: job.owner_user_id, added_by: job.added_by, grant_id: job.grant_id });
+  if (target.userId !== askerId) await noticeVerification(deps, { userId: target.userId, profile: target.profile, jobId, state, reason });
   return answer(state, jobId, reason);
 }

@@ -1,5 +1,6 @@
 import { REVIEW_JOB_KEYWORDS } from '../tailor/review-job-keywords';
 import { adapt, type TailorPromptText } from '../tailor/render';
+import { familyText, perFamily } from '../roles/variants';
 import { defineTextPrompt } from '../types';
 import { rendered, stepFooter, type StepPromptInput } from './render';
 
@@ -21,14 +22,22 @@ export const MCP_REVIEW_TEXT: TailorPromptText = {
   sharedVariables: [],
 };
 
+/** v33 PROMPTS (F5): the step in the job's family's words, then the MCP adaptations; technical: MCP_REVIEW_TEXT. */
+export const mcpReviewTextFor = perFamily(
+  (family): TailorPromptText => ({
+    ...MCP_REVIEW_TEXT,
+    content: adapt(familyText(REVIEW_JOB_KEYWORDS, 'review-job-keywords', family), 'review-job-keywords', MCP_REVIEW_ADAPTATIONS),
+  }),
+);
+
 export const mcpReviewPrompt = defineTextPrompt<StepPromptInput>({
   area: 'mcp',
   name: 'review-job-keywords',
   version: 1,
   description: "The step `review` for the person's AI: the keywords the first pass missed, saved with prepare_save_analysis.",
-  text: ({ jobId, values }) =>
+  text: ({ jobId, values, family }) =>
     rendered(
-      MCP_REVIEW_TEXT,
+      mcpReviewTextFor(family),
       values,
       true,
       stepFooter(

@@ -1,6 +1,7 @@
 import {
   evaluateFilters,
   FILTER_REASONS,
+  maskEligibility, // v33 SHARE-5
   mergeExtra,
   type FilterReason,
   type CustomFilterState,
@@ -10,6 +11,7 @@ import {
   type PrepareFiltersPreview,
   type PrepareFiltersResponse,
 } from '@tailorit/shared';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-5
 import { constantsOf } from '../../core/constants/index';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { FilterCheck, PrepareFilterService } from '../../core/seams';
@@ -96,13 +98,15 @@ async function check(
   userId: string,
   rows: readonly ApplicationRow[],
   filters: PrepareFilters,
-  options: { custom: boolean },
+  options: { custom: boolean; sensitive?: boolean },
 ): Promise<FilterCheck[]> {
   if (rows.length === 0) return [];
   const jobIds = rows.map((row) => row.job_id);
   await ensureJobFacts(deps, jobIds);
   const facts = await readJobFacts(deps, jobIds);
-  const person = await personFacts(deps, userId);
+  const known = await personFacts(deps, userId);
+  // v33 SHARE-5: `sensitive` false: the person's eligibility answers (citizenships, clearance) unknown to the check.
+  const person = options.sensitive === false ? { ...known, citizenships: null, clearance: null } : known;
   const prompt = options.custom ? await customPromptOf(deps, userId) : null;
   const states = await customStates(
     deps.db,
@@ -116,9 +120,9 @@ async function check(
 export interface PrepareFilterServiceInternals extends PrepareFilterService {
   /**
    * The seam's judgeOnServer, with the Prepare it is for (`prepare: {id}` in each task's input, so the cost adds up on
-   * that Prepare). core/seams.ts gains the parameter at INT.
+   * that Prepare). core/seams.ts gains the parameter at INT. v33 SHARE-5: `payer`, who pays (the Prepare's payer).
    */
-  judgeOnServer(userId: string, jobIds: readonly number[], prepareId?: string): Promise<Map<number, 'pass' | 'fail'>>;
+  judgeOnServer(userId: string, jobIds: readonly number[], prepareId: string | undefined, payer: PersonPayer): Promise<Map<number, 'pass' | 'fail'>>; // v33 INT-1: payer required
   /**
    * The Saved list's labels (P3's read model): each application's stored verdict, computed again first when it is
    * missing or stale (another filters revision, another JOB_FACTS_VERSION, facts computed after it, a Custom verdict
@@ -127,8 +131,12 @@ export interface PrepareFilterServiceInternals extends PrepareFilterService {
   resultsOf(userId: string, applicationIds: readonly string[]): Promise<Map<string, StoredFilterResult>>;
   /** GET /api/prepare/filters' answer. */
   settingsOf(userId: string): Promise<PrepareFiltersResponse>;
-  /** POST /api/prepare/filters/preview: the deterministic filters (no Custom filter, no AI) over the Saved jobs. */
-  preview(userId: string, filters: PrepareFilters): Promise<PrepareFiltersPreview>;
+  /**
+   * POST /api/prepare/filters/preview: the deterministic filters (no Custom filter, no AI) over the Saved jobs. v33
+   * SHARE-5: `viewer.sensitive` false (someone the profile is shared with, without the Sensitive answers permission):
+   * the person's citizenships and clearance count as unknown, and an eligibility reason counts as `eligibility`.
+   */
+  preview(userId: string, filters: PrepareFilters, viewer?: { sensitive: boolean }): Promise<PrepareFiltersPreview>;
 }
 
 export function createPrepareFilterService(deps: AppDeps): PrepareFilterServiceInternals {
@@ -194,8 +202,9 @@ export function createPrepareFilterService(deps: AppDeps): PrepareFilterServiceI
       return storeVerdicts(deps, userId, verdicts, decidedBy);
     },
 
-    judgeOnServer(userId, jobIds, prepareId) {
-      return judgeOnServer(deps, userId, jobIds, prepareId);
+    // v33 SHARE-5: `payer` reaches custom.ts's judgeOnServer (SHARE-3's; v33 INT-C, SHARE-5 exact edit 2).
+    judgeOnServer(userId, jobIds, prepareId, payer) {
+      return judgeOnServer(deps, userId, jobIds, prepareId, payer);
     },
 
     async settingsOf(userId) {
@@ -204,17 +213,20 @@ export function createPrepareFilterService(deps: AppDeps): PrepareFilterServiceI
       return { filters, revision, locationKnown: location.country !== null, timeZoneKnown: location.timeZoneOffset !== null };
     },
 
-    async preview(userId, filters) {
+    async preview(userId, filters, viewer = { sensitive: true }) {
       const rows = await deps.db.all<ApplicationRow>(
         'SELECT a.id, a.job_id, j.content_hash FROM applications a JOIN jobs j ON j.id = a.job_id ' +
           'WHERE a.user_id = ? AND a.archived_at IS NULL AND a.current_status = 1 ORDER BY a.tracked_on DESC, a.id LIMIT ?',
         [userId, PREVIEW_MAX],
       );
-      const checks = await check(deps, userId, rows, { ...filters, custom: { enabled: false, prompt: '' } }, { custom: false });
+      const checks = await check(deps, userId, rows, { ...filters, custom: { enabled: false, prompt: '' } }, {
+        custom: false,
+        sensitive: viewer.sensitive, // v33 SHARE-5
+      });
       const byReason: Partial<Record<FilterReason, number>> = {};
       let fail = 0;
       for (const entry of checks) {
-        const first = entry.verdict.reasons[0];
+        const first = (viewer.sensitive ? entry.verdict.reasons : maskEligibility(entry.verdict.reasons))[0]; // v33 SHARE-5
         if (entry.verdict.verdict !== 'fail' || !first) continue;
         fail += 1;
         byReason[first.code] = (byReason[first.code] ?? 0) + 1;

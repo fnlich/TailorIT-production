@@ -1,12 +1,11 @@
 'use client';
 
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
-import { EMPLOYMENT_TYPE_LABEL, appliedChipLabel, formatMediumDate, liveChip, type JobDetail } from '@tailorit/shared';
+import { appliedChipLabel, type JobDetail } from '@tailorit/shared';
 import { clsx } from 'clsx';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Badge } from '@/components/ui/Badge';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
@@ -17,8 +16,6 @@ import {
   CaretDownIcon,
   CaretUpIcon,
   CheckCircleIcon,
-  ClockIcon,
-  EyeIcon,
   EyeSlashIcon,
   WarningCircleIcon,
 } from '@/components/ui/icons';
@@ -27,24 +24,23 @@ import { Skeleton, SkeletonText } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { isApiError, userMessage } from '@/lib/api';
-import { companyHref } from '@/features/companies/routes'; // v30 WEB-JOBS
-import { usePublicConstants, type PublicMessageKey } from '@/lib/constants';
+import { usePublicConstants } from '@/lib/constants';
 import { useNow } from '@/lib/useNow';
-import { CompanyLogo } from '../CompanyLogo';
-import { useHideCompany, useHideJob, useJobDetail, useJobInsights, useMarkApplied, useSaveToggle } from '../hooks';
+import { failure, useHideCompany, useHideJob, useJobDetail, useJobInsights, useMarkApplied, useSaveToggle } from '../hooks';
 import { ArrowLeftIcon, ExportIcon, FlagIcon } from '../icons';
-import { cardCompanyFacts, jobLevelsOf } from '../format';
+import { jobLevelsOf } from '../format';
 import { jobShareUrl } from '../url';
 import { AboutJob } from './AboutJob';
-import { AddedFromChip } from './AddedFrom';
 import { ApplyDialog } from './ApplyDialog';
 import { CompanySection } from './company/CompanySection';
-import { FactsGrid } from './FactsGrid';
-import { MatchSection, TailorSection } from './MatchSection';
+import { GlanceCard } from './GlanceCard'; // v33 JOBDETAIL
+import { JobHeader, type DetailVariant } from './JobHeader'; // v33 JOBDETAIL
+import { SkillsCard } from './SkillsCard'; // v33 JOBDETAIL
+import { BenefitsCard, TailorCard } from './TailorCard'; // v33 JOBDETAIL
+import { tabCan, useTabProfile, type TabProfile } from '../../sharing/access'; // v33 FIX-1
 import { ReportDialog } from '../report/ReportDialog';
-import { HeldNotice } from './held/HeldNotice'; // v30 X1-WEB
-import { DetailCredit } from '../credits/JobCredit'; // v30 S4
-import { VerificationNotice } from '../verification/VerificationNotice'; // v31 JOBSWEB
+
+export type { DetailVariant } from './JobHeader';
 
 /** v31 FIX-JOBS: the job's place in the list and its Previous / Next (null at either end, or for a job the list lacks). */
 export interface DrawerNav {
@@ -53,12 +49,6 @@ export interface DrawerNav {
   onPrevious: (() => void) | null;
   onNext: (() => void) | null;
 }
-
-/**
- * v32 JOBS2 (E3): where the detail is drawn. `pane`: beside the list (from 1024 px), always there, its title an h2 of
- * the page. `sheet`: full screen over the list (below 1024 px), a modal dialog named by the job's title, with Back.
- */
-export type DetailVariant = 'pane' | 'sheet';
 
 export interface JobDetailPanelProps {
   jobId: number;
@@ -82,25 +72,49 @@ export interface JobDetailPanelProps {
 }
 
 /**
- * The jumps of the section bar: Your match (the line under the job's facts), About the role (with Tailor for this job
- * after it), the company.
+ * The detail's padding at the sides (20 px, 24 px from 640 px). v33 JOBDETAIL: 24 px (was 28) so the two columns fit
+ * a 1280 px window with a scrollbar (BODY_COLUMNS).
  */
-const SECTIONS: ReadonlyArray<{ id: string; label: PublicMessageKey }> = [
-  { id: 'job-match', label: 'LABEL_JOB_NAV_MATCH' },
-  { id: 'job-role', label: 'LABEL_JOB_NAV_ROLE' },
-  { id: 'job-company', label: 'LABEL_JOB_NAV_COMPANY' },
-];
+const GUTTER = 'px-5 sm:px-6';
 
-/** The detail's padding at the sides (20 px, 28 px from 640 px). */
-const GUTTER = 'px-5 sm:px-7';
+/**
+ * v33 JOBDETAIL (F2): the body's two columns. They need 43 rem inside the gutters (the left at least 24 rem, the
+ * right 18 to 20 rem, 1 rem between), measured on the body (a size container); narrower, one column, the right one's
+ * cards first. The page's list narrows to leave the pane that room at 1280 px (JobsPage's grid).
+ */
+export const BODY_COLUMNS =
+  '@[43rem]/job-detail:grid-cols-[minmax(24rem,1fr)_minmax(18rem,20rem)] @[43rem]/job-detail:grid-rows-[auto_1fr]';
+
+/**
+ * v33 FIX-1 (the owner's "see job details at once"): the header's place. In two columns it is the left column's first
+ * row (the right column spans both rows, so it starts at the top of the scroll area, beside the title: Requirements at
+ * a glance, Skills and Tailor my resume in the first screen at 1440 x 900); in one column it is the band above the
+ * cards, edge to edge, as before.
+ */
+const HEADER_PLACE = clsx(
+  '-mx-5 -mt-4 border-b border-border bg-surface px-5 pt-4 pb-4 sm:-mx-6 sm:px-6',
+  '@[43rem]/job-detail:col-start-1 @[43rem]/job-detail:row-start-1 @[43rem]/job-detail:mx-0 @[43rem]/job-detail:mt-0',
+  '@[43rem]/job-detail:border-b-0 @[43rem]/job-detail:bg-transparent @[43rem]/job-detail:px-0 @[43rem]/job-detail:pt-0 @[43rem]/job-detail:pb-1',
+);
+
+/**
+ * v33 FIX-1 (PLAN-sharing §9: write controls hidden or off without the Change box): what a job's details offer on the
+ * tab's profile. Mark as applied, Save and Hide need the Job Tracker's Change, Tailor my resume Documents' Change; a
+ * report (the job's and its company's) is made from the person's own profile only. Everything on their own profile.
+ */
+export function jobControlsOf(tab: Pick<TabProfile, 'key' | 'profile'>): { acting: boolean; trackerEdit: boolean; documentsEdit: boolean } {
+  return { acting: tab.key !== null, trackerEdit: tabCan(tab, 'tracker:edit'), documentsEdit: tabCan(tab, 'documents:edit') };
+}
 
 /** The words of the way back to the list (the sheet's back arrow, the pane's skip link). */
 const BACK_TO_LIST = 'Back to the job list';
 
 /**
  * The detail's top bar: the sheet's back arrow (the sheet is the whole window), Previous / Next with the job's place in
- * the list (said when it changes), and the job's tools (hide, share, report: the job's body puts them in `toolsRef`'s
- * slot). The pane has no arrow: a keyboard's first stop in it is a "Back to the job list" link, shown on focus. It stays
+ * the list (said when it changes), the job's tools (hide, share, report: the job's body puts them in `toolsRef`'s
+ * slot) and, v33 FIX-1, its actions (Mark as applied, Save, Apply: in `actionsRef`'s slot). From 46 rem (the region, a
+ * size container) the actions sit in the bar's own row after the tools; narrower, they are a row of their own under it.
+ * The pane has no arrow: a keyboard's first stop in it is a "Back to the job list" link, shown on focus. It stays
  * mounted while Previous / Next change the job, so the button pressed keeps focus.
  */
 function DetailBar({
@@ -108,15 +122,19 @@ function DetailBar({
   nav,
   onClose,
   toolsRef,
+  actionsRef,
 }: {
   variant: DetailVariant;
   nav: DrawerNav;
   onClose: () => void;
   toolsRef: (element: HTMLDivElement | null) => void;
+  actionsRef: (element: HTMLDivElement | null) => void;
 }) {
   const { t } = usePublicConstants();
   return (
-    <div className="relative flex h-14 shrink-0 items-center gap-1 border-b border-border px-3 sm:px-5" data-drawer-bar="">
+    <div className="relative flex shrink-0 flex-wrap items-center border-b border-border" data-drawer-bar="">
+      {/* 55 px rows and the bar's line: 56 px, as before. */}
+      <div className="flex h-[55px] min-w-0 flex-1 items-center gap-1 pl-3 sm:pl-5">
       {variant === 'sheet' ? (
         <IconButton label={BACK_TO_LIST} icon={<ArrowLeftIcon size={18} weight="bold" />} onClick={onClose} tooltip={false} className="-ml-1" data-detail-back="" />
       ) : (
@@ -154,7 +172,16 @@ function DetailBar({
           </span>
         </div>
       )}
-      <div ref={toolsRef} className="ml-auto flex shrink-0 items-center gap-0.5" data-drawer-tools="" />
+      </div>
+      <div ref={toolsRef} className="flex h-[55px] shrink-0 items-center gap-0.5 pr-3 sm:pr-5 @[46rem]/job-pane:pr-2" data-drawer-tools="" />
+      <div
+        ref={actionsRef}
+        className={clsx(
+          'basis-full border-t border-border bg-surface-low empty:hidden',
+          '@[46rem]/job-pane:basis-auto @[46rem]/job-pane:border-t-0 @[46rem]/job-pane:bg-transparent',
+        )}
+        data-drawer-actions-slot=""
+      />
     </div>
   );
 }
@@ -192,39 +219,13 @@ export function DetailPaneSkeleton() {
   );
 }
 
-/** The job's title: the sheet's dialog title (its name), or an h2 of the page in the pane. Both take focus by script. */
-function DetailTitle({
-  variant,
-  titleRef,
-  className,
-  children,
-}: {
-  variant: DetailVariant;
-  titleRef?: RefObject<HTMLHeadingElement | null>;
-  className?: string;
-  children: ReactNode;
-}) {
-  if (variant === 'sheet') {
-    return (
-      <BaseDialog.Title ref={titleRef} tabIndex={-1} className={className} data-drawer-title="">
-        {children}
-      </BaseDialog.Title>
-    );
-  }
-  return (
-    <h2 ref={titleRef} tabIndex={-1} className={className} data-drawer-title="">
-      {children}
-    </h2>
-  );
-}
-
 /**
  * The job's detail (the region "Job details"): its bar, then the job, scrolling on its own under the bar and the
- * actions. v32 FIX-UX (UXREQ-1, coordinator: the role in the first screen): the job reads top down as the header
- * (company with its industry and size, the title, its tags and states: held, only you, hidden), a compact card of
- * facts, Your match on one line (its keywords on demand), a sticky bar of jumps (Match, Role, Company: the one in view
- * is marked), About the role, Tailor for this job and About {company}. The actions sit under the bar: Mark as applied
- * (or the Applied date, a link to the tracker), Save, Apply.
+ * actions (Mark as applied, or the Applied date, a link to the tracker; Save; Apply). v33 JOBDETAIL (F2, the owner's
+ * "see job details at once"): the header (company, title, the category and live line, the facts as pills, the job's
+ * states), then two columns of cards on the canvas: About the job (Summary | Full posting) and the company on the
+ * left; Requirements at a glance, Skills, Tailor for this job and Benefits on the right (first in reading order, so a
+ * phone's one column shows them first; it stays in view while the left scrolls, when it fits the pane's height).
  */
 export function JobDetailPanel({
   jobId,
@@ -241,6 +242,7 @@ export function JobDetailPanel({
   const { t } = usePublicConstants();
   const detail = useJobDetail(jobId);
   const [toolsSlot, setToolsSlot] = useState<HTMLDivElement | null>(null);
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null); // v33 FIX-1
   const regionRef = useRef<HTMLDivElement>(null);
 
   let content: ReactNode;
@@ -287,6 +289,7 @@ export function JobDetailPanel({
         job={detail.data}
         variant={variant}
         toolsSlot={toolsSlot}
+        actionsSlot={actionsSlot}
         onJobsHidden={onJobsHidden}
         applyIntent={applyIntent}
         onApplyIntentHandled={onApplyIntentHandled}
@@ -309,73 +312,44 @@ export function JobDetailPanel({
   return (
     <div
       ref={regionRef}
-      className="flex min-h-0 flex-1 flex-col"
+      className="@container/job-pane flex min-h-0 flex-1 flex-col"
       aria-label="Job details"
       role="region"
       aria-busy={detail.isFetching || undefined}
       onKeyDown={onKeyDown}
       data-job-detail={variant}
     >
-      <DetailBar variant={variant} nav={nav} onClose={onClose} toolsRef={setToolsSlot} />
+      <DetailBar variant={variant} nav={nav} onClose={onClose} toolsRef={setToolsSlot} actionsRef={setActionsSlot} />
       {content}
     </div>
   );
 }
 
-/** One tag under the title (the kit's Badge): the job type in denim-soft, the live line neutral; a tooltip makes it focusable. */
-function Tag({
-  tone,
-  icon,
-  children,
-  tooltip,
-  dataAttrs,
-}: {
-  tone: 'tint' | 'neutral';
-  icon?: ReactNode;
-  children: ReactNode;
-  tooltip?: string;
-  dataAttrs?: Record<`data-${string}`, string>;
-}) {
-  const tag = (
-    <Badge tone={tone} icon={icon} tabIndex={tooltip ? 0 : undefined} {...dataAttrs}>
-      {children}
-    </Badge>
-  );
-  return tooltip ? <Tooltip content={tooltip}>{tag}</Tooltip> : tag;
-}
-
 /**
- * The section in view: the last one whose top has passed under the jump bar (the first one at the very top, the last
- * one at the very bottom).
+ * v33 JOBDETAIL: whether the right column fits the pane's height (with 16 px above and below): it stays in view while
+ * the left one scrolls only then (else it would hide its own end); measured again as either resizes.
  */
-function useSectionInView(scrollRef: RefObject<HTMLDivElement | null>, navRef: RefObject<HTMLElement | null>) {
-  const [active, setActive] = useState(SECTIONS[0]!.id);
-  useEffect(() => {
-    const container = scrollRef.current;
-    if (!container) return;
-    const onScroll = () => {
-      const line = (navRef.current?.getBoundingClientRect().bottom ?? container.getBoundingClientRect().top) + 24;
-      const atBottom = container.scrollTop > 0 && container.scrollTop + container.clientHeight >= container.scrollHeight - 4;
-      let current = SECTIONS[0]!.id;
-      for (const section of SECTIONS) {
-        const element = container.querySelector(`#${section.id}`);
-        if (element && element.getBoundingClientRect().top <= line) current = section.id;
-      }
-      // v32 FIX-UX: at the top the job's header is in view (Your match sits in it), even with the role's start below it.
-      const atTop = container.scrollTop < 8;
-      setActive(atTop ? SECTIONS[0]!.id : atBottom ? SECTIONS[SECTIONS.length - 1]!.id : current);
-    };
-    onScroll();
-    container.addEventListener('scroll', onScroll, { passive: true });
-    return () => container.removeEventListener('scroll', onScroll);
-  }, [scrollRef, navRef]);
-  return [active, setActive] as const;
+function useFitsHeight(sideRef: RefObject<HTMLElement | null>, scrollRef: RefObject<HTMLElement | null>): boolean {
+  const [fits, setFits] = useState(false);
+  useLayoutEffect(() => {
+    const side = sideRef.current;
+    const scroll = scrollRef.current;
+    if (!side || !scroll) return;
+    const measure = () => setFits(side.offsetHeight + 32 <= scroll.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(side);
+    observer.observe(scroll);
+    return () => observer.disconnect();
+  }, [sideRef, scrollRef]);
+  return fits;
 }
 
 function JobDetailBody({
   job,
   variant,
   toolsSlot,
+  actionsSlot,
   onJobsHidden,
   applyIntent,
   onApplyIntentHandled,
@@ -386,6 +360,8 @@ function JobDetailBody({
   variant: DetailVariant;
   /** The bar's slot for the job's tools. */
   toolsSlot: HTMLDivElement | null;
+  /** v33 FIX-1: the bar's slot for the job's actions (in the bar's row on a wide detail, a row under it otherwise). */
+  actionsSlot: HTMLDivElement | null;
   onJobsHidden: JobDetailPanelProps['onJobsHidden'];
   applyIntent: boolean;
   onApplyIntentHandled?: () => void;
@@ -395,7 +371,7 @@ function JobDetailBody({
   const toast = useToast();
   const now = useNow();
   const { t } = usePublicConstants();
-  // "About the role" and Your match come from one answer, so they always change together.
+  // About the job, Skills and Requirements at a glance come from one answer, so they always change together.
   const insights = useJobInsights(job.id);
   const analysis = insights.data?.analysis;
   const match = insights.data?.match ?? undefined;
@@ -408,10 +384,14 @@ function JobDetailBody({
   const [applyOpen, setApplyOpen] = useState(quickApply);
   const [reportOpen, setReportOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const navRef = useRef<HTMLElement>(null);
+  const sideRef = useRef<HTMLDivElement>(null);
   const applyRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const [section, setSection] = useSectionInView(scrollRef, navRef);
+  const sideFits = useFitsHeight(sideRef, scrollRef);
+  // v33 FIX-1 (PLAN-sharing §9): on a profile shared with the person, the controls its owner did not share are not
+  // offered (each was refused): Mark as applied, Save and Hide need the Job Tracker's Change, Tailor my resume Documents'
+  // Change; a report is always made from the person's own profile (never while acting).
+  const { acting, trackerEdit, documentsEdit } = jobControlsOf(useTabProfile());
 
   // The sheet opened before the job was read (focus went to the sheet itself): the title takes it now. The pane's title
   // takes it when the page asks (a row opened with the keyboard). A job reached with Previous / Next leaves focus on the
@@ -433,11 +413,9 @@ function JobDetailBody({
   }, []);
 
   const { saved, appliedOn, applicationId, hidden, companyHidden } = job.userState;
-  const chip = liveChip({ active: job.active, postedAt: job.postedAt, updatedAt: job.updatedAt }, now, t);
-  const companyFacts = cardCompanyFacts(job.company);
   const levels = jobLevelsOf(job.experienceLevels, analysis);
 
-  // Your match scores the resume linked to the job's application while the job is tracked (saved, or applied), else
+  // Skills scores the resume linked to the job's application while the job is tracked (saved, or applied), else
   // the default resume. Saving, un-saving or applying, here or from the list, can change which: read it again.
   const trackedState = `${applicationId ?? ''}|${saved}|${appliedOn ?? ''}`;
   const scoredFor = useRef(trackedState);
@@ -448,26 +426,15 @@ function JobDetailBody({
     void refetchInsights();
   }, [trackedState, refetchInsights]);
 
-  const jumpTo = useCallback(
-    (id: string) => {
-      const container = scrollRef.current;
-      const target = container?.querySelector<HTMLElement>(`#${id}`);
-      if (!container || !target) return;
-      setSection(id);
-      const navHeight = navRef.current?.offsetHeight ?? 0;
-      const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - navHeight - 16;
-      container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-    },
-    [setSection],
-  );
-
   const toggleSave = () => saveToggle.toggle({ jobId: job.id, saved, appliedOn, applicationId }, { confirmSave: true });
 
   const openPosting = useCallback(() => {
     if (job.applyUrl) window.open(job.applyUrl, '_blank', 'noopener,noreferrer');
+    // v33 FIX-1: without the Job Tracker's Change "Applied to this job?" could only be refused: the posting opens.
+    if (!trackerEdit) return;
     markApplied.reset();
     setApplyOpen(true);
-  }, [job.applyUrl, markApplied]);
+  }, [job.applyUrl, markApplied, trackerEdit]);
 
   // The row's quick Apply: the posting opens as soon as the job is read (once, even when effects run twice); a job
   // that cannot be applied to from here puts focus on its Apply (or its closed mark's row) instead.
@@ -490,7 +457,7 @@ function JobDetailBody({
           toast.success('Marked as applied', 'Added to your Job Tracker.');
         },
         onError: (error) => {
-          if (!fromDialog) toast.error('The job could not be marked as applied', userMessage(error));
+          if (!fromDialog) failure(toast, 'The job could not be marked as applied', error);
         },
       },
     );
@@ -523,17 +490,18 @@ function JobDetailBody({
       });
       onJobsHidden(kind === 'job' ? { jobId: job.id } : { companyId: job.company.id });
     };
-    const onError = (error: unknown) => toast.error('That could not be hidden', userMessage(error));
+    const onError = (error: unknown) => failure(toast, 'That could not be hidden', error);
     if (kind === 'job') hideJob.mutate({ jobId: job.id, hidden: true }, { onSuccess, onError });
     else hideCompany.mutate({ companyId: job.company.id, hidden: true }, { onSuccess, onError });
   };
 
   const trackerHref = applicationId ? `/tracker?app=${encodeURIComponent(applicationId)}` : '/tracker';
-  const showTailor = !insights.isPending && match !== undefined && match.state !== 'no_resume';
+  const showTailor = documentsEdit && !insights.isPending && match !== undefined && match.state !== 'no_resume';
 
   const tools = (
     <>
-      <Menu>
+      {trackerEdit && (
+        <Menu>
         <Tooltip content="Hide">
           <MenuTrigger
             aria-label="Hide options"
@@ -551,31 +519,43 @@ function JobDetailBody({
             Hide jobs from {job.company.name}
           </MenuItem>
         </MenuContent>
-      </Menu>
+        </Menu>
+      )}
       <IconButton label="Share: copy a link to this job" tooltip="Copy link" icon={<ExportIcon size={18} weight="bold" />} onClick={() => void copyLink()} />
-      <IconButton label="Report this job" tooltip="Report" icon={<FlagIcon size={18} weight="bold" />} onClick={() => setReportOpen(true)} />
+      {!acting && (
+        <IconButton label="Report this job" tooltip="Report" icon={<FlagIcon size={18} weight="bold" />} onClick={() => setReportOpen(true)} />
+      )}
     </>
   );
 
-  // The actions: at the top, under the bar (the toasts they raise stack at the window's bottom right, over a footer).
+  // The actions: at the top (the toasts they raise stack at the window's bottom right, over a footer). v33 FIX-1: in the
+  // bar's own row after the tools on a wide detail (a line between them), a row under the bar otherwise (DetailBar's
+  // slot): the 57 px row no longer pushes the job down where room counts.
   const actions = (
-    <div className={clsx('flex shrink-0 items-center gap-2 border-b border-border bg-surface-low py-2.5', GUTTER)} data-drawer-actions="">
+    <div
+      className={clsx(
+        'flex shrink-0 items-center gap-2 py-2.5',
+        GUTTER,
+        '@[46rem]/job-pane:h-9 @[46rem]/job-pane:border-l @[46rem]/job-pane:border-border @[46rem]/job-pane:py-0 @[46rem]/job-pane:pr-5 @[46rem]/job-pane:pl-3',
+      )}
+      data-drawer-actions=""
+    >
       {appliedOn ? (
         <Link
           href={trackerHref}
-          className={buttonClasses({ variant: 'ghost', className: '-ml-3 text-success-ink max-sm:px-3' })}
+          className={buttonClasses({ variant: 'ghost', className: '-ml-3 text-success-ink max-sm:px-3 @[46rem]/job-pane:ml-0' })}
           data-applied-chip=""
         >
           <CheckCircleIcon size={16} weight="fill" aria-hidden="true" />
           {appliedChipLabel(appliedOn)}
         </Link>
-      ) : job.active ? (
+      ) : job.active && trackerEdit ? (
         <Button
           variant="ghost"
           icon={<CheckCircleIcon size={16} />}
           onClick={() => recordApplied(false)}
           loading={markApplied.isPending && !applyOpen}
-          className="-ml-3 max-sm:px-3"
+          className="-ml-3 max-sm:px-3 @[46rem]/job-pane:ml-0"
           data-mark-applied=""
         >
           {t('LABEL_JOB_MARK_APPLIED')}
@@ -587,7 +567,7 @@ function JobDetailBody({
           aria-pressed={saved}
           icon={<BookmarkSimpleIcon size={16} weight={saved ? 'fill' : 'bold'} />}
           onClick={toggleSave}
-          disabled={saveToggle.pending}
+          disabled={saveToggle.pending || !trackerEdit}
         >
           {saved ? 'Saved' : 'Save'}
         </Button>
@@ -613,126 +593,47 @@ function JobDetailBody({
   return (
     <>
       {toolsSlot && createPortal(tools, toolsSlot)}
-      {actions}
+      {actionsSlot && createPortal(actions, actionsSlot)}
 
-      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" data-drawer-scroll="">
-        <div id="job-match" className={clsx('pt-4 pb-4', GUTTER)} data-detail-header="">
-          <div className="flex items-center gap-3">
-            <CompanyLogo name={job.company.name} url={job.company.logoUrl} size={36} />
-            <div className="min-w-0">
-              {/* v30 WEB-JOBS: the company's name opens its page (/companies/:id). */}
-              <p className="truncate text-sm leading-5 font-semibold text-foreground">
-                <Link
-                  href={companyHref(job.company.id)}
-                  className="rounded-tag hover:text-primary hover:underline hover:underline-offset-2"
-                  data-company-page-link=""
-                >
-                  {job.company.name}
-                </Link>
-              </p>
-              {/* v32 FIX-UX: the company's industry and size (the list's rows leave them to the pane), else its line. */}
-              {companyFacts ? (
-                <p className="truncate text-[13px] leading-5 text-muted-foreground" data-card-company-facts="">
-                  {companyFacts}
-                </p>
-              ) : (
-                job.company.tagline && <p className="truncate text-[13px] leading-5 text-muted-foreground">{job.company.tagline}</p>
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-canvas" data-drawer-scroll="">
+        {/* v33 JOBDETAIL (F2): the body is a size container; its columns follow its own width (BODY_COLUMNS). */}
+        <div className={clsx('@container/job-detail pt-4 pb-12', GUTTER)} data-detail-body="">
+          <div className={clsx('grid grid-cols-1 items-start gap-4', BODY_COLUMNS)} data-detail-columns="">
+            {/* v33 FIX-1: the header is the left column's top on a wide detail (the right column starts at the top of
+                the scroll area), the band above the cards otherwise (HEADER_PLACE). */}
+            <JobHeader job={job} variant={variant} titleRef={titleRef} now={now} onUnhide={unhide} className={HEADER_PLACE} />
+            <div
+              ref={sideRef}
+              className={clsx(
+                'flex min-w-0 flex-col gap-4 @[43rem]/job-detail:col-start-2 @[43rem]/job-detail:gap-3 @[43rem]/job-detail:row-span-2 @[43rem]/job-detail:row-start-1',
+                sideFits && '@[43rem]/job-detail:sticky @[43rem]/job-detail:top-4',
               )}
-            </div>
-          </div>
-
-          <DetailTitle
-            variant={variant}
-            titleRef={titleRef}
-            className="mt-3 font-display text-[22px] leading-7 font-semibold tracking-[-0.01em] text-foreground outline-none sm:text-2xl sm:leading-[30px]"
-          >
-            {job.title}
-          </DetailTitle>
-
-          <div className="mt-2.5 flex flex-wrap items-center gap-2" data-detail-tags="">
-            {job.employmentType && (
-              <Tag tone="tint" dataAttrs={{ 'data-job-type-tag': '' }}>
-                {EMPLOYMENT_TYPE_LABEL[job.employmentType]}
-              </Tag>
-            )}
-            <Tag
-              tone="neutral"
-              icon={<ClockIcon size={12} aria-hidden="true" />}
-              tooltip={chip.kind === 'live' && job.postedAt ? `Posted on ${formatMediumDate(job.postedAt)}` : undefined}
-              dataAttrs={{ 'data-live-chip': chip.kind }}
+              data-detail-side=""
+              data-sticky={sideFits ? 'true' : 'false'}
             >
-              {chip.label}
-            </Tag>
-            {/* A job added from its page (a LinkedIn job, a careers page): Apply opens the employer's link it was saved with. */}
-            <AddedFromChip addedFrom={job.addedFrom} />
-            {/* v32 JOBS2 (E4): the job's states are chips with a "?" (no banners): held for an admin (v30 X1-WEB), only
-                you (v31 JOBSWEB, with Retry read), hidden (with its way back). */}
-            <HeldNotice held={job.held} />
-            <VerificationNotice jobId={job.id} verification={job.verification} />
-            {(hidden || companyHidden) && (
-              <span className="inline-flex flex-wrap items-center gap-1.5" data-hidden-state="">
-                <Badge tone="neutral" icon={<EyeSlashIcon size={12} weight="bold" aria-hidden="true" />}>
-                  {hidden ? 'You hid this job' : `You hid ${job.company.name}`}
-                </Badge>
-                <Button variant="outline" size="sm" icon={<EyeIcon size={14} />} onClick={unhide} className="h-7 px-2.5">
-                  {hidden ? 'Unhide' : 'Show its jobs'}
-                </Button>
-              </span>
-            )}
-          </div>
-          {/* v30 S4: the credit line its source asks for ("Source: Himalayas"). */}
-          <DetailCredit credit={job.credit} className="mt-3" />
-
-          <FactsGrid job={job} levels={levels} levelMatch={match?.levelMatch} requiredYears={analysis?.requiredYears} className="mt-3" />
-          {/* A failed poll keeps what is shown; only a first load that fails shows the error. */}
-          <MatchSection
-            match={match}
-            pending={insights.isPending}
-            error={insights.data ? null : insights.error}
-            onRetry={() => void insights.refetch()}
-            className="mt-3"
-          />
-        </div>
-
-        <nav
-          ref={navRef}
-          aria-label="Job sections"
-          className={clsx('sticky top-0 z-10 border-y border-border bg-surface/95 backdrop-blur-sm', GUTTER)}
-          data-section-nav=""
-        >
-          <ul className="-mx-2.5 flex">
-            {SECTIONS.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  aria-current={section === item.id ? 'true' : undefined}
-                  onClick={() => jumpTo(item.id)}
-                  className={clsx(
-                    'relative inline-flex h-11 items-center px-2.5 text-sm font-medium transition-colors duration-150',
-                    'after:absolute after:inset-x-2.5 after:bottom-0 after:h-[3px] after:rounded-t-full',
-                    section === item.id ? 'text-foreground after:bg-tape' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {t(item.label)}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        <div className={clsx('flex flex-col gap-10 pt-6 pb-12', GUTTER)}>
-          <div id="job-role" className="flex flex-col gap-8">
-            <AboutJob
-              analysis={analysis}
-              analysisPending={insights.isPending}
-              analysisFailed={insights.isError && !insights.data}
-              descriptionHtml={job.descriptionHtml}
-            />
-            {showTailor && <TailorSection tailor={{ jobId: job.id, company: job.company.name, title: job.title }} />}
-          </div>
-          <div id="job-company" className="border-t border-divider-soft pt-8">
-            {/* v30 E0-WEB: the job's id, for the section's "Report company information" */}
-            <CompanySection company={job.company} jobId={job.id} />
+              <GlanceCard
+                glance={insights.data?.glance}
+                pending={insights.isPending}
+                levelMatch={match?.levelMatch}
+                fallback={{ levels, requiredYears: analysis?.requiredYears, degree: job.degree }}
+                sponsorsH1b={job.sponsorsH1b}
+                requiresClearance={job.requiresClearance}
+              />
+              {/* A failed poll keeps what is shown; only a first load that fails shows the error. */}
+              <SkillsCard match={match} pending={insights.isPending} error={insights.data ? null : insights.error} onRetry={() => void insights.refetch()} />
+              {showTailor && <TailorCard tailor={{ jobId: job.id, company: job.company.name, title: job.title }} />}
+              <BenefitsCard benefits={job.benefits} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-4 @[43rem]/job-detail:col-start-1 @[43rem]/job-detail:row-start-2" data-detail-main="">
+              <AboutJob
+                analysis={analysis}
+                analysisPending={insights.isPending}
+                analysisFailed={insights.isError && !insights.data}
+                descriptionHtml={job.descriptionHtml}
+              />
+              {/* v30 E0-WEB: the job's id, for the section's "Report company information" */}
+              <CompanySection company={job.company} jobId={acting ? undefined : job.id} />
+            </div>
           </div>
         </div>
       </div>

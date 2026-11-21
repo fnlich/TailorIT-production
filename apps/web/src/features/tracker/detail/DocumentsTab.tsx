@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
 import { FileTextIcon, PencilSimpleIcon, SparkleIcon, XIcon } from '@/components/ui/icons';
-import { isApiError, userMessage } from '@/lib/api';
+import { isApiError } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { TailorDialog } from '../../tailor/TailorDialog';
 import {
@@ -26,6 +26,7 @@ import {
   useResumeMatches,
   useResumeOptions,
 } from '../data';
+import { toastFailure } from '../failure';
 import {
   BEST_MATCH,
   autoMatchedText,
@@ -37,6 +38,7 @@ import {
   type DocumentBadge,
   type ResumePickerOption,
 } from './resumeMatches';
+import { useTrackerEditable } from './editable';
 
 interface LinkedDocument {
   id: string;
@@ -140,6 +142,8 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
   const [busy, setBusy] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [tailoring, setTailoring] = useState(false);
+  // v33 SHARE-9: a profile shared to see only shows what is linked; nothing is linked, unlinked or written from here.
+  const editable = useTrackerEditable();
 
   const link = async (patch: { resumeId?: string | null; coverLetterId?: string | null }, done: string) => {
     setBusy(true);
@@ -151,7 +155,7 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
       toast.success(done);
       setChangingResume(false);
     } catch (error) {
-      toast.error(userMessage(error, "We couldn't update the documents. Please try again."));
+      toastFailure(toast, error, "We couldn't update the documents. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -163,7 +167,7 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
   const resume = resumeOptions.find((option) => option.id === application.resumeId);
   const hint = pickerHint(ranking);
   // The same service ranks and chooses: without a ranking there is nothing to offer.
-  const canLetTailorItChoose = ranking !== null && offersAutoMatch(application, ranking.items.length);
+  const canLetTailorItChoose = editable && ranking !== null && offersAutoMatch(application, ranking.items.length);
 
   /** "Let TailorIT choose": the best match is linked now, and is TailorIT's again. */
   const letTailorItChoose = async () => {
@@ -180,7 +184,7 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
     } catch (error) {
       // 409: the application is no longer a Saved job (applied or archived meanwhile); show it as it is now.
       if (isApiError(error) && error.status === 409) void client.invalidateQueries({ queryKey: trackerKeys.detail(application.id) });
-      toast.error(userMessage(error, "TailorIT couldn't choose a resume. Please try again."));
+      toastFailure(toast, error, "TailorIT couldn't choose a resume. Please try again.");
     } finally {
       setBusy(false);
       setChoosing(false);
@@ -216,9 +220,11 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
               </Button>
             )}
             {/* v1.4 E (decision 16): a resume (and its letter) written for this job, linked here when done. */}
-            <Button size="sm" icon={<SparkleIcon size={14} weight="fill" />} disabled={busy} onClick={() => setTailoring(true)} data-tailor-open="">
-              {t('LABEL_JOB_TAILOR_BUTTON')}
-            </Button>
+            {editable && (
+              <Button size="sm" icon={<SparkleIcon size={14} weight="fill" />} disabled={busy} onClick={() => setTailoring(true)} data-tailor-open="">
+                {t('LABEL_JOB_TAILOR_BUTTON')}
+              </Button>
+            )}
           </div>
         </div>
         {resumesFailed ? (
@@ -233,22 +239,28 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
               badges: linkedResumeBadges(application.resumeOrigin, resume, ranking),
             }}
             actions={
-              <>
-                <Button variant="ghost" size="sm" onClick={() => setChangingResume(true)} disabled={busy}>
-                  Change
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<XIcon size={14} />}
-                  disabled={busy}
-                  onClick={() => void link({ resumeId: null }, 'Resume removed from this application.')}
-                >
-                  Remove
-                </Button>
-              </>
+              editable ? (
+                <>
+                  <Button variant="ghost" size="sm" onClick={() => setChangingResume(true)} disabled={busy}>
+                    Change
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<XIcon size={14} />}
+                    disabled={busy}
+                    onClick={() => void link({ resumeId: null }, 'Resume removed from this application.')}
+                  >
+                    Remove
+                  </Button>
+                </>
+              ) : null
             }
           />
+        ) : !editable ? (
+          <p className="text-sm text-muted-foreground" data-no-linked-resume="">
+            No resume linked.
+          </p>
         ) : (
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-3">
@@ -290,13 +302,15 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
             </h3>
             <HelpTip label="Cover Letter">Write one for this job, or link one you have.</HelpTip>
           </div>
-          <Link
-            href={`/cover-letter/new?applicationId=${encodeURIComponent(application.id)}`}
-            className={buttonClasses({ variant: 'primary', size: 'sm' })}
-          >
-            <SparkleIcon size={14} weight="fill" />
-            Generate cover letter
-          </Link>
+          {editable && (
+            <Link
+              href={`/cover-letter/new?applicationId=${encodeURIComponent(application.id)}`}
+              className={buttonClasses({ variant: 'primary', size: 'sm' })}
+            >
+              <SparkleIcon size={14} weight="fill" />
+              Generate cover letter
+            </Link>
+          )}
         </div>
         {letters.isError ? (
           <Notice tone="warning">Your cover letters can&apos;t be listed now. Try again later.</Notice>
@@ -314,18 +328,24 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
                   <PencilSimpleIcon size={14} />
                   Edit
                 </Link>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<XIcon size={14} />}
-                  disabled={busy}
-                  onClick={() => void link({ coverLetterId: null }, 'Cover letter removed from this application.')}
-                >
-                  Remove
-                </Button>
+                {editable && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<XIcon size={14} />}
+                    disabled={busy}
+                    onClick={() => void link({ coverLetterId: null }, 'Cover letter removed from this application.')}
+                  >
+                    Remove
+                  </Button>
+                )}
               </>
             }
           />
+        ) : !editable ? (
+          <p className="text-sm text-muted-foreground" data-no-linked-letter="">
+            No cover letter linked.
+          </p>
         ) : (
           <Picker
             label="Link existing cover letter"
@@ -335,7 +355,7 @@ export function DocumentsTab({ application }: { application: ApplicationDetail }
             onPick={(id) => void link({ coverLetterId: id }, 'Cover letter linked to this application.')}
           />
         )}
-        {writtenForJob.length > 0 && (
+        {editable && writtenForJob.length > 0 && (
           <section className="flex flex-col gap-2" aria-labelledby="written-for-job-heading">
             <h4 id="written-for-job-heading" className="text-sm font-medium text-muted-foreground">
               Written for this job

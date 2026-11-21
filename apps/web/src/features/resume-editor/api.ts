@@ -6,14 +6,10 @@ import {
   ResumeCopiesResponseSchema,
   ResumeDetailSchema,
   ResumeEditTargetSchema,
-  ResumePreviewResponseSchema,
   ResumeSummarySchema,
-  ResumeTemplateSummarySchema,
-  TEMPLATE_CATEGORIES,
   normalizeResumeDocument,
   resumeLabel,
   type BulletsRequest,
-  type PageBox,
   type ResumeAnalysisBrief,
   type ResumeCopiesPause,
   type ResumeCopiesResponse,
@@ -28,7 +24,6 @@ import {
   type SkillType,
   type StoredFileInfo,
   type TechnicalSkillsLayout,
-  type TemplateCategory,
 } from '@tailorit/shared/resume';
 import type { ZodType } from 'zod';
 import { ApiError, api } from '../../lib/api';
@@ -47,8 +42,8 @@ export const resumeKeys = {
   analysis: (id: string) => ['resumes', 'analysis', id] as const,
   /** The editable copies of several uploads (under `all`, so `invalidateResumes` reads it again). */
   copies: () => ['resumes', 'copies'] as const,
-  templates: () => ['resume-templates'] as const,
-  skills: (type: SkillType) => ['skills', type] as const,
+  /** v33 SKILLS: per field, as the field's skills lead the list ('' = no field). */
+  skills: (type: SkillType, family: string | null = null) => ['skills', type, family ?? ''] as const,
 };
 
 // ------------------------------------------------------------------------------------------- lenient reading
@@ -79,15 +74,6 @@ function readWith<T>(schema: ZodType<T>, raw: unknown, where: string, lenient: (
   if (parsed.success) return parsed.data;
   noteMismatch(where, parsed.error.issues.slice(0, 5));
   return lenient(raw);
-}
-
-function readPage(value: unknown): PageBox | null {
-  const page = rec(value);
-  const widthPx = Number(page.widthPx);
-  const heightPx = Number(page.heightPx);
-  if (!(widthPx > 0) || !(heightPx > 0)) return null;
-  const contentHeightPx = Number(page.contentHeightPx);
-  return { widthPx, heightPx, contentHeightPx: contentHeightPx > 0 ? contentHeightPx : heightPx };
 }
 
 function readFileKind(value: unknown): ResumeFileKind | null {
@@ -199,85 +185,18 @@ export function readResumeView(raw: unknown): ResumeView | null {
   };
 }
 
-/**
- * A retired template as GET /api/resume-templates lists it: the Resumes tab names an older resume's template with it.
- * `category` is null when the API files it under none.
- */
-export interface TemplateInfo {
-  id: string;
-  name: string;
-  description: string;
-  category: TemplateCategory | null;
-  supportsSoftSkills: boolean;
-  supportsStrengths: boolean;
-  printsSections: string[];
-  nativeSectionOrder: string[];
-}
-
-function leniTemplate(raw: unknown): TemplateInfo | null {
-  const r = rec(raw);
-  const id = str(r.id);
-  if (!id) return null;
-  return {
-    id,
-    name: str(r.name) || id,
-    description: str(r.description),
-    category: (TEMPLATE_CATEGORIES as readonly unknown[]).includes(r.category) ? (r.category as TemplateCategory) : null,
-    supportsSoftSkills: bool(r.supportsSoftSkills),
-    supportsStrengths: bool(r.supportsStrengths),
-    printsSections: strings(r.printsSections),
-    nativeSectionOrder: strings(r.nativeSectionOrder),
-  };
-}
-
-export function readTemplateList(raw: unknown): TemplateInfo[] {
-  const items = Array.isArray(raw) ? raw : Array.isArray(rec(raw).items) ? (rec(raw).items as unknown[]) : [];
-  return items
-    .map((item) => {
-      const parsed = ResumeTemplateSummarySchema.safeParse(item);
-      if (parsed.success) return { ...parsed.data };
-      noteMismatch('GET /api/resume-templates', parsed.error.issues.slice(0, 5));
-      return leniTemplate(item);
-    })
-    .filter((item): item is TemplateInfo => item !== null);
-}
-
-/** POST /api/resumes/preview's answer. */
-export interface PreviewAnswer {
-  html: string;
-  templateId: string;
-  page: PageBox;
-  sampled: string[];
-}
-
-export function readPreview(raw: unknown): PreviewAnswer {
-  const parsed = ResumePreviewResponseSchema.safeParse(raw);
-  if (parsed.success) return parsed.data;
-  noteMismatch('POST /api/resumes/preview', parsed.error.issues.slice(0, 5));
-  const r = rec(raw);
-  if (typeof r.html !== 'string') throw invalidAnswer('/api/resumes/preview');
-  return {
-    html: r.html,
-    templateId: str(r.templateId),
-    page: readPage(r.page) ?? { widthPx: 794, heightPx: 1123, contentHeightPx: 1123 },
-    sampled: strings(r.sampled),
-  };
-}
-
-/** A first page: HTML (a built resume) or an image (an upload's PNG). */
+/** A first page: an image (an upload's PNG), or a built resume's document, which the page draws. */
 export type ThumbAnswer =
-  | { kind: 'html'; html: string; page: PageBox | null }
   | { kind: 'image'; url: string }
-  /** An on-page editor resume: the page draws it from its document. */
+  /** A built resume (an older one as the editor opens it): the page draws it from its document. */
   | { kind: 'document'; document: ResumeDocument };
 
-/** GET /api/resumes/:id/thumbnail: `{kind:'html', html, page}`, `{kind:'image', url}`, or a bare `{html, page}`. */
+/** GET /api/resumes/:id/thumbnail: `{kind:'document', document}` or `{kind:'image', url}`. */
 export function readThumbnail(raw: unknown): ThumbAnswer | null {
   const r = rec(raw);
   if (r.kind === 'document' && r.document && typeof r.document === 'object') {
     return { kind: 'document', document: normalizeResumeDocument(r.document) };
   }
-  if (typeof r.html === 'string' && r.kind !== 'image') return { kind: 'html', html: r.html, page: readPage(r.page) };
   if (typeof r.url === 'string' && r.url) return { kind: 'image', url: r.url };
   return null;
 }
@@ -368,10 +287,6 @@ export async function fetchResume(id: string, signal?: AbortSignal): Promise<Res
   const view = readResumeView(await api.get(`/api/resumes/${enc(id)}`, { signal }));
   if (!view) throw invalidAnswer(`/api/resumes/${id}`);
   return view;
-}
-
-export async function fetchTemplates(signal?: AbortSignal): Promise<TemplateInfo[]> {
-  return readTemplateList(await api.get('/api/resume-templates', { signal }));
 }
 
 /** A change's answer: the resume as it now stands (null when the answer does not say). */
@@ -481,34 +396,12 @@ export async function changeResumeCopies(batchId: string, action: 'stop' | 'retr
   return readResumeCopies(await api.post(`/api/resumes/copies/${enc(batchId)}/${action}`, {}));
 }
 
-export interface PreviewBody {
-  document?: Record<string, unknown>;
-  resumeId?: string;
-  templateId?: string;
-  sample?: boolean;
-}
-
-export async function previewResume(body: PreviewBody, signal?: AbortSignal): Promise<PreviewAnswer> {
-  return readPreview(await api.post('/api/resumes/preview', body, { signal }));
-}
-
-/**
- * A resume's first page. GET /api/resumes/:id/thumbnail; for a built resume that cannot answer it (an older API),
- * the preview route draws the stored resume with nothing filled in from the sample person (the retired templates'
- * renderer, which older resumes still print with).
- */
-export async function fetchThumbnail(id: string, kind: 'built' | 'uploaded', signal?: AbortSignal): Promise<ThumbAnswer> {
-  try {
-    const answer = readThumbnail(await api.get(`/api/resumes/${enc(id)}/thumbnail`, { signal }));
-    if (answer) return answer;
-    noteMismatch('GET /api/resumes/:id/thumbnail', 'neither html nor url');
-  } catch (error) {
-    // An upload with no picture answers 404: there is nothing else to draw it from.
-    if (!(error instanceof ApiError) || error.status !== 404 || kind === 'uploaded') throw error;
-  }
-  if (kind === 'uploaded') throw new ApiError({ status: 404, code: 'not_found', message: 'No preview', path: '' });
-  const preview = await previewResume({ resumeId: id, sample: false }, signal);
-  return { kind: 'html', html: preview.html, page: preview.page };
+/** A resume's first page. GET /api/resumes/:id/thumbnail (an upload with no picture answers 404). */
+export async function fetchThumbnail(id: string, signal?: AbortSignal): Promise<ThumbAnswer> {
+  const answer = readThumbnail(await api.get(`/api/resumes/${enc(id)}/thumbnail`, { signal }));
+  if (answer) return answer;
+  noteMismatch('GET /api/resumes/:id/thumbnail', 'neither a document nor a url');
+  throw invalidAnswer(`/api/resumes/${id}/thumbnail`);
 }
 
 /** The library a skill box suggests from: the main skills, and each one's other spellings (aliases). */
@@ -518,17 +411,21 @@ export interface SkillLibraryList {
   aliases: Record<string, string[]>;
 }
 
-export async function fetchSkills(type: SkillType, signal?: AbortSignal): Promise<SkillLibraryList> {
-  const answer = await api.get('/api/skills', { query: { type }, signal });
+/** v33 SKILLS: with `family` (the resume's field), the field's skills lead the list. */
+export async function fetchSkills(type: SkillType, signal?: AbortSignal, family?: string | null): Promise<SkillLibraryList> {
+  const answer = await api.get('/api/skills', { query: { type, family: family ?? undefined }, signal });
   if (Array.isArray(answer)) return { skills: strings(answer), aliases: {} };
   const aliases: Record<string, string[]> = {};
   for (const [skill, spellings] of Object.entries(rec(rec(answer).aliases))) aliases[skill] = strings(spellings);
   return { skills: strings(rec(answer).skills), aliases };
 }
 
-/** POST /api/skills: a skill the library lacks, kept for this user; resolves to the spelling stored. */
-export async function addSkill(type: SkillType, skill: string): Promise<string> {
-  const answer = rec(await api.post('/api/skills', { type, skill }));
+/**
+ * POST /api/skills: a skill the library lacks, kept for this user; resolves to the spelling stored. v33 SKILLS: `family`
+ * (the resume's field) files it under the field's heading when no rule places it.
+ */
+export async function addSkill(type: SkillType, skill: string, family?: string | null): Promise<string> {
+  const answer = rec(await api.post('/api/skills', family ? { type, skill, family } : { type, skill }));
   return str(answer.skill) || skill;
 }
 

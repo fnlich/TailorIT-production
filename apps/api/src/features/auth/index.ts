@@ -3,6 +3,7 @@ import { pruneExpiredSessions } from '../../core/auth/session';
 import { configuredAdminEmails, promoteConfiguredAdmins } from '../../core/auth/users';
 import type { AppDeps } from '../../core/context';
 import type { Feature } from '../../core/feature';
+import { AUTH_ACTING } from './acting'; // v33 SHARE-1
 import { createAuthRouter } from './router';
 import { createAuthService, signInOptions } from './service';
 
@@ -68,6 +69,6 @@ export const authFeature: Feature = {
   services: (deps) => {
     deps.services.auth = createAuthService(deps);
   },
-  routes: [{ path: '/api/auth', router: createAuthRouter }],
+  routes: [{ path: '/api/auth', router: createAuthRouter, acting: AUTH_ACTING /* v33 SHARE-1 */ }],
   start: startAuth,
 };

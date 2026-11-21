@@ -3,7 +3,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  STATUS,
   STATUS_INFO,
   formatMediumDate,
   timelineModel,
@@ -20,13 +19,14 @@ import { HelpTip } from '@/components/ui/HelpTip';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { PencilSimpleIcon } from '@/components/ui/icons';
-import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { useNow } from '@/lib/useNow';
 import { celebrateIfReached } from '../confetti';
 import { invalidateApplications, patchCachedApplication, trackerApi, useMoveStatus } from '../data';
-import { DRAFT_TIMELINE_TEXT, shownStatusOf } from '../draft';
-import { DisplayStatusIcon, statusOptions } from '../status';
+import { DRAFT_MARK_TEXT, isDraft as isDraftEntry } from '../draft';
+import { toastFailure } from '../failure';
+import { DraftIcon, statusOptions } from '../status';
+import { useTrackerEditable } from './editable';
 
 const TONE: Record<StepperTone, { ring: string; dot: string; line: string }> = {
   default: { ring: 'bg-primary-soft', dot: 'bg-primary', line: 'bg-primary' },
@@ -46,10 +46,13 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
   const today = new Date(now);
   const model = timelineModel(application.events);
   const colors = TONE[model.tone];
-  // v20 A30: a Saved entry in the auto-apply queue shows Draft, dated by its queue row (never stored as a status).
+  // v20 A30: a Saved entry in the auto-apply queue shows Draft (never stored as a status). v33 TRACKER (F1): a mark by
+  // the panel's title; the stage stays Saved and the timeline has no Draft step.
   const { t } = usePublicConstants();
-  const isDraft = shownStatusOf(application) === 'draft';
+  const isDraft = isDraftEntry(application);
   const draftLabel = t('STATUS_DRAFT_LABEL');
+  // v33 SHARE-9: a profile shared to see only shows the stage and its dates, nothing to change.
+  const editable = useTrackerEditable();
 
   const move = useMoveStatus({
     onMoved: (result, previous) => celebrateIfReached(result.currentStatus, previous),
@@ -67,7 +70,7 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
       }));
       if (date && status === result.currentStatus) celebrateIfReached(result.currentStatus, application.currentStatus);
     },
-    onError: (error) => toast.error(userMessage(error, "We couldn't change that date. Please try again.")),
+    onError: (error) => toastFailure(toast, error, "We couldn't change that date. Please try again."),
     onSettled: () => invalidateApplications(client),
   });
 
@@ -76,14 +79,15 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
       <h3 id="status-heading" className="flex items-center gap-2 text-[15px] leading-5 font-semibold text-foreground">
         Stage and dates
         {isDraft && (
-          <Badge tone="success" icon={<DisplayStatusIcon status="draft" size={12} />} data-detail-draft="">
+          <Badge tone="success" icon={<DraftIcon size={12} />} data-detail-draft="">
             {draftLabel}
           </Badge>
         )}
-        {isDraft && <HelpTip label={draftLabel}>In your auto-apply queue; it moves to Applied once applied to.</HelpTip>}
+        {isDraft && <HelpTip label={draftLabel}>{DRAFT_MARK_TEXT}</HelpTip>}
       </h3>
       <Select
         aria-label="Current stage"
+        disabled={!editable}
         className="mt-3 w-full"
         options={statusOptions()}
         value={String(application.currentStatus)}
@@ -92,13 +96,13 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
           if (status !== application.currentStatus) {
             move.mutate(
               { id: application.id, status, from: application.currentStatus },
-              { onError: (error) => toast.error(userMessage(error, "We couldn't change the status. Please try again.")) },
+              { onError: (error) => toastFailure(toast, error, "We couldn't change the status. Please try again.") },
             );
           }
         }}
       />
       <ol aria-label="Status timeline" className="mt-5 flex flex-col">
-        {model.steps.flatMap((step, index) => {
+        {model.steps.map((step, index) => {
           const next = model.steps[index + 1];
           const label = STATUS_INFO[step.status].label;
           const trigger = step.reached ? (
@@ -120,7 +124,8 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
               Add date
             </button>
           );
-          const row = (
+          // v33 TRACKER (F1): no Draft step after Saved (it was v3.2's A30 timeline node).
+          return (
             <li key={step.status} className={clsx('relative flex items-start gap-3', next && 'pb-5')}>
               {next && (
                 <span
@@ -145,47 +150,28 @@ export function StatusPanel({ application }: { application: ApplicationDetail })
                   {label}
                   <span className="sr-only">{step.reached ? ', reached' : ', not reached'}</span>
                 </span>
-                <DatePickerPopover
-                  value={toDate(step.date)}
-                  maxDate={today}
-                  withActions
-                  align="end"
-                  aria-label={`Date for ${label}`}
-                  onValueChange={(date) => dates.mutate({ status: step.status, date: date ? toIsoDate(date) : null })}
-                >
-                  {trigger}
-                </DatePickerPopover>
+                {editable ? (
+                  <DatePickerPopover
+                    value={toDate(step.date)}
+                    maxDate={today}
+                    withActions
+                    align="end"
+                    aria-label={`Date for ${label}`}
+                    onValueChange={(date) => dates.mutate({ status: step.status, date: date ? toIsoDate(date) : null })}
+                  >
+                    {trigger}
+                  </DatePickerPopover>
+                ) : (
+                  // v33 SHARE-9: a reached stage's date, as text.
+                  step.reached && (
+                    <span className="px-1.5 py-0.5 text-sm text-muted-foreground" data-stage-date="">
+                      {formatMediumDate(step.date)}
+                    </span>
+                  )
+                )}
               </div>
             </li>
           );
-          if (!isDraft || step.status !== STATUS.saved) return [row];
-          // v20 A30: Draft right after Saved, dated by the queue row (its date is not edited here).
-          return [
-            row,
-            <li key="draft" className="relative flex items-start gap-3 pb-5" data-timeline-draft="">
-              <span aria-hidden="true" className={clsx('absolute top-6 bottom-0 left-[11px] w-0.5', 'bg-border')} />
-              <span
-                aria-hidden="true"
-                className="relative z-[1] flex size-6 shrink-0 items-center justify-center rounded-full bg-success-soft"
-              >
-                <span className="size-3 rounded-full bg-success" />
-              </span>
-              <div className="flex min-h-6 min-w-0 flex-1 flex-col">
-                <div className="flex flex-wrap items-center justify-between gap-x-2">
-                  <span className="text-sm font-semibold text-foreground">
-                    {draftLabel}
-                    <span className="sr-only">, reached</span>
-                  </span>
-                  {application.queuedAt && (
-                    <time dateTime={application.queuedAt} className="px-1.5 text-sm text-muted-foreground">
-                      {formatMediumDate(application.queuedAt)}
-                    </time>
-                  )}
-                </div>
-                <span className="text-[13px] leading-5 text-muted-foreground">{DRAFT_TIMELINE_TEXT}</span>
-              </div>
-            </li>,
-          ];
         })}
       </ol>
     </section>

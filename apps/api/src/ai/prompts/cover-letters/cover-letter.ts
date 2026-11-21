@@ -24,7 +24,7 @@ What to write
 - A good shape: open with why this work appeals to the person, naming their years of experience or their field only when the resume states it. Then tell one concrete accomplishment from the resume as a short story that leads to what this role needs. Then a second moment that shows how the person works or what they care about. Then what draws them to this company or this kind of work, grounded in the job description. End with one confident, specific closing sentence.
 - About 250 to 400 words in all, shorter when the resume is thin or the person asks for it.
 
-${letterRulesPrompt.text()}${pageRule(input.job)}
+${letterRulesPrompt.text({ family: input.family })}${pageRule(input.job)}
 
 Answer with {"paragraphs": ["...", "...", "..."]}: three or four strings, one per paragraph, each a few sentences long.`,
   context: (input) => letterContext(input),

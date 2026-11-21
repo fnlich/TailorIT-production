@@ -27,7 +27,8 @@ import { aiUsedUpLimit, limitOfTaskError, useAiDialogGate, useAiUsedUp, useLimit
 import { api, isApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { useAiTask } from '@/lib/useAiTask';
-import { fetchTemplates, generateLetter, patchLetter, templateKeys } from '../letter-editor/data';
+import { fetchTemplates, generateLetter, templateKeys } from '../letter-editor/data';
+import { useFieldFirst } from './fieldFirst';
 import { shortcutLabel } from '../letter-editor/html';
 import { SparkleIcon } from '../letter-editor/icons';
 import { useIsMac } from '../letter-editor/Toolbar';
@@ -53,6 +54,11 @@ export interface GenerateDialogProps {
   replacesContent?: boolean;
   /** Called before the request: save what is typed, lock the editor. */
   onStart: () => Promise<void> | void;
+  /**
+   * v33 SHARE-3 (review): links the letter to the job picked, saved by the editor as any edit is (after what waits, from
+   * the version it holds), so the next save is never refused as stale.
+   */
+  onPickJob: (applicationId: string) => Promise<void>;
   onDone: (result: CoverLetterGenerateResult | null) => void;
 }
 
@@ -122,6 +128,7 @@ function GenerateForm({
   replacesContent = false,
   onOpenChange,
   onStart,
+  onPickJob,
   onDone,
   running,
   progress,
@@ -156,7 +163,7 @@ function GenerateForm({
   const isMac = useIsMac();
 
   const templates = useQuery({ queryKey: templateKeys.all, queryFn: fetchTemplates });
-  const templateItems = templates.data?.items ?? [];
+  const templateItems = useFieldFirst(templates.data?.items); // v33 PROMPTS: the person's field's starters first
   const chosen = templateItems.find((template) => template.id === templateId) ?? null;
   const error = requestError ?? (failure ? { message: failure, needsResume: false } : null);
 
@@ -177,7 +184,7 @@ function GenerateForm({
     setCompanyName(application.companyName);
     setJobTitle(application.title);
     setFieldErrors({});
-    void patchLetter(letter.id, { applicationId: application.id }).catch(() => undefined);
+    void onPickJob(application.id).catch(() => undefined); // v33 SHARE-3 (review): through the editor's autosave
     try {
       const detail = await api.get<ApplicationDetail>(`/api/applications/${encodeURIComponent(application.id)}`, {
         schema: ApplicationDetailSchema,

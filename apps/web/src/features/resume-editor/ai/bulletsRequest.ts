@@ -6,6 +6,7 @@ import {
   type EntryBulletsKind,
   type ResumeDocument,
 } from '@tailorit/shared/resume';
+import type { RoleFamilyId } from '@tailorit/shared/roles'; // v33 INT-1
 import { valueAt } from '../store/actions';
 
 // Write with AI's request for an entry of the on-page editor's document: the fields that name the entry, its dates,
@@ -99,13 +100,17 @@ export function entryBulletsTask(document: ResumeDocument, entryPath: string): B
   return bulletsTask(entryBullets(document, entryPath));
 }
 
-/** The request for the entry at `entryPath`, or null when the document has no such entry. */
+/**
+ * The request for the entry at `entryPath`, or null when the document has no such entry. v33 INT-1: `roleFamily`, the
+ * resume's field as the editor's Field select shows it (null until known: the server then detects it).
+ */
 export function entryBulletsRequest(
   document: ResumeDocument,
   entryPath: string,
   kind: EntryBulletsKind,
   task: BulletsTask,
   note: string,
+  roleFamily: RoleFamilyId | null = null,
 ): BulletsRequest | null {
   const entry = valueAt(document, entryPath) as Entry | undefined;
   if (!entry || typeof entry !== 'object') return null;
@@ -118,5 +123,5 @@ export function entryBulletsRequest(
     summary: document.summary ?? '',
     skills: strings(document.skills),
   };
-  return { ...bulletsRequestFor(kind, row, person, task, note), markupVersion: 1 };
+  return { ...bulletsRequestFor(kind, row, person, task, note), markupVersion: 1, ...(roleFamily ? { roleFamily } : {}) };
 }

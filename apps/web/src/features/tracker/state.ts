@@ -11,8 +11,9 @@ import {
 } from '@tailorit/shared';
 
 /*
- * The tracker page's state outside React: the URL (`?view=board|list|chart&tab=active|archived&app=<id>&edit=1`) and
- * the Options-menu filters, with the query the API reads for them. Pure, so it is unit-tested.
+ * The tracker page's state outside React: the URL (`?view=board|list|chart&tab=active|archived&app=<id>&edit=1`, v33
+ * SHARE-9: `&profiles=all` for the All profiles view) and the Options-menu filters, with the query the API reads for
+ * them. Pure, so it is unit-tested.
  */
 
 export interface TrackerUrlState {
@@ -22,6 +23,8 @@ export interface TrackerUrlState {
   app: string | null;
   /** The detail opens in edit mode (after "Add"). */
   edit: boolean;
+  /** v33 SHARE-9: the All profiles view (`?profiles=all`): the person's own Job Tracker and every one shared with them. */
+  all: boolean;
 }
 
 interface ParamsReader {
@@ -36,6 +39,7 @@ export function readTrackerUrl(params: ParamsReader): TrackerUrlState {
     tab: params.get('tab') === 'archived' ? 'archived' : 'active',
     app: app && app.length <= 64 ? app : null,
     edit: params.get('edit') === '1',
+    all: params.get('profiles') === 'all', // v33 SHARE-9
   };
 }
 
@@ -52,6 +56,7 @@ export function trackerSearch(state: TrackerUrlState, current?: URLSearchParams)
   put('tab', state.tab === 'active' ? null : state.tab);
   put('app', state.app);
   put('edit', state.app && state.edit ? '1' : null);
+  put('profiles', state.all ? 'all' : null); // v33 SHARE-9
   const text = params.toString();
   return text ? `?${text}` : '';
 }

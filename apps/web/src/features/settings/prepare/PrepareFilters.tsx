@@ -11,10 +11,12 @@ import { Notice } from '../../../components/ui/Notice';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { userMessage } from '../../../lib/api';
 import { fetchPrepareFilters, prepareSettingsKeys } from './api';
+import { NotShared, refusedRead } from '../../sharing/access'; // v33 SHARE-7
 import { FILTERS_COPY } from './copy';
 import { activeFilterCount } from './filters';
 import {
   PrepareFiltersFields,
+  type FiltersAccess,
   PreviewLine,
   previewStateOf,
   usePrepareFiltersForm,
@@ -28,17 +30,41 @@ import {
 
 export { PREVIEW_DELAY_MS, PreviewLine, WHERE_YOU_LIVE_ANCHOR } from './PrepareFiltersForm';
 
-export function PrepareFilters() {
-  const query = useQuery({ queryKey: prepareSettingsKeys.filters, queryFn: ({ signal }) => fetchPrepareFilters(signal) });
+/**
+ * v33 SHARE-7: `access` on a shared profile (PrepareSection computes it): read-only without the Job settings Change box
+ * (shown, never saved), the eligibility switches by the Sensitive answers boxes. `shared: false` (no Prepare & queue See
+ * box): "Not shared with you." and nothing is asked for.
+ */
+export function PrepareFilters({
+  access = {},
+  shared = true,
+  owner = null,
+}: {
+  access?: FiltersAccess;
+  shared?: boolean;
+  owner?: string | null;
+}) {
+  const query = useQuery({
+    queryKey: prepareSettingsKeys.filters,
+    queryFn: ({ signal }) => fetchPrepareFilters(signal),
+    enabled: shared, // v33 SHARE-7
+  });
   // v2.0 fix (UX-13): a save starts the form again (its key) and the save bar leaves; focus fell to <body> with it. The
   // new form puts it on the "Prepare filters" heading instead (unless the person already moved it).
   const focusHeading = useRef(false);
   return (
     <div className="flex flex-col gap-5 border-t border-divider-soft pt-6" data-prepare-filters="">
-      {query.data ? (
+      {!shared ? (
+        // v33 SHARE-7: not shared with the person (checked first: a copy read earlier stays in the cache).
+        <>
+          <FiltersHeading count={null} />
+          <NotShared owner={owner} />
+        </>
+      ) : query.data ? (
         // A save (or another tab's change read on focus) starts the form again from what is stored.
         <FiltersForm
           key={query.dataUpdatedAt}
+          access={access}
           saved={query.data}
           onSaved={() => {
             focusHeading.current = true;
@@ -49,6 +75,12 @@ export function PrepareFilters() {
             return take;
           }}
         />
+      ) : query.isError && refusedRead(query.error) ? (
+        // v33 SHARE-7: refused because of the shared profile.
+        <>
+          <FiltersHeading count={null} />
+          <NotShared owner={owner} />
+        </>
       ) : query.isError ? (
         <>
           <FiltersHeading count={null} />
@@ -109,8 +141,11 @@ function FiltersForm({
   saved,
   onSaved,
   takeFocus,
+  access = {},
 }: {
   saved: PrepareFiltersResponse;
+  /** v33 SHARE-7: read-only: shown, never saved (its fields are off, no save bar); the eligibility switches' state. */
+  access?: FiltersAccess;
   /** The filters were saved: the next form takes focus. */
   onSaved: () => void;
   /** Whether this form takes focus when it mounts (once, after a save). */
@@ -135,9 +170,12 @@ function FiltersForm({
   return (
     <>
       <FiltersHeading count={state.result.ok ? activeFilterCount(state.result.filters) : null} headingRef={headingRef} />
-      <PrepareFiltersFields state={state} />
+      {/* v33 SHARE-7: a disabled fieldset disables every field of a read-only form. */}
+      <fieldset disabled={access.readOnly} className="m-0 min-w-0 border-0 p-0" data-filters-read-only={access.readOnly ? '' : undefined}>
+        <PrepareFiltersFields state={state} access={access} />
+      </fieldset>
       <PreviewLine state={previewStateOf(state)} />
-      {state.dirty && <SaveBar saving={save.isPending} onDiscard={state.reset} onSave={submit} />}
+      {state.dirty && !access.readOnly && <SaveBar saving={save.isPending} onDiscard={state.reset} onSave={submit} />}
     </>
   );
 }

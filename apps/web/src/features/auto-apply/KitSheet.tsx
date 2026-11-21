@@ -13,10 +13,12 @@ import { useToast } from '@/components/ui/Toast';
 import { ArrowSquareOutIcon, CopyIcon, DownloadSimpleIcon, PencilSimpleIcon } from '@/components/ui/icons';
 import { userMessage } from '@/lib/api';
 import { DetailStep, RowDetailSheet } from '../../components/queue';
+import { profileUrl } from '@/lib/profile'; // v33 SHARE-4: the kit's download addresses name the page's profile
 import { fetchApplicationDraft, prepareKeys } from '../prepare/api';
 import { RESUME_MODE_SHORT, noAnswersText, noLetterText } from '../prepare/copy';
+import { useTabProfile } from '../sharing/access'; // v33 INT-1 (SHARE-6 edit 5)
 import { autoApplyKeys, fetchKit } from './api';
-import { postingHref } from './copy';
+import { postingHref, queueEditOf } from './copy';
 
 // v2.0: the manual flow's kit sheet (docs/design/v2.0/08-ui.md, "The manual flow: the kit sheet"): numbered steps to
 // open the job page, take the prepared resume (and which one it is, v20 A29), copy or download the letter, copy each
@@ -90,6 +92,10 @@ function useQuestionsKnown(applicationId: string | null): number | null {
 
 export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkApplied: (item: QueuePaneItem) => void }) {
   const toast = useToast();
+  // v33 INT-1 (SHARE-6 edit 5): Mark as applied is a Queue change (POST /agent/queue/:id/applied is `queue:edit`): on a
+  // profile shared with the person, offered only with its owner's Queue changes box, as in the Queue pane.
+  const tab = useTabProfile();
+  const queueEdit = queueEditOf(tab.key, tab.profile);
   const kit = useQuery({ queryKey: autoApplyKeys.kit(item.queueId), queryFn: ({ signal }) => fetchKit(item.queueId, signal) });
   // v2.0 fix (UX-4): "No cover letter needed" only when TailorIT knew the job's questions.
   const questionsKnown = useQuestionsKnown(item.applicationId);
@@ -154,7 +160,7 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
             </p>
             <div className="flex flex-wrap gap-2">
               <a
-                href={resume.downloadUrl}
+                href={profileUrl(resume.downloadUrl)}
                 download
                 className={buttonClasses({ variant: 'outline', size: 'sm' })}
                 aria-label={`Download ${resume.title} as a PDF`}
@@ -201,7 +207,7 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
               >
                 Copy
               </Button>
-              <a href={letter.downloadUrl} download className={buttonClasses({ variant: 'outline', size: 'sm' })} aria-label="Download the cover letter">
+              <a href={profileUrl(letter.downloadUrl)} download className={buttonClasses({ variant: 'outline', size: 'sm' })} aria-label="Download the cover letter">
                 <DownloadSimpleIcon size={14} aria-hidden="true" />
                 Download
               </a>
@@ -269,7 +275,7 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
         <p className="text-[13px] leading-5 text-muted-foreground">Questions about you come from your autofill profile.</p>
       </DetailStep>
 
-      {offersMarkApplied(item) && (
+      {queueEdit && offersMarkApplied(item) && (
         <DetailStep number={5} title="Mark as applied">
           <span className="flex items-center gap-1.5 self-start">
             <Button onClick={() => onMarkApplied(item)}>Mark as applied</Button>

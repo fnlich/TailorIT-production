@@ -20,6 +20,7 @@ import { nowIso, type AppDeps } from '../../core/context';
 import { conflict, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
 import { accountHistory, adminUserOf, listAdminUsers } from './accounts';
+import { endGrantsOfAccount } from '../sharing/end-grant'; // v33 SHARE-2
 
 // Administrator: list accounts, change role, disable. Owned by work package F3 (see docs/ARCHITECTURE.md). v2.0 (P6b;
 // docs/design/v2.0/04-accounts-limits.md, "Admin routes (accounts)"): the list is paged and each row carries the
@@ -78,6 +79,9 @@ async function patchAccount(
       await expireConnectCodesForUser(deps, target.id);
     }
   });
+  // v33 SHARE-2 (PLAN-sharing.md §6): after the disable committed, the work of every share on either side of the account
+  // stops (endGrant; the grants keep their state: re-enabled, they are live again). Never throws.
+  if (change.disabled === true) await endGrantsOfAccount(deps, target.id);
 
   const body: AdminUserPatchResponse = await adminUserOf(deps, target.id);
   if (change.role === 'user' && isConfiguredAdmin(deps, target.email)) {

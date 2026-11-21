@@ -1,9 +1,12 @@
 import { RESUME_ANALYSIS_VERSION, type AiTaskView } from '@tailorit/shared';
 import { createBackgroundGate, createHourlyBudget } from '../../../ai/background';
 import type { AiService } from '../../../ai/queue';
+import { constantsOf } from '../../../core/constants/service';
 import { nextDailyResetAt } from '../../../core/constants/day';
 import type { AppDeps } from '../../../core/context';
 import { AppError } from '../../../core/http/errors';
+import { BACKLOG_PAYER_SQL, backlogPayerOf, isAccessEnded } from '../backlog-payer'; // v33 SHARE-3
+import { BACKLOG_ACCESS_ENDED } from '../end-grant'; // v33 SHARE-3
 import type { ResumeAnalysisBackfill } from './backfill';
 import { resumeAnalysisEnabled, reuseAiReading } from './store';
 import type { ResumeAnalysisTaskInput, ResumeAnalysisTaskResult } from './task';
@@ -24,6 +27,12 @@ import type { ResumeAnalysisTaskInput, ResumeAnalysisTaskResult } from './task';
 // Off when AI is off, AI_RESUME_ANALYSIS=off or AI_CLI_BACKGROUND_SLOTS=0; uploads then keep the rules' reading. The
 // task handler stays registered either way. No timer runs before start(). v3.0 D2: every step reads and writes through
 // the async client, and the timer runs one step at a time.
+// v33 SHARE-3 (PLAN F9 "Who pays"; SP v33 PLAN-sharing.md §5 "Resume backlogs"): a row names who pays for its reading
+// (charge_user_id, grant_id: B for an upload B made on A's profile; NULL the owner). The reading is charged to that
+// payer, and fairness, the usage deferral and the "used up" set read the payer (coalesce(charge_user_id, user_id)):
+// B's uploads on 10 profiles get one person's share, and B's spent budget never holds A's own uploads (nor the
+// reverse). A row whose grant ended (or lost documents:edit) is skipped with why (endGrant's `backlogs` step does it
+// for the rows waiting; the queue refuses the rest at enqueue and at run).
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -81,6 +90,9 @@ interface QueuedRow {
   version: number;
   attempts: number;
   task_id: string | null;
+  /** v33 SHARE-3: whose upload, and who pays for its reading (NULL: the owner). */
+  user_id: string;
+  charge_user_id: string | null;
 }
 
 interface CandidateRow {
@@ -88,9 +100,15 @@ interface CandidateRow {
   user_id: string;
   content_hash: string;
   version: number;
+  /** v33 SHARE-3: who pays (NULL: the owner) and under which grant. */
+  charge_user_id: string | null;
+  grant_id: string | null;
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
+
+/** v33 SHARE-3: who pays for a row's reading (its charge_user_id, else its owner). */
+const payerIdOf = (row: { user_id: string; charge_user_id: string | null }) => row.charge_user_id ?? row.user_id;
 
 /** The dedupe key of an upload's reading (the queue scopes it by owner). */
 export function resumeAnalysisDedupeKey(input: ResumeAnalysisTaskInput): string {
@@ -98,15 +116,20 @@ export function resumeAnalysisDedupeKey(input: ResumeAnalysisTaskInput): string 
 }
 
 const SQL = {
-  queued: "SELECT resume_id, content_hash, version, attempts, task_id FROM resume_analysis_backlog WHERE state = 'queued'",
+  queued:
+    "SELECT resume_id, content_hash, version, attempts, task_id, user_id, charge_user_id FROM resume_analysis_backlog WHERE state = 'queued'",
   active: "SELECT count(*) AS n FROM ai_tasks WHERE kind = 'resume_analysis' AND status IN ('queued', 'running')",
-  // The account served least recently first (never served: first), then the oldest upload.
-  candidates: `SELECT b.resume_id, b.user_id, b.content_hash, b.version
+  // The payer served least recently first (never served: first), then the oldest upload. v33 SHARE-3: by payer (B's
+  // uploads on every profile are one person's turn), and both the owner and the payer must be enabled.
+  candidates: `SELECT b.resume_id, b.user_id, b.content_hash, b.version, b.charge_user_id, b.grant_id
        FROM resume_analysis_backlog b
        JOIN users u ON u.id = b.user_id
-       LEFT JOIN (SELECT user_id, max(started_at) AS served FROM resume_analysis_backlog GROUP BY user_id) s
-         ON s.user_id = b.user_id
+       JOIN users p ON p.id = ${BACKLOG_PAYER_SQL('b')}
+       LEFT JOIN (SELECT ${BACKLOG_PAYER_SQL('r')} AS payer, max(r.started_at) AS served FROM resume_analysis_backlog r
+                   GROUP BY ${BACKLOG_PAYER_SQL('r')}) s
+         ON s.payer = ${BACKLOG_PAYER_SQL('b')}
        WHERE b.state IN ('waiting', 'failed') AND b.next_attempt_at <= ? AND b.version = ? AND u.disabled_at IS NULL
+         AND p.disabled_at IS NULL
        ORDER BY s.served IS NOT NULL, s.served, b.created_at, b.resume_id
        LIMIT ${CANDIDATES}`,
   anyDue: `SELECT 1 AS ok FROM resume_analysis_backlog b JOIN users u ON u.id = b.user_id
@@ -120,11 +143,15 @@ const SQL = {
   defer: `UPDATE resume_analysis_backlog SET next_attempt_at = ?, last_error = ?, updated_at = ?
        WHERE resume_id = ? AND state IN ('waiting', 'failed')`,
   // v2.0: every upload of the person waits for the daily reset (never sooner than a later attempt already set). A CASE
-  // rather than SQLite's two-argument max(), which PostgreSQL spells greatest().
+  // rather than SQLite's two-argument max(), which PostgreSQL spells greatest(). v33 SHARE-3: every upload that person
+  // pays for, on any profile (never the owner's own when someone else's budget ran out).
   deferUser: `UPDATE resume_analysis_backlog
          SET next_attempt_at = CASE WHEN next_attempt_at > @until THEN next_attempt_at ELSE @until END,
            last_error = @error, updated_at = @now
-       WHERE user_id = @userId AND state IN ('waiting', 'failed')`,
+       WHERE ${BACKLOG_PAYER_SQL('resume_analysis_backlog')} = @userId AND state IN ('waiting', 'failed')`,
+  // v33 SHARE-3: the grant the row's reading was paid under ended (or lost documents:edit): it is not read.
+  accessEnded: `UPDATE resume_analysis_backlog SET state = 'skipped', last_error = ?, updated_at = ?
+       WHERE resume_id = ? AND state IN ('waiting', 'failed')`,
   started: `UPDATE resume_analysis_backlog SET state = 'queued', task_id = ?, started_at = ?, updated_at = ?
        WHERE resume_id = ? AND content_hash = ? AND version = ?`,
 };
@@ -147,6 +174,10 @@ export function createResumeAnalysisBacklog(deps: AppDeps): ResumeAnalysisBacklo
   const resetAfter = (nowMs: number) => nextDailyResetAt(deps, new Date(nowMs)).getTime();
 
   const activeTasks = async (): Promise<number> => (await db.one<{ n: number }>(SQL.active))?.n ?? 0;
+
+  /** v33 SHARE-3: whether a row's reading is paid by someone other than the upload's owner. */
+  const paidByOther = (row: { user_id: string; charge_user_id: string | null }) =>
+    row.charge_user_id !== null && row.charge_user_id !== row.user_id;
 
   /** What a finished task means for its upload's row. */
   async function settle(ai: AiService, row: QueuedRow, task: AiTaskView | null, nowMs: number): Promise<void> {
@@ -181,8 +212,12 @@ export function createResumeAnalysisBacklog(deps: AppDeps): ResumeAnalysisBacklo
     } else if (code === 'ai_unavailable') {
       await update('waiting', outageUntil(ai, nowMs), message);
     } else if (code === 'ai_usage_exhausted') {
-      // v2.0: the person's usage ran out before the reading ran: it waits for the daily reset, uncounted.
-      await update('waiting', resetAfter(nowMs), message);
+      // v2.0: the person's usage ran out before the reading ran: it waits for the daily reset, uncounted. v33 SHARE-3:
+      // the payer's usage; a row someone else pays for keeps their full refusal to them (payer_limit's words here).
+      await update('waiting', resetAfter(nowMs), paidByOther(row) ? constantsOf(deps).message('MSG_AI_PAYER_LIMIT') : message);
+    } else if (code === 'profile_ended' || code === 'profile_not_shared') {
+      // v33 SHARE-3: the grant its reading was paid under ended before it ran: it is not read.
+      await update('skipped', nowMs, BACKLOG_ACCESS_ENDED);
     } else {
       // A failed reading (ai_failed; an unexpected error is recorded as that too).
       const attempts = row.attempts + 1;
@@ -229,6 +264,7 @@ export function createResumeAnalysisBacklog(deps: AppDeps): ResumeAnalysisBacklo
         input,
         priority: 'background',
         dedupeKey: resumeAnalysisDedupeKey(input),
+        chargeTo: backlogPayerOf(row), // v33 SHARE-3: who pays (B under the grant; the queue checks it is still live)
       });
       if (!accepted.deduped) budget.take();
       await db.run(SQL.started, [accepted.taskId, now, now, row.resume_id, row.content_hash, row.version]);
@@ -245,8 +281,15 @@ export function createResumeAnalysisBacklog(deps: AppDeps): ResumeAnalysisBacklo
         return 'stop';
       }
       if (app?.code === 'ai_usage_exhausted') {
-        await db.run(SQL.deferUser, { until: iso(resetAfter(nowMs)), error: message, now, userId: row.user_id });
+        // v33 SHARE-3: the payer's uploads wait (B's on every profile; the owner's own are not held by B's budget).
+        const error = paidByOther(row) ? constantsOf(deps).message('MSG_AI_PAYER_LIMIT') : message;
+        await db.run(SQL.deferUser, { until: iso(resetAfter(nowMs)), error, now, userId: payerIdOf(row) });
         return 'user';
+      }
+      if (isAccessEnded(error)) {
+        // v33 SHARE-3: the grant its reading would be paid under ended: the upload is not read (A may ask again).
+        await db.run(SQL.accessEnded, [BACKLOG_ACCESS_ENDED, now, row.resume_id]);
+        return null;
       }
       log.warn(`[resume-analysis] could not start the reading of resume ${row.resume_id}`, error);
       await db.run(SQL.defer, [iso(nowMs + OTHER_WAIT_MS), message, now, row.resume_id]);
@@ -267,13 +310,13 @@ export function createResumeAnalysisBacklog(deps: AppDeps): ResumeAnalysisBacklo
     /** v2.0: the people whose usage is used up, met in this step: their other uploads are not asked for again. */
     const usedUp = new Set<string>();
     for (const row of await db.all<CandidateRow>(SQL.candidates, [iso(nowMs), RESUME_ANALYSIS_VERSION])) {
-      if (usedUp.has(row.user_id)) continue;
+      if (usedUp.has(payerIdOf(row))) continue; // v33 SHARE-3: by payer
       // Claude read this text for this account already: copied, nothing asked.
       if (await reuseAiReading(deps, { resumeId: row.resume_id, userId: row.user_id, contentHash: row.content_hash })) continue;
       const started = await begin(ai, row, nowMs);
       if (started === 'stop') return null;
       if (started === 'user') {
-        usedUp.add(row.user_id);
+        usedUp.add(payerIdOf(row));
         continue;
       }
       if (started) return started;

@@ -5,6 +5,7 @@ import { startTransition, useCallback, useEffect, useInsertionEffect, useLayoutE
 import { parseSingleDate, type DatePart, type Period, type ResumeDocument } from '@tailorit/shared';
 import { useToast } from '@/components/ui/Toast';
 import { usePublicConstants } from '@/lib/constants';
+import { registerFlush } from '@/lib/profile';
 import { resumeKeys } from '../api';
 import { RESUME_DEPENDENT_KEYS } from '../cache';
 import type { DateTarget } from '../dates/DatePickerPopover';
@@ -92,6 +93,9 @@ export function dateTargetOf(path: string, value: unknown, anchor: HTMLElement):
   return { kind: 'single', path, anchor, opened, date };
 }
 
+/** v33 SHARE-4: save states in which nothing more can be stored (a switch does not wait for them). */
+const SETTLED_STATES: ReadonlySet<SaveStatus['state']> = new Set(['conflict', 'limited', 'gone', 'stopped', 'signed-out']);
+
 const bulletOf = (path: string) => {
   const match = /^(.*)\.achievements\.(\d+)$/.exec(path);
   return match ? { entry: match[1]!, index: Number(match[2]) } : null;
@@ -129,9 +133,13 @@ export type EditorStart =
   | Pick<EditorResume, 'id' | 'documentRevision' | 'document'>
   | { id: null; draftId: string; documentRevision: 0; document: ResumeDocument };
 
+/**
+ * `copyScope`: whose browser copy this is, "<accountId>.<key|me>" (v33 SHARE-4: lib/profile.ts localCopyScope; a copy
+ * made on a shared profile is offered back on that profile only).
+ */
 export function useEditorSession(
   resume: EditorStart,
-  accountId: string,
+  copyScope: string,
   handlers: { onConflict(): void; onSignedOut(): void; onCreated?(id: string): void },
 ): EditorSession {
   const toast = useToast();
@@ -161,7 +169,7 @@ export function useEditorSession(
     const copy = createLocalCopy<ResumeDocument>({
       storage: browserStorage(),
       clock: BROWSER_CLOCK,
-      accountId,
+      scope: copyScope,
       target: resume.id === null ? { draftId: resume.draftId } : { resumeId: resume.id },
     });
     const found = copy.read();
@@ -228,6 +236,17 @@ export function useEditorSession(
     follow();
     return store.subscribe(follow);
   }, [store]);
+
+  // v33 SHARE-4: a profile switch waits for this resume's saves first, and stays put when one did not save (the
+  // changes stay on this profile: every save of this page names the profile it loaded with).
+  useEffect(
+    () =>
+      registerFlush(async () => {
+        await queue.flush();
+        if (queue.hasUnsaved() && !SETTLED_STATES.has(queue.status().state)) throw new Error('The resume has unsaved changes.');
+      }),
+    [queue],
+  );
 
   const [restoreRecord, setRestoreRecord] = useState<LocalCopyRecord<ResumeDocument> | null>(parts.found);
   const offer = copyOffer(restoreRecord, resume.id ? resume.documentRevision : null);

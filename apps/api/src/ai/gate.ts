@@ -1,4 +1,5 @@
 import { aiBudgetState } from '../core/accounts/money';
+import { isPersonPayer, type Payer } from '../core/accounts/payer'; // v33 SHARE-3
 import { aiUnavailableError, aiUsageExhaustedError } from '../core/accounts/refusals';
 import type { AppDeps } from '../core/context';
 import { AppError } from '../core/http/errors';
@@ -13,7 +14,7 @@ import { capacityOf } from './capacity';
 //      exception (it never asks the gate);
 //   3. `chargeTo` is a person whose daily remaining is at or below 0 and whose extra credit is 0: ai_usage_exhausted
 //      (MSG_AI_USAGE_EXHAUSTED, "Get extra credit", the time to the next daily reset).
-// `chargeTo` null is a server task (the background job analysis): only 1 and 2 apply. A task already running is never
+// `chargeTo` a server cost (serverCost: the background job analysis) is nobody's: only 1 and 2 apply. A task already running is never
 // stopped here: its runs are charged after the fact and any overshoot is written off (core/accounts/money.ts).
 
 export type AiRefusal = {
@@ -24,18 +25,21 @@ export type AiRefusal = {
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
+// v33 SHARE-3 (PLAN F9 "Who pays"): the gate reads the budget of a Payer (B's on A's profile; serverCost: nobody).
+// v33 INT-1: only a Payer (the v3.2 forms, an id or null, are gone).
+
 /** Step 1 of the gate: AI on and the queue there; else the refusal. */
 export function aiOffRefusal(deps: AppDeps): AiRefusal | null {
   return !deps.config.ai.enabled || !deps.services.ai ? refusalOf(aiUnavailableError(deps)) : null;
 }
 
-/** Null when a task charged to `chargeTo` may start now; `chargeTo` null is a server task (the capacity block only). */
-export async function serverAiRefusal(deps: AppDeps, chargeTo: string | null): Promise<AiRefusal | null> {
+/** Null when a task charged to `chargeTo` may start now; a server cost is nobody's (the capacity block only). */
+export async function serverAiRefusal(deps: AppDeps, chargeTo: Payer): Promise<AiRefusal | null> {
   return aiOffRefusal(deps) ?? capacityOrBudgetRefusal(deps, chargeTo);
 }
 
 /** Throws the refusal as an AppError (the API's error body, with buyCredit and the reset for ai_usage_exhausted). */
-export async function assertServerAi(deps: AppDeps, chargeTo: string | null): Promise<void> {
+export async function assertServerAi(deps: AppDeps, chargeTo: Payer): Promise<void> {
   const refusal = await serverAiRefusal(deps, chargeTo);
   if (refusal) throw refusalError(deps, refusal);
 }
@@ -54,9 +58,9 @@ export function capacityRefusal(deps: Deps, blocked: boolean): AiRefusal | null 
  * Steps 2 and 3 of the gate, for the AI queue itself (it is the AI service, so step 1 is its own: AI on, a handler).
  * A `chargeTo` account that no longer exists has nothing to refuse (its tasks are charged to nobody).
  */
-export async function capacityOrBudgetRefusal(deps: Deps, chargeTo: string | null): Promise<AiRefusal | null> {
+export async function capacityOrBudgetRefusal(deps: Deps, chargeTo: Payer): Promise<AiRefusal | null> {
   const capacity = capacityRefusal(deps, await capacityOf(deps).blocked());
-  if (capacity || chargeTo === null) return capacity;
+  if (capacity || !isPersonPayer(chargeTo)) return capacity; // v33 SHARE-3
   let exhausted: boolean | null;
   try {
     exhausted = (await aiBudgetState(deps, chargeTo)).exhausted;

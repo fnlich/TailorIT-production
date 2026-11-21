@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from 'express';
 import { McpSettingsBodySchema } from '@tailorit/shared/mcp';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { rateKeyOf, requireUser, userOf } from '../../core/auth/guards';
 import type { AppDeps } from '../../core/context';
 import { forbidden } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -28,7 +28,7 @@ export function createMcpSettingsRouter(deps: AppDeps): Router {
   const limit = keyedRateLimit({
     windowMs: MINUTE_MS,
     limit: 60,
-    key: (req) => `mcp-settings:${userOf(req).id}`,
+    key: (req) => `mcp-settings:${rateKeyOf(req, MINUTE_MS)}`, // v33 SHARE-8
     message: (seconds) => `There have been too many changes to these settings. ${waitSentence(seconds)}`,
   });
 

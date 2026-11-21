@@ -1,4 +1,6 @@
+import type { RoleFamilyId } from '@tailorit/shared';
 import { UNTRUSTED_RULE } from '../autofill/untrusted';
+import { familyVoice } from '../roles/variants';
 import { untrusted, untrustedBlock } from '../../../features/autofill/ai/untrusted';
 import { defineTextPrompt } from '../types';
 
@@ -16,7 +18,8 @@ import { defineTextPrompt } from '../types';
 const JOB_DESCRIPTION_LIMIT = 20_000;
 /** A company or a job title quoted as page text (the editor's own caps). */
 const JOB_NAME_LIMIT = 200;
-const GUIDANCE_LIMIT = 5_000;
+/** The most of a template's (or the person's) guidance the letter prompt quotes (v33 INT-D: exported; MCP wraps within it). */
+export const GUIDANCE_LIMIT = 5_000;
 
 export interface LetterJobInput {
   companyName: string;
@@ -36,6 +39,11 @@ export interface CoverLetterPromptInput {
   /** The chosen template's "Copilot AI Prompt", when the letter is generated from an empty template. */
   templatePrompt: string;
   customPrompt: string;
+  /**
+   * v33 PROMPTS (F5): the person's field (the resume's; the job's when theirs is general). Missing or technical: the
+   * rules word for word; another field's adds its voice line to the style rules.
+   */
+  family?: RoleFamilyId | null;
 }
 
 const BANNED_WORDS =
@@ -57,13 +65,19 @@ Style
 - Never use an em dash, an en dash or a double hyphen. Use a comma or a full stop instead.
 - Plain text only: no markdown, no HTML, no bullet points, no headings.`;
 
-/** The truthfulness and style rules both letter prompts end their rules with. */
-export const letterRulesPrompt = defineTextPrompt({
+/**
+ * The truthfulness and style rules both letter prompts end their rules with. v33 PROMPTS (F5): with the field's voice
+ * line last for a non-technical field (none for the technical family or none given, so those letters' words stay).
+ */
+export const letterRulesPrompt = defineTextPrompt<{ family?: RoleFamilyId | null } | void>({
   area: 'cover-letters',
   name: 'letter-rules',
   version: 1,
   description: "The truthfulness and style rules both letter prompts (cover-letter, template-fill) give the AI, word for word.",
-  text: () => SHARED_RULES,
+  text: (input) => {
+    const voice = familyVoice(input ? input.family : undefined);
+    return voice ? `${SHARED_RULES}\n- ${voice}` : SHARED_RULES;
+  },
 });
 
 /** A titled block of text between <<< and >>> ("(none given)" when empty). */

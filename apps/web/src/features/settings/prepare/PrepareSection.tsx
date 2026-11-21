@@ -16,9 +16,10 @@ import { Notice } from '../../../components/ui/Notice';
 import { RadioGroup } from '../../../components/ui/RadioGroup';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { useToast } from '../../../components/ui/Toast';
-import { userMessage } from '../../../lib/api';
+import { isProfileRefusal, userMessage } from '../../../lib/api';
 import { usePublicConstants, type PublicMessageKey } from '../../../lib/constants';
 import { Section, SwitchRow } from '../parts';
+import { NotShared, OWN_ACCESS, refusedRead, type ProfileAccess } from '../../sharing/access'; // v33 SHARE-7
 import { fetchPrepareSettings, prepareSettingsKeys, savePrepareSettings } from './api';
 import { LETTER_MODE_HINT, LETTER_MODE_LABEL, PREPARE_COPY, RESUME_MODE_HINT } from './copy';
 import { PrepareFilters } from './PrepareFilters';
@@ -34,14 +35,49 @@ import { PrepareFilters } from './PrepareFilters';
 /** The section's anchor (/settings#prepare). v31 AUTO: the Auto-apply page opens the same filters in a dialog instead. */
 export const PREPARE_ANCHOR = 'prepare';
 
-export function PrepareSection({ className }: { className?: string }) {
-  const settings = useQuery({ queryKey: prepareSettingsKeys.settings, queryFn: ({ signal }) => fetchPrepareSettings(signal) });
+/**
+ * v33 SHARE-7 (PLAN F9 "Permissions": Job settings): `access` is what the tab's profile may do here (Settings computes
+ * it; the person's own profile by default): without the See box "Not shared with you." and nothing is asked for;
+ * without the Change box the settings are shown, not changed. `filters`: the Prepare filters, read with Prepare &
+ * queue's See box (as the server serves them, so a See only share shows them too) and changed with Job settings'
+ * Change box.
+ */
+export function PrepareSection({
+  className,
+  access = OWN_ACCESS,
+  sensitive = OWN_ACCESS,
+  filters = OWN_ACCESS,
+}: {
+  className?: string;
+  access?: ProfileAccess;
+  /** v33 SHARE-7: the Sensitive answers boxes (the filters' eligibility switches). */
+  sensitive?: ProfileAccess;
+  /** v33 SHARE-7: the filters' boxes (See: prepare:view; Change: settings:edit). */
+  filters?: ProfileAccess;
+}) {
+  const eligibility = !sensitive.see ? 'hidden' : sensitive.change ? 'shown' : 'readOnly'; // as filtersAccessOf
+  const settings = useQuery({
+    queryKey: prepareSettingsKeys.settings,
+    queryFn: ({ signal }) => fetchPrepareSettings(signal),
+    enabled: access.ready && access.see, // v33 SHARE-7
+  });
   useScrollToAnchor(PREPARE_ANCHOR, settings.isSuccess);
+  // v33 SHARE-7: not shared with the person (or a read refused because of it).
+  const settingsShared = !(access.ready && !access.see) && !(settings.isError && refusedRead(settings.error));
+  if (!settingsShared && filters.ready && !filters.see) {
+    return (
+      <Section title={PREPARE_COPY.title} description={PREPARE_COPY.description} id={PREPARE_ANCHOR} className={className}>
+        <NotShared owner={access.owner} />
+      </Section>
+    );
+  }
   return (
     <Section title={PREPARE_COPY.title} description={PREPARE_COPY.description} id={PREPARE_ANCHOR} className={className}>
       <div className="flex flex-col gap-8">
-        {settings.data ? (
-          <PrepareSettingsForm settings={settings.data} />
+        {!settingsShared ? (
+          <NotShared owner={access.owner} />
+        ) : settings.data ? (
+          <PrepareSettingsForm settings={settings.data} readOnly={!access.change} />
         ) : settings.isError ? (
           <Notice
             tone="error"
@@ -60,7 +96,9 @@ export function PrepareSection({ className }: { className?: string }) {
             <Skeleton className="h-28 w-full" rounded="control" />
           </div>
         )}
-        <PrepareFilters />
+        {filters.ready && (
+          <PrepareFilters shared={filters.see} owner={filters.owner} access={{ readOnly: !filters.change, eligibility }} />
+        )}
       </div>
     </Section>
   );
@@ -80,7 +118,7 @@ function useScrollToAnchor(anchor: string, ready: boolean) {
   }, [anchor, ready]);
 }
 
-function PrepareSettingsForm({ settings }: { settings: PrepareSettings }) {
+function PrepareSettingsForm({ settings, readOnly = false }: { settings: PrepareSettings; readOnly?: boolean }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const { t } = usePublicConstants();
@@ -98,6 +136,8 @@ function PrepareSettingsForm({ settings }: { settings: PrepareSettings }) {
     },
     onError: (error, _body, context) => {
       if (context?.before) queryClient.setQueryData(prepareSettingsKeys.settings, context.before);
+      // v33 SHARE-7: a shared profile's refusal is the shell's one alert, not a toast too.
+      if (isProfileRefusal(error)) return;
       toast.error(PREPARE_COPY.saveFailed, userMessage(error));
     },
   });
@@ -109,7 +149,7 @@ function PrepareSettingsForm({ settings }: { settings: PrepareSettings }) {
           <RadioGroup
             name="resume-mode"
             value={settings.resumeMode}
-            disabled={save.isPending}
+            disabled={save.isPending || readOnly}
             onValueChange={(resumeMode) => resumeMode !== settings.resumeMode && save.mutate({ resumeMode })}
             options={PREPARE_RESUME_MODES.map((mode) => ({
               value: mode,
@@ -122,7 +162,7 @@ function PrepareSettingsForm({ settings }: { settings: PrepareSettings }) {
           <RadioGroup
             name="letter-mode"
             value={settings.letterMode}
-            disabled={save.isPending}
+            disabled={save.isPending || readOnly}
             onValueChange={(letterMode) => letterMode !== settings.letterMode && save.mutate({ letterMode })}
             options={COVER_LETTER_MODES.map((mode) => ({
               value: mode,
@@ -136,7 +176,7 @@ function PrepareSettingsForm({ settings }: { settings: PrepareSettings }) {
         title={PREPARE_COPY.askTitle}
         hint={PREPARE_COPY.askHint}
         checked={!settings.skipConfirm}
-        disabled={save.isPending}
+        disabled={save.isPending || readOnly}
         onCheckedChange={(ask) => save.mutate({ skipConfirm: !ask })}
       />
     </>

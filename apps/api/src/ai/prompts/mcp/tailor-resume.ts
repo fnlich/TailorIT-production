@@ -1,6 +1,7 @@
 import { adapt, STARTS_WITH_BRACE, type TailorPromptText } from '../tailor/render';
 import { TAILOR_PROMPT, TAILOR_RESUME } from '../tailor/tailor-resume';
 import { defineTextPrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { rendered, stepFooter, type StepPromptInput } from './render';
 
 // v30 ST2: the MCP step prompt `tailor`, moved from features/mcp/prompts.ts. tailor_builder0's tailor-resume, changed
@@ -22,14 +23,22 @@ export const MCP_TAILOR_TEXT: TailorPromptText = {
   sharedVariables: TAILOR_PROMPT.sharedVariables,
 };
 
+/** v33 PROMPTS (F5): the step in the person's family's words, then the MCP adaptations; technical: MCP_TAILOR_TEXT. */
+export const mcpTailorTextFor = perFamily(
+  (family): TailorPromptText => ({
+    ...MCP_TAILOR_TEXT,
+    content: adapt(familyText(TAILOR_RESUME, 'tailor-resume', family), 'tailor-resume', MCP_TAILOR_ADAPTATIONS),
+  }),
+);
+
 export const mcpTailorPrompt = defineTextPrompt<StepPromptInput>({
   area: 'mcp',
   name: 'tailor-resume',
   version: 1,
   description: "The step `tailor` for the person's AI: the resume for one job against its keyword plan, saved with prepare_save_resume.",
-  text: ({ jobId, values }) =>
+  text: ({ jobId, values, family }) =>
     rendered(
-      MCP_TAILOR_TEXT,
+      mcpTailorTextFor(family),
       values,
       true,
       stepFooter(

@@ -1,13 +1,11 @@
 import HTMLtoDOCX from '@turbodocx/html-to-docx';
 import {
-  isEditorDocument,
   resumeDownloadFileName,
   resumeExportFile,
   resumeExportFileName,
   type ResumeDocument,
   type ResumeExportFormat,
 } from '@tailorit/shared';
-import { renderResumeDocxHtml, renderResumePrintHtml } from '@tailorit/render';
 import {
   layoutResume,
   paginateResume,
@@ -21,15 +19,15 @@ import { renderResumeHtml } from '@tailorit/resume-templates/server';
 import { nowIso, type AppDeps } from '../../core/context';
 import { MIME_BY_KIND } from '../../core/files/index';
 import { resumeFontFaceCss } from '../../core/fonts';
-import { AppError } from '../../core/http/errors';
 import { getPdfService } from '../../core/pdf/index';
-import { getResumeEngine } from './engine';
+import { editorDocumentOf } from '../../core/skills/index';
 import { photoDataUrl } from './photos';
 
 // Downloads of a built resume: the PDF (the template printed by Chrome, JavaScript off and the network shut), the
-// "Word (simple layout)" DOCX, and the JSON file Import JSON reads back. A resume of the on-page editor prints from its
-// React template, measured first so its pages break as the editor shows them; an older one from its Handlebars
-// template, until every resume has moved to the editor.
+// "Word (simple layout)" DOCX, the plain text, and the JSON file Import JSON reads back. Every resume prints from its
+// on-page editor template, measured first so its pages break as the editor shows them. v33 LEGACY: the retired
+// Handlebars templates are gone; an older resume (saved before the editor) or an AI-made document is upgraded as it
+// is read (core/skills' editorDocumentOf) and prints as the editor shows it.
 
 export interface ExportedFile {
   buffer: Buffer;
@@ -150,8 +148,6 @@ export async function exportBuiltResume(
   format: ResumeExportFormat,
   options: { name?: string } = {},
 ): Promise<ExportedFile> {
-  const engine = getResumeEngine(deps);
-  const skills = await engine.skillsFor(userId);
   if (format === 'json') {
     const file = resumeExportFile({ title: resume.title, templateId: resume.templateId, document: resume.document }, nowIso(deps));
     return {
@@ -160,46 +156,28 @@ export async function exportBuiltResume(
       fileName: resumeExportFileName(resume.label, 'json'),
     };
   }
+  // Every other format prints what the editor shows: an older or AI-made document as the editor opens it.
+  const document = await editorDocumentOf(deps, userId, resume.document);
   if (format === 'txt') {
-    // What the page prints, as plain lines, for every resume (an older one read through the layout it opens with).
-    const name = isEditorDocument(resume.document)
-      ? resumeDownloadFileName(resume.document, 'txt', options.name)
-      : resumeExportFileName(resume.label, 'txt');
-    return { buffer: Buffer.from(resumePlainText(resume.document)), mime: 'text/plain; charset=utf-8', fileName: name };
+    // What the page prints, as plain lines.
+    const fileName = resumeDownloadFileName(document, 'txt', options.name);
+    return { buffer: Buffer.from(resumePlainText(document)), mime: 'text/plain; charset=utf-8', fileName };
   }
-  if (format === 'docx' && isEditorDocument(resume.document)) {
-    const outline = resumeOutline(resume.document);
-    const accent = layoutResume(resume.document, 'static').view.design.secondary;
+  if (format === 'docx') {
+    const outline = resumeOutline(document);
+    const accent = layoutResume(document, 'static').view.design.secondary;
     return {
       buffer: await docxBuffer(outlineDocxHtml(outline, accent), resume.label),
       mime: MIME_BY_KIND.docx,
-      fileName: resumeDownloadFileName(resume.document, 'docx', options.name),
+      fileName: resumeDownloadFileName(document, 'docx', options.name),
     };
   }
-  if (format === 'docx') {
-    const template = engine.templates.resolve(null, resume.document.preferredTemplate);
-    if (!template) throw new AppError('internal', 'No resume template is available on this server.');
-    const html = renderResumeDocxHtml(resume.document, template, skills);
-    return { buffer: await docxBuffer(html, resume.label), mime: MIME_BY_KIND.docx, fileName: resumeExportFileName(resume.label, 'docx') };
-  }
-  if (isEditorDocument(resume.document)) {
-    const started = performance.now();
-    const buffer = await printEditorResume(deps, userId, resume.document, resume.label);
-    return {
-      buffer,
-      mime: MIME_BY_KIND.pdf,
-      fileName: resumeDownloadFileName(resume.document, 'pdf', options.name),
-      printMs: Math.round(performance.now() - started),
-    };
-  }
-  const printed = renderResumePrintHtml({ document: resume.document, templates: engine.templates, skills });
-  // A4, as free_tailor prints: Chrome takes the template's own @page margins (the fallback only applies to a
-  // template without one) and shrinks a page of another size onto A4.
-  const buffer = await getPdfService(deps).printPdf(printed.html, {
-    format: 'A4',
-    margin: printed.pageBox.margin,
-    preferCSSPageSize: false,
-    printBackground: true,
-  });
-  return { buffer, mime: MIME_BY_KIND.pdf, fileName: resumeExportFileName(resume.label, 'pdf') };
+  const started = performance.now();
+  const buffer = await printEditorResume(deps, userId, document, resume.label);
+  return {
+    buffer,
+    mime: MIME_BY_KIND.pdf,
+    fileName: resumeDownloadFileName(document, 'pdf', options.name),
+    printMs: Math.round(performance.now() - started),
+  };
 }

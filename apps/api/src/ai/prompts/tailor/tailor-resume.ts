@@ -1,4 +1,5 @@
 import { definePrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { adapt, AnyObjectSchema, BETWEEN_MARKERS, STARTS_WITH_BRACE, tailorPromptParts, type TailorPromptText } from './render';
 
 // v30 ST2: tailor_builder0's tailor-resume, moved from features/tailor/prompts/{text,index}.ts. Tailoring's step 2: the
@@ -111,12 +112,23 @@ export const TAILOR_PROMPT: TailorPromptText = {
   sharedVariables: ['keywordPlanJson', 'responsibilitiesJson', 'mustIncludeJson', 'softSkillOptionsJson'],
 };
 
+/**
+ * v33 PROMPTS (F5): the prompt in a role family's words (the person's), the family's slots first and TailorIT's
+ * adaptations on top; the technical family's is TAILOR_PROMPT, word for word.
+ */
+export const tailorPromptFor = perFamily(
+  (family): TailorPromptText => ({
+    ...TAILOR_PROMPT,
+    content: adapt(familyText(TAILOR_RESUME, 'tailor-resume', family), 'tailor-resume', TAILOR_RESUME_ADAPTATIONS),
+  }),
+);
+
 /** tailor-resume (step 2): its answer is read leniently in code (pipeline.ts normalizeResume). */
 export const tailorResumePrompt = definePrompt({
   area: 'tailor',
   name: 'tailor-resume',
   version: 1,
   description: "Tailoring's step 2: the resume rewritten for one job against its keyword plan, from the person's profile.",
-  ...tailorPromptParts(TAILOR_PROMPT, { quotesPosting: true }),
+  ...tailorPromptParts(tailorPromptFor, { quotesPosting: true }),
   output: AnyObjectSchema,
 });

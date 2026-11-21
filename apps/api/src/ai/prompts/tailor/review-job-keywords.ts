@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { definePrompt } from '../types';
+import { familyText, perFamily } from '../roles/variants';
 import { tailorPromptParts, type TailorPromptText } from './render';
 
 // v30 ST2: tailor_builder0's review-job-keywords, moved from features/tailor/prompts/{text,index}.ts. Tailoring's step
@@ -44,6 +45,11 @@ export const REVIEW_PROMPT: TailorPromptText = {
   sharedVariables: [],
 };
 
+/** v33 PROMPTS (F5): the prompt in a role family's words (the job's); the technical family's is REVIEW_PROMPT. */
+export const reviewPromptFor = perFamily(
+  (family): TailorPromptText => ({ ...REVIEW_PROMPT, content: familyText(REVIEW_JOB_KEYWORDS, 'review-job-keywords', family) }),
+);
+
 export const ReviewOutputSchema = z.looseObject({ missing: z.array(z.unknown()).max(200).default([]) });
 
 /** review-job-keywords (step 1b). */
@@ -52,6 +58,6 @@ export const reviewKeywordsPrompt = definePrompt({
   name: 'review-job-keywords',
   version: 1,
   description: "Tailoring's step 1b: the posting's keywords a first pass missed, by the first pass's tests.",
-  ...tailorPromptParts(REVIEW_PROMPT, { quotesPosting: true }),
+  ...tailorPromptParts(reviewPromptFor, { quotesPosting: true }),
   output: ReviewOutputSchema,
 });

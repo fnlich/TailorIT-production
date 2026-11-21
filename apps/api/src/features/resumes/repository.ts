@@ -5,6 +5,7 @@ import {
   normalizeResumeDocument,
   PREPARE_ACTIVE_STATES,
   RESUME_TEMPLATES,
+  resolveTemplateId,
   resumeLabel,
   type ResumeAnalysisBrief,
   type ResumeDetail,
@@ -17,19 +18,23 @@ import {
   UNLIMITED,
 } from '@tailorit/shared';
 import { entitlementsOf, resumeLimitError } from '../../core/accounts/index';
+import type { Payer } from '../../core/accounts/payer'; // v33 SHARE-3
+import { refuse } from '../../core/http/refuse'; // v33 SHARE-3
 import { constantsOf } from '../../core/constants/service';
 import { nowIso, type AppDeps } from '../../core/context';
 import { kindOfMime } from '../../core/files/index';
 import { AppError, conflict, notFound } from '../../core/http/errors';
+import { editorDocumentOf } from '../../core/skills/index';
 import { scheduleResumeAnalysis } from './analysis/deferred';
 import { analyzeAfterWrite } from './analysis/store';
 import { resumeCount as storedResumeCount } from './counters';
-import { getResumeEngine } from './engine';
 import { storedDocumentOf } from './evidence';
 
 // The resumes table, always scoped by owner: another account's resume is "not found", never "forbidden". Every write
 // that changes what a resume says also stores what TailorIT read from it (analysis/store.ts), best effort: the
 // reading never fails the write. An uploaded resume is never changed after it is stored (only Rename touches its row).
+// v33 LEGACY: a built resume's document is stored as the on-page editor opens it: an older or AI-made one is upgraded
+// on the way in (core/skills' editorDocumentOf), so every write stores an editor document.
 //
 // v3.0 D2 (D2-E): every statement goes through the async client. insertResume checks the resume limit behind the
 // person's lock (deps.db.atomic: a savepoint of a caller's transaction, else its own).
@@ -151,11 +156,19 @@ function roomRefusal(deps: LimitDeps, count: number, adding: number, entitlement
  * (MSG_LIMIT_RESUMES, Subscribe for a Free account) when the plan's limit is not UNLIMITED and count + adding > limit.
  * Alone it is the early check (nothing is locked); insertResume checks again behind the person's lock.
  */
-export async function assertRoomForResumes(deps: LimitDeps, userId: string, adding = 1): Promise<void> {
+export async function assertRoomForResumes(deps: LimitDeps, userId: string, adding = 1, payer?: Payer): Promise<void> {
   const count = await resumeCount(deps, userId);
   const entitlements = await entitlementsOf(deps, userId);
   const refusal = roomRefusal(deps, count, adding, () => entitlements);
   if (refusal) throw refusal;
+  // v33 SHARE-3 (PLAN F9 "Who pays", PLAN-sharing §5): the room is the profile owner's (A's plan), and the work B pays
+  // for on A's profile never takes A's last SHARING_RESUME_RESERVE places (of the plan's limit, or of the safety cap).
+  if (payer?.grantId) {
+    const reserve = constantsOf(deps).get('SHARING_RESUME_RESERVE');
+    const cap = constantsOf(deps).get('RESUME_SAFETY_CAP');
+    const limit = entitlements.resumes === UNLIMITED ? cap : Math.min(cap, entitlements.resumes);
+    if (count + adding > limit - reserve) throw refuse(deps, 'resume_limit_reached', 'MSG_SHARING_RESUME_RESERVE', { reserve });
+  }
 }
 
 const ACTIVE_PREPARES_OWN = `SELECT 1 FROM prepare_jobs WHERE id = ? AND user_id = ? AND resume_id = ? AND resume_mode = 'tailor'
@@ -320,7 +333,8 @@ export function toSummary(
       onPageEditor: true,
     };
   }
-  const template = row.kind === 'built' ? getResumeEngine(deps).templates.resolve(null, document?.preferredTemplate) : null;
+  // An older resume, not saved since the on-page editor: named by the editor template it opens on (v33 LEGACY).
+  const template = row.kind === 'built' ? RESUME_TEMPLATES[resolveTemplateId(document?.preferredTemplate)] : null;
   return {
     id: row.id,
     kind: row.kind,
@@ -374,11 +388,21 @@ export interface NewResume {
   // end v1.5 W
   /** False for an upload Claude is not to read (the demo seed's). Default: every upload with readable text is read. */
   aiRefine?: boolean;
+  // v33 ROLES
+  /** The resume whose chosen field (role_family) the new one inherits: a duplicate's original. Default: `sourceResumeId`. */
+  fieldFrom?: string | null;
+  /**
+   * v33 SHARE-3 (review): who pays for the work that makes it (B on A's profile): it never takes A's last
+   * SHARING_RESUME_RESERVE places, checked again behind the person's lock (two of B's at once never both pass).
+   */
+  payer?: Payer;
 }
 
+// v33 ROLES: role_family, the person's choice of field, comes from the resume it was made from (a tailored copy, a
+// Prepare or MCP save, an upload's editable copy, a duplicate: `fieldFrom`), when that resume is the same account's.
 const INSERT_RESUME = `INSERT INTO resumes(id, user_id, kind, title, template_id, data, file_id, extracted_text, source_resume_id,
-           created_at, updated_at, last_edited_at, made_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`;
+           created_at, updated_at, last_edited_at, made_by, role_family)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, (SELECT s.role_family FROM resumes s WHERE s.id = ? AND s.user_id = ?))`;
 const SET_FIRST_DEFAULT = 'UPDATE users SET default_resume_id = ?, updated_at = ? WHERE id = ? AND default_resume_id IS NULL';
 
 /** The new row's values, in INSERT_RESUME's order. */
@@ -396,6 +420,8 @@ function insertValues(id: string, userId: string, input: NewResume, data: string
     now,
     now,
     input.kind === 'uploaded' ? 'upload' : (input.madeBy ?? 'editor'), // v1.5 W
+    input.fieldFrom ?? input.sourceResumeId ?? null, // v33 ROLES
+    userId, // v33 ROLES
   ];
 }
 
@@ -425,11 +451,13 @@ function newTarget(id: string, userId: string, input: NewResume, data: string | 
 export async function insertResume(deps: AppDeps, userId: string, input: NewResume): Promise<string> {
   const id = randomUUID();
   const now = nowIso(deps);
-  const data = input.document ? JSON.stringify(input.document) : null;
+  // v33 LEGACY: stored as the editor opens it (an editor document stays as it is).
+  const document = input.document ? await editorDocumentOf(deps, userId, input.document) : null;
+  const data = document ? JSON.stringify(document) : null;
   await deps.db.atomic(
     async (t) => {
       await t.lockPerson(userId);
-      await assertRoomForResumes(deps, userId, 1);
+      await assertRoomForResumes(deps, userId, 1, input.payer); // v33 SHARE-3 (review): and B's reserve, behind the lock
       await t.run(INSERT_RESUME, insertValues(id, userId, input, data, now));
       await t.run(SET_FIRST_DEFAULT, [id, now, userId]);
       await analyzeAfterWrite(deps, newTarget(id, userId, input, data), { aiRefine: input.aiRefine });
@@ -478,7 +506,9 @@ export async function updateResumeDocument(
   options: { baseRevision?: number } = {},
 ): Promise<{ analysisChanged: boolean; documentRevision: number }> {
   const now = nowIso(deps);
-  const data = JSON.stringify(document);
+  // v33 LEGACY: stored as the editor opens it (an editor document stays as it is).
+  const upgraded = await editorDocumentOf(deps, userId, document);
+  const data = JSON.stringify(upgraded);
   const outcome = await deps.db.atomic(
     async (t) => {
       const current = await t.one<{ data: string | null; document_revision: number }>(SELECT_REVISION, [id, userId]);
@@ -488,7 +518,7 @@ export async function updateResumeDocument(
       }
       const changedData = current.data !== data;
       const documentRevision = current.document_revision + (changedData ? 1 : 0);
-      await t.run(UPDATE_DOCUMENT, updateValues(deps, id, userId, document, data, title, now, documentRevision));
+      await t.run(UPDATE_DOCUMENT, updateValues(deps, id, userId, upgraded, data, title, now, documentRevision));
       if (options.baseRevision !== undefined) return { analysisChanged: false, documentRevision, changedData };
       const stored = storedDocumentOf({ kind: 'built', data }) ?? normalizeResumeDocument({});
       const analysisChanged = await analyzeAfterWrite(deps, { id, userId, subject: { kind: 'built', document: stored } });

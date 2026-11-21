@@ -11,22 +11,27 @@ import {
   searchParamsToJobsQuery,
   type JobAnalysisView,
   type JobFacetResponse,
-  type LevelMatch,
+  type JobGlance, // v33 JOBDETAIL
+  type JobInsights, // v33 JOBDETAIL: the shared contract
+  type JobMatchWithLevel, // v33 JOBDETAIL: the shared contract
   type MatchResult,
 } from '@tailorit/shared';
 import { z } from 'zod';
-import { requireUser, userOf } from '../../core/auth/guards';
+import { actorOf, holds, isActing, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-6: actorOf, isActing; FIX-2: holds
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
+import { postingBenefits } from '../job-analysis/benefits'; // v33 JOBDETAIL
 import { getResumeEvidence } from '../resumes/evidence';
 import { analysisForJob, jobLevels } from './analysis';
 import { facetItems, facetsSummary } from './facets';
+import { jobGlance } from './glance'; // v33 JOBDETAIL
 import { rowMatches } from './matches'; // v31 FIX-JOBS
 import { sanitizeDescription } from './html';
 import { reportJob } from './report';
 import { experienceLevelsOf, toJobDetail } from './rows';
 import { countJobs, searchJobs, searchScopeOf } from './search';
+import { plainTextOf } from './text'; // v33 JOBDETAIL
 import {
   hiddenState,
   loadDetailRow,
@@ -37,17 +42,7 @@ import {
   setJobHidden,
 } from './store';
 
-/** GET /api/jobs/:id/match: the job analysis card, plus the facts grid's experience-level check. */
-export type JobMatchWithLevel = MatchResult & { levelMatch: LevelMatch };
-
-/**
- * GET /api/jobs/:id/insights: the analysis and the match computed from that very analysis, so the page's summary and
- * keyword card change together when the AI analysis lands. `match` is null when it could not be computed.
- */
-export interface JobInsights {
-  analysis: JobAnalysisView;
-  match: JobMatchWithLevel | null;
-}
+// v33 JOBDETAIL: GET /api/jobs/:id/match's and /insights' shapes are the shared JobMatchWithLevel and JobInsights.
 
 /**
  * The resume linked to the viewer's application for a job the Jobs page shows as tracked (saved, or applied and on,
@@ -141,21 +136,22 @@ export function createJobsRouter(deps: AppDeps): Router {
     const user = userOf(req);
     const jobId = (await requireJob(deps, jobIdOf(req), user.id)).id;
     const row = await loadDetailRow(deps, user.id, jobId);
-    const detail = toJobDetail(
-      row,
-      await loadLocations(deps, jobId),
-      sanitizeDescription(row.description_html),
-      await hiddenState(deps, user.id, jobId, row.company_id),
-    );
-    await markViewed(deps, user.id, jobId);
-    res.json(detail);
+    const descriptionHtml = sanitizeDescription(row.description_html);
+    const detail = toJobDetail(row, await loadLocations(deps, jobId), descriptionHtml, await hiddenState(deps, user.id, jobId, row.company_id));
+    // v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"): someone working on a shared profile never marks the owner's job
+    // viewed (the owner's "new" marks stay theirs).
+    if (!isActing(req)) await markViewed(deps, user.id, jobId);
+    // v33 JOBDETAIL (F2): the posting's benefits, read from its own words (no AI). v33 FIX-2: a heading that is the job's
+    // title is never a benefits part.
+    res.json({ ...detail, benefits: postingBenefits(plainTextOf(descriptionHtml), { title: detail.title }) });
   });
 
   // The best analysis of the job so far. Opening a job queues Claude's analysis only with AI_JOB_ANALYSIS=lazy (J1's
   // service decides); by default the add-time backlog has Claude read every added job, and opening one queues nothing.
   router.get('/:id/analysis', async (req, res) => {
     const jobId = (await requireJob(deps, jobIdOf(req), userOf(req).id)).id;
-    const analysis = await analysisForJob(deps, jobId, { queue: true, userId: userOf(req).id });
+    // v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"): a lazy view's analysis counts in the hour of who opens the job.
+    const analysis = await analysisForJob(deps, jobId, { queue: true, userId: actorOf(req).id });
     if (!analysis) throw notFound('That job');
     res.json(analysis);
   });
@@ -174,7 +170,7 @@ export function createJobsRouter(deps: AppDeps): Router {
     const user = userOf(req);
     const job = await requireJob(deps, jobIdOf(req), user.id);
     const jobId = job.id;
-    const analysis = await analysisForJob(deps, jobId, { queue: true, userId: user.id });
+    const analysis = await analysisForJob(deps, jobId, { queue: true, userId: actorOf(req).id }); // v33 SHARE-6: the actor's hour
     if (!analysis) throw notFound('That job');
     let match: JobMatchWithLevel | null = null;
     try {
@@ -182,7 +178,18 @@ export function createJobsRouter(deps: AppDeps): Router {
     } catch (error) {
       deps.log.warn(`[jobs] the keyword match failed for job ${jobId}`, error);
     }
-    const body: JobInsights = { analysis, match };
+    // v33 JOBDETAIL (F2): Requirements at a glance, verdicts only (glance.ts). A glance that fails leaves the rest.
+    let glance: JobGlance | undefined;
+    try {
+      const levels = jobLevels(experienceLevelsOf(job.experience_levels), analysis);
+      // v33 FIX-2 (final review, security 2): on a share without Autofill info's See, the owner's Autofill profile
+      // (degree, years, licences) never decides a verdict: the scored resume's reading alone.
+      const withProfile = !isActing(req) || holds(req, 'autofill:view');
+      glance = await jobGlance(deps, user.id, { id: jobId, levels, requiredYears: analysis.requiredYears }, match?.resumeId ?? null, { withProfile });
+    } catch (error) {
+      deps.log.warn(`[jobs] the requirements at a glance failed for job ${jobId}`, error);
+    }
+    const body: JobInsights = { analysis, match, ...(glance ? { glance } : {}) };
     res.json(body);
   });
 

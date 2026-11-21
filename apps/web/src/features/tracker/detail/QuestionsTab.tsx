@@ -9,8 +9,9 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Input, Textarea } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/Toast';
 import { CaretDownIcon, CaretUpIcon, PlusIcon, QuestionIcon, TrashIcon } from '@/components/ui/icons';
-import { userMessage } from '@/lib/api';
 import { trackerApi, trackerKeys } from '../data';
+import { toastFailure } from '../failure';
+import { useTrackerEditable } from './editable';
 
 /** One saved question: edited in place, saved when a field loses focus. */
 function QuestionCard({
@@ -30,6 +31,8 @@ function QuestionCard({
 }) {
   const [text, setText] = useState(question.question);
   const [answer, setAnswer] = useState(question.answer);
+  // v33 SHARE-9: a profile shared to see only shows its questions and answers, nothing to change.
+  const editable = useTrackerEditable();
   return (
     <li className="flex flex-col gap-2.5 rounded-control border border-border bg-surface p-4">
       <div className="flex items-start gap-2">
@@ -38,6 +41,7 @@ function QuestionCard({
           aria-label={`Question ${index + 1}`}
           value={text}
           maxLength={1000}
+          readOnly={!editable}
           onChange={(event) => setText(event.target.value)}
           onBlur={() => {
             const next = text.trim();
@@ -45,17 +49,19 @@ function QuestionCard({
             else if (next !== question.question) void onSave(question.id, { question: next });
           }}
         />
-        <div className="flex shrink-0 items-center">
-          <IconButton label="Move up" size="sm" icon={<CaretUpIcon size={14} />} disabled={index === 0} onClick={() => void onMove(question.id, index - 1)} />
-          <IconButton
-            label="Move down"
-            size="sm"
-            icon={<CaretDownIcon size={14} />}
-            disabled={index === count - 1}
-            onClick={() => void onMove(question.id, index + 1)}
-          />
-          <IconButton label="Delete question" size="sm" icon={<TrashIcon size={16} />} onClick={() => void onDelete(question.id)} />
-        </div>
+        {editable && (
+          <div className="flex shrink-0 items-center">
+            <IconButton label="Move up" size="sm" icon={<CaretUpIcon size={14} />} disabled={index === 0} onClick={() => void onMove(question.id, index - 1)} />
+            <IconButton
+              label="Move down"
+              size="sm"
+              icon={<CaretDownIcon size={14} />}
+              disabled={index === count - 1}
+              onClick={() => void onMove(question.id, index + 1)}
+            />
+            <IconButton label="Delete question" size="sm" icon={<TrashIcon size={16} />} onClick={() => void onDelete(question.id)} />
+          </div>
+        )}
       </div>
       <div className="pl-8">
         <Textarea
@@ -63,7 +69,8 @@ function QuestionCard({
           value={answer}
           autoGrow
           maxLength={20000}
-          placeholder="Write your answer"
+          readOnly={!editable}
+          placeholder={editable ? 'Write your answer' : 'No answer yet'}
           onChange={(event) => setAnswer(event.target.value)}
           onBlur={() => {
             if (answer !== question.answer) void onSave(question.id, { answer });
@@ -83,6 +90,7 @@ export function QuestionsTab({ application }: { application: ApplicationDetail }
   const [newAnswer, setNewAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   const id = application.id;
+  const editable = useTrackerEditable();
 
   const refresh = () => client.invalidateQueries({ queryKey: trackerKeys.detail(id) });
 
@@ -93,7 +101,7 @@ export function QuestionsTab({ application }: { application: ApplicationDetail }
       await refresh();
       return true;
     } catch (error) {
-      toast.error(userMessage(error, failure));
+      toastFailure(toast, error, failure);
       return false;
     }
   };
@@ -121,7 +129,7 @@ export function QuestionsTab({ application }: { application: ApplicationDetail }
         <h3 id="questions-heading" className="text-base font-semibold text-foreground">
           Application Questions
         </h3>
-        {!adding && (
+        {!adding && editable && (
           <Button variant="outline" size="sm" icon={<PlusIcon size={14} />} onClick={() => setAdding(true)}>
             Add Question
           </Button>

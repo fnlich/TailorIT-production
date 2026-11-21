@@ -14,7 +14,8 @@ import {
   MAX_SKILL_LENGTH,
   MAX_SOFT_SKILL_LENGTH,
   RESUME_TEMPLATES,
-  SECTION_KIND_BY_ID,
+  sectionKindIn, // v33 ROLES
+  type SectionWordings, // v33 ROLES
   completeLayout,
   customSectionRef,
   disableSection as layoutWithSectionOff,
@@ -1264,15 +1265,18 @@ export function addCustomSection(
   return { document: next, ref, path: `customSections.${key}.title` };
 }
 
-/** What the live region and history call a section: its title, or the catalogue's name for it. */
-export function sectionLabel(document: ResumeDocument, ref: string): string {
+/**
+ * What the live region and history call a section: its title, or the catalogue's name for it (v33 ROLES: in the
+ * resume's field's words, `wordings`, when given: "Skills" for a nurse's resume).
+ */
+export function sectionLabel(document: ResumeDocument, ref: string, wordings?: SectionWordings | null): string {
   const parsed = parseSectionRef(ref);
   if (!parsed) return 'Section';
   if (parsed.kind === 'custom') {
     const title = document.customSections?.find((section) => section.key === parsed.key)?.title.trim();
     return title || DEFAULT_CUSTOM_SECTION_TITLE;
   }
-  return document.layout?.find((item) => item.ref === ref)?.heading?.trim() || SECTION_KIND_BY_ID[parsed.kind].label;
+  return document.layout?.find((item) => item.ref === ref)?.heading?.trim() || sectionKindIn(parsed.kind, wordings).label;
 }
 
 // ------------------------------------------------------------------------------------------------ template, design

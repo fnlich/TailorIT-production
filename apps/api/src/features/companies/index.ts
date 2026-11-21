@@ -5,6 +5,7 @@ import { jobCountsStep } from './counts';
 import { enrichmentWorker } from './enrich/worker'; // v30 E1
 import { createLogosRouter, LOGO_ROUTE } from './logos';
 import { refdataCommands } from './refdata/index'; // v30 E1
+import { ADMIN_COMPANIES_ACTING, COMPANIES_ACTING, COMPANY_LOGOS_ACTING } from './acting'; // v33 SHARE-6
 import { createCompaniesRouter } from './router';
 import { companySitesDailyStep } from './site/index'; // v30 E2
 
@@ -28,11 +29,11 @@ export const companiesFeature: Feature = {
   name: 'companies',
   routes: [
     // Moved from the jobs feature (features/jobs/companies-router.ts): the company page and hide / unhide.
-    { path: '/api/companies', router: createCompaniesRouter },
-    { path: LOGO_ROUTE, router: createLogosRouter },
-    { path: '/api/admin/companies', router: createAdminCompaniesRouter },
-    { path: '/api/admin/company-reviews', router: createAdminCompanyReviewsRouter },
-    { path: '/api/admin/company-opt-outs', router: createAdminOptOutsRouter },
+    { path: '/api/companies', router: createCompaniesRouter, acting: COMPANIES_ACTING /* v33 SHARE-6 */ },
+    { path: LOGO_ROUTE, router: createLogosRouter, acting: COMPANY_LOGOS_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/companies', router: createAdminCompaniesRouter, acting: ADMIN_COMPANIES_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/company-reviews', router: createAdminCompanyReviewsRouter, acting: ADMIN_COMPANIES_ACTING /* v33 SHARE-6 */ },
+    { path: '/api/admin/company-opt-outs', router: createAdminOptOutsRouter, acting: ADMIN_COMPANIES_ACTING /* v33 SHARE-6 */ },
   ],
   daily: [jobCountsStep, aboutSectionsStep, companySitesDailyStep /* v30 E2 */],
   // v30 E1: the enrichment queue's worker (enrich/), in the ingest:worker process; the refdata build and its report

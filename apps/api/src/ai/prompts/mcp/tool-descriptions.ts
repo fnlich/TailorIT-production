@@ -9,6 +9,11 @@ import { defineTextPrompt } from '../types';
 // features/mcp/{server,q1-tools,tools-q2,tools-v20}.ts (test/prompts-st2.test.ts checks them byte for byte), apart from
 // REQ-1's credit column. They are short and never change lightly: an MCP client caches them (07-mcp.md "Keeping tokens
 // low"). The "next" lines of the tools' answers stay with the tools: they are the answers' protocol.
+// v33 SHARE-8 (PLAN-sharing.md §7 "Token arithmetic"): 25 tools gained `profile` ("me" or a key, ~28 characters each in
+// tools/list), so these were trimmed to keep tools/list at most 8,000 estimated tokens (measured first: 7,962 before,
+// 8,137 with `profile`): the "default cols" lists (every answer names its cols), the examples of save_jobs,
+// unsave_jobs, queue_remove, queue_list, job_details and application_timeline, two of application_stats' three, and a
+// shorter search_jobs example.
 
 /** v2.0 P5: short (every Q2 description ends with it; the instructions say the rest, 07-mcp.md "Keeping tokens low"). */
 export const MCP_UNSUPPORTED = 'Else: report_unsupported.';
@@ -22,16 +27,16 @@ export const MCP_WORK_INSTRUCTIONS =
   'list_applications, application_stats and application_timeline. ' + MCP_UNSUPPORTED;
 
 const SEARCH_DESCRIPTION = [
-  'Searches every job (about 1M) in SQL. Answer {total, cols, rows, next, setId}; rows follow cols (default',
-  'id,title,company,location,posted,platform,flags). Flags: R remote, H hybrid, C clearance required, N says none, V',
+  'Searches every job (about 1M) in SQL. Answer {total, cols, rows, next, setId}; rows follow cols.',
+  'Flags: R remote, H hybrid, C clearance required, N says none, V',
   'offers visa sponsorship, X says no sponsorship, $ salary, S saved, A applied, Q queued. Refine with countOnly and',
   'facets first; act on all matches by setId (save_jobs, filter_jobs); page by cursor=next. Terms match whole words',
   '("engineer*" = prefix): anyOf one, allOf all, notAny none; title/company words there; expand adds skill aliases.',
   'unknown.<filter> counts matches that do not say. Dates in tz, else UTC.',
   // v30 FIX-B (REQ-1, 12 §3.6-3.7): a source's terms ask for its credit wherever its job is shown.
   'A credit column is added when a shown job has one: show it with that job.',
-  'Example: "software engineer jobs from yesterday, no security clearance" -> {"anyOf":["software engineer",',
-  '"software developer"],"postedSince":"yesterday","clearance":"none","countOnly":true}.',
+  'Example: "engineer jobs from yesterday, no clearance" ->',
+  '{"anyOf":["engineer"],"postedSince":"yesterday","clearance":"none","countOnly":true}.',
   MCP_UNSUPPORTED,
 ].join(' ');
 
@@ -72,44 +77,32 @@ export const MCP_TOOL_DESCRIPTIONS = {
   job_details:
     'One line per job: seniority, years asked, top keywords, salary, flags (as search_jobs), and the credit its ' +
     'source asks for when it has one (show it with the job). The posting\'s text ' +
-    '(<untrusted>) only with maxChars, its analysed sections with sections. ' +
-    'Example: "what does job 42 ask for" -> {"jobId":42,"sections":["requirements"]}. ' + MCP_UNSUPPORTED,
+    '(<untrusted>) only with maxChars, its analysed sections with sections. ' + MCP_UNSUPPORTED,
   save_jobs:
     'Saves jobs to the Job Tracker (Saved); a tracked job keeps its status. Takes ids or a setId (with exclude and ' +
-    'limit). Answer: counts, up to 10 refused [id, reason]. Example: "save all of ' +
-    'them" after a search -> {"setId":"rs_..."}. ' + MCP_UNSUPPORTED,
+    'limit). Answer: counts, up to 10 refused [id, reason]. ' + MCP_UNSUPPORTED,
   unsave_jobs:
-    'Archives jobs\' Saved entries; one applied to is never touched. Takes ids or a setId. Example: "unsave the ' +
-    'Acme jobs" -> list_applications {"company":"Acme",' +
-    '"status":["saved"],"countOnly":true}, then {"setId":"rs_..."}. ' + MCP_UNSUPPORTED,
+    'Archives jobs\' Saved entries; one applied to is never touched. Takes ids or a setId. ' + MCP_UNSUPPORTED,
   queue_remove:
     'Takes jobs out of the auto-apply queue by job id or setId; a job the extension is applying to now stays. ' +
-    'Example: "remove the failed ones" -> queue_list {"state":["failed"],"countOnly":true}, then {"setId":"rs_..."}. ' +
     MCP_UNSUPPORTED,
   queue_clear_finished: 'Removes every finished row (submitted, skipped, needs-you, failed) from the auto-apply queue. ' + MCP_UNSUPPORTED,
   queue_list:
     'The auto-apply queue: running, then queued (oldest first), then finished. Answer as search_jobs ' +
-    '(default cols job,title,company,state,reason,platform,updated; run "manual": applied by hand). Example: ' +
-    '"which auto-applies need me" -> ' +
-    '{"state":["needs-you"]}. ' + MCP_UNSUPPORTED,
+    '(run "manual": applied by hand). ' + MCP_UNSUPPORTED,
   list_applications:
     'The Job Tracker, filtered: status, archived (default exclude), saved/applied day ranges, event {status, ' +
     'period|from|to}, platform, company, title, text, draft, queue. Ranges: period today|yesterday|thisWeek|' +
-    'lastWeek|thisMonth|lastMonth|thisYear|7d, or from/to YYYY-MM-DD. Answer as search_jobs (default cols app,' +
-    'job,title,company,status,applied,platform,flags; status "draft": saved with a queued kit; flags D kit ready, ' +
+    'lastWeek|thisMonth|lastMonth|thisYear|7d, or from/to YYYY-MM-DD. Answer as search_jobs (flags D kit ready, ' +
     'Q queued, Z archived, * favorite); setId holds the job ids. ' +
     'Example: "my saved jobs at Stripe" -> ' +
     '{"status":["saved"],"company":"Stripe"}. ' + MCP_UNSUPPORTED,
   application_stats:
     'Counts applications: {cols, rows, total}. With event (a status), those that reached it in the range; ' +
     'without, as they stand now. groupBy (at most 2): status, platform, company, source, day, week, month. ' +
-    'Examples: "how many did I apply to this week" -> {"event":"applied","period":"thisWeek"}; "current status" -> ' +
-    '{"groupBy":["status"]}; "platforms with interviews this week" -> {"event":"interviewing","period":"thisWeek",' +
-    '"groupBy":["platform"]}. ' + MCP_UNSUPPORTED,
+    'Example: "how many did I apply to this week" -> {"event":"applied","period":"thisWeek"}. ' + MCP_UNSUPPORTED,
   application_timeline:
-    'One Job Tracker entry: its status events in order [status, day], its draft and its queue row. Example: "what ' +
-    'happened with my Stripe application" -> list_applications {"company":"Stripe"}, then {"applicationId":"..."}. ' +
-    MCP_UNSUPPORTED,
+    'One Job Tracker entry: its status events in order [status, day], its draft and its queue row. ' + MCP_UNSUPPORTED,
   report_unsupported:
     'Tells TailorIT what the person asked that no tool can do (they see it in Settings). Call it instead of ' +
     'guessing, then tell the person. Example: "find jobs with a 4-day week" -> ' +

@@ -41,7 +41,9 @@ export {
   type AiTaskHandler,
   type AiTestResult,
   type EnqueueOptions,
+  type TaskViewer, // v33 SHARE-3
 } from './queue';
+export { taskViewerOf } from './viewer'; // v33 SHARE-3
 export type { AiPriority } from './semaphore';
 export type { AiProvider, CompletionRequest, CompletionResult, ProviderHold } from './provider/types';
 // v1.3 C: usage (decision 8) and the result cache (decision 11).

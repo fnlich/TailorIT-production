@@ -1,6 +1,9 @@
 import {
   FILTER_REASON_LABELS,
   FILTER_REASONS,
+  isPrepareSharingReason, // v33 SHARE-5
+  maskEligibility, // v33 SHARE-5
+  PREPARE_SHARING_REASON_MESSAGES, // v33 SHARE-5
   SAVED_JOB_MARKER_LABELS,
   STATUS,
   type FilterReason,
@@ -22,6 +25,7 @@ import { decodeCursor, encodeCursor, keyText, keyValues } from '../applications/
 import { logoUrlOf } from '../applications/store';
 import { verificationColumns, verificationOf } from '../jobs/add/verification'; // v31 INT-2
 import { jobMarksOf } from '../jobs/credit'; // v30 FIX-B
+import { OWNER_VIEW, type KitViewer } from '../prepare/kit'; // v33 SHARE-5
 
 // v2.0: the Auto-apply page's Saved Jobs pane (docs/design/v2.0/05-prepare-flow.md, "The state machine" and "Read
 // models for the web"; 08-ui.md, "The Saved pane"). The person's Tracker entries at Saved, not archived, with a job,
@@ -100,11 +104,16 @@ interface SavedRow {
 
 const isFilterReason = (code: string): code is FilterReason => (FILTER_REASONS as readonly string[]).includes(code);
 
-/** A filter reason's words ("on-site", "pay below $90k"), rendered from its constant; an unknown code as it is. */
+/**
+ * A filter reason's words ("on-site", "pay below $90k"), rendered from its constant; an unknown code as it is. v33
+ * SHARE-5: a shared profile's Prepare reasons (access_ended, owner_started, payer_limit) in their words.
+ */
 export function reasonOf(constants: ConstantsService, entry: { code: string; value?: string }): PrepareReason {
   const label = isFilterReason(entry.code)
     ? constants.message(FILTER_REASON_LABELS[entry.code], { value: entry.value ?? '' })
-    : entry.code;
+    : isPrepareSharingReason(entry.code)
+      ? constants.message(PREPARE_SHARING_REASON_MESSAGES[entry.code])
+      : entry.code;
   return { code: entry.code, label };
 }
 
@@ -196,8 +205,11 @@ export async function toPrepareEntries(deps: Deps, userId: string, max: number):
   return rows.map((row) => ({ applicationId: row.id, jobId: row.job_id }));
 }
 
-/** GET /api/auto-apply/saved: one page of the Saved pane (SavedJobList), stale verdicts computed again for it. */
-export async function savedJobs(deps: Deps, userId: string, query: SavedJobListQuery): Promise<SavedJobList> {
+/**
+ * GET /api/auto-apply/saved: one page of the Saved pane (SavedJobList), stale verdicts computed again for it. v33
+ * SHARE-5: `viewer` without the Sensitive answers permission sees an eligibility reason as one word (maskEligibility).
+ */
+export async function savedJobs(deps: Deps, userId: string, query: SavedJobListQuery, viewer: KitViewer = OWNER_VIEW): Promise<SavedJobList> {
   const constants = constantsOf(deps);
   const rows = await rowsOf(deps, userId, query);
   const page = rows.slice(0, query.limit);
@@ -227,7 +239,13 @@ export async function savedJobs(deps: Deps, userId: string, query: SavedJobListQ
       reasons = check.verdict.verdict === 'fail' ? check.verdict.reasons : check.custom === 'fail' ? [{ code: 'custom' }] : [];
       marker = failed ? 'filtered' : 'none';
     }
-    if (marker === 'filtered' && reasons.length === 0 && row.p_reason) reasons = [{ code: row.p_reason as FilterReason }];
+    if (marker === 'filtered' && reasons.length === 0 && row.p_reason) {
+      // v33 SHARE-5 (the review's finding 7): the Prepare's code with no value; a `qualification` whose value is unknown
+      // shows as `eligibility` without the Sensitive answers permission (it may be a citizenship: reasonCodeFor's rule).
+      const code = !viewer.sensitive && row.p_reason === 'qualification' ? 'eligibility' : row.p_reason;
+      reasons = [{ code: code as FilterReason }];
+    }
+    if (!viewer.sensitive) reasons = maskEligibility(reasons); // v33 SHARE-5
     if (tab && !tab.includes(marker)) continue;
     const shown = marker === 'filtered' ? reasons.map((entry) => reasonOf(constants, entry)) : [];
     const key = SAVED_JOB_MARKER_LABELS[marker];

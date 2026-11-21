@@ -1,5 +1,5 @@
-import { countKeyword, findPostingForm, findRepeatedPhrases, toKeywordMatchForm } from './ats';
-import { classifyReferenceSkill, hasSkillsReference, isSkillLibrary, loadSkillsReference } from './skills/reference';
+import { countKeyword, findPostingForm, findRepeatedPhrases, isComplianceFramework, toKeywordMatchForm } from './ats';
+import { classifyReferenceSkill, hasSkillsReference, isSkillLibrary, loadSkillsReference, type SkillsReference } from './skills/reference';
 import type { AtsKeyword, JobAnalysis, KeywordPriority } from './types';
 
 // tailor_builder0's services/tailoring/jobAnalysis.ts, ported (the owner's permission of 2026-11-09): the filtering in
@@ -34,15 +34,8 @@ function asTextList(value: unknown): string[] {
 
 const KINDS = new Set<AtsKeyword['kind']>(['tool', 'competency', 'certification', 'soft']);
 
-// Compliance frameworks a team works under ("ISO 27001 / SOC 2 exposure"), not
-// credentials a person holds. The model often labels them certifications, which
-// would keep them off the resume; scanners count them as hard skills.
-const COMPLIANCE_FRAMEWORK =
-  /^(iso(\/iec)?\s*\d{4,5}(-\d+)?|soc\s*[123]?(\s*type\s*(1|2|i|ii))?|pci(\s*dss)?|hipaa|hitrust|gdpr|ccpa|fedramp(\s+(high|moderate|low))?|stateramp|fisma|nist(\s*(csf|800-\d+))?|sox|cmmc(\s*\d(\.0)?)?|itar|cjis)$/i;
-
-export function isComplianceFramework(term: string): boolean {
-  return COMPLIANCE_FRAMEWORK.test(term.trim());
-}
+// Compliance frameworks a team works under: ats.ts's (v33 FIX-1 moved them there, for its licence check).
+export { isComplianceFramework };
 
 // Terms the extraction rules never allow as keywords. The prompt says so too, and this
 // catches what a model lets through: self-descriptions that aren't activities, generic
@@ -82,25 +75,32 @@ const PRIORITIES: Record<string, KeywordPriority> = {
 // ([term, type, kind, priority]); the last column used to be a required flag.
 // (v1.5 MCP fix) A bare string is a term with no columns, as an AI client with no prompt to follow writes the list:
 // a soft skill when tailor_builder0's skill library lists it as one, else a hard skill named as a tool, and strong.
-export function keywordFields(item: unknown): Record<string, unknown> | null {
+// v33 PROMPTS (F5): the skill library is the tailoring's (its family's: TailorFit.skills), threaded through.
+export function keywordFields(item: unknown, reference: SkillsReference = loadSkillsReference()): Record<string, unknown> | null {
   if (Array.isArray(item)) return { term: item[0], type: item[1], kind: item[2], priority: item[3] };
-  if (typeof item === 'string') return termOnlyFields(item);
+  if (typeof item === 'string') return termOnlyFields(item, reference);
   return item && typeof item === 'object' ? (item as Record<string, unknown>) : null;
 }
 
-function termOnlyFields(term: string): Record<string, unknown> {
-  const soft = classifyReferenceSkill(term) === 'soft';
+function termOnlyFields(term: string, reference: SkillsReference): Record<string, unknown> {
+  const soft = classifyReferenceSkill(term, reference) === 'soft';
   return { term, type: soft ? 'soft' : 'hard', kind: soft ? 'soft' : 'tool', priority: 'strong' };
 }
 
-export function parseKeywords(value: unknown, jobDescription: string, _logDropped = false, jobTitle = ''): AtsKeyword[] {
+export function parseKeywords(
+  value: unknown,
+  jobDescription: string,
+  _logDropped = false,
+  jobTitle = '',
+  reference: SkillsReference = loadSkillsReference(),
+): AtsKeyword[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   const keywords: AtsKeyword[] = [];
   const titles = titleForms(jobTitle);
 
   for (const item of value) {
-    const raw = keywordFields(item);
+    const raw = keywordFields(item, reference);
     if (!raw) continue;
     let term = asText(raw.term);
     if (!term || term.length > MAX_TERM_LENGTH || term.split(' ').length > MAX_TERM_WORDS) continue;
@@ -158,9 +158,8 @@ function splitToolPairs(text: string, isListed: (name: string) => boolean): stri
   );
 }
 
-function backfillReferenceSkills(keywords: AtsKeyword[], jobDescription: string, jobTitle = ''): AtsKeyword[] {
-  if (!hasSkillsReference()) return keywords;
-  const reference = loadSkillsReference();
+function backfillReferenceSkills(keywords: AtsKeyword[], jobDescription: string, jobTitle: string, reference: SkillsReference): AtsKeyword[] {
+  if (!hasSkillsReference(reference)) return keywords;
   const seen = new Set(keywords.map((k) => toKeywordMatchForm(k.term)));
   const posting = splitToolPairs(jobDescription, (name) => reference.hard.has(toKeywordMatchForm(name)));
   const postingKey = ` ${toKeywordMatchForm(posting)} `;
@@ -186,11 +185,12 @@ function backfillReferenceSkills(keywords: AtsKeyword[], jobDescription: string,
   return [...keywords, ...added];
 }
 
-export function toJobAnalysis(raw: RawAnalysis, jobDescription: string): JobAnalysis {
+export function toJobAnalysis(raw: RawAnalysis, jobDescription: string, reference: SkillsReference = loadSkillsReference()): JobAnalysis {
   const atsKeywords = backfillReferenceSkills(
-    parseKeywords(raw.keywords, jobDescription, true, asText(raw.title)),
+    parseKeywords(raw.keywords, jobDescription, true, asText(raw.title), reference),
     jobDescription,
-    asText(raw.title)
+    asText(raw.title),
+    reference,
   );
   const hard = atsKeywords.filter((k) => k.type === 'hard');
   const named = hard.filter((k) => k.kind !== 'competency');
@@ -255,9 +255,13 @@ export function withMissedKeywords(raw: RawAnalysis, missed: unknown[]): RawAnal
 
 // A saved analysis goes through the same filtering as a fresh one. If today's rules leave it no keywords,
 // it is as good as missing.
-export function analysisFromSaved(raw: unknown, jobDescription: string): JobAnalysis | null {
+export function analysisFromSaved(
+  raw: unknown,
+  jobDescription: string,
+  reference: SkillsReference = loadSkillsReference(),
+): JobAnalysis | null {
   try {
-    const analysis = toJobAnalysis(raw as RawAnalysis, jobDescription);
+    const analysis = toJobAnalysis(raw as RawAnalysis, jobDescription, reference);
     return analysis.atsKeywords?.length ? analysis : null;
   } catch {
     return null;

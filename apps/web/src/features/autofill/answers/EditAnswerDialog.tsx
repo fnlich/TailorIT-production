@@ -12,7 +12,7 @@ import { PlusIcon, TrashIcon } from '@/components/ui/icons';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
-import { ApiError, userMessage } from '@/lib/api';
+import { ApiError, isProfileRefusal, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { saveSavedAnswer } from '../api';
 import { bodyOf, editOf, scopeLabel, takesSeveral, validateEdit, type AnswerEdit } from './answers';
@@ -44,7 +44,8 @@ export function EditAnswerDialog({
     mutationFn: () => saveSavedAnswer(bodyOf(answer, edit)),
     onSuccess: onSaved,
   });
-  const serverProblem = save.error ? userMessage(save.error) : null;
+  // v33 SHARE-7: a shared profile's refusal is the shell's one alert, not a second message here.
+  const serverProblem = save.error && !isProfileRefusal(save.error) ? userMessage(save.error) : null;
   const fields = save.error instanceof ApiError ? save.error.fields : undefined;
   const serverField = fields?.['answer.text'] ?? fields?.['answer.labels'] ?? null;
 

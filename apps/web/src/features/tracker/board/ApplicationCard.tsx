@@ -3,7 +3,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { clsx } from 'clsx';
 import { useCallback, useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type TouchEvent } from 'react';
-import { DISPLAY_STATUS_DRAFT, displayStatusLabel, type ApplicationSummary, type DisplayStatus } from '@tailorit/shared';
+import { STATUS_INFO, type ApplicationStatus, type ApplicationSummary } from '@tailorit/shared';
 import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/ContextMenu';
@@ -19,7 +19,8 @@ import { creditOf } from '@/features/jobs/credits/credit';
 import { usePublicConstants } from '@/lib/constants';
 import type { MarkerView } from '../../auto-apply/copy';
 import { CompanyLogo } from '../CompanyLogo';
-import { shownStatusOf } from '../draft';
+import { ProfileBadge, type CardProfile } from '../profiles/ProfileBadge';
+import { ALL_PROFILES_COPY } from '../profiles/scope';
 import { useLongPress } from '../hooks';
 import { daysBetween, nextStep, stageSince, timeInStage } from '../stage';
 import { ApplicationMenuItems, type ApplicationActions } from './ApplicationMenu';
@@ -31,16 +32,25 @@ export interface CardHandlers extends ApplicationActions {
   selectBlocked?: (application: ApplicationSummary) => string | null;
   /**
    * v2.0: a Saved entry's auto-apply marker (Draft for one in the queue, A30; Preparing, Filtered: …, Preparation
-   * failed, … from the Saved pane's read), shown on its card and row.
+   * failed, … from the Saved pane's read), shown on its card and row. v33 TRACKER (F1): Draft is the only sign of a
+   * queued entry (it stays in Saved), so it is always shown.
    */
   markerOf?: (application: ApplicationSummary) => MarkerView | null;
+  /**
+   * v33 SHARE-9: the profile whose Job Tracker the card is in (the All profiles view's badge, said with the card), or
+   * null; absent everywhere else.
+   */
+  profileOf?: (application: ApplicationSummary) => CardProfile | null;
 }
 
-/** v2.0: a Saved entry's marker badge (Draft, Preparing, Filtered: …), the Saved pane's words. */
-export function MarkerBadge({ marker }: { marker: MarkerView | null | undefined }) {
+/**
+ * v2.0: a Saved entry's marker badge (Draft, Preparing, Filtered: …), the Saved pane's words. v33 TRACKER: `id` lets the
+ * card's title name it for screen readers (aria-describedby), as the held and closed marks are.
+ */
+export function MarkerBadge({ marker, id }: { marker: MarkerView | null | undefined; id?: string }) {
   if (!marker) return null;
   return (
-    <Badge tone={marker.tone} data-card-marker={marker.label}>
+    <Badge id={id} tone={marker.tone} data-card-marker={marker.label}>
       {marker.label}
     </Badge>
   );
@@ -88,11 +98,26 @@ export function FavoriteButton({
   application,
   onToggle,
   size = 'sm',
+  readOnly = false,
 }: {
   application: ApplicationSummary;
   onToggle: (application: ApplicationSummary) => void;
   size?: 'xs' | 'sm';
+  /** v33 SHARE-9: a profile shared to see only: a favorite shows its filled heart, nothing to press. */
+  readOnly?: boolean;
 }) {
+  if (readOnly) {
+    return (
+      <span className={clsx('flex items-center justify-center', size === 'xs' ? 'size-7' : 'size-8')} data-favorite-mark="">
+        {application.favorite && (
+          <>
+            <HeartIcon size={16} weight="fill" aria-hidden="true" className="text-primary" />
+            <span className="sr-only">Favorite</span>
+          </>
+        )}
+      </span>
+    );
+  }
   const label = application.favorite ? 'Remove from favorites' : 'Add to favorites';
   return (
     <IconButton
@@ -120,7 +145,7 @@ export function FavoriteButton({
  * v31 FIX-DOCS: the card's next step as a small tag: an arrow and the step ("→ Follow up", said "Next: follow up"), or
  * "Done" / "Closed" once the application ended. The full words are its title too.
  */
-export function NextStepTag({ status, id }: { status: DisplayStatus; id?: string }) {
+export function NextStepTag({ status, id }: { status: ApplicationStatus; id?: string }) {
   const { t } = usePublicConstants();
   const step = nextStep(status, t);
   return (
@@ -157,8 +182,7 @@ export function NextStepTag({ status, id }: { status: DisplayStatus; id?: string
 /** v31 FIX-DOCS: how long the application has been in its stage ("4d", "Today"), its sentence for screen readers. */
 export function StageTime({ application, id, className }: { application: ApplicationSummary; id?: string; className?: string }) {
   const { t } = usePublicConstants();
-  const shown = shownStatusOf(application);
-  const time = timeInStage(daysBetween(stageSince(application), new Date()), displayStatusLabel(shown, t('STATUS_DRAFT_LABEL')), t);
+  const time = timeInStage(daysBetween(stageSince(application), new Date()), STATUS_INFO[application.currentStatus].label, t);
   if (!time) return null;
   return (
     <span id={id} title={time.long} data-stage-time="" className={clsx('inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground', className)}>
@@ -185,7 +209,10 @@ export function CardFace({
   marker,
   heldSentenceId,
   closedSentenceId,
+  markerSentenceId,
   footId,
+  profile,
+  profileSentenceId,
 }: {
   application: ApplicationSummary;
   /** The title as the card's button, or as text. */
@@ -197,13 +224,18 @@ export function CardFace({
   /** v30 FIX-WEB (UX-8): ids of the held (v31: the verification mark's) and closed sentences, for the card's aria-describedby. */
   heldSentenceId?: string;
   closedSentenceId?: string;
+  /** v33 TRACKER: the marker badge's id (Draft, Prepared, …), for the card's aria-describedby. */
+  markerSentenceId?: string;
   /** The foot's id (the next step and the time in the stage), which also describes the card. */
   footId?: string;
+  /** v33 SHARE-9: the profile's badge (the All profiles view), first among the marks, and its id for the description. */
+  profile?: CardProfile | null;
+  profileSentenceId?: string;
 }) {
-  const shown = shownStatusOf(application);
   const held = verificationMark(application) !== null;
   const closed = isClosed(application);
-  const showMarker = Boolean(marker) && shown !== DISPLAY_STATUS_DRAFT;
+  // v33 TRACKER (F1): every marker shows, Draft included (it no longer has a lane that says it).
+  const showMarker = Boolean(marker);
   return (
     <>
       <div className="flex items-start gap-3">
@@ -223,17 +255,18 @@ export function CardFace({
       <div className={clsx('mt-2.5 flex min-h-8 items-center gap-1', UNDER_TITLE)}>
         {/* v32 LAYOUT: a wide card (from 26 rem) keeps the time beside the next step, the actions at its end. */}
         <div id={footId} className="flex min-w-0 flex-1 items-center justify-between gap-2 @min-[26rem]/card:justify-start @min-[26rem]/card:gap-3">
-          <NextStepTag status={shown} />
+          <NextStepTag status={application.currentStatus} />
           <StageTime application={application} />
         </div>
         {actions}
       </div>
-      {(held || closed || showMarker) && (
+      {(held || closed || showMarker || profile) && (
         <div className={clsx('mt-2 flex flex-wrap items-center gap-1.5', UNDER_TITLE)}>
+          {profile && <ProfileBadge profile={profile} id={profileSentenceId} />}
           {/* v31 JOBSWEB: "Waiting for approval", or "From your browser, not verified" for the person's own job. */}
           <VerificationBadge held={application.held} verification={application.verification} sentenceId={heldSentenceId} />
           <ClosedBadge closed={closed} sentenceId={closedSentenceId} />
-          {showMarker && <MarkerBadge marker={marker} />}
+          {showMarker && <MarkerBadge marker={marker} id={markerSentenceId} />}
         </div>
       )}
     </>
@@ -258,8 +291,13 @@ const UNDER_TITLE = '@min-[21rem]/card:pl-12';
  * ("…, Waiting for approval", "…, Closed"; v31: "…, From your browser, not verified"), so a screen reader hears what
  * the card's badges say.
  */
-export function cardName(title: string, company: string, marks: { held: string | null; closed: string | null }): string {
-  return [title, company, marks.held, marks.closed].filter((part): part is string => Boolean(part && part.trim())).join(', ');
+export function cardName(
+  title: string,
+  company: string,
+  marks: { held: string | null; closed: string | null; profile?: string | null },
+): string {
+  // v33 SHARE-9: the All profiles view says whose Job Tracker the card is in ("…, Ana's"), after the company.
+  return [title, company, marks.profile, marks.held, marks.closed].filter((part): part is string => Boolean(part && part.trim())).join(', ');
 }
 
 /**
@@ -291,10 +329,13 @@ export function ApplicationCard({
   /** True once for the click that ends a drag. */
   consumeDragClick: () => boolean;
 }) {
+  // v33 SHARE-9: a card whose profile lets the person see its Job Tracker only is not dragged (nor moved from its menu).
+  const editable = handlers.canEdit?.(application) ?? true;
+  const draggable = !selectMode && editable;
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({
     id: application.id,
     data: { application },
-    disabled: selectMode,
+    disabled: !draggable,
   });
   const [menuOpen, setMenuOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -307,12 +348,21 @@ export function ApplicationCard({
   const marks = useId();
   const held = verificationMark(application) !== null;
   const closed = isClosed(application);
-  const name = cardName(application.title, application.companyName, { held: held ? heldTitle : null, closed: closed ? t('LABEL_JOB_CLOSED_MARK') : null });
+  const marker = handlers.markerOf?.(application) ?? null;
+  const profile = handlers.profileOf?.(application) ?? null;
+  const name = cardName(application.title, application.companyName, {
+    held: held ? heldTitle : null,
+    closed: closed ? t('LABEL_JOB_CLOSED_MARK') : null,
+    profile: profile && !profile.own ? ALL_PROFILES_COPY.owner(profile.label) : null,
+  });
   const described = [
-    selectMode ? undefined : attributes['aria-describedby'],
+    draggable ? attributes['aria-describedby'] : undefined,
     `${marks}-foot`,
     held ? `${marks}-held` : undefined,
     closed ? `${marks}-closed` : undefined,
+    // v33 TRACKER (F1): its marker (Draft, …) is heard with the card, as its badges are seen.
+    marker ? `${marks}-marker` : undefined,
+    profile ? `${marks}-profile` : undefined,
   ]
     .filter(Boolean)
     .join(' ');
@@ -351,10 +401,13 @@ export function ApplicationCard({
       >
         <CardFace
           application={application}
-          marker={handlers.markerOf?.(application)}
+          marker={marker}
           heldSentenceId={`${marks}-held`}
           closedSentenceId={`${marks}-closed`}
+          markerSentenceId={`${marks}-marker`}
           footId={`${marks}-foot`}
+          profile={profile}
+          profileSentenceId={`${marks}-profile`}
           leading={
             selectMode ? (
               <span className="relative z-10 mt-2 flex">
@@ -369,9 +422,11 @@ export function ApplicationCard({
               {...attributes}
               data-card-main=""
               aria-label={name}
-              aria-roledescription={selectMode ? 'selectable application' : 'draggable application'}
-              // In select mode the card toggles its selection: not disabled, and its state is announced.
-              aria-disabled={selectMode ? undefined : attributes['aria-disabled']}
+              aria-roledescription={selectMode ? 'selectable application' : draggable ? 'draggable application' : 'application'}
+              // In select mode the card toggles its selection: not disabled, and its state is announced. v33 SHARE-9: a
+              // card that is not dragged still opens: never announced as disabled.
+              aria-disabled={draggable ? attributes['aria-disabled'] : undefined}
+              data-card-draggable={draggable ? '' : undefined}
               aria-describedby={described || undefined}
               aria-pressed={selectMode ? checked : attributes['aria-pressed']}
               onClick={() => {
@@ -397,7 +452,7 @@ export function ApplicationCard({
           }
           actions={
             <span className="relative z-10 -mr-1.5 flex shrink-0 items-center" onClick={stop} onKeyDown={stop} onMouseDown={stop} onPointerDown={stop} onTouchStart={stop}>
-              <FavoriteButton application={application} onToggle={handlers.onToggleFavorite} />
+              <FavoriteButton application={application} onToggle={handlers.onToggleFavorite} readOnly={!editable} />
               <Menu
                 open={menuOpen}
                 onOpenChange={(open) => {

@@ -395,5 +395,6 @@ export async function draftFactsOf(
     profile: factLines(profileLines(profile).join('\n'), personal).join('\n'),
     note: factLines(profile.anythingElse, personal).join('\n'),
     contacts: personal.contacts,
+    resumeId: resume?.resumeId ?? null, // v33 PROMPTS: whose field the answers are written in
   };
 }

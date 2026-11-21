@@ -13,7 +13,8 @@ import { requireAi, sendAccepted, type AiTaskContext } from '../../ai/index';
 import { jobSearchPrompt, type JobSearchAnswer } from '../../ai/prompts/jobs/ai-search';
 import { defineAiTask } from '../../ai/task';
 import { assertFeature } from '../../core/accounts/entitlements';
-import { requireUser, userOf } from '../../core/auth/guards';
+import type { PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-3 (INT-1: a person's)
+import { payerOf, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-3: payerOf
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound, validationFailed } from '../../core/http/errors';
@@ -112,23 +113,24 @@ function checkedText(deps: AppDeps, rawText: string): string {
 
 /**
  * assertFeature('ai_job_search'), the sentence's checks, then the AI gate; queues a `job_search` task charged to the
- * person (the seam's `start`, async).
+ * person (the seam's `start`, async). v33 SHARE-3 (PLAN F9 "Who pays"): `payer` (B searching on A's profile: payerOf)
+ * pays, and its plan decides (a Free B is refused on a Paid A's profile). v33 INT-1: required.
  */
-export async function startAiSearch(deps: AppDeps, userId: string, rawText: string): Promise<{ taskId: string }> {
+export async function startAiSearch(deps: AppDeps, userId: string, rawText: string, payer: PersonPayer): Promise<{ taskId: string }> {
   // Free: 403 paid_feature with Subscribe, before anything else (no task is made).
-  await assertFeature(deps, userId, 'ai_job_search');
+  await assertFeature(deps, payer, 'ai_job_search');
   const text = checkedText(deps, rawText);
   requireAi(deps);
   // The AI gate, before the task is queued (the queue's enqueue checks it again, in its transaction).
-  await assertServerAi(deps, userId);
-  const { taskId } = await jobSearchTask.enqueue(deps, { userId, input: { text } });
+  await assertServerAi(deps, payer);
+  const { taskId } = await jobSearchTask.enqueue(deps, { userId, input: { text }, chargeTo: payer });
   return { taskId };
 }
 
 /** deps.services.aiSearch (core/seams.ts), set by the jobs feature. */
 export function createAiSearchService(deps: AppDeps): AiSearchService {
   return {
-    start: (userId, text) => startAiSearch(deps, userId, text),
+    start: (userId, text, payer) => startAiSearch(deps, userId, text, payer), // v33 SHARE-3: payer
 
     async result(userId, taskId, waitMs) {
       const ai = requireAi(deps);
@@ -158,7 +160,7 @@ export function createAiSearchRouter(deps: AppDeps): Router {
 
   router.post('/', async (req, res) => {
     const { text } = parseInput(AiJobSearchBodySchema, req.body ?? {});
-    sendAccepted(res, await startAiSearch(deps, userOf(req).id, text));
+    sendAccepted(res, await startAiSearch(deps, userOf(req).id, text, payerOf(req))); // v33 SHARE-3: B's plan and budget
   });
 
   return router;

@@ -18,6 +18,7 @@ import type { AppDeps } from '../../core/context';
 import { logoUrlOf } from '../applications/store';
 import { jobMarksOf } from '../jobs/credit'; // v30 FIX-B
 import { orderedQueuePage, releaseStaleRuns, type PlacedItem } from '../autofill/agent/queue';
+import { OWNER_VIEW, prepareErrorFor, reasonCodeFor, type KitViewer } from '../prepare/kit'; // v33 SHARE-5
 import { reasonOf, supportOf } from './saved';
 
 // v2.0: the Auto-apply page's Queue pane (docs/design/v2.0/05-prepare-flow.md, "Read models for the web"; 08-ui.md,
@@ -33,8 +34,22 @@ type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 /** The most Prepares the pane lists (newest first). */
 export const PREPARING_SHOWN_MAX = 200;
 
+/**
+ * v33 SHARE-5 (PLAN F9): who reads the pane. `viewer`: what the reasons may show (KitViewer: an eligibility reason as
+ * one word without the Sensitive answers permission). `ownerName`: set when someone the profile is shared with reads
+ * it (B): a held row says "Waiting for <owner>'s OK"; absent, the owner reads it: "Waiting for your OK".
+ */
+export interface QueuePaneReader {
+  viewer?: KitViewer;
+  ownerName?: string;
+}
+
 interface PrepareRow {
   id: string;
+  // v33 SHARE-5 (decision 7): whose profile, who started it, and the payer's own refusal words (prepareErrorFor).
+  user_id: string;
+  started_by: string;
+  payer_error: string | null;
   application_id: string;
   job_id: number | null;
   mode: PrepareMode;
@@ -63,12 +78,12 @@ function stepOf(row: PrepareRow): PrepareStep | null {
   return 'resume';
 }
 
-async function preparingOf(deps: Deps, userId: string): Promise<PreparingItem[]> {
+async function preparingOf(deps: Deps, userId: string, viewer: KitViewer = OWNER_VIEW): Promise<PreparingItem[]> {
   const constants = constantsOf(deps);
   // v3.0 PG-D: prepare_jobs' insert order (`seq`) breaks ties of one created_at.
   const dialect = deps.db.dialect;
   const rows = await deps.db.all<PrepareRow>(
-      `SELECT p.id, p.application_id, p.job_id, p.mode, p.resume_mode, p.state, p.reason_code, p.error, p.created_at,
+      `SELECT p.id, p.user_id, p.started_by, p.payer_error, p.application_id, p.job_id, p.mode, p.resume_mode, p.state, p.reason_code, p.error, p.created_at,
          p.updated_at, a.title, a.company_name, (SELECT cp.logo_path FROM company_profiles cp WHERE cp.company_id = c.id) AS logo_path, d.resume_status, d.letter_status, d.answers_status
        FROM prepare_jobs p
        JOIN applications a ON a.id = p.application_id
@@ -82,7 +97,10 @@ async function preparingOf(deps: Deps, userId: string): Promise<PreparingItem[]>
     [userId, PREPARING_SHOWN_MAX],
   );
   const marks = await jobMarksOf(deps.db, rows.map((row) => row.job_id)); // v30 FIX-B (REQ-1, UX-10)
-  return rows.map((row) => {
+  // v33 SHARE-5: each reason code as the viewer may see it.
+  const codes = await Promise.all(rows.map((row) => reasonCodeFor(deps, viewer, row)));
+  return rows.map((row, index) => {
+    const code = codes[index] ?? null;
     const label =
       row.state === 'failed'
         ? constants.message('STATE_PREPARE_FAILED')
@@ -101,8 +119,8 @@ async function preparingOf(deps: Deps, userId: string): Promise<PreparingItem[]>
       state: row.state,
       step: stepOf(row),
       label,
-      reason: row.reason_code ? reasonOf(constants, { code: row.reason_code }) : null,
-      error: row.error,
+      reason: code ? reasonOf(constants, { code }) : null, // v33 SHARE-5
+      error: prepareErrorFor(viewer, row), // v33 SHARE-5 (decision 7): the payer's own words to the payer alone
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.job_id !== null ? marks.get(row.job_id) : {}), // v30 FIX-B: credit, closed
@@ -129,8 +147,8 @@ export function displayOf(placed: Pick<PlacedItem, 'item'>, reached: boolean): Q
   }
 }
 
-/** GET /api/auto-apply/queue: the Queue pane (QueuePane). */
-export async function queuePane(deps: Deps, userId: string, query: QueuePaneQuery): Promise<QueuePane> {
+/** GET /api/auto-apply/queue: the Queue pane (QueuePane). v33 SHARE-5: `reader` (QueuePaneReader). */
+export async function queuePane(deps: Deps, userId: string, query: QueuePaneQuery, reader: QueuePaneReader = {}): Promise<QueuePane> {
   await releaseStaleRuns(deps, userId);
   const constants = constantsOf(deps);
   const window = await autoApplyUsage(deps, userId);
@@ -145,6 +163,13 @@ export async function queuePane(deps: Deps, userId: string, query: QueuePaneQuer
   const items: QueuePaneItem[] = page.map((placed) => {
     const display = displayOf(placed, window.reached);
     const { item, extra } = placed;
+    // v33 SHARE-5: a held row (someone the profile is shared with prepared it) waits for the owner's OK.
+    const held = extra.awaitingOwner && item.state === 'queued';
+    const label = held
+      ? reader.ownerName !== undefined
+        ? constants.message('STATE_AWAITING_OWNER_OK', { name: reader.ownerName })
+        : constants.message('STATE_AWAITING_YOUR_OK')
+      : constants.message(QUEUE_PANE_DISPLAY_LABELS[display]);
     return {
       queueId: item.id,
       applicationId: extra.applicationId,
@@ -158,7 +183,7 @@ export async function queuePane(deps: Deps, userId: string, query: QueuePaneQuer
       url: item.url,
       state: item.state,
       display,
-      label: constants.message(QUEUE_PANE_DISPLAY_LABELS[display]),
+      label,
       support: supportOf(extra.applyUrl, item.run ?? null),
       reason: item.reason,
       run: item.run ?? null,
@@ -169,7 +194,9 @@ export async function queuePane(deps: Deps, userId: string, query: QueuePaneQuer
       startedAt: item.startedAt,
       finishedAt: item.finishedAt,
       ...marks.get(item.jobId), // v30 FIX-B: credit, closed
+      ...(held ? { awaitingOwner: true } : {}), // v33 SHARE-5
     };
   });
-  return { preparing: query.cursor ? [] : await preparingOf(deps, userId), items, usage, ...(nextCursor ? { nextCursor } : {}) };
+  const preparing = query.cursor ? [] : await preparingOf(deps, userId, reader.viewer);
+  return { preparing, items, usage, ...(nextCursor ? { nextCursor } : {}) };
 }

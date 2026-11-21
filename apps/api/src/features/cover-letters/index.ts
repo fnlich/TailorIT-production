@@ -1,4 +1,5 @@
 import type { Feature } from '../../core/feature';
+import { COVER_LETTERS_ACTING } from './acting'; // v33 SHARE-3
 import { createCoverLettersRouter } from './router';
 import { coverLetterTask, templateFillTask } from './tasks';
 
@@ -8,5 +9,5 @@ import { coverLetterTask, templateFillTask } from './tasks';
 export const coverLettersFeature: Feature = {
   name: 'cover-letters',
   aiTasks: [coverLetterTask, templateFillTask],
-  routes: [{ path: '/api/cover-letters', router: createCoverLettersRouter }],
+  routes: [{ path: '/api/cover-letters', router: createCoverLettersRouter, acting: COVER_LETTERS_ACTING /* v33 SHARE-3 */ }],
 };

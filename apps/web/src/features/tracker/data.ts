@@ -35,7 +35,6 @@ import {
   type BoardResponse,
   type BulkApplicationsBody,
   type CreateApplicationBody,
-  type DisplayStatus,
   type InsightsResponse,
   type ListResponse,
   type MatchResult,
@@ -48,16 +47,22 @@ import {
   type TrackerTab,
 } from '@tailorit/shared';
 import { SavedJobListSchema, type SavedJobItem, type SavedJobList } from '@tailorit/shared/prepare';
+import type { ProfileChoice } from '@tailorit/shared/sharing';
 import { useState } from 'react';
 import { z } from 'zod';
 import { api, isApiError } from '@/lib/api';
 import { createMatchPendingPoll, readResumeMatches, type ResumeMatchView } from './detail/resumeMatches';
-import { withDraftColumn } from './draft';
 import { filterKey, filterQuery, type FilterState } from './state';
 
 /*
  * Everything the tracker reads and writes through /api/applications, as React Query hooks. All keys start with
  * 'tracker'; a change to applications invalidates the application reads (board, list, counts, chart, detail).
+ *
+ * v33 SHARE-9 (PLAN F9; SP v33 PLAN-sharing.md §8 "The Tracker's All profiles view"): the All profiles view reads each
+ * profile with its own `profile` (apiFetch's per-call choice: "me" or a shared profile's key) under the same keys with
+ * the profile appended (`['tracker', 'board', key, limits, {p}]`, profileKey), so prefix invalidation
+ * (invalidateApplications) and the optimistic moves (moveOnBoards, patchCachedApplication: application ids are unique
+ * across profiles) reach every profile's cache at once. The writes take the card's profile the same way.
  */
 
 export const trackerKeys = {
@@ -87,6 +92,21 @@ export const trackerKeys = {
   applyRecordsAll: ['tracker', 'apply-records'] as const,
   savedMarkers: ['tracker', 'saved-markers'] as const,
 };
+
+/**
+ * v33 SHARE-9: a key of the All profiles view: `key` with the profile appended (`{p: 'me' | <key>}`), so every prefix
+ * of trackerKeys still matches it. The single-profile view's keys name none (its document's profile is fixed: a
+ * switch loads a new document with an empty cache).
+ */
+export function profileKey<K extends readonly unknown[]>(key: K, profile: ProfileChoice): readonly [...K, { p: ProfileChoice }] {
+  return [...key, { p: profile }] as const;
+}
+
+/** v33 SHARE-9: the profile a key of the All profiles view names (its last part), or null for a single-profile key. */
+export function profileOfKey(key: readonly unknown[]): ProfileChoice | null {
+  const last = key[key.length - 1];
+  return last && typeof last === 'object' && 'p' in last ? ((last as { p: ProfileChoice }).p ?? null) : null;
+}
 
 /** The Jobs page's insights: their keyword card scores the resume linked to a tracked job. */
 const JOBS_INSIGHTS_KEY = ['jobs', 'insights'] as const;
@@ -136,24 +156,27 @@ export function useCounts() {
   });
 }
 
-/** "Load more" per column; v20 A30: Draft pages on its own (?status=draft). */
-export type ColumnLimits = Partial<Record<DisplayStatus, number>>;
+/** "Load more" per column (v33 TRACKER: the stored statuses' columns only; there is no Draft column). */
+export type ColumnLimits = Partial<Record<ApplicationStatus, number>>;
 
 /**
  * The board: every column's first page, then more pages for columns where "Load more applications" asked for them
  * (`limits`), so a refetch after a change keeps what was loaded.
  */
-async function fetchBoard(
+export async function fetchBoard(
   filters: FilterState,
   q: string,
   limits: ColumnLimits,
   signal: AbortSignal,
+  // v33 SHARE-9: the All profiles view reads each profile on its own (left out: the document's profile).
+  profile?: ProfileChoice,
 ): Promise<BoardResponse> {
   const query = filterQuery(filters, q);
   const board = await api.get<BoardResponse>('/api/applications/board', {
     query: { ...query, limit: BOARD_PAGE_SIZE },
     schema: BoardResponseSchema,
     signal,
+    profile,
   });
   const columns = await Promise.all(
     board.columns.map(async (column) => {
@@ -164,6 +187,7 @@ async function fetchBoard(
           query: { ...query, status: column.status, cursor: nextCursor, limit: Math.min(100, wanted - items.length) },
           schema: BoardResponseSchema,
           signal,
+          profile,
         });
         const more = page.columns[0];
         if (!more) break;
@@ -173,8 +197,7 @@ async function fetchBoard(
       return { ...column, items, nextCursor };
     }),
   );
-  // v20 A30: Draft between Saved and Applied (split from Saved when the API does not answer it yet).
-  return { columns: withDraftColumn(columns) };
+  return { columns };
 }
 
 export function boardQueryKey(filters: FilterState, q: string, limits: ColumnLimits) {
@@ -462,19 +485,23 @@ const path = (id: string) => `/api/applications/${encodeURIComponent(id)}`;
 
 export const trackerApi = {
   create: (body: CreateApplicationBody) => api.post<ApplicationDetail>('/api/applications', body, { schema: ApplicationDetailSchema }),
-  patch: (id: string, body: PatchApplicationBody) => api.patch<ApplicationDetail>(path(id), body, { schema: ApplicationDetailSchema }),
+  // v33 SHARE-9: `profile`, the card's profile in the All profiles view (left out: the document's).
+  patch: (id: string, body: PatchApplicationBody, profile?: ProfileChoice) =>
+    api.patch<ApplicationDetail>(path(id), body, { schema: ApplicationDetailSchema, profile }),
   /** "Let TailorIT choose": links the best-matching resume now (origin 'auto'); 409 when the application is not a Saved job. */
   autoMatchResume: (id: string) =>
     api.post<ApplicationDetail>(`${path(id)}/resume-match`, {}, { schema: ApplicationDetailSchema }),
   remove: (id: string) => api.delete(path(id)),
-  status: (id: string, status: ApplicationStatus, occurredOn = localToday()) =>
-    api.put<StatusChangeResponse>(`${path(id)}/status`, { status, occurredOn }, { schema: StatusChangeResponseSchema }),
+  status: (id: string, status: ApplicationStatus, occurredOn = localToday(), profile?: ProfileChoice) =>
+    api.put<StatusChangeResponse>(`${path(id)}/status`, { status, occurredOn }, { schema: StatusChangeResponseSchema, profile }),
   setDate: (id: string, status: ApplicationStatus, occurredOn: string) =>
     api.put<StatusChangeResponse>(`${path(id)}/events/${status}`, { occurredOn }, { schema: StatusChangeResponseSchema }),
   clearDate: (id: string, status: ApplicationStatus) =>
     api.delete<StatusChangeResponse>(`${path(id)}/events/${status}`, { schema: StatusChangeResponseSchema }),
-  archive: (id: string) => api.post<ApplicationDetail>(`${path(id)}/archive`, undefined, { schema: ApplicationDetailSchema }),
-  restore: (id: string) => api.post<ApplicationDetail>(`${path(id)}/restore`, undefined, { schema: ApplicationDetailSchema }),
+  archive: (id: string, profile?: ProfileChoice) =>
+    api.post<ApplicationDetail>(`${path(id)}/archive`, undefined, { schema: ApplicationDetailSchema, profile }),
+  restore: (id: string, profile?: ProfileChoice) =>
+    api.post<ApplicationDetail>(`${path(id)}/restore`, undefined, { schema: ApplicationDetailSchema, profile }),
   bulk: (body: BulkApplicationsBody) =>
     api.post<{ affected: number }>('/api/applications/bulk', body, { schema: BulkApplicationsResponseSchema }),
   archiveAll: () => api.post<{ archived: number }>('/api/applications/archive-all', undefined, { schema: ArchiveAllResponseSchema }),
@@ -523,14 +550,15 @@ export function patchCachedApplication(
 }
 
 /**
- * Moves a card between columns in every cached board (the optimistic drag and drop). v20 A30: a Draft card leaves the
- * Draft column (the column it is in, not its stored status's); moved past Saved it is no longer a draft.
+ * Moves a card between columns in every cached board (the optimistic drag and drop): out of the column it is in, into
+ * its new status's. v33 TRACKER (F1): a Draft card is a Saved card; moved, it carries no Draft mark until the board
+ * reads again.
  */
-function moveOnBoards(client: QueryClient, id: string, to: ApplicationStatus): void {
+export function moveOnBoards(client: QueryClient, id: string, to: ApplicationStatus): void {
   client.setQueriesData<BoardResponse>({ queryKey: trackerKeys.boards }, (board) => {
     if (!board) return board;
     let moving: ApplicationSummary | undefined;
-    let from: DisplayStatus | undefined;
+    let from: ApplicationStatus | undefined;
     for (const column of board.columns) {
       const found = column.items.find((item) => item.id === id);
       if (found && !moving) {
@@ -552,14 +580,33 @@ function moveOnBoards(client: QueryClient, id: string, to: ApplicationStatus): v
   });
 }
 
-/** "Move to", drag and drop, the list's Status menu and the detail's select: optimistic, rolled back on failure. */
-export function useMoveStatus(options: { onMoved?: (result: StatusChangeResponse, previous: ApplicationStatus | null) => void } = {}) {
-  const client = useQueryClient();
-  return useMutation({
+/** What a status move sends: the application, its new status, where it was, and (v33 SHARE-9) the card's profile. */
+export interface MoveStatusVariables {
+  id: string;
+  status: ApplicationStatus;
+  from?: ApplicationStatus | null;
+  /** v33 SHARE-9: the card's profile in the All profiles view (left out: the document's). */
+  profile?: ProfileChoice;
+}
+
+interface MoveContext {
+  boards: Array<[readonly unknown[], BoardResponse | undefined]>;
+  detail: ApplicationDetail | undefined;
+}
+
+/**
+ * The status move's mutation (useMoveStatus; v33 SHARE-9: the tests run it with a MutationObserver): optimistic on every
+ * cached board (the All profiles view's per-profile boards included), rolled back on failure, sent to the card's
+ * profile.
+ */
+export function moveStatusOptions(
+  client: QueryClient,
+  options: { onMoved?: (result: StatusChangeResponse, previous: ApplicationStatus | null) => void } = {},
+) {
+  return {
     mutationKey: MOVE_KEY,
-    mutationFn: ({ id, status }: { id: string; status: ApplicationStatus; from?: ApplicationStatus | null }) =>
-      trackerApi.status(id, status),
-    onMutate: async ({ id, status }) => {
+    mutationFn: ({ id, status, profile }: MoveStatusVariables) => trackerApi.status(id, status, localToday(), profile),
+    onMutate: async ({ id, status }: MoveStatusVariables): Promise<MoveContext> => {
       await client.cancelQueries({ queryKey: trackerKeys.boards });
       const boards = client.getQueriesData<BoardResponse>({ queryKey: trackerKeys.boards });
       const detail = client.getQueryData<ApplicationDetail>(trackerKeys.detail(id));
@@ -568,14 +615,14 @@ export function useMoveStatus(options: { onMoved?: (result: StatusChangeResponse
       if (detail) client.setQueryData<ApplicationDetail>(trackerKeys.detail(id), { ...detail, currentStatus: status });
       return { boards, detail };
     },
-    onError: (_error, { id }, context) => {
+    onError: (_error: unknown, { id }: MoveStatusVariables, context: MoveContext | undefined) => {
       // Put the snapshot back only when no other move is in flight (it would undo that one too); otherwise the
       // refetch below restores the truth.
       if (client.isMutating({ mutationKey: MOVE_KEY }) > 1) return;
       for (const [key, data] of context?.boards ?? []) client.setQueryData(key, data);
       if (context?.detail) client.setQueryData(trackerKeys.detail(id), context.detail);
     },
-    onSuccess: (result, { from }) => {
+    onSuccess: (result: StatusChangeResponse, { from }: MoveStatusVariables) => {
       patchCachedApplication(client, result.id, (summary) => ({
         ...summary,
         currentStatus: result.currentStatus,
@@ -587,20 +634,38 @@ export function useMoveStatus(options: { onMoved?: (result: StatusChangeResponse
     // Refetch once the last overlapping move settles, so a refetch never overwrites another move's optimistic card.
     onSettled: () =>
       client.isMutating({ mutationKey: MOVE_KEY }) === 1 ? invalidateApplications(client) : Promise.resolve(),
-  });
+  };
+}
+
+/** "Move to", drag and drop, the list's Status menu and the detail's select: optimistic, rolled back on failure. */
+export function useMoveStatus(options: { onMoved?: (result: StatusChangeResponse, previous: ApplicationStatus | null) => void } = {}) {
+  const client = useQueryClient();
+  return useMutation(moveStatusOptions(client, options));
+}
+
+/** The heart's variables. v33 SHARE-9: `profile`, the card's in the All profiles view (left out: the document's). */
+export interface ToggleFavoriteVariables {
+  id: string;
+  favorite: boolean;
+  profile?: ProfileChoice;
+}
+
+/** The heart's mutation options (useToggleFavorite; v33 SHARE-9 fix: the tests drive them with a MutationObserver). */
+export function toggleFavoriteOptions(client: QueryClient) {
+  return {
+    mutationFn: ({ id, favorite, profile }: ToggleFavoriteVariables) => trackerApi.patch(id, { favorite }, profile),
+    onMutate: ({ id, favorite }: ToggleFavoriteVariables) => {
+      patchCachedApplication(client, id, (summary) => ({ ...summary, favorite }));
+    },
+    onError: (_error: unknown, { id, favorite }: ToggleFavoriteVariables) => {
+      patchCachedApplication(client, id, (summary) => ({ ...summary, favorite: !favorite }));
+    },
+    onSettled: () => invalidateApplications(client),
+  };
 }
 
 /** The heart: flips at once, rolled back on failure. */
 export function useToggleFavorite() {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, favorite }: { id: string; favorite: boolean }) => trackerApi.patch(id, { favorite }),
-    onMutate: ({ id, favorite }) => {
-      patchCachedApplication(client, id, (summary) => ({ ...summary, favorite }));
-    },
-    onError: (_error, { id, favorite }) => {
-      patchCachedApplication(client, id, (summary) => ({ ...summary, favorite: !favorite }));
-    },
-    onSettled: () => invalidateApplications(client),
-  });
+  return useMutation(toggleFavoriteOptions(client));
 }

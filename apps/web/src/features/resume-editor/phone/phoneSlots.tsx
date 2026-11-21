@@ -10,6 +10,7 @@ import {
   type Slots,
   type TextSlotProps,
 } from '@tailorit/resume-templates';
+import { profileUrl } from '../../../lib/profile';
 
 // The page on a phone: the edit view (empty fields and the empty row of a section are kept, with their placeholders,
 // so a part with nothing in it can still be found and tapped), drawn read-only. Nothing is typed on the page: a tap
@@ -59,7 +60,7 @@ function PhonePhoto({ photoId, shape, className }: PhotoSlotProps) {
     <img
       className={clsx('rt-photo', className)}
       data-shape={shape}
-      src={`/api/resumes/photos/${encodeURIComponent(photoId)}`}
+      src={profileUrl(`/api/resumes/photos/${encodeURIComponent(photoId)}`)}
       alt="Your photo"
     />
   );

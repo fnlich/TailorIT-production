@@ -3,7 +3,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/Toast';
-import { ApiError, userMessage } from '@/lib/api';
+import { ApiError, isProfileRefusal, userMessage } from '@/lib/api';
 import { redirectToLogin } from '@/lib/navigation';
 import type { JobListItem } from '../api';
 import { useSaveJob } from '../hooks';
@@ -62,7 +62,8 @@ export function useSaveSelected(onDone: (left: readonly number[]) => void) {
       }
       const open = { label: 'Open Auto-apply', onClick: () => router.push('/auto-apply') };
       if (error !== null && done.length === 0) {
-        toast.error('The jobs could not be saved', userMessage(error, 'Please try again.'));
+        // v33 FIX-1: a shared profile's refusal is the shell's one alert.
+        if (!isProfileRefusal(error)) toast.error('The jobs could not be saved', userMessage(error, 'Please try again.'));
       } else {
         const copy = saveSelectedCopy(done.length, jobIds.length);
         toast.toast({ type: error === null ? 'success' : 'info', ...copy, timeout: RESULT_TOAST_MS, action: open });

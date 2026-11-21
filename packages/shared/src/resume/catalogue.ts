@@ -449,8 +449,9 @@ export const CUSTOM_REF_PREFIX = 'custom:';
 export const CUSTOM_KEY_PATTERN = /^[a-z0-9-]{1,40}$/;
 
 /**
- * The library's headings for Technical Skills, in the order Grouped prints them (free_tailor's 17, which skills.json
- * uses). Headings a person types follow them.
+ * The library's headings for the skills section, in the order Grouped prints them: free_tailor's 17 technical ones, then
+ * (v33 SKILLS) every other field's, then the neutral heading a skill of no known field falls back to. skills.json files
+ * each skill under one of them. Headings a person types follow them.
  */
 export const HARD_SKILL_CATEGORIES = [
   'Languages',
@@ -470,14 +471,76 @@ export const HARD_SKILL_CATEGORIES = [
   'Operating Systems & Platforms',
   'Frontend & UI/UX Development',
   'Mobile Development',
+  // v33 SKILLS: the other fields' headings (skills.json v2).
+  'Office & Productivity',
+  'Administrative Support',
+  'Analytics & Reporting',
+  'Manual Testing',
+  'IT Support',
+  'Design Tools',
+  'Project & Product Management',
+  'Sales & CRM',
+  'Marketing Tools',
+  'Writing & Editing',
+  'Media Production',
+  'Customer Support',
+  'Accounting & Finance',
+  'HR & Recruiting',
+  'Legal Practice',
+  'Operations & Procurement',
+  'Logistics & Inventory',
+  'Driving & Transportation',
+  'Clinical & Patient Care',
+  'Healthcare Administration',
+  'Teaching',
+  'Social & Community Services',
+  'Trades & Equipment',
+  'Manufacturing & Quality',
+  'Engineering & CAD',
+  'Laboratory & Research',
+  'Food & Hospitality',
+  'Retail & Personal Services',
+  'Security & Public Safety',
+  'Licences & Safety',
+  // The neutral heading: a person's own skill of no known field (the general field) that no rule places.
+  'Other Skills',
 ] as const;
 export type HardSkillCategory = (typeof HARD_SKILL_CATEGORIES)[number];
+/** v33 SKILLS: the heading no library skill uses, where a skill of no known field falls back to. */
+export const NEUTRAL_SKILL_CATEGORY: HardSkillCategory = 'Other Skills';
 
 // ------------------------------------------------------------------------------------------------- references
 
 export type SectionRef = { kind: SectionKind; key?: undefined } | { kind: 'custom'; key: string };
 
 const KIND_SET: ReadonlySet<string> = new Set<string>(SECTION_KIND_IDS);
+
+// v33 ROLES (F4): the editor's words follow the person's field (roles/placeholders.ts `editorCopyFor`). The catalogue
+// above stays the default, word for word.
+/** A field's words for one kind of section: its card label, its description, its boxes' placeholders by field name. */
+export interface SectionWording {
+  readonly label?: string;
+  readonly description?: string;
+  readonly placeholders?: Readonly<Record<string, string>>;
+}
+export type SectionWordings = Readonly<Partial<Record<SectionKind, SectionWording>>>;
+
+/** A kind's definition in a field's words: SECTION_KIND_BY_ID's, with `wordings` over its label, description and boxes. */
+export function sectionKindIn(kind: SectionKind, wordings?: SectionWordings | null): SectionKindDefinition {
+  const base = SECTION_KIND_BY_ID[kind];
+  const wording = wordings?.[kind];
+  if (!wording) return base;
+  const placeholders = wording.placeholders ?? {};
+  return {
+    ...base,
+    label: wording.label ?? base.label,
+    description: wording.description ?? base.description,
+    fields: base.fields.map((field) =>
+      Object.hasOwn(placeholders, field.name) ? { ...field, placeholder: placeholders[field.name] } : field,
+    ),
+  };
+}
+// end v33 ROLES
 
 export function isSectionKind(value: unknown): value is SectionKind {
   return typeof value === 'string' && KIND_SET.has(value);

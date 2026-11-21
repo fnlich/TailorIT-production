@@ -20,7 +20,6 @@ import { refuse } from '../../core/http/refuse';
 import { getPdfService, type PdfService } from '../../core/pdf/index';
 import { orderClause } from '../applications/query';
 import { currentResumeAnalyses } from '../resumes/analysis/store';
-import { getResumeEngine } from '../resumes/engine';
 import { exportBuiltResume } from '../resumes/export';
 import { documentOf, toSummary, type ResumeListRow } from '../resumes/repository';
 import {
@@ -589,7 +588,6 @@ async function drainChoices(deps: AppDeps, input: ZipBuildInput, budgetMs: numbe
 export async function buildResumeZip(deps: AppDeps, input: ZipBuildInput, options: ZipBuildOptions): Promise<ZipBuildResult> {
   const { userId, signal } = input;
   await mkdir(input.dir, { recursive: true });
-  getResumeEngine(deps);
 
   await drainChoices(deps, input, options.drainBudgetMs);
   signal.throwIfAborted();

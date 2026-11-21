@@ -8,6 +8,7 @@ import {
   type McpTokenItem,
   type McpTokenList,
 } from '@tailorit/shared/mcp';
+import { payerOfRow, type PersonPayer } from '../../core/accounts/payer'; // v33 SHARE-8
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps, SessionUser } from '../../core/context';
 import type { Role } from '@tailorit/shared';
@@ -129,6 +130,11 @@ export async function revokeMcpToken(deps: Pick<AppDeps, 'db' | 'now'>, userId: 
 
 /** Who an MCP token acts for. */
 export interface McpCaller {
+  // v33 SHARE-8 (PLAN-sharing.md §7 "The caller and the profile"): the caller's id and their own payer (their plan,
+  // budget and limits; on a shared profile the tools pay with payerOfGrant(grant, 'mcp'), features/mcp/profiles.ts).
+  id: string;
+  payer: PersonPayer;
+  // end v33 SHARE-8
   user: SessionUser;
   /**
    * The credential's key: a personal token's id, or (v31 OAUTH) `oauth:<grant id>` for an OAuth access token, so a
@@ -141,6 +147,11 @@ export interface McpCaller {
   via: 'personal' | 'oauth';
   // end v31 OAUTH
 }
+
+// v33 SHARE-8
+/** The caller's id and own payer (a row of their own names nobody else: never ownPayer under features/mcp). */
+const callerIds = (userId: string): Pick<McpCaller, 'id' | 'payer'> => ({ id: userId, payer: payerOfRow({ user_id: userId }) });
+// end v33 SHARE-8
 
 // v31 OAUTH
 /** The prefix of an OAuth caller's tokenId. */
@@ -165,7 +176,9 @@ export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now' | 'config
   // for the grant's account with the personal token's one scope.
   if (token.startsWith(OAUTH_ACCESS_TOKEN_PREFIX)) {
     const access = await resolveOAuthAccessToken(deps, token, oauthResource(deps.config));
-    return access ? { user: access.user, tokenId: `${OAUTH_KEY}${access.grantId}`, scopes: ['prepare'], via: 'oauth' } : null;
+    return access
+      ? { ...callerIds(access.user.id), user: access.user, tokenId: `${OAUTH_KEY}${access.grantId}`, scopes: ['prepare'], via: 'oauth' }
+      : null;
   }
   // end v31 OAUTH
   const row = await deps.db.one<{
@@ -190,6 +203,7 @@ export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now' | 'config
     await deps.db.run('UPDATE mcp_tokens SET last_used_at = ? WHERE id = ?', [now.toISOString(), row.id]);
   }
   return {
+    ...callerIds(row.user_id),
     user: { id: row.user_id, email: row.email, name: row.name, role: row.role },
     tokenId: row.id,
     scopes: readScopes(row.scopes),

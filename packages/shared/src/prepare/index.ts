@@ -172,6 +172,21 @@ export const PREPARE_SKIP_MESSAGES = {
 export const PrepareReasonSchema = z.object({ code: z.string().min(1).max(40), label: z.string() });
 export type PrepareReason = z.infer<typeof PrepareReasonSchema>;
 
+// v33 SHARE-0 (PLAN F9; PLAN-sharing.md §5, §6): why a Prepare on a shared profile stopped (prepare_jobs.reason_code of a
+// `cancelled` Prepare; the kit's reasonOf words them). `access_ended`: the grant ended or lost the permission while it
+// waited or ran. `owner_started`: the profile's owner prepared the same job while it waited, never started. `payer_limit`:
+// the person who started it (not the owner) reached a limit of theirs; the full refusal goes to them only.
+export const PREPARE_SHARING_REASONS = ['access_ended', 'owner_started', 'payer_limit'] as const;
+export type PrepareSharingReason = (typeof PREPARE_SHARING_REASONS)[number];
+export const PREPARE_SHARING_REASON_MESSAGES = {
+  access_ended: 'MSG_PREPARE_ACCESS_ENDED',
+  owner_started: 'MSG_PREPARE_OWNER_STARTED',
+  payer_limit: 'MSG_PREPARE_PAYER_LIMIT',
+} as const satisfies Record<PrepareSharingReason, MessageKey>;
+export const isPrepareSharingReason = (code: string | null | undefined): code is PrepareSharingReason =>
+  typeof code === 'string' && (PREPARE_SHARING_REASONS as readonly string[]).includes(code);
+// end v33 SHARE-0
+
 /**
  * POST /api/prepare's 202: each job's outcome, in the request's order. `prepareId` for `started` and `queued`;
  * `reason` for `filtered` (its first filter reason) and `skipped`.
@@ -496,8 +511,8 @@ export const SavedJobItemSchema = z.object({
   savedOn: IsoDate,
   support: z.enum(SAVED_JOB_SUPPORT),
   /**
-   * v20 A30: `queued` is the live queue row (DRAFT_QUEUE_STATES), so the entry shows Draft:
-   * displayStatusOf({status: STATUS.saved, queued: item.marker === 'queued'}).
+   * v20 A30: `queued` is the live queue row (DRAFT_QUEUE_STATES), so the entry shows Draft (v33 TRACKER, F1: a mark on
+   * its Saved card, isDraftEntry; there is no Draft status or lane).
    */
   marker: z.enum(SAVED_JOB_MARKERS),
   /** The marker's words ("Filtered: on-site", "Queued"), rendered; absent for `none`. */
@@ -654,6 +669,12 @@ export const QueuePaneItemSchema = z.object({
    */
   closed: z.literal(true).optional(),
   // end v30 FIX-B
+  /**
+   * v33 SHARE-5 (PLAN F9 "Prepare and the queue"): someone the profile is shared with prepared it and it waits for the
+   * owner's OK (the extension never sees it): the owner sees "Waiting for your OK", the person who prepared it "Waiting
+   * for Ana's OK" (`label`). Absent: not held.
+   */
+  awaitingOwner: z.boolean().optional(),
 });
 export type QueuePaneItem = z.infer<typeof QueuePaneItemSchema>;
 

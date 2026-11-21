@@ -11,7 +11,6 @@ import { RESUME_ORIGINS } from './resumeMatch';
 import { StatusEventSchema } from './rules';
 import {
   ApplicationStatusSchema,
-  DISPLAY_STATUS_DRAFT,
   STATUS_INFO,
   isApplicationStatus,
   type ApplicationStatus,
@@ -86,15 +85,17 @@ export const ApplicationExportQuerySchema = z.object({
 });
 export type ApplicationExportQuery = z.infer<typeof ApplicationExportQuerySchema>;
 
-/** GET /api/applications/board. With `status`, only that column is returned (its next page, from `cursor`). */
+/**
+ * GET /api/applications/board. With `status`, only that column is returned (its next page, from `cursor`). v33 TRACKER
+ * (F1): the columns are the stored statuses; anything else (`draft`, the v3.2 Draft lane an older tab may still ask for)
+ * reads as no status, so it gets every column.
+ */
 export const BoardQuerySchema = z.object({
   ...filterFields,
   status: z.preprocess((value) => {
-    const text = firstParam(value);
-    if (text === DISPLAY_STATUS_DRAFT) return DISPLAY_STATUS_DRAFT;
-    const status = Number(text);
+    const status = Number(firstParam(value));
     return isApplicationStatus(status) ? status : undefined;
-  }, z.union([ApplicationStatusSchema, z.literal(DISPLAY_STATUS_DRAFT)]).optional()),
+  }, ApplicationStatusSchema.optional()),
   cursor: queryText,
   limit: queryNumber(1, 100).transform((value) => value ?? 25),
 });
@@ -142,11 +143,11 @@ export const ApplicationSummarySchema = z.object({
   queueApply: z.boolean(),
   // v20 A30
   /**
-   * Its job has a live queue row (DRAFT_QUEUE_STATES: queued or being applied), so a Saved entry shows Draft
-   * (displayStatusOf). Absent from an answer made before it was filled: not queued.
+   * Its job has a live queue row (DRAFT_QUEUE_STATES: queued or being applied), so a Saved entry carries the Draft mark
+   * (isDraftEntry; v33 TRACKER: a mark, not a status). Absent from an answer made before it was filled: not queued.
    */
   queued: z.boolean().optional(),
-  /** The live queue row's created_at: the date of the Draft entry in the history. Null or absent: not queued. */
+  /** The live queue row's created_at: when it joined the auto-apply queue. Null or absent: not queued. */
   queuedAt: IsoDateTime.nullable().optional(),
   // end v20 A30
   /**
@@ -180,7 +181,7 @@ export const ApplicationListResponseSchema = listResponse(ApplicationSummarySche
 export type ApplicationListResponse = z.infer<typeof ApplicationListResponseSchema>;
 
 export const BoardColumnSchema = z.object({
-  status: z.union([ApplicationStatusSchema, z.literal(DISPLAY_STATUS_DRAFT)]),
+  status: ApplicationStatusSchema,
   /** Cards in the column under the current filters. */
   total: z.number().int().nonnegative(),
   items: z.array(ApplicationSummarySchema),

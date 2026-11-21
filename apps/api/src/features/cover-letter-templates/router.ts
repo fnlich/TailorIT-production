@@ -24,11 +24,14 @@ import { letterDocument } from '../cover-letters/document';
 import { extractUploadHtml, titleFromFileName, uploadKind } from '../cover-letters/extract';
 import { letterDocx, letterPdf } from '../cover-letters/export';
 import { CONTENT_TOO_LONG, downloadName, DOCX_MIME, parseBody, sendFile, uploadFile } from '../cover-letters/http';
+import { saveFromVersion } from '../cover-letters/precondition'; // v33 SHARE-3
 import { sanitizeLetterHtml } from '../cover-letters/sanitize';
 import { createTemplateRepository, toTemplateDetail, toTemplateSummary } from './repository';
 
 // /api/cover-letter-templates: the Templates tab and the template editor. System templates are visible to everyone
 // and read-only (403 system_template_read_only); Duplicate makes an editable copy.
+// v33 SHARE-3 (PLAN F9): on a profile shared with them, B works on A's templates (acting.ts); a save may name the
+// version it changes (baseUpdatedAt: 409 revision_conflict when the template was saved since).
 
 /** A name past TEMPLATE_NAME_MAX is refused in the shared rename rule's own words (validateTemplateName's). */
 const NAME_TOO_LONG = validateTemplateName('x'.repeat(TEMPLATE_NAME_MAX + 1)) ?? undefined;
@@ -109,13 +112,17 @@ export function createCoverLetterTemplatesRouter(deps: AppDeps): Router {
     const contentHtml = body.contentHtml === undefined ? undefined : sanitizeLetterHtml(body.contentHtml);
     const contentChanged = contentHtml !== undefined && contentHtml !== current.content_html;
     const fontChanged = body.fontFamily !== undefined && body.fontFamily !== current.font_family;
-    const row = await templates.update(current.id, user.id, {
-      name: body.name,
-      contentHtml: contentChanged ? contentHtml : undefined,
-      fontFamily: body.fontFamily,
-      aiPrompt: body.aiPrompt,
-      edited: contentChanged || fontChanged,
-    });
+    // v33 SHARE-3: saved only from the version the editor names (baseUpdatedAt), behind the row's lock.
+    const ref = { id: current.id, userId: user.id, base: body.baseUpdatedAt };
+    const row = await saveFromVersion(deps, 'cover_letter_templates', ref, 'MSG_LETTER_TEMPLATE_CHANGED', () =>
+      templates.update(current.id, user.id, {
+        name: body.name,
+        contentHtml: contentChanged ? contentHtml : undefined,
+        fontFamily: body.fontFamily,
+        aiPrompt: body.aiPrompt,
+        edited: contentChanged || fontChanged,
+      }),
+    );
     res.json(toTemplateDetail(row));
   });
 

@@ -41,6 +41,8 @@ import { KitSheet } from './KitSheet';
 import { useReducedMotion } from '../../components/queue';
 import { QueuePane } from './QueuePane';
 import { RuleSection } from './RuleSection';
+import { HeldSection } from './HeldSection'; // v33 SHARE-7
+import { NotShared, useTabProfile, type TabProfile } from '../sharing/access'; // v33 INT-1
 
 // v2.0: the Auto-apply page (/auto-apply), a two-pane workspace (docs/design/v2.0/08-ui.md, "The Auto-Apply page"):
 // Saved Jobs on the left (Prepare & Queue), the Queue on the right (preparing, up next, apply manually, needs
@@ -74,6 +76,22 @@ const HIGHLIGHT_MS = 1_500;
 
 type Tab = 'saved' | 'queue';
 
+/**
+ * v33 INT-1: what the tab may do with the Auto-save rule (Job settings): everything on the person's own profile; on a
+ * shared one, read with the owner's See box (`settings:view`) and change with Change (`settings:edit`); nothing until
+ * the list of profiles is read (`ready` false).
+ */
+export function ruleAccessOf(tab: Pick<TabProfile, 'key' | 'profile' | 'ownerName'>): { ready: boolean; see: boolean; change: boolean; owner: string | null } {
+  if (tab.key === null) return { ready: true, see: true, change: true, owner: null };
+  const permissions = tab.profile?.permissions ?? [];
+  return {
+    ready: tab.profile !== null,
+    see: permissions.includes('settings:view'),
+    change: permissions.includes('settings:edit'),
+    owner: tab.ownerName,
+  };
+}
+
 const parseDismissed = (raw: string | null) => raw ?? '[]';
 function dismissedSet(raw: string): ReadonlySet<string> {
   try {
@@ -104,7 +122,15 @@ export function AutoApplyPage() {
   // The Saved pane reads at the Queue pane's pace.
   const saved = useSavedJobs(savedFilter, pollInterval(queue.data?.preparing, queue.data?.items));
   const filters = usePrepareFilters();
-  const rule = useQuery({ queryKey: autoApplyKeys.settings, queryFn: ({ signal }) => fetchAgentSettings(signal) });
+  // v33 INT-1 (INT-D's tour): the Auto-save rule is Job settings (GET /api/autofill/agent/settings is settings:view, PUT
+  // settings:edit): on a profile shared with the person it is asked for only with its owner's See box, never for a
+  // quiet 403, and changed only with Change.
+  const ruleAccess = ruleAccessOf(useTabProfile());
+  const rule = useQuery({
+    queryKey: autoApplyKeys.settings,
+    queryFn: ({ signal }) => fetchAgentSettings(signal),
+    enabled: ruleAccess.see,
+  });
 
   const supportOf = useCallback(
     (applicationId: string) => saved.items?.find((item) => item.applicationId === applicationId)?.support,
@@ -222,7 +248,16 @@ export function AutoApplyPage() {
         filtersOn={filters.data ? filtersOnCount(filters.data.filters) : null}
         onViewInQueue={viewInQueue}
       />
-      {rule.isError ? (
+      {!ruleAccess.see ? (
+        // v33 INT-1: not asked for without the owner's Job settings See box (nothing while the list is read).
+        ruleAccess.ready ? (
+          <section aria-label="Auto-save new jobs" data-rule-not-shared="">
+            <NotShared owner={ruleAccess.owner} />
+          </section>
+        ) : (
+          <Skeleton className="h-16 w-full" rounded="control" />
+        )
+      ) : rule.isError ? (
         // v32 FIX-UX (UXREQ-8, UXREQ-13): the kit's load error, its reason in view (not in a "?").
         <div data-rule-load-failed="">
           <LoadError thing="Auto-save new jobs" error={rule.error} onRetry={() => void rule.refetch()} />
@@ -230,7 +265,7 @@ export function AutoApplyPage() {
       ) : rule.isPending ? (
         <Skeleton className="h-16 w-full" rounded="control" />
       ) : (
-        <RuleSection settings={rule.data} />
+        <RuleSection settings={rule.data} readOnly={!ruleAccess.change} />
       )}
     </div>
   );
@@ -268,6 +303,8 @@ export function AutoApplyPage() {
   return (
     <div className={clsx('@container/auto-apply mx-auto w-full max-w-[1600px] pt-7 pb-20', PAGE_GUTTER)}>
       {header}
+      {/* v33 SHARE-7: jobs someone prepared on the person's own profile, waiting for their OK (none: nothing shows). */}
+      <HeldSection className="mt-6" />
       {wide ? (
         <div className={clsx(PANES_GRID, 'mt-6 items-start gap-6')} data-auto-apply-layout="panes">
           {savedPane}

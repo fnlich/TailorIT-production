@@ -2,7 +2,7 @@ import { RESUME_TEMPLATES } from '@tailorit/shared';
 import type { McpPromptMode } from '@tailorit/shared/mcp';
 import { POSTING_TEXT_RULE } from '../../ai/prompts/tailor/posting-text-rule';
 import { AppError } from '../../core/http/errors';
-import { untrustedBlock, untrustedText } from '../autofill/ai/untrusted';
+import { untrustedBlock, untrustedLines, untrustedText } from '../autofill/ai/untrusted';
 import { readDraftFacts } from '../autofill/draft-facts';
 import { readableForAi } from '../job-analysis/service';
 import { profileForPrompt } from '../tailor/pipeline';
@@ -10,9 +10,10 @@ import { chooseTemplates } from '../tailor/source';
 import { chosenContent, chosenResume, NO_CHOSEN_RESUME } from './chosen';
 import { rulesPointer } from './instructions';
 import { heldAnalysis, mcpJobOf, sourceProfile, type SourceProfile } from './job';
-import { finishedView, finishIfDone, howTo, mcpPrepareOf, nextAfterSave, nextJob, nextStep } from './next';
+import { finishedView, finishIfDone, howTo, jobArg, mcpPrepareOf, nextAfterSave, nextJob, nextStep } from './next';
 import { openQuestions, questionView } from './questions';
-import { modeOf, RESUME_CHOSEN, requireMcpPrepare, type SaveContext } from './save';
+import { countCall, profileNote, profileWrapped, type McpSession } from './profiles'; // v33 SHARE-8
+import { modeOf, refuseGrantTripwire, RESUME_CHOSEN, requireMcpPrepare, type SaveContext } from './save';
 import { tripwireLine } from './screen';
 import { mcpSettings } from './settings';
 import { postingForPrompt } from './step-text';
@@ -29,6 +30,10 @@ import { workFor } from './work';
 // v2.0 P5: prepare_queue lists the person's `mcp` Prepares waiting for their AI (prepare_start starts them); the
 // context gains the letter decision, the questions known, the active Prepare and the job's resume as the person's
 // resume mode chose it (A29), and a `fields` list; prepare_mark ends the Prepare when it marks a required part.
+// v33 SHARE-8 (PLAN-sharing.md §7): prepare_queue lists the jobs the caller's AI prepares on every profile (column `p`,
+// "me" or the key, when there is more than one), each next call naming its profile; on another person's profile the
+// context's resume and facts are that person's words, wrapped as untrusted with the grant's tripwire, and the context
+// says whose profile it is with the custom instructions' scope line.
 
 /** The refusals a source resume can give, which the context reports instead of failing. */
 const SOURCE_REFUSALS = new Set(['needs_editable_copy', 'validation_failed', 'not_found']);
@@ -67,17 +72,32 @@ function offsetOf(cursor: string | undefined): number {
   return Number(cursor);
 }
 
-/** prepare_queue: the jobs waiting for the person's AI, a page at a time. */
-export async function prepareQueue(ctx: SaveContext, options: { limit?: number; cursor?: string }) {
-  const { deps, userId } = ctx;
+/**
+ * prepare_queue: the jobs waiting for the person's AI, a page at a time. v33 SHARE-8: on every profile the caller's AI
+ * may prepare (theirs first, then each share with `prepare:run` and `mcp`), the Prepares the caller started there.
+ */
+export async function prepareQueue(session: McpSession, options: { limit?: number; cursor?: string }) {
+  const { deps } = session;
   const offset = offsetOf(options.cursor);
   const limit = Math.min(Math.max(options.limit ?? QUEUE_PAGE.default, 1), QUEUE_PAGE.max);
-  const waiting = await ctx.prepare.waiting(deps, userId);
+  const own = await session.own();
+  const profiles: SaveContext[] = [own];
+  for (const grant of await session.grants()) {
+    if (grant.permissions.includes('prepare:run')) profiles.push(await session.onGrant('prepare_job_context', grant));
+  }
+  const waiting: Array<{ ctx: SaveContext; job: Awaited<ReturnType<SaveContext['prepare']['waiting']>>[number] }> = [];
+  for (const ctx of profiles) {
+    for (const job of await ctx.prepare.waiting(deps, ctx.userId, ctx.caller.id)) waiting.push({ ctx, job });
+    countCall(deps, ctx, 'prepare:view', false);
+  }
+  const multi = own.hint !== null;
   const page = waiting.slice(offset, offset + limit);
   const rows: unknown[][] = [];
-  for (const { prepare, jobId, title, company, parts } of page) {
-    const letter = await ctx.prepare.letter(deps, userId, { applicationId: prepare.applicationId, jobId }, prepare);
+  for (const { ctx, job } of page) {
+    const { prepare, jobId, title, company, parts } = job;
+    const letter = await ctx.prepare.letter(deps, ctx.userId, { applicationId: prepare.applicationId, jobId }, prepare);
     rows.push([
+      ...(multi ? [ctx.profile.key] : []),
       prepare.id,
       jobId,
       untrustedText(title, 200),
@@ -88,18 +108,21 @@ export async function prepareQueue(ctx: SaveContext, options: { limit?: number; 
       parts?.answersStatus ?? 'pending',
     ]);
   }
-  const settings = await mcpSettings(deps, userId);
+  const settings = await mcpSettings(deps, session.caller.id);
+  const first = waiting[0];
   return {
     total: waiting.length,
-    cols: QUEUE_COLUMNS,
+    cols: multi ? ['p', ...QUEUE_COLUMNS] : QUEUE_COLUMNS,
     rows,
     nextCursor: offset + limit < waiting.length ? String(offset + limit) : null,
     // Once, with the first page.
-    ...(offset === 0 ? { howTo: howTo(settings, await ctx.prepare.resumeMode(deps, userId)) } : {}),
-    ...(await rulesPointer(deps, userId, ctx.tokenId ?? null)),
-    next:
-      waiting.length > 0
-        ? `Call prepare_job_context with {"jobId": ${waiting[0]!.jobId}}, then follow each answer's "next".`
+    ...(offset === 0 ? { howTo: howTo(settings, await own.prepare.resumeMode(deps, own.userId)) } : {}),
+    ...(await rulesPointer(deps, session.caller.id, session.tokenId)),
+    next: first
+      ? `Call prepare_job_context with {${jobArg(first.job.jobId, first.ctx.hint)}}, then follow each answer's "next".`
+      : multi
+        ? 'No job waits for your AI. For each profile: filter_jobs {"scope": "saved", "profile": <"me" or its key>}, ' +
+          'then prepare_start {"runId": <its runId>, "profile": <the same>}.'
         : 'No job waits for your AI. Start with filter_jobs {"scope": "saved"}, then prepare_start {"runId": <its runId>}.',
   };
 }
@@ -136,11 +159,19 @@ export async function jobContext(
   const facts = options.includeResume && chosen.id ? await readDraftFacts(deps, userId, chosen.id) : null;
   const letterTemplate = (await chooseTemplates(deps, userId, {})).coverLetterTemplate;
 
-  /** The chosen resume's words for the person's own prompts: a built resume as profile JSON, an upload's text. */
+  /**
+   * The chosen resume's words for the person's own prompts: a built resume as profile JSON, an upload's text. v33
+   * SHARE-8: on another person's profile, their words in the profile's wrapper (with the grant's tripwire).
+   */
   const resumeContent = async () => {
     if (!options.includeResume || !chosen.id) return {};
     try {
       const content = await chosenContent(deps, userId, chosen);
+      if (ctx.profile.grant) {
+        return content.built
+          ? { profile: profileWrapped(ctx.profile, profileForPrompt(content.built.profile)) }
+          : { text: profileWrapped(ctx.profile, untrustedLines(content.evidence.text, UPLOAD_TEXT_MAX)) }; // review: one wrapper
+      }
       return content.built
         ? { profile: JSON.parse(profileForPrompt(content.built.profile)) as unknown }
         : { text: untrustedBlock(content.evidence.text, UPLOAD_TEXT_MAX) };
@@ -194,14 +225,27 @@ export async function jobContext(
     questions: open.map(questionView),
     /** Known questions the profile (or the person) answers on the form: never shown here. */
     heldBackQuestions: known.length - open.length,
-    ...(facts ? { facts: { resume: facts.resume, profile: facts.profile, note: facts.note } } : {}),
+    ...(facts
+      ? {
+          // v33 SHARE-8: another person's facts in their profile's wrapper.
+          facts: ctx.profile.grant
+            ? profileWrapped(ctx.profile, JSON.stringify({ resume: facts.resume, profile: facts.profile, note: facts.note }))
+            : { resume: facts.resume, profile: facts.profile, note: facts.note },
+        }
+      : {}),
     saved: { resumeId: work.resumeId, coverLetterId: work.coverLetterId, resumeSaves: work.saves },
   };
   const kept =
     options.fields && options.fields.length > 0
       ? Object.fromEntries(Object.entries(all).filter(([key]) => options.fields!.includes(key as ContextField)))
       : all;
-  return { jobId, ...kept, next: await nextStep(ctx, job, await modeOf(ctx, options.mode)) };
+  return {
+    jobId,
+    // v33 SHARE-8: whose profile, and the scope of the caller's own custom instructions there.
+    ...(ctx.profile.grant ? { profile: ctx.profile.key, forProfile: profileNote(ctx) } : {}),
+    ...kept,
+    next: await nextStep(ctx, job, await modeOf(ctx, options.mode)),
+  };
 }
 
 export async function markJob(
@@ -213,15 +257,16 @@ export async function markJob(
   const { deps, userId } = ctx;
   const job = await mcpJobOf(deps, userId, jobId);
   const prepare = await requireMcpPrepare(ctx, job);
+  refuseGrantTripwire(ctx, input.reason); // v33 SHARE-8
   const part = input.part ?? 'all';
   if (part === 'resume' && prepare.resumeMode !== 'tailor') throw new AppError('conflict', RESUME_CHOSEN);
   // A required part (the tailored resume, a wanted letter) marked ends the Prepare: its kit cannot be complete.
   const required =
     part === 'all' || part === 'resume' || (part === 'letter' && (await ctx.prepare.letter(deps, userId, job, prepare)).wanted);
-  await ctx.prepare.mark(deps, userId, job.applicationId, input.status, input.reason, part);
+  await ctx.prepare.mark(deps, userId, job.applicationId, input.status, input.reason, part, ctx.caller.id);
   if (required) {
     // P2's markDraft ends the Prepare itself (skipped: cancelled; failed: failed); one still active is cancelled.
-    if ((await mcpPrepareOf(ctx, job.applicationId))?.id === prepare.id) await ctx.prepare.cancel(deps, userId, prepare.id);
+    if ((await mcpPrepareOf(ctx, job.applicationId))?.id === prepare.id) await ctx.prepare.cancel(deps, userId, prepare.id, ctx.caller.id);
     return { jobId, status: input.status, ...(part === 'all' ? {} : { part }), cancelled: true, next: await nextJob(ctx, jobId) };
   }
   const finished = await finishIfDone(ctx, job);

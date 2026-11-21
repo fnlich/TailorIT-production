@@ -1,5 +1,4 @@
 import {
-  DISPLAY_STATUS_DRAFT,
   STATUS,
   STATUS_INFO,
   eventDate,
@@ -7,12 +6,10 @@ import {
   stepperModel,
   type ApplicationStatus,
   type ApplicationSummary,
-  type DisplayStatus,
   type StepperModel,
 } from '@tailorit/shared';
 import type { MessageParams } from '@tailorit/shared/constants';
 import type { PublicMessageKey } from '@/lib/constants';
-import { shownStatusOf } from './draft';
 
 /*
  * v31 FIX-DOCS (REV-UX UX-1): what the redesigned Tracker says about where an application stands, free of React so it
@@ -25,10 +22,12 @@ export type Words = (key: PublicMessageKey, params?: MessageParams) => string;
 
 export type NextStepTone = 'next' | 'done' | 'closed';
 
-/** The next step's words key per shown status; an ended application says Done (accepted) or Closed. */
-const NEXT_STEP: Record<DisplayStatus, PublicMessageKey> = {
+/**
+ * The next step's words key per status; an ended application says Done (accepted) or Closed. v33 TRACKER (F1): a Saved
+ * entry with the Draft mark has Saved's next step (Draft is a mark, not a stage).
+ */
+const NEXT_STEP: Record<ApplicationStatus, PublicMessageKey> = {
   [STATUS.saved]: 'LABEL_TRACKER_STEP_SAVED',
-  [DISPLAY_STATUS_DRAFT]: 'LABEL_TRACKER_STEP_DRAFT',
   [STATUS.applied]: 'LABEL_TRACKER_STEP_APPLIED',
   [STATUS.screen]: 'LABEL_TRACKER_STEP_SCREEN',
   [STATUS.interviewing]: 'LABEL_TRACKER_STEP_INTERVIEWING',
@@ -37,17 +36,17 @@ const NEXT_STEP: Record<DisplayStatus, PublicMessageKey> = {
   [STATUS.withdrawn]: 'LABEL_TRACKER_STEP_CLOSED',
   [STATUS.ghosted]: 'LABEL_TRACKER_STEP_CLOSED',
   [STATUS.rejected]: 'LABEL_TRACKER_STEP_CLOSED',
-} as Record<DisplayStatus, PublicMessageKey>;
+};
 
 /**
  * "Next: follow up" (tone `next`), or "Done" / "Closed" for an application that ended. `short` is what a card draws
  * beside its arrow: the step alone, its first letter capitalised ("Follow up"); `text` is what it says in full.
  */
-export function nextStep(status: DisplayStatus, t: Words): { text: string; short: string; tone: NextStepTone } {
+export function nextStep(status: ApplicationStatus, t: Words): { text: string; short: string; tone: NextStepTone } {
   const key = NEXT_STEP[status];
   const step = t(key);
   if (status === STATUS.accepted) return { text: step, short: step, tone: 'done' };
-  if (status !== DISPLAY_STATUS_DRAFT && isTerminalStatus(status)) return { text: step, short: step, tone: 'closed' };
+  if (isTerminalStatus(status)) return { text: step, short: step, tone: 'closed' };
   return { text: t('MSG_TRACKER_NEXT_STEP', { step }), short: step.charAt(0).toUpperCase() + step.slice(1), tone: 'next' };
 }
 
@@ -59,11 +58,11 @@ function dayStart(value: string): number {
 }
 
 /**
- * Since when the application has been in the stage it shows: the date of its current status's event (Draft: the day
- * it joined the queue), else the day it was tracked. Null when no date can be read.
+ * Since when the application has been in its stage: the date of its current status's event, else the day it was
+ * tracked. Null when no date can be read. v33 TRACKER (F1): a Draft-marked entry is in Saved since it was saved (no
+ * longer since it joined the queue).
  */
-export function stageSince(application: Pick<ApplicationSummary, 'currentStatus' | 'events' | 'trackedOn' | 'queued' | 'queuedAt'>): string | null {
-  if (shownStatusOf(application) === DISPLAY_STATUS_DRAFT && application.queuedAt) return application.queuedAt;
+export function stageSince(application: Pick<ApplicationSummary, 'currentStatus' | 'events' | 'trackedOn'>): string | null {
   return eventDate(application.events, application.currentStatus) ?? application.trackedOn ?? null;
 }
 

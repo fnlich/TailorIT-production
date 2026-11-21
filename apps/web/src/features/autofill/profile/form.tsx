@@ -24,7 +24,16 @@ export interface ProfileForm {
   isFromAi: (key: string) => boolean;
   /** v32 FIX-API (SF-1): the field's fill mark in words ("AI read, check it", "From your resume"), null without one. */
   markText: (key: string) => string | null;
+  /** v33 SHARE-7: the sensitive answers (`sensitive.*`) on a shared profile, by the owner's Sensitive answers boxes. */
+  sensitive: SensitiveGate;
 }
+
+/**
+ * v33 SHARE-7 (PLAN F9 "masked in the profile"; SP v33 PLAN-sharing.md §9): how the sensitive answers show. `shown`:
+ * the person's own, or a shared profile with both Sensitive answers boxes; `readOnly`: See without Change (shown, never
+ * changed or sent); `hidden`: no See box (never read: not drawn, and the Review leaves them out).
+ */
+export type SensitiveGate = 'shown' | 'readOnly' | 'hidden';
 
 const ProfileFormContext = createContext<ProfileForm | null>(null);
 
@@ -32,11 +41,14 @@ export function ProfileFormProvider({
   state,
   dispatch,
   busy,
+  sensitive = 'shown',
   children,
 }: {
   state: ProfileFormState;
   dispatch: (action: ProfileFormAction) => void;
   busy: boolean;
+  /** v33 SHARE-7: the sensitive answers' gate (the person's own profile: shown). */
+  sensitive?: SensitiveGate;
   children: ReactNode;
 }) {
   const { t } = usePublicConstants();
@@ -58,10 +70,29 @@ export function ProfileFormProvider({
       isFromResume: (key) => state.fromResume.has(key),
       isFromAi: (key) => state.fromAi.has(key),
       markText: (key) => (state.fromAi.has(key) ? t('LABEL_AUTOFILL_AI_READ') : state.fromResume.has(key) ? 'From your resume' : null),
+      sensitive,
     }),
-    [state, dispatch, busy, t],
+    [state, dispatch, busy, t, sensitive],
   );
   return <ProfileFormContext.Provider value={form}>{children}</ProfileFormContext.Provider>;
+}
+
+/**
+ * v33 SHARE-7: fields shown and never changed (every control off, as while a save runs; `set` does nothing): a shared
+ * profile's sensitive answers without their Change box, its contact email and phone.
+ */
+export function ReadOnlyFields({ readOnly, children }: { readOnly: boolean; children: ReactNode }) {
+  const form = useProfileForm();
+  const locked = useMemo<ProfileForm>(() => ({ ...form, busy: true, set: () => undefined }), [form]);
+  // Always the same element, so the fields keep their own state when it turns on or off.
+  return <ProfileFormContext.Provider value={readOnly ? locked : form}>{children}</ProfileFormContext.Provider>;
+}
+
+/** v33 SHARE-7: fields of the sensitive answers (`sensitive.*`): not drawn without See, shown and not changed without Change. */
+export function SensitiveFields({ children }: { children: ReactNode }) {
+  const { sensitive } = useProfileForm();
+  if (sensitive === 'hidden') return null;
+  return <ReadOnlyFields readOnly={sensitive === 'readOnly'}>{children}</ReadOnlyFields>;
 }
 
 export function useProfileForm(): ProfileForm {

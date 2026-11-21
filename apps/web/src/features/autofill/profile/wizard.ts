@@ -232,6 +232,13 @@ export interface StepSummary {
   filled: boolean;
   /** What the Review says of the step: a few lines; none when nothing is filled in. */
   lines: string[];
+  /** v33 SHARE-7: the step holds only answers the profile's owner did not share (the Review says so instead). */
+  notShared?: boolean;
+}
+
+/** v33 SHARE-7: what the summaries may read. `sensitive: false`: the sensitive answers were not shared (never read). */
+export interface SummaryReach {
+  sensitive?: boolean;
 }
 
 /** What the Review needs beyond the draft: how to name the chosen resume and templates. */
@@ -344,7 +351,7 @@ function authorization(draft: AutofillDraft): StepSummary {
   return { filled: lines.length > 0, lines };
 }
 
-function questions(draft: AutofillDraft): StepSummary {
+function questions(draft: AutofillDraft, sensitive: boolean): StepSummary {
   const { preferences, anythingElse } = draft.profile;
   const { legal, compensation } = draft.sensitive;
   const legalAnswers = [
@@ -362,11 +369,11 @@ function questions(draft: AutofillDraft): StepSummary {
     preferences.earliestStartDate && `Earliest start ${preferences.earliestStartDate}`,
     preferences.noticePeriodWeeks !== null && `${plural(preferences.noticePeriodWeeks, 'week', 'weeks')}' notice`,
     preferences.willingToRelocate && (preferences.willingToRelocate === 'yes' ? 'Willing to relocate' : 'Not relocating'),
-    compensation.expectedSalary.state === 'value' && 'Expected salary given',
+    sensitive && compensation.expectedSalary.state === 'value' && 'Expected salary given',
   ].filter((value): value is string => Boolean(value));
   const lines = [
     facts.join(' · '),
-    answered > 0 ? `Legal and screening questions: ${answered} of ${legalAnswers.length} answered` : '',
+    sensitive && answered > 0 ? `Legal and screening questions: ${answered} of ${legalAnswers.length} answered` : '',
     anythingElse.trim() ? `A note for the AI (${plural(anythingElse.trim().length, 'character', 'characters')})` : '',
   ].filter(Boolean);
   return { filled: lines.length > 0, lines };
@@ -388,8 +395,13 @@ function documents(draft: AutofillDraft, names: SummaryNames): StepSummary {
   };
 }
 
-/** What the Review says of a step, and whether it holds anything. The import and the Review itself hold nothing. */
-export function stepSummary(step: WizardStepId, draft: AutofillDraft, names: SummaryNames = {}): StepSummary {
+/**
+ * What the Review says of a step, and whether it holds anything. The import and the Review itself hold nothing.
+ * v33 SHARE-7: `reach.sensitive === false` (a shared profile without the Sensitive answers See box) leaves every
+ * sensitive answer out: Work authorization & EEO says it is not shared, the questions only their other answers.
+ */
+export function stepSummary(step: WizardStepId, draft: AutofillDraft, names: SummaryNames = {}, reach: SummaryReach = {}): StepSummary {
+  const sensitive = reach.sensitive !== false;
   switch (step) {
     case 'personal':
       return personal(draft);
@@ -400,9 +412,9 @@ export function stepSummary(step: WizardStepId, draft: AutofillDraft, names: Sum
     case 'skills':
       return skills(draft);
     case 'authorization':
-      return authorization(draft);
+      return sensitive ? authorization(draft) : { filled: false, lines: [], notShared: true };
     case 'questions':
-      return questions(draft);
+      return questions(draft, sensitive);
     case 'documents':
       return documents(draft, names);
     case 'import':

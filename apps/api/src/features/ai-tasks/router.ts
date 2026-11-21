@@ -2,7 +2,9 @@ import { Router, type Request, type RequestHandler } from 'express';
 import type { AiTaskKind } from '@tailorit/shared';
 import { AUTOFILL_AI_STREAM_HEARTBEAT_MS, AUTOFILL_TASK_KINDS, AutofillTaskStreamEventSchema } from '@tailorit/shared/autofill';
 import { requireAi, type AiTaskEvent } from '../../ai/index';
-import { userOf } from '../../core/auth/guards';
+import { TASK_KIND_PERMISSION } from '../../ai/queue'; // v33 SHARE-6
+import { taskViewerOf } from '../../ai/viewer'; // v33 SHARE-3 (review)
+import { actorOf, holds } from '../../core/auth/guards'; // v33 SHARE-6
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound } from '../../core/http/errors';
 import { allow, perAccountLimit } from '../autofill/auth';
@@ -11,6 +13,11 @@ import { allow, perAccountLimit } from '../autofill/auth';
 // anyone else gets the same 404 as for a task that does not exist. The TailorIT Autofill extension's token
 // (core/auth/extension-tokens.ts) needs the `ai:run` scope here and sees only the autofill kinds: any other task
 // answers it that same 404, and it never cancels one.
+// v33 SHARE-6 (PLAN F9; SP v33 PLAN-sharing.md §4 "Mixed routes"; SHARE-3's exact edit 2 and review R2): every route reads
+// the task as the request may see it (ai.getTaskFor / watchFor / cancelFor with taskViewerOf(req)): on a shared profile a
+// task of the owner's that the signed-in person pays for, or of a document kind, with the kind's own box; any other is
+// the same 404. Only a task the person pays for is cancelled there (cancelFor); another is answered as it stands. The
+// streams one person holds open are counted for that person (actorOf), whatever profile they follow tasks on.
 
 /** The kinds a token may see: the autofill tasks' (the contract's AUTOFILL_TASK_KINDS). */
 const TOKEN_TASK_KINDS: readonly AiTaskKind[] = AUTOFILL_TASK_KINDS;
@@ -18,7 +25,12 @@ const TOKEN_TASK_KINDS: readonly AiTaskKind[] = AUTOFILL_TASK_KINDS;
 /** Polls and cancels per account a minute, for a token: the extension polls every 1.5 s, a few tasks at a time. */
 export const TOKEN_TASK_REQUESTS_PER_MINUTE = 300;
 
-const tokenMaySee = (req: Request, kind: AiTaskKind) => req.authVia !== 'token' || TOKEN_TASK_KINDS.includes(kind);
+/**
+ * v33 SHARE-6 (holds(), PLAN-sharing §4 "Helpers"): a token sees the autofill kinds only; a session the kinds it holds the
+ * box of (its own profile: every kind; a shared one: the kind's box, which getTaskFor has checked already).
+ */
+const tokenMaySee = (req: Request, kind: AiTaskKind) =>
+  req.authVia === 'token' ? TOKEN_TASK_KINDS.includes(kind) : holds(req, TASK_KIND_PERMISSION[kind]);
 
 /**
  * v5 (Jobright parity, Phase 2): how long one task's stream stays open at most. Past it the stream ends without its
@@ -44,9 +56,13 @@ export function createAiTasksRouter(deps: AppDeps): Router {
     req.authVia === 'token' ? tokenLimit(req, res, next) : next();
   router.use(allow('either', 'ai:run'), limitTokens);
 
-  /** GET /api/ai/tasks/:id → AiTaskView. */
+  /**
+   * GET /api/ai/tasks/:id → AiTaskView. v33 SHARE-3 (review; PLAN-sharing §5 "Refusal wording"): read as the request may
+   * see it (getTaskFor): a task someone else paid for (B's, run by A's extension) that stopped at their own limit reads
+   * as payer_limit.
+   */
   router.get('/:id', async (req, res) => {
-    const task = await requireAi(deps).getTask(req.params.id, userOf(req).id);
+    const task = await requireAi(deps).getTaskFor(req.params.id, taskViewerOf(req));
     if (!task || !tokenMaySee(req, task.kind)) throw notFound('That AI task');
     res.json(task);
   });
@@ -69,8 +85,9 @@ export function createAiTasksRouter(deps: AppDeps): Router {
   };
   router.get('/:id/stream', async (req, res) => {
     const ai = requireAi(deps);
-    const userId = userOf(req).id;
-    const task = await ai.getTask(req.params.id, userId);
+    const userId = actorOf(req).id; // v33 SHARE-6: the streams the signed-in person holds open, on any profile
+    const viewer = taskViewerOf(req); // v33 SHARE-3 (review): as GET /:id
+    const task = await ai.getTaskFor(req.params.id, viewer);
     if (!task || !tokenMaySee(req, task.kind)) throw notFound('That AI task');
     if ((openByAccount.get(userId) ?? 0) >= STREAMS_PER_ACCOUNT || (openByTask.get(task.id) ?? 0) >= STREAMS_PER_TASK) {
       throw new AppError('rate_limited', 'Too many streams are open. Read the task by its id instead.',
@@ -104,7 +121,7 @@ export function createAiTasksRouter(deps: AppDeps): Router {
     const cap = setTimeout(end, streamCapMs(deps.config.ai.timeoutMs));
     cap.unref?.();
     req.on('close', end);
-    const stopper = await ai.watch(task.id, userId, (event: AiTaskEvent) => {
+    const stopper = await ai.watchFor(task.id, viewer, (event: AiTaskEvent) => {
       if (ended) return;
       if (event.type === 'task') {
         res.write(sse({ type: 'task', task: event.view }));
@@ -123,15 +140,19 @@ export function createAiTasksRouter(deps: AppDeps): Router {
     else stop = stopper;
   });
 
-  /** DELETE /api/ai/tasks/:id → AiTaskView after cancelling (a finished task is returned unchanged). */
+  /**
+   * DELETE /api/ai/tasks/:id → AiTaskView after cancelling (a finished task is returned unchanged). v33 SHARE-6: through
+   * cancelFor (taskViewerOf): on a shared profile only a task the signed-in person pays for is cancelled; another they may
+   * read (the owner's own tailoring, say) is answered as it stands.
+   */
   router.delete('/:id', async (req, res) => {
     const ai = requireAi(deps);
-    const userId = userOf(req).id;
+    const viewer = taskViewerOf(req);
     // The kind is checked before anything is cancelled: a token never stops a task it may not see.
-    const before = await ai.getTask(req.params.id, userId);
+    const before = await ai.getTaskFor(req.params.id, viewer);
     if (!before || !tokenMaySee(req, before.kind)) throw notFound('That AI task');
-    await ai.cancel(req.params.id, userId);
-    res.json((await ai.getTask(req.params.id, userId)) ?? before);
+    await ai.cancelFor(req.params.id, viewer);
+    res.json((await ai.getTaskFor(req.params.id, viewer)) ?? before);
   });
 
   return router;

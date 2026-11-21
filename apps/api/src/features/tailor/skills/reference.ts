@@ -1,14 +1,15 @@
-import { readFileSync } from 'node:fs';
-import { staticDir } from '../../../core/paths';
+import { TECHNICAL_FAMILY_ID, type RoleFamilyId } from '@tailorit/shared';
+import { getSkillLibrary, tailorLibraryFor } from '../../../core/skills-vocabulary';
 import { sameWordFamily, toKeywordMatchForm } from '../ats';
 
 // tailor_builder0's services/tailoring/skillsReference.ts, ported (the owner's permission of 2026-11-09).
 //
 // The skills library decides where a job keyword goes: a keyword listed there belongs
 // in the Hard Skills or Soft Skills list; anything else is written into the resume text
-// instead. TailorIT ships tailor_builder0's library as static/skills/tailor-skills.json (each hard skill with a
-// heading, a priority and aliases that are other names for the same skill, plus the soft
-// skills), for tailoring only: TailorIT's own skills.json stays the matching library. The older markdown reference
+// instead. v33 SKILLS: the library is the one skill library (static/skills/skills.json v2), read per role family
+// (`referenceFor`): each entry's tailoring data (`tailor`: heading, priority, alias group) and the family's soft list,
+// in the shape tailor_builder0's file had. The technical family's is tailor_builder0's library exactly as v3.2 shipped it
+// (static/skills/tailor-skills.json, now deleted; a test compares the two). The older markdown reference
 // (parseSkillsReference) is kept for the ported tests, which also run the steps with no reference at all.
 
 export type ReferenceSkillType = 'hard' | 'soft';
@@ -292,24 +293,39 @@ function parseGroups(value: unknown, headings: string[]): SkillGroupDefinition[]
   return groups;
 }
 
-let shipped: SkillsReference | null = null;
+const shipped = new Map<RoleFamilyId, SkillsReference>();
 let override: SkillsReference | null = null;
 
-/** The shipped library, read once (static/skills/tailor-skills.json); the empty reference if it cannot be read. */
-function shippedLibrary(): SkillsReference {
-  if (!shipped) {
+/** One family's part of the shipped library, read once; the empty reference if it cannot be read or holds nothing. */
+function shippedFor(family: RoleFamilyId): SkillsReference {
+  let reference = shipped.get(family);
+  if (!reference) {
     try {
-      shipped = parseSkillsLibrary(JSON.parse(readFileSync(staticDir('skills', 'tailor-skills.json'), 'utf8')));
+      reference = parseSkillsLibrary(tailorLibraryFor(family, getSkillLibrary()));
+      if (reference.size === 0) reference = EMPTY_REFERENCE;
     } catch {
-      shipped = EMPTY_REFERENCE;
+      reference = EMPTY_REFERENCE;
     }
+    shipped.set(family, reference);
   }
-  return shipped;
+  return reference;
 }
 
-/** The reference every step reads: the shipped library, unless a test put another in its place (useSkillsReference). */
+/**
+ * v33 SKILLS (F6): the reference tailoring reads for a role family (the person's field, or the job's when the person's
+ * is general: PROMPTS's `personSideFamily`). Technical: tailor_builder0's library exactly as v3.2 shipped it. Any other
+ * family: the library's skills that serve it (its own and the shared ones; the technical-skills fields, product and design
+ * also read the technical library) with its headings, groups and soft skills. General: every tailoring skill. A family
+ * with nothing gets EMPTY_REFERENCE, whose fallback keeps the AI's lists. A test's `useSkillsReference` replaces every
+ * family's.
+ */
+export function referenceFor(family: RoleFamilyId): SkillsReference {
+  return override ?? shippedFor(family);
+}
+
+/** The reference of the technical family (v3.2's), unless a test put another in its place (useSkillsReference). */
 export function loadSkillsReference(): SkillsReference {
-  return override ?? shippedLibrary();
+  return referenceFor(TECHNICAL_FAMILY_ID);
 }
 
 /** Tests: run the steps against another reference (EMPTY_REFERENCE: none at all); null puts the library back. */
@@ -367,6 +383,18 @@ export function classifyReferenceSkill(term: string, reference = loadSkillsRefer
 export function referenceAliases(term: string, reference = loadSkillsReference()): string[] {
   const key = toKeywordMatchForm(term);
   return (reference.aliases.get(key) ?? []).filter((name) => toKeywordMatchForm(name) !== key);
+}
+
+/**
+ * v33 FIX-1: every match form one skill goes by: its own, without a vendor prefix ("Microsoft Excel" and "Excel"), and
+ * each name of its alias group ("Adobe Illustrator" and "Illustrator"). Two terms that share one are one skill.
+ */
+export function referenceForms(term: string, reference = loadSkillsReference()): Set<string> {
+  const key = toKeywordMatchForm(term);
+  const keys = [...new Set([key, key.replace(VENDOR_PREFIX, '')])].filter(Boolean);
+  const forms = new Set(keys);
+  for (const candidate of keys) for (const name of reference.aliases.get(candidate) ?? []) forms.add(toKeywordMatchForm(name));
+  return forms;
 }
 
 /**

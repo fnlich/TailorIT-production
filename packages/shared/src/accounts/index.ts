@@ -3,6 +3,7 @@ import { ROLES } from '../auth/index';
 import type { Limit } from '../constants/constants';
 import { messageError } from '../constants/public/defaults';
 import { IsoDate, IsoDateTime } from '../core/list';
+import { ActingProfileSchema } from '../sharing/dto'; // v33 SHARE-0
 
 // v2.0: the two account types, their entitlements, extra credit and the admin's account routes
 // (docs/design/v2.0/04-accounts-limits.md). The account type is stored as `account_type` plus `paid_until`; every
@@ -126,6 +127,11 @@ export const AccountSummarySchema = z.object({
   /** Free accounts only: `visible` is false for a Paid one. */
   subscribe: SubscribeActionSchema,
   buyCredit: BuyCreditActionSchema,
+  // v33 SHARE-0 (PLAN-sharing.md §4 "Mixed routes", §9 "Account data"): the profile the request acts on (its owner's
+  // name, email, default resume and field), the person's own when it names none. The plan, credit and features above
+  // stay the signed-in person's (B pays); the resume and auto-apply counts are the profile's. SHARE-3 fills it.
+  profile: ActingProfileSchema.optional(),
+  // end v33 SHARE-0
 });
 export type AccountSummary = z.infer<typeof AccountSummarySchema>;
 

@@ -5,6 +5,10 @@ import type { SaveClock } from './saveQueue';
 // resume (or by the draft id of a resume not created yet), written at most every two seconds and at once when the page
 // is hidden, and removed after a save succeeds and at sign-out; at sign-in, any other account's copies go. Storage
 // that refuses to work (a private window, blocked site data, a full quota) only means there is no copy.
+// v33 SHARE-4 (PLAN-sharing.md §9 "Editors"): the account's part of the key is a scope, "<accountId>.<key|me>"
+// (lib/profile.ts localCopyScope): a copy made on a profile shared with the person is offered back on that profile
+// only, never on their own or another (a draft's copy never becomes a resume elsewhere). A shared profile's copies go
+// when it ends (clearProfileCopies) or leaves the person's list (pruneProfileCopies).
 
 export const LOCAL_COPY_PREFIX = 'tailorit.resume-copy.v1.';
 export const LOCAL_COPY_THROTTLE_MS = 2_000;
@@ -28,8 +32,9 @@ export interface LocalCopyRecord<D> {
 
 export type CopyTarget = { resumeId: string } | { draftId: string };
 
-const keyOf = (accountId: string, target: CopyTarget) =>
-  `${LOCAL_COPY_PREFIX}${accountId}.${'resumeId' in target ? `resume.${target.resumeId}` : `draft.${target.draftId}`}`;
+/** `scope`: "<accountId>.<key|me>" (v33 SHARE-4), or an account id alone (a copy written before v3.3). */
+const keyOf = (scope: string, target: CopyTarget) =>
+  `${LOCAL_COPY_PREFIX}${scope}.${'resumeId' in target ? `resume.${target.resumeId}` : `draft.${target.draftId}`}`;
 
 function attempt<T>(work: () => T, fallback: T): T {
   try {
@@ -66,11 +71,12 @@ export interface LocalCopy<D> {
 export function createLocalCopy<D>(options: {
   storage: CopyStorage | null;
   clock: SaveClock;
-  accountId: string;
+  /** v33 SHARE-4: "<accountId>.<key|me>" (lib/profile.ts localCopyScope): the account and the profile. */
+  scope: string;
   target: CopyTarget;
 }): LocalCopy<D> {
-  const { storage, clock, accountId } = options;
-  let key = keyOf(accountId, options.target);
+  const { storage, clock, scope } = options;
+  let key = keyOf(scope, options.target);
   let pending: LocalCopyRecord<D> | null = null;
   let lastWrite = -Infinity;
   let timer: unknown = null;
@@ -111,7 +117,7 @@ export function createLocalCopy<D>(options: {
       if (storage) attempt(() => storage.removeItem(key), undefined);
     },
     retarget(resumeId) {
-      const next = keyOf(accountId, { resumeId });
+      const next = keyOf(scope, { resumeId });
       if (next === key) return;
       const text = storage ? attempt(() => storage.getItem(key), null) : null;
       if (storage) attempt(() => storage.removeItem(key), undefined);
@@ -134,6 +140,31 @@ export function clearOtherAccountCopies(storage: CopyStorage | null, accountId: 
   if (!storage) return;
   const prefix = `${LOCAL_COPY_PREFIX}${accountId}.`;
   for (const key of keys(storage)) if (!key.startsWith(prefix)) attempt(() => storage.removeItem(key), undefined);
+}
+
+/** v33 SHARE-4: the profile `profileKey` shared with the account ended: its copies go (they were the owner's data). */
+export function clearProfileCopies(storage: CopyStorage | null, accountId: string, profileKey: string): void {
+  if (!storage) return;
+  const prefix = `${LOCAL_COPY_PREFIX}${accountId}.${profileKey}.`;
+  for (const key of keys(storage)) if (key.startsWith(prefix)) attempt(() => storage.removeItem(key), undefined);
+}
+
+/** A profile key's form (lib/profile.ts' isProfileKey; repeated here so this file stays free of the shared package). */
+const PROFILE_SCOPE = /^p[0-9A-Za-z]{11}$/;
+
+/**
+ * v33 SHARE-4: the account's list of shared profiles was read: copies made on a shared profile it no longer lists go.
+ * The account's own copies ("me") and copies written before v3.3 stay.
+ */
+export function pruneProfileCopies(storage: CopyStorage | null, accountId: string, liveKeys: readonly string[]): void {
+  if (!storage) return;
+  const prefix = `${LOCAL_COPY_PREFIX}${accountId}.`;
+  const live = new Set(liveKeys);
+  for (const key of keys(storage)) {
+    if (!key.startsWith(prefix)) continue;
+    const scope = key.slice(prefix.length).split('.')[0] ?? '';
+    if (PROFILE_SCOPE.test(scope) && !live.has(scope)) attempt(() => storage.removeItem(key), undefined);
+  }
 }
 
 export type CopyOffer =

@@ -37,6 +37,7 @@ import {
   letterKeys,
   patchLetter,
 } from '../letter-editor/data';
+import { conflictToast, isSaveConflict } from '../letter-editor/conflict'; // v33 SHARE-3
 import { EditorMenu } from '../letter-editor/EditorMenu';
 import { isEmptyLetterHtml, isLetterFont, storedHtmlOf, toEditorHtml } from '../letter-editor/html';
 import { FileArrowUpIcon, FileDocIcon, FilePdfIcon } from '../letter-editor/icons';
@@ -46,11 +47,15 @@ import { GenerateDialog } from './GenerateDialog';
 import { PlaceholderBanner, ReplacePlaceholderDialog } from './PlaceholderBanner';
 import { usePublicConstants } from '@/lib/constants';
 import { deleteOneWords } from '@/features/documents/core';
+import { useChangeAccess, useDeletesDocuments } from '../sharing/access'; // v33 FIX-1; FIX-2: useDeletesDocuments
 
 /*
  * The cover letter editor (/cover-letter/[id]): EditorBar (rename, save status, Export Cover Letter, ☰), the
  * formatting toolbar over the paper, autosave 1 s after typing, the "Almost there" warning banner for {{TAGS}} left
  * in the letter, and "Generate a Tailored Cover Letter" (opens by itself while the letter is empty).
+ * v33 SHARE-3: each autosave names the version it changes (baseUpdatedAt: the last one loaded or saved); a save refused
+ * as stale (someone else changed the letter on a shared profile, or another tab did) drops what waits and loads the
+ * latest version (letter-editor/conflict.ts).
  */
 
 const DOCUMENTS_HREF = '/documents?tab=cover-letters';
@@ -100,6 +105,10 @@ export function CoverLetterEditorPage({ letterId }: { letterId: string }) {
 }
 
 function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
+  // v33 FIX-1 (PLAN-sharing §9): on a profile shared without Documents' Change the letter is read-only (every save
+  // was refused, and what was typed was lost): no typing, Rename, Generate, Import, New or Delete; Export stays.
+  const canEdit = useChangeAccess('documents:edit').change;
+  const canDelete = useDeletesDocuments(); // v33 FIX-2: never on a shared profile (Documents' Change never deletes)
   const router = useRouter();
   const { t } = usePublicConstants();
   const queryClient = useQueryClient();
@@ -118,9 +127,13 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exporting, setExporting] = useState<'pdf' | 'docx' | null>(null);
   const deleted = useRef(false);
+  // v33 SHARE-3: the version the next save changes (the letter's updatedAt as last loaded or saved).
+  const base = useRef(initial.updatedAt);
+  const onConflict = useRef<() => void>(() => undefined);
 
   const remember = useCallback(
     (updated: CoverLetterDetail) => {
+      base.current = updated.updatedAt;
       setLetter(updated);
       queryClient.setQueryData(letterKeys.detail(id), updated);
       void queryClient.invalidateQueries({ queryKey: letterKeys.all, exact: true });
@@ -130,8 +143,17 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
 
   const autosave = useAutosave<PatchCoverLetterBody>(async (patch, { keepalive }) => {
     if (deleted.current) return;
-    const updated = await patchLetter(id, patch, { keepalive });
-    if (!keepalive) remember(updated);
+    try {
+      const updated = await patchLetter(id, { ...patch, baseUpdatedAt: base.current }, { keepalive });
+      if (!keepalive) remember(updated);
+    } catch (error) {
+      // v33 SHARE-3: saved elsewhere since: the latest version replaces this one (nothing more is sent from it).
+      if (!keepalive && isSaveConflict(error)) {
+        onConflict.current();
+        return;
+      }
+      throw error;
+    }
   });
 
   const placeholders = useMemo(() => findPlaceholders(html), [html]);
@@ -140,6 +162,23 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
     editor?.chain().setContent(toEditorHtml(next), { emitUpdate }).run();
     setHtml(next);
   };
+
+  // v33 SHARE-3: the letter was saved elsewhere: say so, drop what waits, and show the latest version.
+  useEffect(() => {
+    onConflict.current = () => {
+      autosave.discard();
+      const words = conflictToast(t, 'letter');
+      toast.info(words.title, words.description);
+      void fetchLetter(id)
+        .then((latest) => {
+          setEditorContent(latest.contentHtml, false);
+          setTitle(latest.title);
+          if (isLetterFont(latest.fontFamily)) setFont(latest.fontFamily);
+          remember(latest);
+        })
+        .catch(() => undefined);
+    };
+  });
 
   const exportAs = async (format: 'pdf' | 'docx') => {
     setExporting(format);
@@ -168,6 +207,13 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
   const startGenerating = async () => {
     await autosave.flush();
     setGenerating(true);
+  };
+
+  // v33 SHARE-3 (review): the job picked in the dialog is saved as an edit (one save at a time, from the version the
+  // editor holds, its answer remembered), so neither it nor the next typed save is refused as stale.
+  const linkJob = async (applicationId: string) => {
+    autosave.schedule({ applicationId });
+    await autosave.flush();
   };
 
   const finishGenerating = (result: CoverLetterGenerateResult | null) => {
@@ -202,7 +248,9 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
       <EditorBar
         name={title}
         documentsHref={DOCUMENTS_HREF}
-        onRename={async (name) => {
+        onRename={!canEdit ? undefined : async (name) => {
+          // v33 SHARE-3: what waits is saved first, so the rename never makes the next save look stale.
+          await autosave.flush().catch(() => undefined);
           const updated = await patchLetter(id, { title: name });
           setTitle(updated.title);
           remember(updated);
@@ -210,7 +258,7 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
         validateName={validateLetterTitle}
         maxNameLength={200}
         info={LETTER_NAME_TOOLTIP}
-        status={saveStatusText(autosave.state, autosave.savedAt, letter.updatedAt, now)}
+        status={canEdit ? saveStatusText(autosave.state, autosave.savedAt, letter.updatedAt, now) : 'Read-only'}
         actions={
           <>
             <EditorBarButton
@@ -224,27 +272,36 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
               items={[
                 { key: 'pdf', label: 'Export to PDF', icon: <FilePdfIcon size={16} />, onSelect: () => void exportAs('pdf') },
                 { key: 'docx', label: 'Export to Word', icon: <FileDocIcon size={16} />, onSelect: () => void exportAs('docx') },
-                {
-                  key: 'import',
-                  label: 'Import from PDF/DOCX',
-                  icon: <FileArrowUpIcon size={16} />,
-                  onSelect: () => undefined,
-                  onFile: (file) => void importFile(file),
-                },
-                {
-                  key: 'new',
-                  label: 'New cover letter',
-                  icon: <PlusIcon size={16} />,
-                  ruleBefore: true,
-                  onSelect: () => router.push('/cover-letter/new'),
-                },
-                {
-                  key: 'delete',
-                  label: 'Delete this cover letter',
-                  icon: <TrashIcon size={16} />,
-                  tone: 'danger',
-                  onSelect: () => setConfirmDelete(true),
-                },
+                // v33 FIX-1: Import, New and Delete only with Documents' Change.
+                ...(canEdit
+                  ? [
+                      {
+                        key: 'import',
+                        label: 'Import from PDF/DOCX',
+                        icon: <FileArrowUpIcon size={16} />,
+                        onSelect: () => undefined,
+                        onFile: (file: File) => void importFile(file),
+                      },
+                      {
+                        key: 'new',
+                        label: 'New cover letter',
+                        icon: <PlusIcon size={16} />,
+                        ruleBefore: true,
+                        onSelect: () => router.push('/cover-letter/new'),
+                      },
+                      ...(canDelete
+                        ? [
+                            {
+                              key: 'delete',
+                              label: 'Delete this cover letter',
+                              icon: <TrashIcon size={16} />,
+                              tone: 'danger' as const,
+                              onSelect: () => setConfirmDelete(true),
+                            },
+                          ]
+                        : []),
+                    ]
+                  : []),
               ]}
             />
           </>
@@ -262,7 +319,7 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
           setHtml(next);
           autosave.schedule({ contentHtml: next });
         }}
-        editable={!generating}
+        editable={!generating && canEdit}
         placeholder={LETTER_EDITOR_PLACEHOLDER}
         label="Cover letter"
         onGenerate={() => setGenerateOpen(true)}
@@ -278,6 +335,7 @@ function LetterWorkspace({ initial }: { initial: CoverLetterDetail }) {
         letter={letter}
         replacesContent={!isEmptyLetterHtml(html)}
         onStart={startGenerating}
+        onPickJob={linkJob}
         onDone={finishGenerating}
       />
 
