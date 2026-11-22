@@ -1,12 +1,13 @@
 import type { AppDeps } from '../../core/context';
 import type { TailoredContent } from '../tailor/types';
-import { newCanary } from './screen';
+import { newDataId } from './screen';
 
 // mcp_prepare_work (made by migration 0816 as mcp_prebuild_work, renamed by v2.0's 0822): what the MCP tools keep
 // between two calls about one of an account's jobs. The only module that reads or writes it. Every read and write
 // names the account, so one account's AI never sees or shapes another's.
 
 export interface Work {
+  /** The job's tripwire word, handed out until v3.4 (v34 MCPDIR: never since; saves are still screened for it). */
   canary: string;
   postingHash: string | null;
   /** The AI's raw keyword analysis (analyze-job-description's answer, the review's misses added), or null. */
@@ -73,7 +74,7 @@ export async function workFor(deps: Pick<AppDeps, 'db' | 'now'>, userId: string,
   await deps.db.run(
     `INSERT INTO mcp_prepare_work(user_id, job_id, canary, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id, job_id) DO NOTHING`,
-    [userId, jobId, newCanary(), now, now],
+    [userId, jobId, newDataId(), now, now],
   );
   return workOf((await select())!);
 }

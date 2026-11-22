@@ -13,10 +13,14 @@ import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { adminKeys, fetchAiBackground, fetchAiCapacity, fetchAiHealth, runAiTest } from './api';
 import { BACKGROUND_REFRESH_MS, gateLine, gateTone, jobsRow, matchesRow, resumesRow } from './background';
+import { BILLING_FACT_LABEL, billingText, signedInText } from './billing'; // v34 AIKEY; v34 FIX-WEB (signedInText)
 import {
   CAPACITY_REFRESH_MS,
   CAPACITY_SOURCE_TEXT,
   capacityState,
+  keyBudgetFill, // v34 AIKEY
+  keyBudgetState, // v34 AIKEY
+  keyBudgetText, // v34 AIKEY
   percentText,
   resetsText,
   todayText,
@@ -65,6 +69,7 @@ export function AiTab() {
   });
 
   const data: AiHealth | undefined = recheck.data ?? health.data;
+  const billing = billingText(data?.billing); // v34 AIKEY
 
   // v30 ST5: on the admin tab base; its body is no list but the AI's cards, each with its own states.
   return (
@@ -94,7 +99,11 @@ export function AiTab() {
               <Skeleton className="mt-4 h-4 w-3/4" />
             </div>
           ) : (
-            <div className="mt-5 rounded-card border border-border bg-surface p-6 shadow-card" data-ai-health={data.available ? 'available' : 'unavailable'}>
+            <div
+              className="mt-5 rounded-card border border-border bg-surface p-6 shadow-card"
+              data-ai-health={data.available ? 'available' : 'unavailable'}
+              data-ai-billing={data.billing} // v34 AIKEY
+            >
               <div className="flex items-center gap-3">
                 <span
                   aria-hidden="true"
@@ -105,9 +114,11 @@ export function AiTab() {
                 </h3>
               </div>
               <p className="mt-2 text-sm leading-5 text-muted-foreground">{data.message}</p>
-              <dl className="mt-5 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              {/* v34 AIKEY: five facts (Billed to), three a row from 1024 px and all five from 1280 px. */}
+              <dl className="mt-5 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <Fact label="CLI version" value={data.cliVersion ?? 'Not found'} />
-                <Fact label="Signed in" value={data.loggedIn ? [data.authMethod, data.subscriptionType].filter(Boolean).join(', ') || 'Yes' : 'No'} />
+                <Fact label="Signed in" value={signedInText(data)} />
+                <Fact label={BILLING_FACT_LABEL} value={billing.value} tip={billing.tip} />
                 <Fact label="Default model" value={data.defaultModel} />
                 <Fact label="Checked" value={relativeTime(data.checkedAt, now)} />
               </dl>
@@ -168,7 +179,9 @@ function ServerAiStatusCard() {
     );
   }
   const data = capacity.data;
-  const state = capacityState(data);
+  // v34 AIKEY (review fix H1): with AI_BILLING=api-key, today's spend against the daily budget instead of the window.
+  const budget = data.keyBudget;
+  const state = budget ? keyBudgetState({ ...data, keyBudget: budget }, now) : capacityState(data);
   const fill = Math.min(100, Math.max(0, (data.utilization ?? 0) * 100));
   const mark = Math.min(100, data.threshold * 100);
   const resets = resetsText(data.resetsAt, now);
@@ -178,29 +191,49 @@ function ServerAiStatusCard() {
         <span aria-hidden="true" className={clsx('size-2.5 shrink-0 rounded-full', STATE_DOT[state.tone])} />
         <h3 className="text-[15px] leading-5 font-semibold text-foreground">Server AI status</h3>
       </div>
-      <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-2">
-        <p className="num text-[40px] leading-none tracking-tight text-foreground" data-ai-utilization="">
-          {percentText(data.utilization)}
-        </p>
-        <p className="pb-1 text-[13px] leading-5 text-muted-foreground">
-          {[windowText(data.window), data.source ? CAPACITY_SOURCE_TEXT[data.source] : null, resets].filter(Boolean).join(' · ')}
-        </p>
-      </div>
-      {/* v31 ADMINWEB: the tape meter (20-visual-identity.md §7), its tone by meaning, and the block threshold marked on it. */}
-      <div className="relative mt-4">
-        <TapeMeter
-          label="Server AI usage"
-          value={fill}
-          valueText={`${percentText(data.utilization)} used; it blocks at ${percentText(data.threshold)}`}
-          showValue={false}
-          size="lg"
-          tone={data.blocked ? 'danger' : fill >= mark - 10 ? 'warning' : 'primary'}
-        />
-        <span aria-hidden="true" className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 rounded-full bg-danger" style={{ left: `${mark}%` }} />
-      </div>
-      <p className="mt-1.5 text-right text-xs leading-4 text-muted-foreground">
-        Blocks at <span className="num">{percentText(data.threshold)}</span>
-      </p>
+      {budget ? (
+        <div data-ai-key-budget={budget.reached ? 'reached' : 'open'}>
+          <p className="num mt-4 text-2xl leading-8 font-semibold tracking-tight text-foreground" data-ai-key-budget-today="">
+            {keyBudgetText(budget)}
+          </p>
+          <div className="mt-3">
+            <TapeMeter
+              label="Today's AI spend"
+              value={keyBudgetFill(budget)}
+              valueText={`${keyBudgetText(budget)} (UTC day)`}
+              showValue={false}
+              size="lg"
+              tone={budget.reached ? 'danger' : keyBudgetFill(budget) >= 90 ? 'warning' : 'primary'}
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-2">
+            <p className="num text-[40px] leading-none tracking-tight text-foreground" data-ai-utilization="">
+              {percentText(data.utilization)}
+            </p>
+            <p className="pb-1 text-[13px] leading-5 text-muted-foreground">
+              {[windowText(data.window), data.source ? CAPACITY_SOURCE_TEXT[data.source] : null, resets].filter(Boolean).join(' · ')}
+            </p>
+          </div>
+          {/* v31 ADMINWEB: the tape meter (20-visual-identity.md §7), its tone by meaning, and the block threshold marked on it. */}
+          <div className="relative mt-4">
+            <TapeMeter
+              label="Server AI usage"
+              value={fill}
+              valueText={`${percentText(data.utilization)} used; it blocks at ${percentText(data.threshold)}`}
+              showValue={false}
+              size="lg"
+              tone={data.blocked ? 'danger' : fill >= mark - 10 ? 'warning' : 'primary'}
+            />
+            <span aria-hidden="true" className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 rounded-full bg-danger" style={{ left: `${mark}%` }} />
+          </div>
+          <p className="mt-1.5 text-right text-xs leading-4 text-muted-foreground">
+            Blocks at <span className="num">{percentText(data.threshold)}</span>
+          </p>
+        </>
+      )}
       {/* v32 COPY (E4): the blocked state is a red status line in the card, not a banner. */}
       {state.tone === 'blocked' ? (
         <p className="mt-3 flex items-start gap-1.5 text-sm leading-5 font-medium text-danger" data-ai-blocked="">
@@ -272,10 +305,14 @@ function BackgroundWorkCard() {
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+// v34 AIKEY: `tip`, the "?" beside the label.
+function Fact({ label, value, tip }: { label: string; value: string; tip?: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[13px] text-muted-foreground">{label}</dt>
+      <dt className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        {label}
+        {tip && <HelpTip label={label}>{tip}</HelpTip>}
+      </dt>
       <dd className="mt-0.5 truncate font-medium text-foreground">{value}</dd>
     </div>
   );

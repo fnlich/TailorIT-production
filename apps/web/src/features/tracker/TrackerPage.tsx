@@ -59,6 +59,9 @@ import { ListView, type ListEmptyKind } from './list/ListView';
 import { AllProfilesToggle } from './profiles/AllProfilesToggle';
 import { AllProfilesView } from './profiles/AllProfilesView';
 import { useTrackerScope, type TrackerScope } from './profiles/useTrackerProfiles';
+import { useTrackerFanout } from './profiles/fanout'; // v34 FANWEB
+import { FANOUT_COPY } from '../sharing/fanout/copy';
+import { manageBarFocus, ProfilesDialog } from '../sharing/fanout/parts';
 import { AddApplicationSheet } from './sheets/AddApplicationSheet';
 import {
   activeFilterCount,
@@ -155,6 +158,9 @@ function SingleProfileTracker({
   const { t } = usePublicConstants();
   const addButton = useRef<HTMLButtonElement>(null);
   const prepare = usePrepareAndQueue();
+  // v34 FANWEB (PLAN G2): Select › Copy to profiles… saves the selected entries' jobs on other profiles (as Saved).
+  const fanout = useTrackerFanout();
+  const [copying, setCopying] = useState<string[] | null>(null);
   // v31 JOBSWEB: Retry read of an entry's job only the person sees (the card and row menu).
   const retryRead = useRetryRead();
 
@@ -534,6 +540,14 @@ function SingleProfileTracker({
             buildingResumes={buildingResumes}
             resumesLocked={resumesLocked}
             deletable={!scope.view.acting}
+            onCopy={
+              fanout.available
+                ? () => {
+                    const onScreen = new Set(loadedIds);
+                    setCopying([...selected].filter((id) => onScreen.has(id)));
+                  }
+                : undefined
+            }
             onDone={() => {
               setSelectMode(false);
               setSelected(new Set());
@@ -633,6 +647,29 @@ function SingleProfileTracker({
         onClose={() => setUrl({ ...url, app: null, edit: false })}
       />
       <ImportCsvDialog open={importOpen} onOpenChange={setImportOpen} />
+      {fanout.available && (
+        <ProfilesDialog
+          open={copying !== null}
+          onOpenChange={(open) => !open && setCopying(null)}
+          title={FANOUT_COPY.copyToTitle(copying?.length ?? 0)}
+          help={FANOUT_COPY.copyToHelp}
+          profiles={fanout.profiles}
+          label={fanout.label}
+          exclude={(profile) => profile.current}
+          confirmLabel={FANOUT_COPY.copyConfirm}
+          // v34 FANWEB fix (spec L2): the opener is off once the selection clears: focus goes to the bar's Done.
+          finalFocus={manageBarFocus}
+          onConfirm={async (targets) => {
+            if (!copying) return;
+            await fanout.copy(
+              copying.map((applicationId) => ({ profile: fanout.tab, applicationId })),
+              targets,
+            );
+            setSelected(new Set());
+          }}
+        />
+      )}
+      {fanout.element}
       {prepare.elements}
       <LockedFeatureDialog feature="batch_download" open={resumesLockOpen} onOpenChange={setResumesLockOpen} />
       {zipLimits.dialog}

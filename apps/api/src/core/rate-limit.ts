@@ -1,5 +1,6 @@
 import type { Request, RequestHandler } from 'express';
 import { rateLimit, type RateLimitInfo } from 'express-rate-limit';
+import { fixedCodeUsable } from './auth/fixed-code'; // v34 FIX-API
 import type { AppDeps } from './context';
 import { AppError } from './http/errors';
 import { DAY_MS } from '@tailorit/shared';
@@ -85,11 +86,11 @@ function isCodeRequest(req: Request): boolean {
  * a place, so a burst cannot overshoot. (express-rate-limit cannot say this: it either keeps abandoned requests on the
  * count, junk included, or drops them, emails included.)
  */
-function codeEmailBackstop(deps: Pick<AppDeps, 'now'>, skip: () => boolean): RequestHandler {
+function codeEmailBackstop(deps: Pick<AppDeps, 'now'>, skip: (req: Request) => boolean): RequestHandler {
   let sent: number[] = [];
   let running = 0;
   return (req, res, next) => {
-    if (skip() || !isCodeRequest(req)) return next();
+    if (skip(req) || !isCodeRequest(req)) return next();
     const now = deps.now().getTime();
     sent = sent.filter((at) => now - at < SIGN_IN_WINDOW_MS);
     if (sent.length + running >= SIGN_IN_GLOBAL_LIMIT) {
@@ -126,8 +127,10 @@ function codeEmailBackstop(deps: Pick<AppDeps, 'now'>, skip: () => boolean): Req
 export function signInRateLimit(deps: AppDeps): RequestHandler[] {
   const counts = (req: Request, status: number) => status >= 400 || isCodeRequest(req);
   // AUTH_DEV_FIXED_CODE (development and tests only) lets anyone sign in as anyone, so limiting attempts protects
-  // nothing there, while automated tests sign in many times.
-  const skip = () => deps.config.auth.devFixedCode !== null;
+  // nothing there, while automated tests sign in many times. v34 FIX-API (the final security review, F1): only where the
+  // fixed code signs in (this computer, or the test servers' opt-in); through a tunnel or from the network the limits
+  // hold, as they do for real codes.
+  const skip = (req: Request) => fixedCodeUsable(deps, req);
   const perAddress = (windowMs: number, limit: number) =>
     keyedRateLimit({
       windowMs,
@@ -136,7 +139,7 @@ export function signInRateLimit(deps: AppDeps): RequestHandler[] {
       message: (seconds) => `There have been too many sign-in attempts for this address. ${waitSentence(seconds)}`,
       counts,
       // A request without an address (Google, or no body at all) has nothing to key on.
-      skip: (req) => skip() || addressOf(req) === '',
+      skip: (req) => skip(req) || addressOf(req) === '',
     });
 
   return [

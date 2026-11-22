@@ -39,11 +39,15 @@ let leavingForSignIn = false;
 /**
  * Log out's full-page move to the sign-in page. While it loads, a query that refetches meanwhile and is told the
  * session is gone must not send the tab elsewhere ("/login?next=<page>": the next person would land there).
+ * v34 ACCTDEL: `to`, the sign-in page with its own mark (Delete my account's /login?deleted=1); anything that is not
+ * the sign-in page is the plain one.
  */
-export function leaveForSignIn(): void {
+export function leaveForSignIn(to = '/login'): void {
   if (typeof window === 'undefined') return;
   leavingForSignIn = true;
-  window.location.assign(new URL('/login', window.location.origin).href);
+  const url = new URL(to, window.location.origin);
+  const page = url.origin === window.location.origin && url.pathname === '/login' ? url : new URL('/login', window.location.origin);
+  window.location.assign(page.href);
 }
 
 /** Full-page move to the sign-in page, remembering where the person was. A no-op on the sign-in page itself. */

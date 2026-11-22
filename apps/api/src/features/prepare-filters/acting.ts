@@ -7,5 +7,6 @@ import type { ActingTable } from '../../core/feature';
 export const PREPARE_FILTERS_ACTING = {
   'GET /': 'prepare:view',
   'PUT /': 'settings:edit',
+  'PATCH /': 'settings:edit', // v34 FANOUT: some of the filters, the same rules as the PUT
   'POST /preview': 'prepare:view',
 } as const satisfies ActingTable;

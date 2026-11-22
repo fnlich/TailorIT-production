@@ -18,7 +18,8 @@ TailorIT is a self-hosted job-search workspace:
 - **Admin**: job sources and their schedule, companies, reviews of the extension's reports, users, AI health and
   usage, constants and announcements.
 
-The AI features run through the `claude` command-line tool signed in with a Claude subscription; no API key is used.
+The AI features run through the `claude` command-line tool signed in with a Claude subscription; no API key is used,
+unless a public server bills them to an Anthropic API key (`AI_BILLING=api-key`, DEPLOY.md).
 Without it, everything else still works.
 
 Deployment, configuration, the database, backups and security are in **[DEPLOY.md](DEPLOY.md)**.

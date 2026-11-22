@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { scrubSecrets } from './env'; // v34 AIKEY
 import { NdjsonSplitter, TailBuffer } from './stream';
 
 // The process seam: the only module that spawns the CLI for a completion. Everything above it reads CliRunOutcome.
@@ -17,6 +18,11 @@ export interface CliRunSpec {
   signal?: AbortSignal;
   onLine(line: string): void;
   maxOutputBytes?: number;
+  /**
+   * v34 AIKEY (review fix L3): values the child's stderr must not carry further (AI_BILLING=api-key's key), scrubbed
+   * before the stderr is cut to its last 64 KB.
+   */
+  secrets?: readonly string[];
 }
 
 export interface CliRunOutcome {
@@ -83,7 +89,10 @@ export function runCli(spec: CliRunSpec): Promise<CliRunOutcome> {
       clearTimeout(timers.deadline);
       clearTimeout(timers.stall);
       spec.signal?.removeEventListener('abort', onAbort);
-      resolve({ exitCode, spawnError, ...flags, stderr: stderr.text(), ms: Date.now() - startedAt });
+      // v34 AIKEY: scrubbed before the cut (only with secrets; the default reads the tail as before).
+      const hidden = spec.secrets ?? [];
+      const tail = hidden.length > 0 ? stderr.text((text, cutAtStart) => scrubSecrets(text, hidden, { start: cutAtStart })) : stderr.text();
+      resolve({ exitCode, spawnError, ...flags, stderr: tail, ms: Date.now() - startedAt });
     };
     const stop = (flag: keyof typeof flags) => {
       if (settled) return;

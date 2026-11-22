@@ -18,6 +18,7 @@ import { VerificationNotice } from '../verification/VerificationNotice';
 import { AddedFromChip } from './AddedFrom';
 import { checkedLiveWhen, postedText } from './glance';
 import { HeldNotice } from './held/HeldNotice';
+import { SavedOnChips } from '../../sharing/fanout/parts'; // v34 FANWEB
 
 /**
  * v32 JOBS2 (E3): where the detail is drawn. `pane`: beside the list (from 1024 px), always there, its title an h2 of
@@ -88,6 +89,7 @@ export function JobHeader({
   titleRef,
   now,
   onUnhide,
+  savedOn = [],
   className,
 }: {
   job: JobDetail;
@@ -95,6 +97,8 @@ export function JobHeader({
   titleRef: RefObject<HTMLHeadingElement | null>;
   now: number;
   onUnhide: () => void;
+  /** v34 FANWEB: the other profiles that have the job in their Job Tracker ("Saved on Ana · Ben"). */
+  savedOn?: readonly string[];
   className?: string;
 }) {
   const { t } = usePublicConstants();
@@ -119,7 +123,7 @@ export function JobHeader({
   if (checked) meta.push({ key: 'checked', node: <span data-checked-live="">{t('LABEL_JOB_CHECKED_LIVE', { when: checked })}</span> });
   if (posted) meta.push({ key: 'posted', node: <span data-posted="">{posted}</span> });
 
-  const states = Boolean(job.addedFrom || job.held || job.verification || hidden || companyHidden);
+  const states = Boolean(job.addedFrom || job.held || job.verification || hidden || companyHidden || savedOn.length > 0);
 
   return (
     // v33 FIX-1: its place and look (a band above the cards, or the left column's top) are the panel's (HEADER_PLACE).
@@ -196,6 +200,8 @@ export function JobHeader({
         <div className="mt-3 flex flex-wrap items-center gap-2" data-detail-tags="">
           {/* A job added from its page (a LinkedIn job, a careers page): Apply opens the employer's link it was saved with. */}
           <AddedFromChip addedFrom={job.addedFrom} />
+          {/* v34 FANWEB: the other profiles that have this job saved. */}
+          <SavedOnChips names={savedOn} />
           {/* v32 JOBS2 (E4): the job's states are chips with a "?" (no banners): held for an admin (v30 X1-WEB), only
               you (v31 JOBSWEB, with Retry read), hidden (with its way back). */}
           <HeldNotice held={job.held} />

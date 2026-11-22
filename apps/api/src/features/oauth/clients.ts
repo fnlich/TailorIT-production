@@ -35,7 +35,8 @@ export interface OAuthClient {
 
 /** The longest name kept. */
 const NAME_MAX = 100;
-const GRANT_TYPES = new Set(['authorization_code', 'refresh_token']);
+/** The most grant types a client may list (TailorIT reads only the two it supports among them). */
+const GRANT_TYPES_MAX = 20;
 
 /** A name a client gave, as TailorIT shows it: no control or format characters, spaces folded, at most NAME_MAX. */
 function cleanName(value: unknown): string {
@@ -88,9 +89,16 @@ export function checkClientMetadata(input: unknown, registration: OAuthRegistrat
     if (problem) throw new OAuthError('invalid_redirect_uri', `a redirect address ${problem}`);
   }
   const redirectUris = [...new Set(uris as string[])];
+  // v3.3.1: a client may list grant types TailorIT does not support (Claude's own document lists
+  // urn:ietf:params:oauth:grant-type:jwt-bearer beside authorization_code and refresh_token); they are ignored, as RFC 7591
+  // §2 lets a server do, and /oauth/token still answers unsupported_grant_type for any but the two it supports.
   if (body.grant_types !== undefined) {
-    if (!Array.isArray(body.grant_types) || !body.grant_types.every((type) => typeof type === 'string' && GRANT_TYPES.has(type))) {
-      throw new OAuthError('invalid_client_metadata', 'grant_types may hold authorization_code and refresh_token only');
+    if (
+      !Array.isArray(body.grant_types) ||
+      body.grant_types.length > GRANT_TYPES_MAX ||
+      !body.grant_types.every((type) => typeof type === 'string' && type.length > 0 && type.length <= 200)
+    ) {
+      throw new OAuthError('invalid_client_metadata', 'grant_types must be a list of grant type names');
     }
     if (!body.grant_types.includes('authorization_code')) {
       throw new OAuthError('invalid_client_metadata', 'grant_types must include authorization_code');

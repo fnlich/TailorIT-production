@@ -14,6 +14,12 @@ const WRAPPER_TAG = /<\s*\/?\s*untrusted(?:[^<>]{0,100}>)?/gi;
 const SENTINEL = /@@\s*(?:begin|end)[\s_-]*json\s*@@/gi;
 /** The tag the fake Claude CLI picks its scenario by (`[feature:<kind>]`, tools/fake-claude), in any spacing. */
 const SCENARIO_TAG = /\[\s*feature\s*:/gi;
+/**
+ * v34 MCPDIR (the MCPDIR security review, finding 4): what reads as one of TailorIT's own marks inside quoted text (an
+ * MCP fence's data label "[TailorIT data: ...]" or a cut mark "[TailorIT cut ...]"), so page text cannot forge one.
+ */
+const TAILORIT_MARK = /\[\s*tailorit\s+(?=data\b|cut\b)/gi;
+export const MARK_DEFUSED = '[quoted TailorIT ';
 
 export const TAG_REMOVED = '[tag removed]';
 export const MARKER_REMOVED = '[marker removed]';
@@ -32,6 +38,7 @@ export function untrustedText(text: string, max: number): string {
     .replace(WRAPPER_TAG, TAG_REMOVED)
     .replace(SENTINEL, MARKER_REMOVED)
     .replace(SCENARIO_TAG, SCENARIO_DEFUSED)
+    .replace(TAILORIT_MARK, MARK_DEFUSED) // v34 MCPDIR
     .replace(/\s+/g, ' ')
     .trim();
   const points = [...cleaned];

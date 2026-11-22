@@ -306,6 +306,8 @@ export function createPrepareRunner(deps: AppDeps): PrepareRunner {
 
   /** Looks for work: a pass now, or one more right after the pass under way. */
   function pump(): void {
+    // v34 DIRKIT: never in a maintenance command's process (AppDeps.commandProcess): the running API's runner does it.
+    if (deps.commandProcess) return;
     if (pumping) {
       pumpAgain = true;
       return;

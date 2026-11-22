@@ -41,17 +41,23 @@ export async function startAuth(deps: AppDeps): Promise<() => void> {
     deps.log.info('[auth] SMTP is not configured: sign-in codes are printed in this console instead of emailed.');
   }
   if (deps.config.auth.devFixedCode) {
-    // Loud on purpose: with this set, the sign-in page is open to whoever can reach the web server.
+    // Loud on purpose: with this set, the sign-in page is open to whoever uses this computer (v34 FIX-API, the final
+    // security review F1: only from this computer; with the test servers' opt-in, from every address).
     const rule = `[auth] ${'!'.repeat(100)}`;
     deps.log.warn(rule);
-    deps.log.warn(
-      '[auth] AUTH_DEV_FIXED_CODE is set: anyone who can reach this server can sign in as any address, ' +
-        'administrators included.',
-    );
-    deps.log.warn(
-      '[auth] Use it for automated tests only, and keep the web server and the API on this computer while it is set ' +
-        '(WEB_HOST=localhost, API_HOST=127.0.0.1).',
-    );
+    if (deps.config.auth.devFixedCodeAnyAddress) {
+      deps.log.warn(
+        '[auth] AUTH_DEV_FIXED_CODE is set with AUTH_DEV_FIXED_CODE_ANY_ADDRESS (TailorIT\'s test servers only): anyone who ' +
+          'can reach this server, through a tunnel or from the network too, can sign in as any address, administrators included.',
+      );
+    } else {
+      deps.log.warn(
+        '[auth] AUTH_DEV_FIXED_CODE is set: anyone using this computer can sign in as any address with it, administrators ' +
+          'included. It works only from this computer (a page at localhost, 127.0.0.1 or [::1], with no tunnel or proxy in ' +
+          'between); through a tunnel or from another device it is a wrong code.',
+      );
+    }
+    deps.log.warn('[auth] Use it for automated tests only, and clear it before anyone else uses this computer or its TailorIT.');
     deps.log.warn(rule);
   }
 

@@ -13,6 +13,11 @@ import { Switch } from '@/components/ui/Switch';
 import { useToast } from '@/components/ui/Toast';
 import { userMessage } from '@/lib/api';
 import { autoApplyKeys, saveAgentSettings } from './api';
+import { ApplyOthers, tickedBody } from '../sharing/fanout/ApplyOthers'; // v34 FANWEB
+import { fanoutKeys, patchRuleOn } from '../sharing/fanout/api';
+import { FANOUT_COPY, namesList } from '../sharing/fanout/copy';
+import { fanoutReport } from '../sharing/fanout/results';
+import { useFanoutChoices } from '../sharing/fanout/useFanout';
 
 /** The slider saves this long after it last moved, so arrow keys held down send one save. */
 const SLIDER_SAVE_DELAY_MS = 600;
@@ -146,6 +151,12 @@ export function RuleSection({ settings, readOnly = false }: { settings: Autofill
   };
 
   const ruleEnabled = queued?.ruleEnabled ?? settings.ruleEnabled;
+  // v34 FANWEB (PLAN G3): the rule copied to other profiles (Job settings › Change on each).
+  const choices = useFanoutChoices(['settings:edit']);
+  const ruleFields = [
+    { key: 'ruleEnabled' as const, label: 'Auto-save new jobs', value: settings.ruleEnabled ? 'On' : 'Off' },
+    { key: 'minMatch' as const, label: 'Minimum match', value: `${settings.minMatch}%` },
+  ];
   return (
     <section aria-label="Auto-save new jobs" className="rounded-card border border-border bg-surface shadow-card" data-rule-section="">
       <h2 id={headingId} className="text-[15px] leading-5 font-semibold text-foreground">
@@ -237,6 +248,30 @@ export function RuleSection({ settings, readOnly = false }: { settings: Autofill
           <span className="inline-flex items-center gap-1" data-low-minimum="">
             <Badge tone="warning">That minimum is low</Badge>
             <HelpTip label="That minimum is low">At {minMatch}%, it saves jobs that barely match.</HelpTip>
+          </span>
+        )}
+        {/* v34 FANWEB fix (both reviews): no copy to other profiles from a tab that may not change the rule; and none
+            while a change of it is on its way (the values copied are the saved ones). */}
+        {!readOnly && (
+          <span className="flex">
+            <ApplyOthers
+              help={FANOUT_COPY.applyRuleHelp}
+              fields={ruleFields}
+              disabled={save.isPending || queued !== null || minMatch !== settings.minMatch}
+              perform={async (targets, keys) => {
+                const answer = await patchRuleOn(targets, tickedBody(settings, keys));
+                void queryClient.invalidateQueries({ queryKey: fanoutKeys.settingsAll });
+                const words = namesList(ruleFields.filter((field) => keys.includes(field.key)).map((field) => field.label));
+                return fanoutReport(answer, {
+                  profiles: choices.profiles,
+                  label: choices.label,
+                  did: () => true,
+                  detail: () => words,
+                  title: FANOUT_COPY.ruleChangedOn,
+                  none: FANOUT_COPY.notChanged,
+                });
+              }}
+            />
           </span>
         )}
       </div>

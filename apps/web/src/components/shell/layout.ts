@@ -34,6 +34,8 @@ export const ACCOUNT_NAV = [
   // v33 SHARE-7 (SHARE-4's edit 3a): Settings › Sharing. In lib/profile.ts OWN_ONLY_PATHS, so it hides while acting.
   { href: '/settings/sharing', label: 'Sharing' },
   { href: '/settings/admin', label: 'Admin', adminOnly: true },
+  // v34 HELP (PLAN G6): the User Guide, on every profile (not in OWN_ONLY_PATHS).
+  { href: '/help', label: 'Help' },
 ] as const satisfies readonly NavItem[];
 
 /** The account links `role` may follow: Admin for administrators only. */
@@ -82,6 +84,7 @@ const SECTION_TITLES: readonly (readonly [string, string])[] = [
   // v33 SHARE-7: Settings › Sharing and the Profiles page.
   ['/settings/sharing', 'Sharing'],
   ['/profiles', 'Profiles'],
+  ['/help', 'Help'], // v34 HELP
   // v31 FIX-WEB (REV-UX UX-16): /oauth/consent has no top bar (app/(focus)), so no name here.
 ];
 

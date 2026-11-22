@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PUBLIC_PAGE_PATHS } from '../public-pages'; // v34 INT-A
 
 interface UrlLike {
   protocol: string;
@@ -53,6 +54,16 @@ export const OAUTH_PROTECTED_RESOURCE_PATH = '/.well-known/oauth-protected-resou
 export const OAUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server';
 /** The paths the API answers outside /api for OAuth (the web's dev rewrites and its sign-in gate name the same list). */
 export const OAUTH_API_PATHS = [OAUTH_PATHS.authorize, OAUTH_PATHS.token, OAUTH_PATHS.register, OAUTH_PATHS.revoke] as const;
+// v34 ORIGIN (PLAN G8): the public pages (no sign-in) the discovery documents link, on the issuer's origin: the guide
+// (resource_documentation, service_documentation), the privacy policy (resource_policy_uri, op_policy_uri) and the
+// terms (resource_tos_uri, op_tos_uri). The web builds them (PLAN: HELP the guide, PUBLIC the others). v34 INT-A
+// (PUBLIC's exact edit 2): the paths are the public pages' own (@tailorit/shared/public-pages), one source.
+export const OAUTH_DOCUMENT_PATHS = {
+  guide: PUBLIC_PAGE_PATHS.guide,
+  privacy: PUBLIC_PAGE_PATHS.privacy,
+  terms: PUBLIC_PAGE_PATHS.terms,
+} as const;
+// end v34 ORIGIN
 
 // ------------------------------------------------------------------------------------------------------- clients
 
@@ -67,7 +78,9 @@ export type OAuthRegistration = (typeof OAUTH_REGISTRATIONS)[number];
  * The AI apps TailorIT knows, by their exact documented addresses only (v31 FIX-AUTH, SEC-5): Claude's callback
  * https://claude.ai/api/mcp/auth_callback and Claude Code's metadata document https://claude.ai/oauth/claude-code-client-metadata
  * (claude.com/docs/connectors/building/authentication, read 2026-11-17 and again 2026-11-18: no claude.com callback is
- * documented); ChatGPT's callback https://chatgpt.com/connector_platform_oauth_redirect and its document
+ * documented); v3.3.1: the document Claude's own apps (claude.ai, Desktop, mobile) send as their client_id,
+ * https://claude.ai/oauth/mcp-oauth-client-metadata (read 2026-11-21: its client_id is its address, one redirect address,
+ * the callback above, token_endpoint_auth_method none); ChatGPT's callback https://chatgpt.com/connector_platform_oauth_redirect and its document
  * https://chatgpt.com/oauth/client.json (developers.openai.com/plugins/build/auth, read 2026-11-17). Another path or
  * another host under those names is not the app: chatgpt.com/aip/g-.../oauth/callback, for one, is a third party's GPT.
  */
@@ -83,7 +96,7 @@ export const OAUTH_KNOWN_CLIENTS: ReadonlyArray<{
     kind: 'claude',
     name: 'Claude',
     callbacks: ['https://claude.ai/api/mcp/auth_callback'],
-    documents: ['https://claude.ai/oauth/claude-code-client-metadata'],
+    documents: ['https://claude.ai/oauth/mcp-oauth-client-metadata', 'https://claude.ai/oauth/claude-code-client-metadata'],
   },
   {
     kind: 'chatgpt',

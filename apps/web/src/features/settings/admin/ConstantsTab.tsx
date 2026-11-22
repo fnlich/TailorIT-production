@@ -1,6 +1,7 @@
 'use client';
 
 import type { AdminConstantList } from '@tailorit/shared/constants';
+import { formatUsd } from '@tailorit/shared/constants'; // v34 AIKEY
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useMemo, useRef, useState } from 'react';
@@ -330,7 +331,8 @@ function ConstantEditor({
     case 'usd_limit':
       return (
         <div className="flex flex-col gap-2.5">
-          <Field label={`${label} (USD)`} error={error ?? undefined} hint="Up to 6 decimal places, such as 0.10.">
+          {/* v34 AIKEY: a usd constant with a minimum (AI_KEY_DAILY_BUDGET_USD) says it. */}
+          <Field label={`${label} (USD)`} error={error ?? undefined} hint={usdHint(row)}>
             <Input
               inputMode="decimal"
               value={draft.unlimited ? '' : draft.text}
@@ -434,6 +436,11 @@ function ConstantEditor({
         </Field>
       );
   }
+}
+
+// v34 AIKEY
+function usdHint(row: ConstantRow): string {
+  return row.min !== undefined ? `At least ${formatUsd(row.min)}, up to 6 decimal places.` : 'Up to 6 decimal places, such as 0.10.';
 }
 
 function rangeHint(row: ConstantRow): string | undefined {

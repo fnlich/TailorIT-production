@@ -12,7 +12,8 @@ import { useToast } from '../../../components/ui/Toast';
 import { ApiError, userMessage } from '../../../lib/api';
 import { usePublicConstants } from '../../../lib/constants';
 import { CharacterCount } from '../parts';
-import { fetchMcpSettings, MCP_SETTINGS_KEY, saveMcpSettings } from './api';
+import { decidePendingInstructions, fetchMcpSettings, MCP_SETTINGS_KEY, saveMcpSettings } from './api';
+import { Notice } from '../../../components/ui/Notice'; // v34 MCPDIR
 
 // v2.0: Integrations › AI assistants › "How your AI works with TailorIT" › Custom instructions
 // (docs/design/v2.0/08-ui.md, "Settings › Integrations"; 07-mcp.md): one plain text field the person's own AI gets with
@@ -21,6 +22,15 @@ import { fetchMcpSettings, MCP_SETTINGS_KEY, saveMcpSettings } from './api';
 
 export const CUSTOM_INSTRUCTIONS_COPY = {
   label: 'Custom instructions',
+  // v34 MCPDIR: what the person's AI asked for, waiting for their OK.
+  pendingTitle: 'Your AI asked to change your custom instructions',
+  pendingHint: 'Nothing changes until you approve. Your AI keeps using the instructions below until then.',
+  pendingEmpty: '(clear them)',
+  approve: 'Approve',
+  discard: 'Discard',
+  approved: 'Custom instructions updated',
+  discarded: 'Request discarded',
+  decideFailed: "Your choice wasn't saved",
   hint: "Added to TailorIT's instructions for your AI; your filters and limits always apply.",
   placeholder: 'For example: keep my resume to one page, and write cover letters in a warm, plain tone.',
   save: 'Save',
@@ -37,8 +47,58 @@ export function customInstructionsOf(text: string): string {
 export function CustomInstructionsSetting() {
   const settings = useQuery({ queryKey: MCP_SETTINGS_KEY, queryFn: ({ signal }) => fetchMcpSettings(signal) });
   if (settings.isPending) return <Skeleton className="h-48 w-full" rounded="control" />;
+  const pending = settings.data?.pendingCustomInstructions;
   // Read again after a save, so the box starts from what is stored.
-  return <CustomInstructionsForm key={settings.dataUpdatedAt} saved={settings.data?.customInstructions ?? ''} disabled={settings.isError} />;
+  return (
+    <div className="flex flex-col gap-4">
+      {/* v34 MCPDIR: the person's AI asked for new custom instructions; they take effect only once approved. */}
+      {pending !== undefined && <PendingInstructions text={pending} />}
+      <CustomInstructionsForm key={settings.dataUpdatedAt} saved={settings.data?.customInstructions ?? ''} disabled={settings.isError} />
+    </div>
+  );
+}
+
+/** v34 MCPDIR: the custom instructions the person's AI asked for, with Approve and Discard. */
+function PendingInstructions({ text }: { text: string }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const decide = useMutation({
+    mutationFn: (decision: 'approve' | 'discard') => decidePendingInstructions(decision),
+    onSuccess: (answer, decision) => {
+      queryClient.setQueryData<McpSettings>(MCP_SETTINGS_KEY, answer);
+      toast.success(decision === 'approve' ? CUSTOM_INSTRUCTIONS_COPY.approved : CUSTOM_INSTRUCTIONS_COPY.discarded);
+    },
+    onError: (failure) => toast.error(CUSTOM_INSTRUCTIONS_COPY.decideFailed, userMessage(failure)),
+  });
+  return (
+    <div data-pending-instructions="">
+      <Notice
+        tone="warning"
+        title={CUSTOM_INSTRUCTIONS_COPY.pendingTitle}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" loading={decide.isPending && decide.variables === 'approve'} disabled={decide.isPending} onClick={() => decide.mutate('approve')}>
+              {CUSTOM_INSTRUCTIONS_COPY.approve}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={decide.isPending && decide.variables === 'discard'}
+              disabled={decide.isPending}
+              onClick={() => decide.mutate('discard')}
+            >
+              {CUSTOM_INSTRUCTIONS_COPY.discard}
+            </Button>
+          </div>
+        }
+      >
+        <p>{CUSTOM_INSTRUCTIONS_COPY.pendingHint}</p>
+        <p className="mt-2 whitespace-pre-wrap break-words rounded-control border border-border bg-surface px-3 py-2 text-foreground">
+          {text || CUSTOM_INSTRUCTIONS_COPY.pendingEmpty}
+        </p>
+      </Notice>
+    </div>
+  );
 }
 
 function CustomInstructionsForm({ saved, disabled }: { saved: string; disabled: boolean }) {

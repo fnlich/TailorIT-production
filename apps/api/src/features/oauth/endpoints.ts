@@ -2,6 +2,7 @@ import cookieParser from 'cookie-parser';
 import express, { Router, type ErrorRequestHandler, type Request, type Response } from 'express';
 import { HOUR_MS, MINUTE_MS } from '@tailorit/shared';
 import { OAUTH_PATHS } from '@tailorit/shared/oauth';
+import { publicOriginOf } from '../../config/public-origin'; // v34 ORIGIN
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import { oauthAddresses } from './addresses';
@@ -9,7 +10,7 @@ import { authorize, BROWSER_COOKIE, SECRET_PATTERN, withParams } from './authori
 import { registerClient } from './clients';
 import { OAuthError, sendOAuthError, single } from './errors';
 import { exchangeCode, refreshTokens, revokeToken } from './exchange';
-import { addressOf, oauthLimit, perAddress } from './limits';
+import { addressOf, oauthLimit, perAddress, tokenRequestKey } from './limits';
 import { newOAuthSecret } from './tokens';
 
 // v3.1 OAUTH: the authorization server's endpoints, mounted early at /oauth (before the app's cookie, bearer, JSON body
@@ -29,6 +30,8 @@ const local = (path: string) => path.replace(/^\/oauth/, '');
 
 export function createOAuthEndpointsRouter(deps: AppDeps): Router {
   const router = Router();
+  /** v34 ORIGIN: the request's public origin (APP_ORIGIN, or a trusted forwarded host: config/public-origin.ts). */
+  const originOf = (req: Request) => publicOriginOf(deps.config, req);
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Pragma', 'no-cache');
@@ -44,12 +47,15 @@ export function createOAuthEndpointsRouter(deps: AppDeps): Router {
   router.get(local(OAUTH_PATHS.authorize), cookieParser(), async (req: Request, res: Response) => {
     const present = (req.cookies as Record<string, unknown> | undefined)?.[BROWSER_COOKIE];
     const browserSecret = typeof present === 'string' && SECRET_PATTERN.test(present) ? present : newOAuthSecret();
-    const outcome = await authorize(deps, req.query as Record<string, unknown>, browserSecret, addressOf(req)); // v31 FIX-AUTH
+    // v31 FIX-AUTH: the caller's address; v34 ORIGIN: the request's public origin (the issuer and resource it binds).
+    const outcome = await authorize(deps, req.query as Record<string, unknown>, browserSecret, addressOf(req), originOf(req));
     if (outcome.kind === 'consent') {
       res.cookie(BROWSER_COOKIE, browserSecret, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: req.secure,
+        // v34 ORIGIN2 (the review's finding 5): Secure when the request's public origin is https (an exact address's
+        // fixed scheme, never X-Forwarded-Proto), as the session cookie (core/auth/session.ts secureCookieAt).
+        secure: originOf(req).startsWith('https:'),
         path: '/',
         maxAge: constantsOf(deps).get('OAUTH_REQUEST_MINUTES') * MINUTE_MS,
       });
@@ -60,6 +66,8 @@ export function createOAuthEndpointsRouter(deps: AppDeps): Router {
   // ---------------------------------------------------------------------------------------------------- register
   // v31 FIX-AUTH (SEC-6): OAUTH_REGISTRATIONS_PER_HOUR per caller address, so strangers cannot spend Claude's and
   // ChatGPT's turn, under a much higher ceiling for all callers together (OAUTH_REGISTRATIONS_PER_HOUR_ALL).
+  // v34 ORIGIN (review, security 4): the same per address in a shared egress range too: Claude's apps read their client
+  // document and never register, and one address there must not spend the whole ceiling.
   router.post(
     local(OAUTH_PATHS.register),
     oauthLimit(deps, { name: 'register', windowMs: HOUR_MS, key: 'OAUTH_REGISTRATIONS_PER_HOUR', by: addressOf }),
@@ -73,20 +81,13 @@ export function createOAuthEndpointsRouter(deps: AppDeps): Router {
   );
 
   // ------------------------------------------------------------------------------------------------------- token
-  const perClient = oauthLimit(deps, {
-    name: 'token',
-    windowMs: MINUTE_MS,
-    key: 'OAUTH_TOKEN_CALLS_PER_MINUTE',
-    by: (req) => {
-      const id = (req.body as Record<string, unknown> | undefined)?.client_id;
-      return typeof id === 'string' ? id.slice(0, 200) : 'none';
-    },
-  });
-  router.post(local(OAUTH_PATHS.token), ...formOrJson, perClient, async (req, res) => {
+  // v34 ORIGIN (PLAN G8): per code or refresh token, not per client id (every person's Claude sends the same one).
+  const perGrant = oauthLimit(deps, { name: 'token', windowMs: MINUTE_MS, key: 'OAUTH_TOKEN_CALLS_PER_MINUTE', by: tokenRequestKey });
+  router.post(local(OAUTH_PATHS.token), ...formOrJson, perGrant, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const grantType = single(body.grant_type, 'grant_type');
-    if (grantType === 'authorization_code') return res.json(await exchangeCode(deps, body));
-    if (grantType === 'refresh_token') return res.json(await refreshTokens(deps, body));
+    if (grantType === 'authorization_code') return res.json(await exchangeCode(deps, body, originOf(req)));
+    if (grantType === 'refresh_token') return res.json(await refreshTokens(deps, body, originOf(req)));
     throw new OAuthError('unsupported_grant_type', 'grant_type must be authorization_code or refresh_token');
   });
 
@@ -111,7 +112,7 @@ export function createOAuthEndpointsRouter(deps: AppDeps): Router {
     // A browser at /oauth/authorize gets TailorIT's page, never a JSON body.
     if (isAuthorize) {
       const page = error.error === 'temporarily_unavailable' ? 'temporarily_unavailable' : 'invalid_request';
-      return res.redirect(302, withParams(oauthAddresses(deps.config).consentPage, { error: page }));
+      return res.redirect(302, withParams(oauthAddresses(deps.config, originOf(req)).consentPage, { error: page }));
     }
     sendOAuthError(res, error);
   };

@@ -1,3 +1,4 @@
+import { APP_RELEASE } from '@tailorit/shared';
 import { MCP_PATH } from '@tailorit/shared/mcp';
 import type { Feature } from '../../core/feature';
 import { registerEndGrantStep } from '../sharing/end-grant'; // v33 SHARE-8
@@ -20,9 +21,6 @@ import { createMcpSettingsRouter } from './settings-router';
 // routes are never used on a shared profile (acting.ts); ending a grant deletes the result sets made under it
 // (endGrant's `mcp_sets` step, result-sets.ts deleteGrantSets).
 
-/** The server's version as MCP clients see it. */
-export const MCP_SERVER_VERSION = '2.0.0';
-
 // v33 SHARE-8 (PLAN-sharing.md §6 "endGrant", step 4): the grant's MCP result sets (all of them once it ended; those a
 // removed permission allowed: result-sets.ts).
 registerEndGrantStep('mcp_sets', (deps, scope) => deleteGrantSets(deps, scope.grantId, scope.permissions));
@@ -36,5 +34,6 @@ export const mcpFeature: Feature = {
     // v1.5 Q2: Settings › Integrations › "Requests your AI could not do".
     { path: '/api/mcp/unsupported', router: createMcpReportsRouter, acting: MCP_REPORTS_ACTING /* v33 SHARE-8 */ },
   ],
-  earlyRoutes: [{ path: MCP_PATH, router: (deps) => createMcpEndpoint(deps, prepareService, MCP_SERVER_VERSION) }],
+  // v34 MCPDIR: the server's version is the app's release (APP_RELEASE), no longer a fixed '2.0.0'.
+  earlyRoutes: [{ path: MCP_PATH, router: (deps) => createMcpEndpoint(deps, prepareService, APP_RELEASE) }],
 };

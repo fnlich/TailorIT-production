@@ -4,8 +4,23 @@ import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { AI_FEATURE_ENV, AI_TASK_KINDS, constantDefault, readConstantsEnv, type AiTaskKind, type ConstantKey } from '@tailorit/shared';
 import { AUTOFILL_AI_WAIT_MS } from '@tailorit/shared/autofill';
+import type { AiBilling } from '@tailorit/shared'; // v34 AIKEY
 import { repoRoot } from '../core/paths';
 import { defaultMcpEndpoint, mcpAllowedHosts, parseAppOrigin, parseHost, parseMcpPublicUrl } from './addresses';
+// v34 ORIGIN: the public hosts a request may come through, the trusted proxies, the shared egress ranges.
+import {
+  DEFAULT_TRUSTED_PUBLIC_HOSTS,
+  NO_TRUSTED_PUBLIC_HOSTS,
+  parseHostPattern,
+  parseIpRanges,
+  parseTrustedHost, // v34 ORIGIN2
+  parseTrustProxy,
+  sameHostHeader, // v34 ORIGIN2
+  appOriginEntry, // v34 ORIGIN2 (review finding 9)
+  type HostPattern,
+  type TrustProxySetting,
+} from './addresses';
+// end v34 ORIGIN
 // v1.3 C (decision 9): the per-kind default models, and AI_CLI_THINKING's modes.
 import { aiFeatureModel, CLI_THINKING_MODES, type CliThinking } from './models';
 // end v1.3 C
@@ -172,6 +187,64 @@ const hostList = z
     }
     return hosts;
   });
+
+// v34 ORIGIN (PLAN G7, G8)
+/**
+ * TRUSTED_PUBLIC_HOSTS: the public hosts (patterns, comma or space separated) a request may come through besides
+ * APP_ORIGIN's (config/public-origin.ts), and (v34 ORIGIN2) exact addresses with their scheme. Unset or blank: null,
+ * the default of the mode (buildConfig); `none`: []. A value replaces the default whole (list *.trycloudflare.com
+ * beside an exact address to keep the tunnels).
+ */
+const hostPatterns = z
+  .string()
+  .optional()
+  .transform((v, ctx) => {
+    if (v === undefined || v.trim() === '') return null;
+    if (v.trim().toLowerCase() === NO_TRUSTED_PUBLIC_HOSTS) return [];
+    const patterns: HostPattern[] = [];
+    for (const item of v.split(/[\s,]+/).filter(Boolean)) {
+      const parsed = parseTrustedHost(item); // v34 ORIGIN2: the sentence says what is wrong
+      if ('error' in parsed) {
+        ctx.addIssue({ code: 'custom', message: `"${item}" ${parsed.error}` });
+        return z.NEVER;
+      }
+      const pattern = parsed.entry;
+      // v34 ORIGIN2: one Host, one scheme (the forwarded scheme is never believed for an exact address).
+      const twin = patterns.find((known) => sameHostHeader(known, pattern) && known.text !== pattern.text);
+      if (twin) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `"${twin.text}" and "${pattern.text}" are one address with two schemes: keep the one people open`,
+        });
+        return z.NEVER;
+      }
+      if (!patterns.some((known) => known.text === pattern.text)) patterns.push(pattern);
+    }
+    return patterns;
+  });
+
+/**
+ * WEB_HOST: where the web server listens (the web's launcher reads and checks it; the API reads it only for its start
+ * warnings). Unset, blank or not a host: localhost.
+ */
+const webHost = z
+  .string()
+  .optional()
+  .transform((v) => (v === undefined || v.trim() === '' ? 'localhost' : (parseHost(v) ?? 'localhost')));
+
+/** TRUST_PROXY: config/addresses.ts parseTrustProxy; unset or blank, loopback. */
+const trustProxy = z
+  .string()
+  .optional()
+  .transform((v, ctx) => {
+    const parsed = parseTrustProxy(v);
+    if ('error' in parsed) {
+      ctx.addIssue({ code: 'custom', message: `"${(v ?? '').trim()}" ${parsed.error}` });
+      return z.NEVER;
+    }
+    return parsed.value;
+  });
+// end v34 ORIGIN
 // ── end Addresses ──
 
 // ── v30 SCH: the database and the new outside reads (docs/design/part2/00-overview.md §4; config/outside.ts) ──
@@ -281,6 +354,10 @@ const EnvSchema = z.object({
   API_PORT: port(4100),
   MCP_PUBLIC_URL: mcpPublicUrl,
   MCP_ALLOWED_HOSTS: hostList,
+  TRUSTED_PUBLIC_HOSTS: hostPatterns, // v34 ORIGIN
+  TRUST_PROXY: trustProxy, // v34 ORIGIN
+  WEB_HOST: webHost, // v34 ORIGIN: the start warnings only
+  WEB_PORT: port(3100), // v34 ORIGIN2: the start warnings and the refused-address note only
   DATA_DIR: optional,
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional().default('info'),
 
@@ -296,6 +373,9 @@ const EnvSchema = z.object({
   SMTP_FROM: optional,
   AUTH_DEV_LOG_CODES: bool(true),
   AUTH_DEV_FIXED_CODE: optional,
+  // v34 FIX-API (the final security review, F1): TailorIT's test servers only (scripts/test-servers.mjs): the fixed code
+  // also from other addresses (the tunnel, LAN and e2e flows sign in at forwarded hosts). Refused in production.
+  AUTH_DEV_FIXED_CODE_ANY_ADDRESS: bool(false),
 
   AI_ENABLED: bool(true),
   AI_CLI_BIN: z.string().optional().default('claude'),
@@ -354,6 +434,15 @@ const EnvSchema = z.object({
 
 export type AiFeatureModels = Record<AiTaskKind, { model: string; effort: string }>;
 
+/** v34 AIKEY: why the start is refused with AI_BILLING=api-key and no ANTHROPIC_API_KEY (it names no value). */
+export const AI_BILLING_KEY_MISSING =
+  'api-key bills every AI call to the Anthropic API key in ANTHROPIC_API_KEY, which is not set. Set ANTHROPIC_API_KEY in ' +
+  ".env or the server's environment, or set AI_BILLING=subscription.";
+
+/** v34 FIX-API (the final security review, F1): why the start is refused with the test servers' opt-in in production. */
+export const FIXED_CODE_ANY_ADDRESS_IN_PRODUCTION =
+  "is for TailorIT's test servers only (the fixed sign-in code from every address) and is refused in production. Remove it.";
+
 export interface AppConfig {
   nodeEnv: 'development' | 'production' | 'test';
   isProduction: boolean;
@@ -366,9 +455,28 @@ export interface AppConfig {
   mcp: {
     /** What Settings shows in the setup snippets: MCP_PUBLIC_URL, else APP_ORIGIN/mcp (v31 OAUTH). */
     endpoint: string;
+    /**
+     * v34 ORIGIN: MCP_PUBLIC_URL when set (then the one OAuth resource, whatever address a request came through); null:
+     * the MCP endpoint is <the request's public origin>/mcp (features/oauth/addresses.ts).
+     */
+    publicUrl: string | null;
     /** The names its Host and Origin checks accept: loopback, API_HOST, the endpoint's host and MCP_ALLOWED_HOSTS. */
     allowedHosts: string[];
   };
+  // v34 ORIGIN (PLAN G7, G8)
+  /**
+   * TRUSTED_PUBLIC_HOSTS: the hosts besides APP_ORIGIN's that a request from this machine may name in X-Forwarded-Host
+   * (config/public-origin.ts). Blank: `*.trycloudflare.com` outside production, none in production; `none`: none.
+   * v34 ORIGIN2: an entry with `origin` is one exact address (its scheme fixed), honoured in every mode.
+   */
+  trustedPublicHosts: HostPattern[];
+  /** TRUST_PROXY: Express's `trust proxy` (app.ts); blank: loopback. */
+  trustProxy: TrustProxySetting;
+  /** WEB_HOST as the web server listens on it (config/warnings.ts only; the web's launcher checks it). */
+  webHost: string;
+  /** v34 ORIGIN2: WEB_PORT, where the web server listens (the warnings and public-origin.ts's refused-address note). */
+  webPort: number;
+  // end v34 ORIGIN
   dataDir: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   auth: {
@@ -379,11 +487,21 @@ export interface AppConfig {
     smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string } | null;
     /** Print codes to the console when SMTP is missing. Always false in production. */
     devLogCodes: boolean;
-    /** Accept this code for any address. Always null in production. */
+    /**
+     * Accept this code for any address. Always null in production. v34 FIX-API (the final security review, F1): only
+     * for a request plainly from this computer (core/auth/fixed-code.ts), unless `devFixedCodeAnyAddress`.
+     */
     devFixedCode: string | null;
+    /** v34 FIX-API: AUTH_DEV_FIXED_CODE_ANY_ADDRESS, the test servers' opt-in: the fixed code from every address. */
+    devFixedCodeAnyAddress: boolean;
   };
   ai: {
     enabled: boolean;
+    /**
+     * v34 AIKEY (PLAN Addendum G11): AI_BILLING, who pays for TailorIT's AI. `subscription` (the default): the CLI's own
+     * sign-in, never a key; `api-key`: ANTHROPIC_API_KEY, passed to the CLI (ai/provider/env.ts, classify.ts).
+     */
+    billing: AiBilling;
     cliBin: string;
     model: string;
     effort: string;
@@ -474,10 +592,35 @@ export function buildConfig(env: NodeJS.ProcessEnv): AppConfig {
   const parsed = EnvSchema.safeParse(env);
   // v2.0: the central constants' keys are read and checked with the rest; a value that does not parse refuses startup.
   const constants = readConstantsEnv(env);
+  // v34 ORIGIN: OAUTH_SHARED_EGRESS_RANGES is a text constant set in .env only: each entry must be an IP range.
+  const egress = constants.values.OAUTH_SHARED_EGRESS_RANGES;
+  const egressChecked = typeof egress === 'string' ? parseIpRanges(egress) : null;
+  // v34 AIKEY: AI_BILLING=api-key bills every AI call to the key in ANTHROPIC_API_KEY, so it is refused without one (only
+  // whether it is set is read here; the value is never printed).
+  const billing = (constants.values.AI_BILLING ?? constantDefault('AI_BILLING')) as AiBilling;
+  const billingKeyMissing = billing === 'api-key' && !env.ANTHROPIC_API_KEY?.trim();
+  // end v34 AIKEY
+  // v34 FIX-API (the final security review, F1): the test servers' opt-in never runs in production.
+  const anyAddressInProduction = parsed.success && parsed.data.NODE_ENV === 'production' && parsed.data.AUTH_DEV_FIXED_CODE_ANY_ADDRESS;
   const lines = [
     ...(parsed.success ? [] : parsed.error.issues.map((issue) => `  ${issue.path.join('.')}: ${issue.message}`)),
     ...constants.errors.map((error) => `  ${error.envKey}: ${error.message}`),
+    ...(egressChecked && 'error' in egressChecked ? [`  OAUTH_SHARED_EGRESS_RANGES: ${egressChecked.error}`] : []),
+    ...(billingKeyMissing ? [`  AI_BILLING: ${AI_BILLING_KEY_MISSING}`] : []), // v34 AIKEY
+    ...(anyAddressInProduction ? [`  AUTH_DEV_FIXED_CODE_ANY_ADDRESS: ${FIXED_CODE_ANY_ADDRESS_IN_PRODUCTION}`] : []), // v34 FIX-API
   ];
+  // v34 ORIGIN2 (the ORIGIN2 review, finding 9): an exact address with APP_ORIGIN's Host and the other scheme would never
+  // be used (APP_ORIGIN's host always answers as APP_ORIGIN): refused, as two such entries are.
+  if (parsed.success && parsed.data.TRUSTED_PUBLIC_HOSTS) {
+    const app = appOriginEntry(parsed.data.APP_ORIGIN);
+    const twin = parsed.data.TRUSTED_PUBLIC_HOSTS.find((entry) => sameHostHeader(entry, app) && entry.origin !== app.origin);
+    if (twin) {
+      lines.push(
+        `  TRUSTED_PUBLIC_HOSTS: "${twin.text}" is APP_ORIGIN's address (${app.origin}) with the other scheme: APP_ORIGIN always ` +
+          'answers there, so it would never be used. Leave it out, or change APP_ORIGIN.',
+      );
+    }
+  }
   if (!parsed.success || lines.length > 0) {
     throw new Error(`Invalid configuration in .env:\n${lines.join('\n')}`);
   }
@@ -513,7 +656,19 @@ export function buildConfig(env: NodeJS.ProcessEnv): AppConfig {
     appOrigin: e.APP_ORIGIN,
     apiHost: e.API_HOST,
     apiPort: e.API_PORT,
-    mcp: { endpoint: mcpEndpoint, allowedHosts: mcpAllowedHosts(e.API_HOST, mcpEndpoint, e.MCP_ALLOWED_HOSTS) },
+    mcp: {
+      endpoint: mcpEndpoint,
+      publicUrl: e.MCP_PUBLIC_URL, // v34 ORIGIN
+      allowedHosts: mcpAllowedHosts(e.API_HOST, mcpEndpoint, e.MCP_ALLOWED_HOSTS),
+    },
+    // v34 ORIGIN
+    trustedPublicHosts:
+      e.TRUSTED_PUBLIC_HOSTS ??
+      (isProduction ? [] : DEFAULT_TRUSTED_PUBLIC_HOSTS.map((text) => parseHostPattern(text)!)),
+    trustProxy: e.TRUST_PROXY,
+    webHost: e.WEB_HOST,
+    webPort: e.WEB_PORT, // v34 ORIGIN2
+    // end v34 ORIGIN
     dataDir: e.DATA_DIR ?? defaultDataDir(),
     logLevel: e.LOG_LEVEL,
     auth: {
@@ -524,9 +679,11 @@ export function buildConfig(env: NodeJS.ProcessEnv): AppConfig {
       smtp,
       devLogCodes: !isProduction && e.AUTH_DEV_LOG_CODES,
       devFixedCode: isProduction ? null : fixed,
+      devFixedCodeAnyAddress: !isProduction && e.AUTH_DEV_FIXED_CODE_ANY_ADDRESS, // v34 FIX-API
     },
     ai: {
       enabled: e.AI_ENABLED,
+      billing, // v34 AIKEY
       cliBin: e.AI_CLI_BIN,
       model: e.AI_CLI_MODEL,
       effort: e.AI_CLI_EFFORT,

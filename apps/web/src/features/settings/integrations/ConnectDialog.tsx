@@ -1,5 +1,6 @@
 'use client';
 
+import type { McpConnectAt } from '@tailorit/shared/mcp'; // v34 ORIGIN2
 import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -18,6 +19,8 @@ import {
   claudeLinks,
   CONNECT_COPY,
   copyText,
+  integrationsAt, // v34 ORIGIN2
+  tunnelAddressShape, // v34 ORIGIN2
   type AiClient,
   type ConnectReadiness,
   type ConnectStep,
@@ -133,18 +136,51 @@ export function ConnectSteps({
   );
 }
 
-/** The dialog's body when Claude and ChatGPT cannot reach TailorIT: why, the guide, and the personal tokens. */
-export function ConnectUnreachable({ client, readiness }: { client: AiClient; readiness: ConnectReadiness }) {
+/**
+ * The dialog's body when Claude and ChatGPT cannot reach TailorIT: why, the guide, and the personal tokens. v34
+ * ORIGIN2 (PLAN G7b): never a link to Claude from here; when this server has an address they can reach (`connectAt`:
+ * an https APP_ORIGIN or exact address, or a trusted test tunnel), where to connect from instead.
+ */
+export function ConnectUnreachable({
+  client,
+  readiness,
+  connectAt = null,
+}: {
+  client: AiClient;
+  readiness: ConnectReadiness;
+  connectAt?: McpConnectAt | null;
+}) {
+  const fixed = connectAt?.origins[0] ?? null;
+  const tunnel = fixed === null ? (connectAt?.tunnels[0] ?? null) : null;
   return (
     <div className="mt-5 flex flex-col gap-4" data-connect-unreachable={client.kind}>
       <Notice tone="warning" title={CONNECT_COPY.unreachableTitle(client.name)}>
         {CONNECT_COPY.unreachableBody(client.name, readiness.blockedAt ?? '')}
       </Notice>
-      <p className="text-sm leading-5 text-foreground">
-        {CONNECT_COPY.unreachableFix.before}{' '}
-        <code className="rounded-tag bg-surface-muted px-1 py-px font-mono text-[13px]">{CONNECT_COPY.unreachableFix.file}</code>{' '}
-        {CONNECT_COPY.unreachableFix.after}
-      </p>
+      {fixed !== null && (
+        <p className="text-sm leading-5 text-foreground" data-connect-elsewhere="address">
+          {CONNECT_COPY.elsewhere.before(client.name)}{' '}
+          <a href={integrationsAt(fixed)} className="break-all font-medium text-primary underline-offset-4 hover:underline">
+            {fixed}
+          </a>{' '}
+          {CONNECT_COPY.elsewhere.after}
+        </p>
+      )}
+      {tunnel !== null && (
+        <p className="text-sm leading-5 text-foreground" data-connect-elsewhere="tunnel">
+          {CONNECT_COPY.elsewhere.tunnel(client.name)}{' '}
+          <code className="break-all rounded-tag bg-surface-muted px-1 py-px font-mono text-[13px]">{tunnelAddressShape(tunnel)}</code>
+          {', '}
+          {CONNECT_COPY.elsewhere.tunnelAfter}
+        </p>
+      )}
+      {fixed === null && (
+        <p className="text-sm leading-5 text-foreground">
+          {CONNECT_COPY.unreachableFix.before}{' '}
+          <code className="rounded-tag bg-surface-muted px-1 py-px font-mono text-[13px]">{CONNECT_COPY.unreachableFix.file}</code>{' '}
+          {CONNECT_COPY.unreachableFix.after}
+        </p>
+      )}
       <p className="text-sm leading-5 text-muted-foreground">{CONNECT_COPY.meanwhile}</p>
     </div>
   );
@@ -225,7 +261,7 @@ export function ConnectDialog({
     );
     footer = <CloseButton onClick={() => onOpenChange(false)} label={CONNECT_COPY.cancel} />;
   } else if (!readiness.reachable) {
-    body = <ConnectUnreachable client={client} readiness={readiness} />;
+    body = <ConnectUnreachable client={client} readiness={readiness} connectAt={address.connectAt} />;
     footer = (
       <>
         <CloseButton onClick={() => onOpenChange(false)} label={CONNECT_COPY.close} />

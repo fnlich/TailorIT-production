@@ -37,8 +37,8 @@ import { workFor, type Work } from './work';
 // async yet or not (their folders convert them: D2-C, D2-E, D2-F).
 
 export const NOT_IN_PREPARE =
-  'That job is not one of your Saved jobs in the Tracker. Prepare works on the Saved jobs only: call prepare_queue ' +
-  'for the jobs to work on.';
+  "That job is not a Saved job in this profile's Tracker. Prepare works on Saved jobs only: call prepare_queue for the " +
+  'jobs to work on.'; // v34 MCPDIR (the directory review, finding 15): the profile's, on a shared one too
 
 export interface McpJob {
   applicationId: string;

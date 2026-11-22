@@ -11,6 +11,7 @@ export const PREPARE_ACTING = {
   'POST /all': 'prepare:run',
   'GET /settings': 'settings:view',
   'PUT /settings': 'settings:edit',
+  'PATCH /settings': 'settings:edit', // v34 FANOUT
   'POST /:id/cancel': 'prepare:run',
 } as const satisfies ActingTable;
 

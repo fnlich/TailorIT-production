@@ -1,4 +1,5 @@
 import { dayKeyOf, nextResetAt, MINUTE_MS, HOUR_MS, type AiCapacity, type AiCapacityReading, type AiCapacitySource } from '@tailorit/shared';
+import { DAY_MS, formatUsd } from '@tailorit/shared'; // v34 AIKEY
 import { dayKeyAt } from '../core/constants/day';
 import { constantsOf } from '../core/constants/service';
 import type { AppDeps } from '../core/context';
@@ -19,6 +20,12 @@ import { hourOf, microsOf } from './usage';
 // utilization is the highest live CLI reading (an event or a text), else the ledger's; at SERVER_AI_BLOCK_THRESHOLD or
 // above, every server-AI action is refused (ai/gate.ts) with the vague message. Only admins ever see any of this
 // (GET /api/admin/ai/capacity).
+// v34 AIKEY (review fixes H1, M1): with AI_BILLING=api-key there is no subscription window. The CLI's readings (events
+// and texts) are never stored or read, so a reading left from a subscription run never decides anything; the ledger
+// (when SERVER_AI_CAPACITY_USD_PER_WINDOW is set) always decides; and the API key's daily budget, the whole server's AI
+// spend this UTC day (ai_usage_hourly, where each AI run records its cost) against AI_KEY_DAILY_BUDGET_USD, refuses
+// every server-AI action once reached, until 00:00 UTC. A start whose AI_BILLING differs from the last run's clears the
+// stored CLI readings (app_settings CAPACITY_BILLING_KEY). On a subscription none of this runs.
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
@@ -30,6 +37,12 @@ export const LEDGER_CACHE_MS = 30_000;
 const LEDGER_RECHECK_MS = 5 * 60_000;
 /** A reset time given as a date is looked for this many days ahead at most. */
 const RESET_DATE_HORIZON_DAYS = 62;
+// v34 AIKEY
+/** app_settings key: 'api-key' while the last start ran with AI_BILLING=api-key (absent: the subscription). */
+export const CAPACITY_BILLING_KEY = 'ai_capacity_billing';
+/** The UTC day's start (epoch ms) that `at` falls in: the API key's daily budget counts from there. */
+export const utcDayStart = (at: number): number => Math.floor(at / DAY_MS) * DAY_MS;
+// end v34 AIKEY
 
 /** One reading, as kept. */
 export interface CapacityReading {
@@ -53,6 +66,19 @@ export interface CapacityState {
   readings: CapacityReading[];
   /** When the block can lift on its own (epoch ms): the last of the blocking readings' ends; null when not blocked. */
   blockedUntilMs: number | null;
+  /** v34 AIKEY: with AI_BILLING=api-key, the API key's daily budget (null on a subscription, or while unread). */
+  keyBudget: KeyBudgetState | null;
+}
+
+/** v34 AIKEY (review fix H1): the whole server's AI spend this UTC day against AI_KEY_DAILY_BUDGET_USD. */
+export interface KeyBudgetState {
+  capMicros: number;
+  spentMicros: number;
+  /** 00:00 UTC today, and tomorrow (when a reached budget lifts), epoch ms. */
+  dayStartMs: number;
+  resetsAtMs: number;
+  /** spentMicros >= capMicros: every server-AI action is refused until resetsAtMs. */
+  reached: boolean;
 }
 
 export interface AiCapacityService {
@@ -71,6 +97,16 @@ export interface AiCapacityService {
   stateNow(options?: { withLedger?: boolean }): CapacityState;
   /** stateNow().blocked. */
   blockedNow(): boolean;
+  /**
+   * v34 FIX-API (the final security review, F2): with AI_BILLING=api-key, the API key's daily budget is read again on
+   * its next use (a run just recorded its cost: the AI queue's noteRun), never from the reading kept LEDGER_CACHE_MS.
+   */
+  forgetKeyBudget(): void;
+  /**
+   * v34 FIX-API (F2): with AI_BILLING=api-key, whether today's spend has reached AI_KEY_DAILY_BUDGET_USD (false on a
+   * subscription). The AI queue asks before every AI call of a running task: nothing new starts at or over the budget.
+   */
+  keyBudgetReached(): Promise<boolean>;
   /** GET /api/admin/ai/capacity. */
   view(): Promise<AiCapacity>;
   /** Resolves once the readings stored by an earlier run are loaded (state() waits for it). */
@@ -191,6 +227,8 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
   const { log } = deps;
   const constants = constantsOf(deps);
   const nowMs = () => deps.now().getTime();
+  /** v34 AIKEY: AI_BILLING=api-key (no subscription window: the API key's daily budget, below). */
+  const keyBilled = deps.config.ai.billing === 'api-key';
   const sql = {
     put:
       'INSERT INTO ai_capacity_readings(window_type, utilization, status, source, resets_at, seen_at) ' +
@@ -202,6 +240,13 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
     today:
       'SELECT coalesce(sum(daily_spent_micros + credit_spent_micros + written_off_micros), 0) AS charged, ' +
       'coalesce(sum(written_off_micros), 0) AS "writtenOff" FROM ai_spend_daily WHERE day_key = ?',
+    // v34 AIKEY (review fix M1)
+    billingMark: 'SELECT value FROM app_settings WHERE key = ?',
+    setBillingMark:
+      'INSERT INTO app_settings(key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET ' +
+      'value = excluded.value, updated_at = excluded.updated_at',
+    dropBillingMark: 'DELETE FROM app_settings WHERE key = ?',
+    dropCliReadings: "DELETE FROM ai_capacity_readings WHERE source <> 'ledger'",
   };
 
   /** The CLI's readings (events and texts), by window. The ledger's row is recomputed, never read back. */
@@ -211,6 +256,11 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
   /** The stored readings were read (by the start-up read, or by a transaction that could not wait for it: state()). */
   let loaded = false;
   async function loadStored(): Promise<void> {
+    // v34 AIKEY (review fix M1): with AI_BILLING=api-key no CLI reading is ever read back (a subscription's window).
+    if (keyBilled) {
+      loaded = true;
+      return;
+    }
     for (const row of await deps.db.all<Row>('SELECT * FROM ai_capacity_readings')) {
       if (row.source === 'ledger' || readings.has(row.window_type)) continue;
       const seenAtMs = Date.parse(row.seen_at);
@@ -227,7 +277,40 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
     }
     loaded = true;
   }
+  // v34 AIKEY (review fix M1)
+  /**
+   * A start whose AI_BILLING differs from the last run's clears the CLI's stored readings (events and texts): a
+   * subscription's window says nothing about an API key, and the reverse. The mark is kept only while the billing is
+   * api-key, so a subscription that never ran on a key writes nothing.
+   */
+  async function settleBilling(): Promise<void> {
+    const billing = keyBilled ? 'api-key' : 'subscription';
+    const row = await deps.db.one<{ value: unknown }>(sql.billingMark, [CAPACITY_BILLING_KEY]);
+    let stored: unknown = row?.value ?? null;
+    if (typeof stored === 'string') {
+      try {
+        stored = JSON.parse(stored);
+      } catch {
+        /* not JSON: read as the subscription */
+      }
+    }
+    const last = stored === 'api-key' ? 'api-key' : 'subscription';
+    if (last === billing) return;
+    const cleared = (await deps.db.run(sql.dropCliReadings)).changes;
+    if (keyBilled) await deps.db.run(sql.setBillingMark, [CAPACITY_BILLING_KEY, JSON.stringify('api-key'), deps.now().toISOString()]);
+    else await deps.db.run(sql.dropBillingMark, [CAPACITY_BILLING_KEY]);
+    log.info(
+      `[ai] AI_BILLING is ${billing} now (${last} before): ${cleared} stored Claude usage reading${cleared === 1 ? '' : 's'} ` +
+        'cleared, as they belonged to the other billing.',
+    );
+  }
+  // end v34 AIKEY
   const ready = (async () => {
+    try {
+      await settleBilling(); // v34 AIKEY
+    } catch (error) {
+      log.warn('[ai] could not compare AI_BILLING with the last run', error);
+    }
     try {
       await loadStored();
     } catch (error) {
@@ -320,7 +403,62 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
     return ledger?.key === ledgerKey() ? ledger.reading : null;
   }
 
-  function stateOf(at: number, cli: CapacityReading[], fallback: CapacityReading | null): CapacityState {
+  // v34 AIKEY (review fix H1): the API key's daily budget, read like the ledger (kept LEDGER_CACHE_MS), only with
+  // AI_BILLING=api-key. Its key is the budget and the UTC day, so a change of either reads it again at once.
+  let keyBudget: { value: KeyBudgetState | null; key: string; atMs: number } | null = null;
+  let keyBudgetRead: Promise<KeyBudgetState | null> | null = null;
+  /** v34 FIX-API (F2): bumped by forgetKeyBudget, so a read that started before a run's cost was recorded is not kept. */
+  let keyBudgetGeneration = 0;
+  const keyBudgetKey = (at: number) => `${constants.get('AI_KEY_DAILY_BUDGET_USD')}:${utcDayStart(at)}`;
+  function freshKeyBudget(at: number): KeyBudgetState | null | undefined {
+    if (keyBudget && keyBudget.key === keyBudgetKey(at) && at - keyBudget.atMs < LEDGER_CACHE_MS && at >= keyBudget.atMs) {
+      return keyBudget.value;
+    }
+    return undefined;
+  }
+
+  /** Today's (UTC) AI spend from the hourly ledger, where each AI run records its cost, against the budget. */
+  async function readKeyBudget(at: number): Promise<KeyBudgetState | null> {
+    const generation = keyBudgetGeneration; // v34 FIX-API (F2)
+    const key = keyBudgetKey(at);
+    const capMicros = constants.get('AI_KEY_DAILY_BUDGET_USD');
+    const dayStartMs = utcDayStart(at);
+    let value: KeyBudgetState | null;
+    try {
+      const cost = (await deps.db.one<{ cost: number | string | null }>(sql.spent, [hourOf(dayStartMs)]))?.cost ?? 0;
+      const spentMicros = microsOf(Number(cost));
+      value = { capMicros, spentMicros, dayStartMs, resetsAtMs: dayStartMs + DAY_MS, reached: spentMicros >= capMicros };
+    } catch (error) {
+      log.warn("[ai] could not read today's AI spend for the API key's daily budget", error);
+      // The last reading of this day and budget stands; none: not known, not blocking (as the ledger).
+      value = keyBudget?.key === key ? keyBudget.value : null;
+    }
+    // v34 FIX-API (F2): a cost recorded while this read ran makes it stale: it answers this caller, and is not kept.
+    if (generation === keyBudgetGeneration) keyBudget = { value, key, atMs: at };
+    return value;
+  }
+
+  async function keyBudgetReading(at: number): Promise<KeyBudgetState | null> {
+    const fresh = freshKeyBudget(at);
+    if (fresh !== undefined) return fresh;
+    if (deps.db.inTx()) return readKeyBudget(at); // as the ledger (PG-0)
+    keyBudgetRead ??= readKeyBudget(at).finally(() => {
+      keyBudgetRead = null;
+    });
+    return keyBudgetRead;
+  }
+
+  function keyBudgetReadingNow(at: number): KeyBudgetState | null {
+    const fresh = freshKeyBudget(at);
+    if (fresh !== undefined) return fresh;
+    void keyBudgetReading(at);
+    return keyBudget?.key === keyBudgetKey(at) ? keyBudget.value : null;
+  }
+  let wasReached: boolean | null = null;
+  // end v34 AIKEY
+
+  // v34 AIKEY: `budget`, the API key's daily budget (api-key only; null otherwise).
+  function stateOf(at: number, cli: CapacityReading[], fallback: CapacityReading | null, budget: KeyBudgetState | null = null): CapacityState {
     const threshold = constants.get('SERVER_AI_BLOCK_THRESHOLD');
     const live = fallback ? [...cli, fallback] : cli;
     const deciding = cli.length > 0 ? cli : fallback ? [fallback] : [];
@@ -343,7 +481,22 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
       }
       wasBlocked = blocked;
     }
-    return { utilization: top?.utilization ?? null, blocked, threshold, top, readings: live, blockedUntilMs };
+    // v34 AIKEY (review fix H1): a reached daily budget blocks too, until 00:00 UTC.
+    const reached = budget?.reached === true;
+    if (wasReached !== reached) {
+      if (reached) {
+        log.warn(
+          `[ai] TailorIT's AI is paused: today's AI spend (${formatUsd(budget!.spentMicros)}) reached AI_KEY_DAILY_BUDGET_USD ` +
+            `(${formatUsd(budget!.capMicros)}, AI_BILLING=api-key). It resumes at 00:00 UTC (${new Date(budget!.resetsAtMs).toISOString()}).`,
+        );
+      } else if (wasReached) {
+        log.info("[ai] the API key's daily AI budget has room again: TailorIT's AI resumes");
+      }
+      wasReached = reached;
+    }
+    if (reached) blockedUntilMs = Math.max(blockedUntilMs ?? 0, budget!.resetsAtMs);
+    return { utilization: top?.utilization ?? null, blocked: blocked || reached, threshold, top, readings: live, blockedUntilMs, keyBudget: budget };
+    // end v34 AIKEY
   }
 
   const liveCli = (at: number) => [...readings.values()].filter((reading) => isLive(reading, at));
@@ -357,17 +510,18 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
     if (!loaded && deps.db.inTx()) await loadStored();
     else await ready;
     const at = nowMs();
-    const cli = liveCli(at);
+    // v34 AIKEY: with AI_BILLING=api-key the CLI's readings never count (none is kept), so the ledger always decides.
+    const cli = keyBilled ? [] : liveCli(at);
     // The ledger counts only while the CLI reports nothing (03: the CLI's own readings first).
     const fallback = cli.length === 0 || options.withLedger ? await ledgerReading(at) : null;
-    return stateOf(at, cli, fallback);
+    return stateOf(at, cli, fallback, keyBilled ? await keyBudgetReading(at) : null); // v34 AIKEY: the key's budget
   }
 
   function stateNow(options: { withLedger?: boolean } = {}): CapacityState {
     const at = nowMs();
-    const cli = liveCli(at);
+    const cli = keyBilled ? [] : liveCli(at); // v34 AIKEY
     const fallback = cli.length === 0 || options.withLedger ? ledgerReadingNow(at) : null;
-    return stateOf(at, cli, fallback);
+    return stateOf(at, cli, fallback, keyBilled ? keyBudgetReadingNow(at) : null); // v34 AIKEY
   }
 
   const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
@@ -385,6 +539,7 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
     ready,
 
     noteEvent(info) {
+      if (keyBilled) return; // v34 AIKEY (review fix M1): no subscription window to read
       const at = nowMs();
       const window = typeof info.rateLimitType === 'string' && info.rateLimitType.trim() ? info.rateLimitType.trim().slice(0, 40) : 'unknown';
       const status = typeof info.status === 'string' ? info.status.slice(0, 40) : '';
@@ -402,6 +557,7 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
     },
 
     noteText(parts) {
+      if (keyBilled) return; // v34 AIKEY (review fix M1)
       const text = parts.filter((part) => typeof part === 'string' && part.trim()).join('\n');
       if (!text) return;
       const at = nowMs();
@@ -418,6 +574,21 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
 
     blockedNow: () => stateNow().blocked,
 
+    // v34 FIX-API (the final security review, F2)
+    forgetKeyBudget() {
+      if (!keyBilled) return;
+      keyBudgetGeneration += 1;
+      keyBudget = null;
+      keyBudgetRead = null;
+    },
+
+    async keyBudgetReached() {
+      if (!keyBilled) return false;
+      // Through state(), so the "paused" and "resumes" log lines come once, as for the gate's own reading.
+      return (await state()).keyBudget?.reached === true;
+    },
+    // end v34 FIX-API
+
     async view() {
       const now = await state({ withLedger: true });
       const dayKey = dayKeyAt(deps);
@@ -432,6 +603,18 @@ export function createAiCapacity(deps: Deps): AiCapacityService {
         readings: now.readings.map(viewOf),
         today: { dayKey, chargedMicros: today.charged, writtenOffMicros: today.writtenOff },
         checkedAt: deps.now().toISOString(),
+        // v34 AIKEY (review fix H1): only with AI_BILLING=api-key (a subscription's answer is as before).
+        ...(now.keyBudget
+          ? {
+              keyBudget: {
+                capMicros: now.keyBudget.capMicros,
+                spentMicros: now.keyBudget.spentMicros,
+                dayStart: new Date(now.keyBudget.dayStartMs).toISOString(),
+                resetsAt: new Date(now.keyBudget.resetsAtMs).toISOString(),
+                reached: now.keyBudget.reached,
+              },
+            }
+          : {}),
       };
     },
   };

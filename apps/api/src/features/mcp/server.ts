@@ -9,7 +9,7 @@ import { MCP_PROMPT_MODES } from '@tailorit/shared/mcp';
 import { untrustedText } from '../autofill/ai/untrusted';
 import { instructionsFor, noteInstructionsRead } from './instructions';
 import type { PrepareAdapter } from './prepare';
-import { countCall, createMcpSession, MCP_TOOL_ACCESS, ProfileArg, type McpSession } from './profiles'; // v33 SHARE-8
+import { countCall, createMcpSession, internalErrorMessage, MCP_TOOL_ACCESS, ProfileArg, type McpSession } from './profiles'; // v33 SHARE-8
 import { registerQ1Tools } from './q1-tools';
 import { saveAnalysis, saveAnswers, saveAnswersForJobs, saveCoverLetter, saveResume } from './save';
 import { stepPrompt } from './steps';
@@ -19,6 +19,11 @@ import { registerWorkTools } from './tools-q2';
 // end v1.5 Q2
 import { registerV20Tools } from './tools-v20'; // v2.0 P5
 import { registerV31Tools } from './tools-v31'; // v31 LINK
+import { registerFanoutTools } from './tools-fanout'; // v34 MCPFAN
+import { constantsOf } from '../../core/constants/service'; // v34 MCPDIR
+import { tooLargeMessage } from './answer'; // v34 MCPDIR
+import { mcpServerInfo } from './server-info'; // v34 MCPDIR
+import { toolMeta } from './tool-meta'; // v34 MCPDIR
 import type { McpCaller } from './tokens'; // v33 SHARE-8
 
 // TailorIT's MCP server for one request of one account (v1.5 M): stateless, so endpoint.ts builds one per request for
@@ -84,14 +89,21 @@ function promptOf(about: string, text: string): GetPromptResult {
 
 /**
  * Builds the MCP server for the caller's request (v33 SHARE-8: the token's account; each call's profile is decided per
- * call, profiles.ts).
+ * call, profiles.ts). v34 MCPDIR: `version` is the app's release (APP_RELEASE); `origin` the public web origin serverInfo
+ * names (APP_ORIGIN unless the caller passes the request's own trusted public origin).
  */
-export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare: PrepareAdapter, version: string): Promise<McpServer> {
+export async function createMcpServer(
+  deps: AppDeps,
+  caller: McpCaller,
+  prepare: PrepareAdapter,
+  version: string,
+  origin: string = deps.config.appOrigin, // v34 MCPDIR
+): Promise<McpServer> {
   const session: McpSession = createMcpSession(deps, caller, prepare);
   const userId = caller.id;
   const tokenId = caller.tokenId; // v1.5 Q2: report_unsupported's limit per token
   const server = new McpServer(
-    { name: 'tailorit', version },
+    mcpServerInfo(version, origin), // v34 MCPDIR: name, title, version, websiteUrl, icons (server-info.ts)
     {
       capabilities: { tools: {}, prompts: {} },
       // v2.0 P5: the default instructions, the platform rules and the person's custom instructions. v33 SHARE-8: the
@@ -105,22 +117,21 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
   server.registerTool(
     'prepare_queue',
     {
-      title: 'Prepare queue',
+      ...toolMeta('prepare_queue'), // v34 MCPDIR
       description: MCP_TOOL_DESCRIPTIONS.prepare_queue,
       inputSchema: {
         limit: z.number().int().min(1).max(QUEUE_PAGE.max).optional(),
         cursor: z.string().max(10).optional(),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     // v33 SHARE-8: every profile at once (no `profile`).
-    ({ limit, cursor }) => run('prepare_queue', {}, () => prepareQueue(session, { limit, cursor })),
+    ({ limit, cursor }) => run('prepare_queue', { cursor }, () => prepareQueue(session, { limit, cursor })), // v34 MCPDIR: paging
   );
 
   server.registerTool(
     'prepare_job_context',
     {
-      title: 'Job context',
+      ...toolMeta('prepare_job_context'), // v34 MCPDIR
       description: MCP_TOOL_DESCRIPTIONS.prepare_job_context,
       inputSchema: {
         jobId: JobId,
@@ -130,7 +141,6 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
         mode: Mode,
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (args) =>
       run('prepare_job_context', args, (ctx) =>
@@ -141,7 +151,7 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
   server.registerTool(
     'prepare_save_analysis',
     {
-      title: 'Save keyword analysis',
+      ...toolMeta('prepare_save_analysis'), // v34 MCPDIR
       description: MCP_TOOL_DESCRIPTIONS.prepare_save_analysis,
       inputSchema: {
         jobId: JobId,
@@ -150,7 +160,6 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
         mode: Mode,
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     ({ jobId, analysis, missing, mode, profile }) =>
       run('prepare_save_analysis', { jobId, profile }, async (ctx) => {
@@ -164,10 +173,9 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
   server.registerTool(
     'prepare_save_resume',
     {
-      title: 'Save tailored resume',
+      ...toolMeta('prepare_save_resume'), // v34 MCPDIR
       description: MCP_TOOL_DESCRIPTIONS.prepare_save_resume,
       inputSchema: { jobId: JobId, resume: ResumeInput.optional(), revision: RevisionInput.optional(), mode: Mode, profile: ProfileArg },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     ({ jobId, resume, revision, mode, profile }) =>
       run('prepare_save_resume', { jobId, profile }, async (ctx) => {
@@ -181,7 +189,7 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
   server.registerTool(
     'prepare_save_cover_letter',
     {
-      title: 'Save cover letter',
+      ...toolMeta('prepare_save_cover_letter'), // v34 MCPDIR
       description: MCP_TOOL_DESCRIPTIONS.prepare_save_cover_letter,
       inputSchema: {
         jobId: JobId,
@@ -190,7 +198,6 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
         mode: Mode,
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     ({ jobId, paragraphs, letter, mode, profile }) =>
       run('prepare_save_cover_letter', { jobId, profile }, (ctx) => saveCoverLetter(ctx, jobId, { paragraphs, letter }, mode)),
@@ -199,7 +206,7 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
   server.registerTool(
     'prepare_save_answers',
     {
-      title: 'Save answers',
+      ...toolMeta('prepare_save_answers'), // v34 MCPDIR
       description: MCP_TOOL_DESCRIPTIONS.prepare_save_answers,
       inputSchema: {
         jobId: JobId.optional(),
@@ -208,7 +215,6 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
         mode: Mode,
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     ({ jobId, answers, jobs, mode, profile }) =>
       run('prepare_save_answers', { jobId, jobs, profile }, async (ctx) => {
@@ -228,7 +234,7 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
   server.registerTool(
     'prepare_mark',
     {
-      title: 'Mark a job',
+      ...toolMeta('prepare_mark'), // v34 MCPDIR
       description: MCP_TOOL_DESCRIPTIONS.prepare_mark,
       inputSchema: {
         jobId: JobId,
@@ -238,7 +244,6 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
         mode: Mode,
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     ({ jobId, status, reason, part, mode, profile }) =>
       run('prepare_mark', { jobId, profile }, (ctx) => markJob(ctx, jobId, { status, reason: untrustedText(reason, 300), part }, mode)),
@@ -253,6 +258,7 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
   // v2.0 P5: instructions, filter_jobs, custom_filter_verdicts, prepare_start, ai_search_jobs, own_ai_context/_save.
   registerV20Tools(server, session);
   registerV31Tools(server, session); // v31 LINK: add_job (tools-v31.ts)
+  registerFanoutTools(server, session); // v34 MCPFAN: prepare_filters, set_prepare_filters (tools-fanout.ts)
 
   // ---------------------------------------------------------------------------------------------------- prompts
 
@@ -264,12 +270,15 @@ export async function createMcpServer(deps: AppDeps, caller: McpCaller, prepare:
     const jobId = Number(jobIdText);
     try {
       const text = await build(jobId);
+      // v34 MCPDIR (the directory review, finding 11): a prompt is never cut; one too large is refused with what to do.
+      const max = constantsOf(deps).get('MCP_RESULT_MAX_CHARS');
+      if (text.length > max) throw new AppError('validation_failed', tooLargeMessage('prepare_prompt', text.length, max));
       deps.log.debug(`[mcp] account ${userId}: prompt ${name}`);
       return promptOf(mcpPromptAnswerDescription(name, jobId), text);
     } catch (error) {
       if (error instanceof AppError && error.status < 500) throw new Error(error.message);
       deps.log.error(`[mcp] account ${userId}: prompt ${name} failed`, error instanceof Error ? error.name : 'unknown');
-      throw new Error('Something went wrong on TailorIT\'s side. Try again.');
+      throw new Error(internalErrorMessage(`the prompt ${name}`)); // v34 MCPDIR: what happened, what to do
     }
   };
 

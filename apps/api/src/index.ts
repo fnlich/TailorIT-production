@@ -1,5 +1,8 @@
 import { createApp, setupServices, startFeatures } from './app';
 import { apiBindHost, isLoopbackHost, urlHost } from './config/addresses';
+import { startWarnings } from './config/warnings'; // v34 ORIGIN
+import { aiBillingStartLine, aiCliPassedEnvLine } from './ai/billing'; // v34 AIKEY; v34 FIX-API
+import { constantsOf } from './core/constants/service'; // v34 AIKEY
 import { createRuntimeDeps } from './deps';
 
 async function main(): Promise<void> {
@@ -11,9 +14,16 @@ async function main(): Promise<void> {
   // API_HOST (127.0.0.1 by default: this computer only). The web reaches the API through its /api proxy, so the API can
   // stay on loopback while the web server listens on a network address.
   const host = apiBindHost(config.apiHost);
+  for (const warning of startWarnings(config)) log.warn(warning); // v34 ORIGIN: APP_ORIGIN not https in production
+  // v34 AIKEY: which billing (AI_BILLING), never the key; with api-key, the daily budget (review fix H1).
+  log.info(aiBillingStartLine(config.ai, process.env, constantsOf(deps).get('AI_KEY_DAILY_BUDGET_USD')));
+  // v34 FIX-API (the final security review, O1): the ANTHROPIC_* names the CLI gets in the default billing, never values.
+  const passed = aiCliPassedEnvLine(config.ai, process.env);
+  if (passed) log.info(passed);
   if (!isLoopbackHost(host)) {
     log.warn(`[api] API_HOST=${config.apiHost}: the API can be reached from other computers on the network.`);
-    if (config.auth.devFixedCode) {
+    // v34 FIX-API (the final security review, F1): the fixed code answers the network only with the test servers' opt-in.
+    if (config.auth.devFixedCode && config.auth.devFixedCodeAnyAddress) {
       log.warn('[api] AUTH_DEV_FIXED_CODE is set, so anyone on the network can sign in as any address through the API.');
     }
   }

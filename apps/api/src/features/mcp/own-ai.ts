@@ -1,3 +1,4 @@
+import { forMcpPrompt } from '../../ai/prompts/mcp/render'; // v34 MCPDIR
 import { z } from 'zod';
 import {
   buildContactLine,
@@ -13,7 +14,7 @@ import {
 } from '@tailorit/shared';
 import type { AiTaskContext, PromptModule } from '../../ai/index';
 import type { AppDeps } from '../../core/context';
-import { AppError, notFound, validationFailed } from '../../core/http/errors';
+import { AppError, validationFailed } from '../../core/http/errors';
 import { stringsOf } from '../autofill/ai/tasks';
 import { untrustedBlock, untrustedLines } from '../autofill/ai/untrusted';
 import { applicationFacts, letterProfile, visibleTemplate } from '../cover-letters/context';
@@ -35,7 +36,8 @@ import { tailoredTitle } from '../tailor/output';
 import { assertResumeEditable, assertRoomForResumes } from './limits';
 import { tailorContext, tailorSave } from './own-ai-tailor';
 import { LETTER_GUIDANCE_MAX, ownerWrap, profileWrapped, wrappedWithin } from './profiles'; // v33 SHARE-8
-import type { SaveContext } from './save'; // v33 SHARE-8
+import { evidenceSources, type SaveContext } from './save'; // v33 SHARE-8; v34 MCPDIR
+import { refuseWrittenLeaks } from './written'; // v34 MCPDIR
 import { contentProblem, CONTENT_REFUSALS } from './screen';
 
 // v2.0 P5 (A17; 07-mcp.md "Every AI feature is usable through MCP"): the server-AI features beside Prepare, with the
@@ -80,11 +82,19 @@ const refuseContent = (texts: unknown, canaries: readonly string[] = []) => {
 };
 
 /** v33 SHARE-8: the call's own-AI context: whose documents (the profile), who pays, which words to wrap and screen. */
-type OwnCtx = Pick<SaveContext, 'deps' | 'userId' | 'profile' | 'canaries'>;
+type OwnCtx = Pick<SaveContext, 'deps' | 'userId' | 'profile' | 'canaries' | 'caller'>;
 
 /** The shape a save takes, in one line, with the call that saves it. */
 const saveLine = (feature: OwnAiFeature, ids: string, output: string) =>
   `own_ai_save {"feature": "${feature}", ${ids}, "output": ${output}}`;
+
+// v34 MCPDIR (Claude's directory review: no generic errors): what a missing resume or entry answers, with what to do.
+const UPLOAD_NOT_FOUND =
+  'That uploaded resume is not on this profile: use the resumeId of an uploaded resume (the Documents page lists them).';
+const BUILT_NOT_FOUND = 'That resume is not an editable resume on this profile: use the resumeId of an editable one.';
+const ENTRY_NOT_FOUND = 'That entry is not in the resume: call own_ai_context without entryId to list its entries and their ids.';
+const BULLETS_PROMPT_UNREAD =
+  'TailorIT could not build its bullets prompt (logged for the operator). Try again; if it fails again, tell the person.';
 
 // ------------------------------------------------------------------------------------------------ resume_copy
 
@@ -93,7 +103,7 @@ async function ownUpload(deps: Pick<AppDeps, 'db'>, userId: string, resumeId: st
     "SELECT id, extracted_text FROM resumes WHERE id = ? AND user_id = ? AND kind = 'uploaded'",
     [resumeId, userId],
   );
-  if (!row) throw notFound('That uploaded resume');
+  if (!row) throw new AppError('not_found', UPLOAD_NOT_FOUND); // v34 MCPDIR: what to do
   const text = (row.extracted_text ?? '').slice(0, UPLOAD_TEXT);
   if (!readableForImport(text)) throw new AppError('validation_failed', UNREADABLE_TEXT);
   return { id: row.id, text };
@@ -104,7 +114,7 @@ async function resumeCopyContext(ctx: OwnCtx, resumeId: string) {
   const upload = await ownUpload(deps, userId, resumeId);
   return {
     feature: 'resume_copy',
-    prompt: resumeImportPrompt.system({ text: '' }),
+    prompt: forMcpPrompt(resumeImportPrompt.system({ text: '' })), // v34 MCPDIR: the MCP rule
     // v33 SHARE-8 (review): on another person's profile, the text in the profile's wrapper alone (one wrapper).
     input: ctx.profile.grant
       ? profileWrapped(ctx.profile, `RESUME TEXT (the person's uploaded file):\n${untrustedLines(upload.text, UPLOAD_TEXT)}`)
@@ -125,6 +135,11 @@ async function resumeCopySave(ctx: OwnCtx, resumeId: string, output: unknown) {
     throw validationFailed('output: expected the resume document JSON in the shape own_ai_context gave.');
   }
   refuseContent(parsed.data, ctx.canaries);
+  // v34 MCPDIR (the security review, finding 1): only the contacts of the upload (the person's own) and their account.
+  // On another person's profile the copy's contact email and phone become the owner's (below): those are not screened.
+  const contact = (parsed.data as { contact?: Record<string, unknown> }).contact;
+  const screened = ctx.profile.grant && contact ? { ...parsed.data, contact: { ...contact, email: '', phone: '' } } : parsed.data;
+  await refuseWrittenLeaks(ctx, screened, [upload.text]);
   // v33 SHARE-8 (SHARE-3's R4): a copy made on another person's profile takes their contact email and phone.
   const imported = importedDocument(parsed.data);
   const document = ctx.profile.grant ? await withOwnerContact(deps, userId, imported) : imported;
@@ -157,7 +172,7 @@ const LISTS: Record<EntryKind, 'experience' | 'projects' | 'volunteering'> = {
 async function ownBuilt(deps: AppDeps, userId: string, resumeId: string) {
   const row = await findResume(deps, userId, resumeId);
   const document = row ? documentOf(row) : null;
-  if (!row || !document) throw notFound('That resume (an editable one)');
+  if (!row || !document) throw new AppError('not_found', BUILT_NOT_FOUND); // v34 MCPDIR: what to do
   return { row, document, revision: row.document_revision };
 }
 
@@ -179,7 +194,7 @@ function entriesOf(document: ResumeDocument) {
 
 function findEntry(document: ResumeDocument, entryId: string): { kind: EntryKind; index: number; entry: Record<string, unknown> } {
   const found = entriesOf(document).find((item) => item.key === entryId);
-  if (!found) throw notFound('That entry (a role, a project or a volunteering entry of the resume)');
+  if (!found) throw new AppError('not_found', ENTRY_NOT_FOUND); // v34 MCPDIR: what to do
   return found;
 }
 
@@ -246,7 +261,7 @@ async function capturedPrompt(request: BulletsRequest): Promise<{ module: Prompt
   } catch (error) {
     if (error !== stop) throw error;
   }
-  if (!heard) throw new AppError('internal', 'The bullets prompt could not be read.');
+  if (!heard) throw new AppError('internal', BULLETS_PROMPT_UNREAD); // v34 MCPDIR: what to do
   return heard;
 }
 
@@ -268,7 +283,7 @@ async function entryBulletsContext(ctx: OwnCtx, resumeId: string, entryId?: stri
   const { module, input } = await capturedPrompt(bulletsRequest(document, kind, entry, task ?? (existing ? 'improve' : 'write')));
   return {
     feature: 'entry_bullets',
-    prompt: module.system(input),
+    prompt: forMcpPrompt(module.system(input)), // v34 MCPDIR: the MCP rule
     input: profileWrapped(ctx.profile, module.user(input)),
     revision,
     output: saveLine(
@@ -289,6 +304,8 @@ async function entryBulletsSave(
   const parsed = z.object({ bullets: z.array(z.string()).min(1).max(20) }).safeParse(input.output);
   if (!parsed.success) throw validationFailed('output: expected {"bullets": ["...", "..."]}: 1 to 8 one-line bullets.');
   refuseContent(parsed.data.bullets, ctx.canaries);
+  // v34 MCPDIR (the security review, finding 1): only links and contacts the resume (or the person's account) holds.
+  await refuseWrittenLeaks(ctx, parsed.data.bullets, [JSON.stringify((await ownBuilt(deps, userId, input.resumeId)).document)]);
   const bullets = finishBullets(parsed.data.bullets);
   if (bullets.length === 0) throw validationFailed('output: no usable bullet. Write them again.');
   return deps.db.tx(async () => {
@@ -368,8 +385,8 @@ async function coverLetterContext(ctx: OwnCtx, applicationId: string, resumeId?:
   };
   return {
     feature: 'cover_letter',
-    prompt: coverLetterPrompt.system(input),
-    input: [coverLetterPrompt.context?.(input) ?? '', coverLetterPrompt.user(input)].filter((part) => part.trim()).join('\n\n'),
+    prompt: forMcpPrompt(coverLetterPrompt.system(input)), // v34 MCPDIR: the MCP rule
+    input: forMcpPrompt([coverLetterPrompt.context?.(input) ?? '', coverLetterPrompt.user(input)].filter((part) => part.trim()).join('\n\n')),
     output: saveLine(
       'cover_letter',
       `"applicationId": "${job.applicationId}", "resumeId": "${evidence.resumeId}"`,
@@ -385,6 +402,8 @@ async function coverLetterSave(ctx: OwnCtx, applicationId: string, output: unkno
   const parsed = LetterOutputSchema.safeParse(output);
   if (!parsed.success) throw validationFailed('output: expected {"paragraphs": ["...", "..."]}, 1 to 6 paragraphs of plain text.');
   refuseContent(parsed.data.paragraphs, ctx.canaries);
+  // v34 MCPDIR (the security review, findings 1 and 5): a letter names only the person's own links and contacts.
+  await refuseWrittenLeaks(ctx, parsed.data.paragraphs, evidenceSources(evidence));
   const paragraphs = parsed.data.paragraphs
     .flatMap((paragraph) => tidyAiText(paragraph).split(/\n\s*\n/))
     .map((paragraph) => paragraph.trim())

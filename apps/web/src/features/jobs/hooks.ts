@@ -249,12 +249,16 @@ export function removeJobsFromLists(client: QueryClient, match: (item: JobListIt
   });
 }
 
+/** v34 FANWEB fix (spec L1): "Saved on" (and the Save to menu's "In its Job Tracker") follow every save and unsave. */
+const SAVED_ON_KEY = ['jobs', 'saved-on'] as const;
+
 function refreshAfterTracking(client: QueryClient, jobId: number): Promise<unknown> {
   return Promise.all([
     client.invalidateQueries({ queryKey: jobsKeys.detail(jobId) }),
     client.invalidateQueries({ queryKey: jobsKeys.lists, refetchType: 'none' }),
     client.invalidateQueries({ queryKey: jobsKeys.counts }),
     client.invalidateQueries({ queryKey: TRACKER_KEY }),
+    client.invalidateQueries({ queryKey: SAVED_ON_KEY }),
   ]);
 }
 
@@ -271,6 +275,7 @@ function refreshAfterBulkTracking(client: QueryClient): Promise<unknown> {
     client.invalidateQueries({ queryKey: jobsKeys.allInsights }),
     client.invalidateQueries({ queryKey: jobsKeys.allRowMatches }), // v31 FIX-JOBS
     client.invalidateQueries({ queryKey: TRACKER_KEY }),
+    client.invalidateQueries({ queryKey: SAVED_ON_KEY }), // v34 FANWEB fix
   ]);
 }
 

@@ -53,7 +53,8 @@ export function Badge({ tone = 'outline', icon, wrap = false, className, childre
       )}
       {...rest}
     >
-      {icon && wrap ? <span className="flex shrink-0">{icon}</span> : icon}
+      {/* v34 FIX-WEB (final review U-L3): the icon never shrinks, cut words or not. */}
+      {icon && <span className="flex shrink-0">{icon}</span>}
       <span className={wrap ? 'min-w-0 break-words' : 'truncate'}>{children}</span>
     </span>
   );

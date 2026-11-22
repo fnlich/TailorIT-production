@@ -19,6 +19,7 @@ import { userMessage } from '../../lib/api';
 import { usePublicConstants } from '../../lib/constants';
 import { roleFamilyLabel } from '@tailorit/shared/roles';
 import { useMyField } from '../roles/hooks'; // v33 ROLES
+import { DeleteMyAccount } from '../account-deletion/DeleteMyAccount'; // v34 ACCTDEL
 import { ACCOUNT_COPY, accountView, type AccountView } from './account';
 import { Section, SettingRow } from './parts';
 
@@ -70,6 +71,8 @@ export function AccountSection({ className }: { className?: string }) {
       ) : (
         <AccountSkeleton />
       )}
+      {/* v34 ACCTDEL (PLAN G10): Delete my account, last in the section, whether or not the plan summary loaded. */}
+      <DeleteMyAccount />
       <SubscribeDialog open={open === 'subscribe'} onOpenChange={(next) => setOpen(next ? 'subscribe' : null)} />
       <BuyCreditDialog open={open === 'credit'} onOpenChange={(next) => setOpen(next ? 'credit' : null)} />
     </Section>

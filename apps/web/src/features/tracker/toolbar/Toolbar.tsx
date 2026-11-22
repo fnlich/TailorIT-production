@@ -18,6 +18,7 @@ import {
   ArrowCounterClockwiseIcon,
   CaretDownIcon,
   ChartLineIcon,
+  CopyIcon,
   FileZipIcon,
   KanbanIcon,
   LockSimpleIcon,
@@ -29,6 +30,7 @@ import {
 import { filterChips, selectedLabel, withoutChip, DEFAULT_FILTERS, type FilterState } from '../state';
 import { LIMIT_COPY } from '@/components/limits/copy';
 import { StatusIcon } from '../status';
+import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
 
 /**
  * v31 FIX-DOCS: Active | Archived, each with its count in a small badge once it is known (never a "0" that is only
@@ -300,6 +302,8 @@ export function ManageBar({
   buildingResumes,
   resumesLocked = false,
   deletable = true,
+  onCopy,
+  changeable,
   onDone,
 }: {
   tab: TrackerTab;
@@ -316,24 +320,35 @@ export function ManageBar({
   resumesLocked?: boolean;
   /** v33 SHARE-9 fix (review; F9's Change box archives but never deletes): false on a shared profile (no Delete). */
   deletable?: boolean;
+  /** v34 FANWEB: Copy to profiles… (the selection's jobs saved on other profiles); absent without a shared profile. */
+  onCopy?: () => void;
+  /**
+   * v34 FANWEB fix (spec M6; the All profiles view): how many of the chosen cards Move, Archive and Restore change (a
+   * card of a profile shared to see only is left alone), and the line that says which are left alone. None: those
+   * three are off.
+   */
+  changeable?: { count: number; note: string | null };
   onDone: () => void;
 }) {
   const [pending, setPending] = useState<BulkKind | null>(null);
   const { t } = usePublicConstants();
   const none = count === 0;
+  // v34 FANWEB fix: Move, Archive and Restore count (and need) the cards they change.
+  const changes = changeable?.count ?? count;
+  const noChange = none || changes === 0;
   const confirm =
     pending === null
       ? null
       : typeof pending === 'object'
         ? {
-            title: t('MSG_TRACKER_MOVE_MANY_TITLE', { count, stage: STATUS_INFO[pending.status].label }),
+            title: t('MSG_TRACKER_MOVE_MANY_TITLE', { count: changes, stage: STATUS_INFO[pending.status].label }),
             description: t('MSG_TRACKER_MOVE_MANY_TEXT', { stage: STATUS_INFO[pending.status].label }),
             label: 'Move',
             tone: 'primary' as const,
           }
         : {
-            title: t(CONFIRM[pending].title, { count }),
-            description: t(CONFIRM[pending].description, { count }),
+            title: t(CONFIRM[pending].title, { count: pending === 'delete' ? count : changes }),
+            description: t(CONFIRM[pending].description, { count: pending === 'delete' ? count : changes }),
             label: CONFIRM[pending].label,
             tone: CONFIRM[pending].tone,
           };
@@ -358,7 +373,7 @@ export function ManageBar({
           variant="outline"
           size="sm"
           icon={<ArchiveIcon size={14} />}
-          disabled={none || tab === 'archived'}
+          disabled={noChange || tab === 'archived'}
           onClick={() => setPending('archive')}
         >
           Archive
@@ -367,7 +382,7 @@ export function ManageBar({
           variant="outline"
           size="sm"
           icon={<ArrowCounterClockwiseIcon size={14} />}
-          disabled={none || tab === 'active'}
+          disabled={noChange || tab === 'active'}
           onClick={() => setPending('unarchive')}
         >
           Restore
@@ -377,9 +392,14 @@ export function ManageBar({
             Delete
           </Button>
         )}
+        {onCopy && (
+          <Button variant="outline" size="sm" icon={<CopyIcon size={14} />} disabled={none} onClick={onCopy} data-copy-to-profiles="">
+            {FANOUT_COPY.copyTo}
+          </Button>
+        )}
         <Menu>
           <MenuTrigger
-            disabled={none}
+            disabled={noChange}
             render={<Button variant="outline" size="sm" trailingIcon={<CaretDownIcon size={12} />} />}
           >
             {t('LABEL_TRACKER_MOVE_TO_STAGE')}
@@ -405,10 +425,15 @@ export function ManageBar({
             {resumesLocked && <span className="sr-only"> ({LIMIT_COPY.paidOnly})</span>}
           </Button>
         )}
-        <Button size="sm" onClick={onDone}>
+        <Button size="sm" onClick={onDone} data-manage-done="">
           Done
         </Button>
       </div>
+      {changeable?.note && (
+        <p className="basis-full pb-1 text-[13px] leading-5 text-muted-foreground" aria-live="polite" data-see-only-chosen="">
+          {changeable.note}
+        </p>
+      )}
       <ConfirmDialog
         open={confirm !== null}
         onOpenChange={(open) => {

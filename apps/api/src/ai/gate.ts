@@ -15,7 +15,9 @@ import { capacityOf } from './capacity';
 //   3. `chargeTo` is a person whose daily remaining is at or below 0 and whose extra credit is 0: ai_usage_exhausted
 //      (MSG_AI_USAGE_EXHAUSTED, "Get extra credit", the time to the next daily reset).
 // `chargeTo` a server cost (serverCost: the background job analysis) is nobody's: only 1 and 2 apply. A task already running is never
-// stopped here: its runs are charged after the fact and any overshoot is written off (core/accounts/money.ts).
+// stopped here: its runs are charged after the fact and any overshoot is written off (core/accounts/money.ts). v34 FIX-API (the
+// final security review, F2): under AI_BILLING=api-key the queue asks the API key's daily budget before each AI call of a running
+// task too (queue.ts runTask; capacity.ts keyBudgetReached), read afresh after each recorded cost.
 
 export type AiRefusal = {
   code: 'ai_unavailable' | 'ai_usage_exhausted';

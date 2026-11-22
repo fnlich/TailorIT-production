@@ -21,6 +21,15 @@ import { conflict, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
 import { accountHistory, adminUserOf, listAdminUsers } from './accounts';
 import { endGrantsOfAccount } from '../sharing/end-grant'; // v33 SHARE-2
+// v34 ACCTDEL
+import { AccountDeleteBodySchema, type AccountDeletionResult } from '@tailorit/shared/account-deletion';
+import { constantsOf } from '../../core/constants/service';
+import { notFound } from '../../core/http/errors';
+import { refuse } from '../../core/http/refuse';
+import { confirmsAccount, deleteAccount, deletionRequestOf, lockEnabledAdmins } from '../account-deletion/service';
+import { deleteTries, emailMismatch } from '../account-deletion/router';
+import { userOf } from '../../core/auth/guards';
+// end v34 ACCTDEL
 
 // Administrator: list accounts, change role, disable. Owned by work package F3 (see docs/ARCHITECTURE.md). v2.0 (P6b;
 // docs/design/v2.0/04-accounts-limits.md, "Admin routes (accounts)"): the list is paged and each row carries the
@@ -30,6 +39,10 @@ import { endGrantsOfAccount } from '../sharing/end-grant'; // v33 SHARE-2
 // input checks, 404s and an audit line for each change.
 
 const ANOTHER_ADMIN = 'Another administrator can, if it is really meant.';
+// v34 ACCTDEL
+const NO_ADMIN_LEFT = 'That would leave no administrator who can sign in. Make another account an administrator first.';
+const BEING_DELETED = "This account's deletion has not finished, so it stays off. Delete account (below) finishes it now.";
+// end v34 ACCTDEL
 
 const HistoryQuerySchema = z.object({ cursor: z.string().min(1).max(200).optional() });
 
@@ -63,6 +76,16 @@ async function patchAccount(
 
   // v3.0 D2 (D2-0): async, as the core calls it makes are.
   await deps.db.tx(async (t) => {
+    // v34 ACCTDEL: the last administrator who can sign in stays, under the deletion's locks (account-deletion/service.ts
+    // lockEnabledAdmins): disabling or demoting an enabled administrator needs another enabled one at this moment (a
+    // deletion of the acting administrator's own account may have committed meanwhile). An account being deleted stays
+    // off.
+    if (target.role === 'admin' && (change.disabled === true || (change.role !== undefined && change.role !== 'admin'))) {
+      const admins = await lockEnabledAdmins(t);
+      if (admins.includes(target.id) && !admins.some((id) => id !== target.id)) throw conflict(NO_ADMIN_LEFT);
+    }
+    if (change.disabled === false && (await deletionRequestOf(t, target.id))) throw conflict(BEING_DELETED);
+    // end v34 ACCTDEL
     const now = nowIso(deps);
     if (change.role !== undefined && change.role !== target.role) {
       await t.run('UPDATE users SET role = ?, updated_at = ? WHERE id = ?', [change.role, now, target.id]);
@@ -176,6 +199,29 @@ export function createAdminUsersRouter(deps: AppDeps): Router {
           return adminUserOf(deps, userId);
         }),
       );
+
+      // v34 ACCTDEL (PLAN G10): Delete account. Never the administrator's own account from here (Settings › Account ›
+      // Delete my account is theirs), never the last administrator who can sign in (deleteAccount refuses it), and only
+      // with the account's address typed. 200 `deleted`; 202 `pending` when the account is off and the rest finishes on
+      // its own (asked again, it finishes now). The audit line names the deletion by its line in account_deletions
+      // (#id), never the account: the account and its address are gone.
+      router.post('/:id/delete', deleteTries('admin-account-delete'), async (req, res) => {
+        const admin = userOf(req);
+        const userId = idOf(req.params.id);
+        const body = parseInput(AccountDeleteBodySchema, req.body ?? {}, 'confirmation');
+        const target = await getUserById(deps, userId);
+        if (!target) throw notFound('That account');
+        if (target.id === admin.id) throw refuse(deps, 'conflict', 'MSG_ACCOUNT_DELETE_OWN');
+        if (!confirmsAccount(target, body.email)) throw emailMismatch(deps);
+        const done = await deleteAccount(deps, target.id, 'admin');
+        await audit({ action: 'delete', ids: [done.deletionId === null ? done.state : `#${done.deletionId}`], actor: admin, change: null });
+        const answer: AccountDeletionResult =
+          done.state === 'pending'
+            ? { state: 'pending', message: constantsOf(deps).message('MSG_ACCOUNT_DELETE_PENDING_ADMIN') }
+            : { state: 'deleted' };
+        res.status(done.state === 'pending' ? 202 : 200).json(answer);
+      });
+      // end v34 ACCTDEL
 
       router.get(
         '/:id/history',

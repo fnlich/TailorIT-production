@@ -1,8 +1,8 @@
 'use client';
 
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   APPLICATION_STATUSES,
   STATUS,
@@ -35,7 +35,20 @@ import { useArchivedColumn, useColumnPrefs, useDebouncedValue } from '../hooks';
 import { ListView, type ListEmptyKind } from '../list/ListView';
 import { activeFilterCount, chooseView, filterKey, DEFAULT_FILTERS, type FilterState, type TrackerUrlState } from '../state';
 import { NO_ACTIONS, OptionsMenu } from '../toolbar/OptionsMenu';
-import { FilterChipsRow, SearchRow, TabsRow, ViewSwitch } from '../toolbar/Toolbar';
+import { FilterChipsRow, ManageBar, PrepareBar, SearchRow, TabsRow, ViewSwitch, type BulkKind } from '../toolbar/Toolbar';
+import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { HelpTip } from '@/components/ui/HelpTip';
+import type { FanoutItem } from '@tailorit/shared/sharing';
+import { prepareBlockReason } from '../draft';
+import { FANOUT_COPY, namesList } from '../../sharing/fanout/copy'; // v34 FANWEB
+import { manageBarFocus, ProfilesDialog } from '../../sharing/fanout/parts';
+import { boxName } from '../../sharing/fanout/targets';
+import { PROFILES_COPY } from '../../sharing/copy';
+import { usePrepareAllProfiles } from '../../sharing/usePrepareAllProfiles';
+import { BudgetNote } from '../../prepare/PrepareAllConfirmDialog';
+import { HEADER_QUERY_KEY, fetchHeaderSummary } from '@/components/shell/header/api';
+import { useTrackerFanout } from './fanout';
 import { cardActions, moreInLane, moreRows } from './actions';
 import { AllProfilesToggle } from './AllProfilesToggle';
 import { useProfileBoards, useProfileCounts, useProfileLists, useProfileMarkers, type ListPages, type ProfileRead } from './data';
@@ -63,8 +76,16 @@ import type { TrackerScope } from './useTrackerProfiles';
 
 const NO_LIMITS: Readonly<Record<string, ColumnLimits>> = {};
 const NO_WANTED: Readonly<Record<string, number>> = {};
-/** Nothing is selected here (per-card actions only). */
+/** Nothing selected yet. */
 const NO_SELECTION: ReadonlySet<string> = new Set();
+
+// v34 FANWEB (PLAN G4: "the All profiles view gains Select and bulk actions (Copy to, Move to a stage, Archive,
+// Prepare & Queue) that run on each card's own profile, plus Prepare all profiles"): Select applications and Prepare &
+// Queue jobs are in the view's menu again; the selection may hold cards of every profile and each action is one request
+// (POST /api/profiles/applications/bulk, each card on its own profile). A card whose profile is shared to see only is
+// left out of Move, Archive and Restore (and named in the result); Copy to takes any card (it only reads the job);
+// Prepare & Queue takes only cards of profiles the person may prepare (the others' boxes say why). Archive and Restore
+// have Undo; Prepare asks first (it uses the person's AI). Never Delete (a person who was shared a profile archives).
 
 /** The cards of a profile's read, for knowing which profile a card belongs to. */
 const itemsOfBoard = (read: ProfileRead<BoardResponse>) => (read.data?.columns ?? []).flatMap((column) => column.items);
@@ -148,6 +169,22 @@ export function AllProfilesView({
   const [prefs, setPrefs] = useColumnPrefs();
   const [archivedShown, setArchivedShown] = useArchivedColumn();
 
+  // v34 FANWEB: the selection (cards of every profile), what it is for, and the actions on several profiles.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectPurpose, setSelectPurpose] = useState<'manage' | 'prepare'>('manage');
+  const prepareMode = selectMode && selectPurpose === 'prepare';
+  const [selection, setSelection] = useState<{ key: string; ids: ReadonlySet<string> }>(() => ({ key: `${url.tab}:${key}`, ids: NO_SELECTION }));
+  const selected = selection.key === `${url.tab}:${key}` ? selection.ids : NO_SELECTION;
+  const setSelected = (ids: ReadonlySet<string>) => setSelection({ key: `${url.tab}:${key}`, ids });
+  const fanout = useTrackerFanout();
+  const copyProfiles = useMemo(() => fanout.profiles.map((profile) => ({ ...profile, current: false })), [fanout.profiles]);
+  const [copying, setCopying] = useState<FanoutItem[] | null>(null);
+  const [preparing, setPreparing] = useState<FanoutItem[] | null>(null);
+  const prepareAllButton = useRef<HTMLButtonElement>(null);
+  const prepareAll = usePrepareAllProfiles(prepareAllButton);
+  // v34 FANWEB fix (spec L8): the header's read of today's AI use (the shell keeps it; nothing is asked here).
+  const header = useQuery({ queryKey: HEADER_QUERY_KEY, queryFn: ({ signal }) => fetchHeaderSummary(signal), enabled: false });
+
   const counts = useProfileCounts(profiles, true);
   const boards = useProfileBoards(profiles, filters, q, limits, view === 'board');
   const lists = useProfileLists(profiles, url.tab, filters, q, wanted, view === 'list');
@@ -208,13 +245,73 @@ export function AllProfilesView({
 
   const markerOf = (application: ApplicationSummary): MarkerView | null => trackerMarker(application, markers.get(application.id), t);
 
+  // v34 FANWEB: what the selection holds now (only what is on screen), each card with its profile.
+  const loadedApplications: ApplicationSummary[] =
+    view === 'board'
+      ? [
+          ...(board.columns ?? []).filter((column) => visible.includes(column.status)).flatMap((column) => column.items),
+          ...(archivedShown ? (archived.items ?? []) : []),
+        ]
+      : (list.items ?? []);
+  /** Why a card cannot be chosen for Prepare & Queue: its profile's box, or the card itself (not Saved, queued already). */
+  const prepareBlocked = (application: ApplicationSummary): string | null => {
+    const owner = ownerOf(application);
+    if (!owner) return null;
+    if (!owner.canPrepare) return FANOUT_COPY.prepareBlocked(boxName('prepare:run', fanout.label));
+    return prepareBlockReason(application);
+  };
+  const loadedIds = loadedApplications.map((item) => item.id);
+  const prepareIds = loadedApplications.filter((item) => prepareBlocked(item) === null).map((item) => item.id);
+  const itemsOf = (ids: Iterable<string>): FanoutItem[] => {
+    const out: FanoutItem[] = [];
+    for (const id of ids) {
+      const owner = owners.get(id);
+      if (owner) out.push({ profile: owner.choice, applicationId: id });
+    }
+    return out;
+  };
+  const onScreenSelected = () => {
+    const onScreen = new Set(loadedIds);
+    return [...selected].filter((id) => onScreen.has(id));
+  };
+  const startSelecting = (purpose: 'manage' | 'prepare') => {
+    if (purpose !== selectPurpose) setSelected(NO_SELECTION);
+    setSelectPurpose(purpose);
+    setSelectMode(true);
+  };
+  const endSelecting = () => {
+    setSelectMode(false);
+    setSelected(NO_SELECTION);
+  };
+  /** v34 FANWEB fix (spec M6): the chosen cards Move, Archive and Restore change, and the see-only profiles left alone. */
+  const chosenNow = onScreenSelected();
+  const editableChosen = chosenNow.filter((id) => owners.get(id)?.canEdit);
+  const seeOnlyChosen = [...new Set(chosenNow.filter((id) => !owners.get(id)?.canEdit).map((id) => owners.get(id)?.label ?? ''))].filter(Boolean);
+  const changeable = {
+    count: editableChosen.length,
+    note: seeOnlyChosen.length > 0 ? FANOUT_COPY.seeOnlyChosen(namesList(seeOnlyChosen), editableChosen.length === 0) : null,
+  };
+  /** A bulk action of the bar: the editable profiles' cards in one request; the others left out and named. */
+  const bulk = async (kind: BulkKind) => {
+    // The bar offers Move, Archive and Restore only with a card they change (a see-only profile's cards are left alone).
+    if (editableChosen.length === 0) return;
+    await fanout.bulk(kind, itemsOf(editableChosen), seeOnlyChosen);
+    setSelected(NO_SELECTION);
+  };
+
   const handlers: CardHandlers = {
     onOpen: actions.open,
     onMove: actions.move,
     onArchive: (application) => void actions.setArchived(application, true),
     onRestore: (application) => void actions.setArchived(application, false),
     onToggleFavorite: actions.toggleFavorite,
-    onToggleSelected: () => undefined,
+    onToggleSelected: (application, on) => {
+      const next = new Set(selected);
+      if (on) next.add(application.id);
+      else next.delete(application.id);
+      setSelected(next);
+    },
+    selectBlocked: prepareMode ? prepareBlocked : undefined,
     markerOf,
     canEdit: (application) => ownerOf(application)?.canEdit ?? false,
     profileOf: (application): CardProfile | null => {
@@ -296,6 +393,21 @@ export function AllProfilesView({
             <>
               <ViewSwitch view={view} onViewChange={changeView} className="sm:hidden" chart={false} />
               <AllProfilesToggle on onChange={(on) => (on ? undefined : leave())} />
+              {/* v34 FANWEB: every profile's saved jobs prepared in one go (as on the Profiles page). */}
+              <span className="inline-flex items-center gap-1">
+                <Button
+                  ref={prepareAllButton}
+                  variant="outline"
+                  onClick={prepareAll.start}
+                  loading={prepareAll.reading}
+                  disabled={!prepareAll.ready}
+                  className="max-sm:h-11"
+                  data-prepare-all-profiles=""
+                >
+                  {prepareAll.reading ? PROFILES_COPY.reading : PROFILES_COPY.prepareAll}
+                </Button>
+                <HelpTip label={PROFILES_COPY.prepareAll}>{PROFILES_COPY.prepareAllTip}</HelpTip>
+              </span>
             </>
           }
           className="max-sm:items-center sm:mb-3"
@@ -317,17 +429,43 @@ export function AllProfilesView({
               onColumnToggle={(status, on) => setPrefs(on ? showColumn(prefs, status) : hideColumn(prefs, status))}
               archivedColumn={{ count: tabCounts?.archived ?? 0, visible: archivedShown }}
               onArchivedToggle={setArchivedShown}
-              onManage={() => undefined}
-              onPrepare={() => undefined}
+              onManage={() => startSelecting('manage')}
+              onPrepare={() => startSelecting('prepare')}
               onImport={() => undefined}
               onExport={() => undefined}
               onBuildResumes={() => undefined}
               buildingResumes={false}
               onArchiveAll={() => undefined}
-              actions={NO_ACTIONS}
+              actions={{ ...NO_ACTIONS, select: true, prepare: url.tab === 'active' }}
             />
           }
         />
+        {prepareMode && (
+          <PrepareBar
+            count={prepareIds.filter((id) => selected.has(id)).length}
+            total={prepareIds.length}
+            allSelected={prepareIds.length > 0 && prepareIds.every((id) => selected.has(id))}
+            onSelectAll={(on) => setSelected(on ? new Set(prepareIds) : NO_SELECTION)}
+            onPrepare={() => setPreparing(itemsOf(prepareIds.filter((id) => selected.has(id))))}
+            pending={preparing !== null}
+            onDone={endSelecting}
+          />
+        )}
+        {selectMode && !prepareMode && (
+          <ManageBar
+            tab={url.tab}
+            count={selected.size}
+            total={loadedIds.length}
+            allSelected={loadedIds.length > 0 && loadedIds.every((id) => selected.has(id))}
+            onSelectAll={(on) => setSelected(on ? new Set(loadedIds) : NO_SELECTION)}
+            onBulk={bulk}
+            buildingResumes={false}
+            deletable={false}
+            onCopy={() => setCopying(itemsOf(onScreenSelected()))}
+            changeable={changeable}
+            onDone={endSelecting}
+          />
+        )}
         <FilterChipsRow filters={filters} onChange={setFilters} />
         <ProfileLoadFailures reads={failedReads} />
       </div>
@@ -341,8 +479,8 @@ export function AllProfilesView({
             onPrefsChange={setPrefs}
             handlers={handlers}
             openId={url.app}
-            selectMode={false}
-            selected={NO_SELECTION}
+            selectMode={selectMode}
+            selected={selected}
             onLoadMore={() => undefined}
             loadingMore={null}
             laneMore={laneMore}
@@ -375,8 +513,8 @@ export function AllProfilesView({
             empty={emptyKind}
             handlers={handlers}
             openId={url.app}
-            selectMode={false}
-            selected={NO_SELECTION}
+            selectMode={selectMode}
+            selected={selected}
             hasMore={false}
             loadingMore={false}
             failed={false}
@@ -395,6 +533,44 @@ export function AllProfilesView({
         onEditConsumed={() => undefined}
         onClose={() => setUrl({ ...url, app: null, edit: false })}
       />
+      {/* v34 FANWEB: Copy to profiles…, Prepare & Queue's confirm, Prepare all profiles, the results. */}
+      <ProfilesDialog
+        open={copying !== null}
+        onOpenChange={(open) => !open && setCopying(null)}
+        title={FANOUT_COPY.copyToTitle(copying?.length ?? 0)}
+        help={FANOUT_COPY.copyToHelp}
+        // v34 FANWEB fix (spec L5): over every profile, no profile is "this profile".
+        profiles={copyProfiles}
+        label={fanout.label}
+        confirmLabel={FANOUT_COPY.copyConfirm}
+        finalFocus={manageBarFocus}
+        onConfirm={async (targets) => {
+          if (!copying) return;
+          await fanout.copy(copying, targets);
+          setSelected(NO_SELECTION);
+        }}
+      />
+      <ConfirmDialog
+        open={preparing !== null}
+        onOpenChange={(open) => !open && setPreparing(null)}
+        tone="primary"
+        title={FANOUT_COPY.prepareConfirmTitle(preparing?.length ?? 0, new Set((preparing ?? []).map((item) => item.profile)).size)}
+        description={FANOUT_COPY.prepareConfirmLine}
+        confirmLabel={FANOUT_COPY.prepareConfirmLabel}
+        busyLabel={FANOUT_COPY.prepareBusy}
+        // It spends the person's AI: it opens on Cancel.
+        focusCancel
+        onConfirm={async () => {
+          if (!preparing) return;
+          await fanout.prepare(preparing);
+          setSelected(NO_SELECTION);
+        }}
+      >
+        {/* v34 FANWEB fix (spec L8): today's AI use, as Prepare all profiles shows it (the header's read). */}
+        {header.data && <BudgetNote ai={{ ...header.data.ai, creditMicros: header.data.extraCredit.balanceMicros }} />}
+      </ConfirmDialog>
+      {prepareAll.elements}
+      {fanout.element}
     </div>
   );
 }

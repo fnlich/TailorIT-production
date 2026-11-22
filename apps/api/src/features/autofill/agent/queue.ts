@@ -26,6 +26,7 @@ import { extensionTokenLive } from '../../../core/auth/extension-tokens';
 import { constantsOf } from '../../../core/constants/service';
 import { nowIso, type AppDeps } from '../../../core/context';
 import type { Dialect } from '../../../core/db/dialect';
+import type { DbTx } from '../../../core/db/types'; // v34 FANOUT
 import { notFound } from '../../../core/http/errors';
 import { refuse } from '../../../core/http/refuse';
 import { notifyAutoApplyResult } from '../../notifications/emitters'; // v31 NOTIFY
@@ -104,8 +105,11 @@ export interface StoredAgentSettings extends AutofillAgentSettings {
  */
 export const IMPORT_SOURCE_KINDS = ['csv', 'json', 'seed', 'page'] as const;
 
-/** The account's rule: off, at AUTOFILL_AGENT_DEFAULT_MIN_MATCH, before it is first saved. */
-export async function readAgentSettings(deps: Pick<AppDeps, 'db'>, userId: string): Promise<StoredAgentSettings> {
+/**
+ * The account's rule: off, at AUTOFILL_AGENT_DEFAULT_MIN_MATCH, before it is first saved. v34 FANOUT: `lock`, inside a
+ * transaction, reads the row FOR UPDATE (a change at the same moment waits; saveAgentSettings).
+ */
+export async function readAgentSettings(deps: Pick<AppDeps, 'db'>, userId: string, lock = false): Promise<StoredAgentSettings> {
   const row = await deps.db.one<{
     rule_enabled: number | boolean;
     min_match: number;
@@ -114,7 +118,7 @@ export async function readAgentSettings(deps: Pick<AppDeps, 'db'>, userId: strin
     rule_cursor_job: number;
   }>(
     `SELECT rule_enabled, min_match, rule_enabled_at, rule_cursor_at, rule_cursor_job FROM autofill_agent_settings
-     WHERE user_id = ?`,
+     WHERE user_id = ?${lock ? ' FOR UPDATE' : ''}`,
     [userId],
   );
   if (!row) return { ruleEnabled: false, minMatch: AUTOFILL_AGENT_DEFAULT_MIN_MATCH, enabledAt: null, cursor: null };
@@ -129,16 +133,28 @@ export async function readAgentSettings(deps: Pick<AppDeps, 'db'>, userId: strin
 /**
  * PUT /agent/settings: turning the rule on starts its "new jobs" now; changing its threshold while it is on weighs the
  * jobs since then again (a lower one may take a job it passed over; never one the person took out of the queue).
+ * v34 FANOUT (the FANOUT review, sharing 8 / spec 5): `settings` may be a function of the rule as saved (the PATCH's
+ * merge), read with the row locked FOR UPDATE in the same transaction, so a change at the same moment is never written
+ * back over; `options.lock` runs in it once the row is held (the fan-out locks the share FOR SHARE: a Stop waits).
  */
 export async function saveAgentSettings(
   deps: Deps,
   userId: string,
-  settings: AutofillAgentSettings,
+  settingsOrMerge: AutofillAgentSettings | ((before: StoredAgentSettings) => AutofillAgentSettings), // v34 FANOUT
+  options: { lock?: (t: DbTx) => Promise<void> } = {}, // v34 FANOUT
 ): Promise<AutofillAgentSettings> {
   const now = nowIso(deps);
   return deps.db.tx(
     async (t) => {
-      const before = await readAgentSettings(deps, userId);
+      // v34 FANOUT: the row made first (at the defaults) when there is none, so the read below can lock it.
+      await t.run(
+        `INSERT INTO autofill_agent_settings(user_id, rule_enabled, min_match, rule_cursor_job, updated_at)
+         VALUES (?, ?, ?, 0, ?) ON CONFLICT(user_id) DO NOTHING`,
+        [userId, t.dialect.bool(false), AUTOFILL_AGENT_DEFAULT_MIN_MATCH, now],
+      );
+      const before = await readAgentSettings(deps, userId, true);
+      await options.lock?.(t); // v34 FANOUT: the caller's lock (the fan-out's share) once the row is held
+      const settings = typeof settingsOrMerge === 'function' ? settingsOrMerge(before) : settingsOrMerge;
       const turnedOn = settings.ruleEnabled && !before.ruleEnabled;
       const enabledAt = turnedOn ? now : before.enabledAt;
       const restart = turnedOn || (settings.ruleEnabled && settings.minMatch !== before.minMatch);

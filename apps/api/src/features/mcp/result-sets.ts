@@ -58,7 +58,8 @@ export const SET_OTHER_PROFILE =
 const SET_ID = /^rs_[A-Za-z0-9_-]{6,30}$/;
 
 export const SET_GONE =
-  'That result set is not there any more (sets last 24 hours, and an account keeps its 50 newest). Search again for a new setId.';
+  'That result set is not there any more (sets last 24 hours, and an account keeps its 50 newest). Run the search or ' +
+  'filter_jobs again for a new id.'; // v34 MCPDIR (the directory review, finding 15): also a gone runId or cursor
 
 /** Keeps the matches as a new set of the account and answers it. */
 export async function saveResultSet(

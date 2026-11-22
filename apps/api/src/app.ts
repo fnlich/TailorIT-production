@@ -5,6 +5,7 @@ import { attachActing } from './core/auth/acting'; // v33 SHARE-1
 import { attachBearer, CONNECT_REDEEM_PATH, tokenScope } from './core/auth/extension-tokens';
 import { RoutePolicies } from './core/auth/route-policy'; // v33 SHARE-1
 import { attachUser } from './core/auth/session';
+import { publicOriginOf, refusedAddressNote } from './config/public-origin'; // v34 ORIGIN; ORIGIN2
 import { grantAdminsPaidOnce } from './core/accounts/admin-grant';
 import { constantsOf, loadConstants } from './core/constants/index';
 import type { AppDeps } from './core/context';
@@ -73,7 +74,7 @@ export function createApp(deps: AppDeps, features: Feature[] = FEATURES): Expres
   const app = express();
   app.disable('x-powered-by');
   // Next's rewrite proxy runs on the same machine; trust its X-Forwarded-* so req.secure/req.ip are right.
-  app.set('trust proxy', 'loopback');
+  app.set('trust proxy', deps.config.trustProxy); // v34 ORIGIN: TRUST_PROXY (blank: loopback; a load balancer: 1)
   // Every answer is no-store (noStore below), so an ETag only repeats the body's hash: none, a password's least of all.
   app.set('etag', false);
   // Content-Security-Policy is set per response by the routes that return HTML (previews); JSON needs none.
@@ -98,7 +99,14 @@ export function createApp(deps: AppDeps, features: Feature[] = FEATURES): Expres
   // a body that parser refuses is answered with the version header too. See core/auth/extension-tokens.ts.
   app.use(attachBearer(deps));
   app.use(express.json({ limit: '5mb' }));
-  app.use(originCheck(deps.config.appOrigin, { cookieFree: [CONNECT_REDEEM_PATH] }));
+  // v34 ORIGIN: also the request's own trusted public origin (a test tunnel's address, config/public-origin.ts).
+  app.use(
+    originCheck(deps.config.appOrigin, {
+      cookieFree: [CONNECT_REDEEM_PATH],
+      publicOrigin: (req) => publicOriginOf(deps.config, req),
+      onRefused: refusedAddressNote(deps.config, deps.log), // v34 ORIGIN2: names an address to add to TRUSTED_PUBLIC_HOSTS
+    }),
+  );
   app.use(attachUser(deps));
   app.use(tokenScope);
   // v33 SHARE-1 (PLAN F9 "Acting"): which shared profile the request names (X-TailorIT-Profile, or ?profile= on GET and
@@ -138,6 +146,8 @@ export async function startFeatures(
   features: Feature[] = FEATURES,
   options: { workers?: boolean } = {},
 ): Promise<() => Promise<void>> {
+  // v34 DIRKIT: the API's background work (AI queue, Prepare, backlogs, sweeps, daily steps) never starts in a command.
+  if (deps.commandProcess) throw new Error('A maintenance command never starts the API\'s background work: the running API does it.');
   const stops: Array<() => void | Promise<void>> = [constantsOf(deps).start()];
   try {
     await grantAdminsPaidOnce(deps);

@@ -33,6 +33,8 @@ import {
   updateUser,
 } from './api';
 import { endOfDayIso, historyLines } from './users';
+import { AdminDeleteAccount } from '@/features/account-deletion/AdminDeleteAccount'; // v34 ACCTDEL
+import type { AccountDeletionState } from '@tailorit/shared/account-deletion'; // v34 ACCTDEL
 
 // v2.0: Admin › Users › an account (docs/design/v2.0/08-ui.md, "Users"): 1. type and term, 2. the daily AI budget,
 // 3. extra credit, 4. history, 5. role and sign-in. Every change goes through the entitlement and credit services
@@ -51,12 +53,15 @@ export function UserSheet({
   open,
   onOpenChange,
   onChanged,
+  onDeleted,
 }: {
   user: AdminUser;
   isSelf: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChanged: (user: AdminUser) => void;
+  /** v34 ACCTDEL: the account was deleted, or is being deleted (Delete account, the last section). */
+  onDeleted?: (id: string, state: AccountDeletionState) => void;
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -164,7 +169,7 @@ export function UserSheet({
               </Field>
               <Switch
                 checked={!user.disabled}
-                disabled={busy}
+                disabled={busy || user.beingDeleted === true} // v34 ACCTDEL: it stays off while being deleted
                 label={user.disabled ? 'Cannot sign in' : 'Can sign in'}
                 onCheckedChange={(enabled) =>
                   run(enabled ? 'Account enabled' : 'Account disabled', () => updateUser(user.id, { disabled: !enabled }))
@@ -173,6 +178,9 @@ export function UserSheet({
             </div>
             {isSelf && <p className="mt-2 text-[13px] leading-5 text-muted-foreground">This is your own account.</p>}
           </SheetSection>
+
+          {/* v34 ACCTDEL (PLAN G10): Delete account (never your own from here). */}
+          {onDeleted && <AdminDeleteAccount user={user} isSelf={isSelf} onDeleted={onDeleted} />}
         </div>
       </SheetContent>
     </Sheet>

@@ -57,6 +57,9 @@ export const ERROR_CODES = [
   // v33 SHARE-3 (PLAN-sharing §5 "Refusal wording"): work someone else pays for (B's on A's profile, read by A's
   // extension) stopped at that person's own AI limit (MSG_AI_PAYER_LIMIT); their reset and buttons are theirs alone.
   'payer_limit',
+  // v34 ACCTDEL (PLAN G10): signing in to an account whose deletion was asked and has not finished yet
+  // (MSG_ACCOUNT_BEING_DELETED): it is off, and goes on its own within a day.
+  'account_being_deleted',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -100,6 +103,7 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   own_profile_only: 403,
   // end v33 SHARE-0
   payer_limit: 403, // v33 SHARE-3
+  account_being_deleted: 403, // v34 ACCTDEL
 };
 
 export const ApiErrorBodySchema = z.object({

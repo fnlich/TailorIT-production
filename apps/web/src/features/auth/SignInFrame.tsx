@@ -1,5 +1,52 @@
+import Link from 'next/link'; // v34 PUBLIC
 import type { ReactNode } from 'react';
 import { Logo } from '@/components/shell/Logo';
+import { PUBLIC_PAGE_PATHS } from '@tailorit/shared/public-pages'; // v34 PUBLIC
+import { PUBLIC_PAGES } from '@/features/public/paths'; // v34 PUBLIC
+
+/**
+ * v34 PUBLIC (PLAN G8): the public pages (Guide, Privacy, Terms, Support), small, under the card: anyone may read them
+ * before signing in.
+ */
+function PublicPageLinks() {
+  return (
+    <nav aria-label="About TailorIT" className="mt-6" data-sign-in-public-links="">
+      <ul className="flex flex-wrap items-center justify-center gap-x-1 text-[13px] leading-5">
+        {PUBLIC_PAGES.map((page) => (
+          <li key={page.href}>
+            <Link
+              href={page.href}
+              className="inline-flex min-h-11 items-center rounded-control px-2 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline sm:min-h-8"
+            >
+              {page.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * v34 PUBLIC (the owner's decision after the review's finding 7): signing in accepts the Terms of use and the Privacy
+ * policy, said under the card (the Terms page's lead says the same).
+ */
+function AcceptTerms() {
+  const link = 'font-medium text-foreground underline underline-offset-2 hover:text-primary';
+  return (
+    <p className="mt-4 w-full max-w-md text-center text-[13px] leading-5 text-muted-foreground" data-sign-in-accept="">
+      By continuing, you accept the{' '}
+      <Link href={PUBLIC_PAGE_PATHS.terms} className={link}>
+        Terms of use
+      </Link>{' '}
+      and the{' '}
+      <Link href={PUBLIC_PAGE_PATHS.privacy} className={link}>
+        Privacy policy
+      </Link>
+      .
+    </p>
+  );
+}
 
 /** What TailorIT does, in the person's words: the denim side of the sign-in page. */
 const STORY_LINES = [
@@ -41,7 +88,9 @@ export function SignInFrame({ children, footer }: { children: ReactNode; footer?
           <Logo markSize={40} wordSize={28} gap={10} />
         </div>
         {children}
+        <AcceptTerms />
         {footer}
+        <PublicPageLinks />
       </div>
     </main>
   );

@@ -8,7 +8,10 @@ import { SOURCE_KINDS } from '../ingest/types';
 import { PLATFORMS } from './platform';
 import { ProfileArg, type McpSession } from './profiles'; // v33 SHARE-8
 import { MAX_DIRECT_IDS, SET_MAX_IDS } from './result-sets';
-import { refuseGrantTripwire } from './save'; // v33 SHARE-8 (review)
+import { refuseFencedData } from './save'; // v33 SHARE-8 (review)
+import { toolMeta } from './tool-meta'; // v34 MCPDIR
+import { onManyOrOne, saveJobsOnMany, unsaveJobsOnMany } from './tools-fanout'; // v34 MCPFAN
+import { refuseWrittenLeaks } from './written'; // v34 MCPDIR
 import {
   APP_FACETS,
   APP_FIELDS,
@@ -39,12 +42,11 @@ import { applicationStats, STAT_GROUPS } from './tools-stats';
 // v1.5 Q2: the MCP tools that let the person's own AI do the rest of TailorIT: search the jobs, save them, fill and
 // filter the auto-apply queue, filter the tracker, count it, read one application, and report what it cannot do.
 // server.ts registers them with one call (registerWorkTools). The descriptions are short and never change (an MCP
-// client caches them), each with one or two examples of turning a person's words into arguments, and each ends with
-// UNSUPPORTED. Answers are compact JSON (tables of rows under `cols`), never prose. The log names the tool, the
+// client caches them), some with an example of turning a person's words into arguments. Answers are compact JSON (tables of rows under `cols`), never prose. The log names the tool, the
 // account and done or refused, never an argument's value.
 
-// v30 FIX-B (DECISIONS P6.4): the descriptions (and these two sentences) are ai/prompts/mcp/tool-descriptions.ts'.
-export { MCP_UNSUPPORTED as UNSUPPORTED, MCP_WORK_INSTRUCTIONS as WORK_INSTRUCTIONS } from '../../ai/prompts/mcp/tool-descriptions';
+// v30 FIX-B (DECISIONS P6.4): the descriptions are ai/prompts/mcp/tool-descriptions.ts'. v34 MCPDIR: they no longer end
+// with "Else: report_unsupported." (its own description and the instructions say when to report).
 
 const STATUS_KEYS = Object.keys(STATUS) as [StatusKey, ...StatusKey[]];
 const Term = z.string().trim().min(1).max(60);
@@ -55,6 +57,9 @@ const Tz = z.string().trim().max(64).describe(MCP_ARG_DESCRIPTIONS.tz);
 const Range = z.object({ period: When.optional(), from: When.optional(), to: When.optional() });
 const Limit = z.number().int().min(1).max(PAGE_MAX);
 const Cursor = z.string().max(80);
+
+/** v34 MCPDIR: a removal's confirmation, the count its refusal named (the tool's description says so). */
+const Confirm = z.number().int().nonnegative().optional();
 
 const Bulk = {
   ids: JobIdList.optional(),
@@ -83,10 +88,6 @@ function argsOf<T extends { profile?: string }>(args: T): Omit<T, 'profile'> {
   return rest;
 }
 
-/** A read (it keeps a result set, the person's AI's own cache, and changes nothing the person sees). */
-const READ = { readOnlyHint: true, openWorldHint: false } as const;
-const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
-
 /**
  * Registers the v1.5 Q2 tools on one request's server, for the token's account. v33 SHARE-8: each takes `profile`
  * (report_unsupported: the caller's own) and runs on the profile the session decides (profiles.ts); its result sets are
@@ -98,7 +99,7 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'search_jobs',
     {
-      title: 'Search jobs',
+      ...toolMeta('search_jobs'),
       description: MCP_TOOL_DESCRIPTIONS.search_jobs,
       inputSchema: {
         query: z.string().max(200).optional(),
@@ -133,7 +134,6 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
         cursor: Cursor.optional().describe(MCP_ARG_DESCRIPTIONS.cursor),
         profile: ProfileArg,
       },
-      annotations: READ,
     },
     (args) => run('search_jobs', args, (ctx) => searchJobs(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
   );
@@ -141,7 +141,7 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'job_details',
     {
-      title: 'Job details',
+      ...toolMeta('job_details'),
       description: MCP_TOOL_DESCRIPTIONS.job_details,
       inputSchema: {
         jobId: z.number().int().positive().optional(),
@@ -151,7 +151,6 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
         tz: Tz.optional(),
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     // A job id here is a job of the pool, not a Prepare: the profile is "me" unless named.
     (args) => run('job_details', { profile: args.profile }, (ctx) => jobDetails(ctx.deps, ctx.userId, argsOf(args))),
@@ -160,23 +159,37 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'save_jobs',
     {
-      title: 'Save jobs',
+      ...toolMeta('save_jobs'),
       description: MCP_TOOL_DESCRIPTIONS.save_jobs,
       inputSchema: { ...Bulk, date: When.optional().describe(MCP_ARG_DESCRIPTIONS.date), tz: Tz.optional(), profile: ProfileArg },
-      annotations: { ...WRITE, idempotentHint: true },
     },
-    (args) => run('save_jobs', args, (ctx) => saveJobsTool(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
+    // v34 MCPFAN: several profiles ("all", or keys joined by commas) answer per profile (tools-fanout.ts).
+    (args) =>
+      onManyOrOne(
+        session,
+        'save_jobs',
+        args,
+        (own, many) => saveJobsOnMany(session, own, many, argsOf(args)),
+        () => run('save_jobs', args, (ctx) => saveJobsTool(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
+      ),
   );
 
   server.registerTool(
     'unsave_jobs',
     {
-      title: 'Unsave jobs',
+      ...toolMeta('unsave_jobs'),
       description: MCP_TOOL_DESCRIPTIONS.unsave_jobs,
-      inputSchema: { ...Bulk, profile: ProfileArg },
-      annotations: { ...WRITE, idempotentHint: true },
+      inputSchema: { ...Bulk, confirm: Confirm, profile: ProfileArg },
     },
-    (args) => run('unsave_jobs', args, (ctx) => unsaveJobsTool(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
+    // v34 MCPFAN
+    (args) =>
+      onManyOrOne(
+        session,
+        'unsave_jobs',
+        args,
+        (own, many) => unsaveJobsOnMany(session, own, many, argsOf(args)),
+        () => run('unsave_jobs', args, (ctx) => unsaveJobsTool(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
+      ),
   );
 
   // v2.0 P5: queue_add is removed (A4): jobs reach the queue only through prepare_start and the saves.
@@ -184,10 +197,9 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'queue_remove',
     {
-      title: 'Remove from the auto-apply queue',
+      ...toolMeta('queue_remove'),
       description: MCP_TOOL_DESCRIPTIONS.queue_remove,
-      inputSchema: { ...Bulk, profile: ProfileArg },
-      annotations: { ...WRITE, idempotentHint: true },
+      inputSchema: { ...Bulk, confirm: Confirm, profile: ProfileArg },
     },
     (args) => run('queue_remove', args, (ctx) => queueRemoveTool(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
   );
@@ -195,18 +207,17 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'queue_clear_finished',
     {
-      title: 'Clear finished queue rows',
+      ...toolMeta('queue_clear_finished'),
       description: MCP_TOOL_DESCRIPTIONS.queue_clear_finished,
-      inputSchema: { profile: ProfileArg },
-      annotations: { ...WRITE, idempotentHint: true },
+      inputSchema: { confirm: Confirm, profile: ProfileArg },
     },
-    (args) => run('queue_clear_finished', args, (ctx) => queueClearFinishedTool(ctx.deps, ctx.userId)),
+    (args) => run('queue_clear_finished', args, (ctx) => queueClearFinishedTool(ctx.deps, ctx.userId, args.confirm)),
   );
 
   server.registerTool(
     'queue_list',
     {
-      title: 'Auto-apply queue',
+      ...toolMeta('queue_list'),
       description: MCP_TOOL_DESCRIPTIONS.queue_list,
       inputSchema: {
         state: z.array(z.enum(AUTOFILL_AGENT_STATES)).max(6).optional(),
@@ -222,7 +233,6 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
         cursor: Cursor.optional(),
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (args) => run('queue_list', args, (ctx) => queueList(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
   );
@@ -230,7 +240,7 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'list_applications',
     {
-      title: 'Job Tracker entries',
+      ...toolMeta('list_applications'),
       description: MCP_TOOL_DESCRIPTIONS.list_applications,
       inputSchema: {
         ...AppFilterShape,
@@ -243,7 +253,6 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
         cursor: Cursor.optional(),
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (args) => run('list_applications', args, (ctx) => listApplications(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
   );
@@ -251,7 +260,7 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'application_stats',
     {
-      title: 'Application statistics',
+      ...toolMeta('application_stats'),
       description: MCP_TOOL_DESCRIPTIONS.application_stats,
       inputSchema: {
         metric: z.enum(['count']).optional(),
@@ -264,7 +273,6 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
         filters: z.object(AppFilterShape).optional(),
         profile: ProfileArg,
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (args) => run('application_stats', args, (ctx) => applicationStats(ctx.deps, ctx.userId, argsOf(args))),
   );
@@ -272,10 +280,9 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'application_timeline',
     {
-      title: 'One application',
+      ...toolMeta('application_timeline'),
       description: MCP_TOOL_DESCRIPTIONS.application_timeline,
       inputSchema: { applicationId: z.string().min(1).max(64), profile: ProfileArg },
-      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     ({ applicationId, profile }) =>
       run('application_timeline', { profile }, (ctx) => applicationTimeline(ctx.deps, ctx.userId, applicationId)),
@@ -284,20 +291,20 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
   server.registerTool(
     'report_unsupported',
     {
-      title: 'Report an unsupported request',
+      ...toolMeta('report_unsupported'),
       description: MCP_TOOL_DESCRIPTIONS.report_unsupported,
       inputSchema: {
         request: z.string().trim().min(1).max(MCP_REPORT_REQUEST_MAX),
         missing: z.string().trim().min(1).max(MCP_REPORT_MISSING_MAX),
         triedTools: z.array(z.string().max(64)).max(20).optional(),
       },
-      annotations: { ...WRITE, idempotentHint: false },
     },
     // v33 SHARE-8: the caller's own report (Settings › Integrations), whatever profile the AI worked on.
     // v33 SHARE-8 (review): a report is a save too: refused when it holds a tripwire of the caller's grants.
     (args) =>
-      run('report_unsupported', {}, (ctx) => {
-        refuseGrantTripwire(ctx, [args.request, args.missing, args.triedTools ?? []]);
+      run('report_unsupported', {}, async (ctx) => {
+        refuseFencedData(ctx, [args.request, args.missing, args.triedTools ?? []]);
+        await refuseWrittenLeaks(ctx, [args.request, args.missing]); // v34 MCPDIR
         return reportUnsupported(ctx.deps, ctx.caller.id, session.tokenId, args);
       }),
   );

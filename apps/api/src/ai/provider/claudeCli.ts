@@ -8,8 +8,9 @@ import type { AiCapacityService } from '../capacity';
 import { aboutMinutes, AI_DETAILS, AiError, holdError } from '../errors';
 import { buildClaudeArgv, isCliModelName, normalizeEffort, systemFileText } from './argv';
 import { cliChannelParts, interpretTurn, type HoldRequest } from './classify';
-import { buildChildEnv } from './env';
-import { billedToKey, createTurnState, reduceEvent, streamedUsage, type RateLimitInfo, type TurnState } from './events';
+import { apiKeyValues, buildChildEnv, scrubSecrets } from './env'; // v34 AIKEY: apiKeyValues, scrubSecrets
+// v34 AIKEY: billedAgainst (AI_BILLING) instead of billedToKey.
+import { billedAgainst, createTurnState, reduceEvent, streamedUsage, type RateLimitInfo, type TurnState } from './events';
 import { probeCli, type CliStatus } from './health';
 import { defaultResolveHost, resolveCliCommand, type CliCommand, type ResolveHost } from './resolve';
 import { runCli, type CliRunOutcome } from './spawn';
@@ -24,6 +25,22 @@ export const SYSTEM_PROMPT_DIR = 'system-prompts';
 const STALE_SYSTEM_FILE_MS = 60 * 60_000;
 /** A file the OS would not let go at once (a child still closing it, on Windows) is tried again after this long. */
 const RETRY_DELETE_MS = 10_000;
+
+// v34 AIKEY
+/** `status` with the key's value scrubbed from every text the CLI gave (its version line, sign-in fields, a problem). */
+function scrubStatus(status: CliStatus, hidden: readonly string[]): CliStatus {
+  if (hidden.length === 0) return status;
+  const scrub = (text: string | null) => (text === null ? null : scrubSecrets(text, hidden));
+  return {
+    ...status,
+    version: scrub(status.version),
+    authMethod: scrub(status.authMethod),
+    subscriptionType: scrub(status.subscriptionType),
+    apiKeySource: scrub(status.apiKeySource),
+    problem: scrub(status.problem),
+  };
+}
+// end v34 AIKEY
 
 /** The usage reading in a turn's rate_limit_event (the CLI gives `resetsAt` in epoch seconds). */
 function readingOf(info: RateLimitInfo, seenAtMs: number): RateLimitReading {
@@ -60,10 +77,15 @@ export interface ClaudeCliProviderOptions {
  */
 export function createClaudeCliProvider(options: ClaudeCliProviderOptions): AiProvider {
   const { ai, log } = options;
+  // v34 AIKEY (PLAN Addendum G11): who pays, AI_BILLING. `subscription` (the default) keeps every key away from the CLI
+  // and stops a call a key pays for; `api-key` passes ANTHROPIC_API_KEY and stops a call the subscription pays for.
+  const billing = ai.billing;
   const workdir = join(options.dataDir, 'claude-cli-work');
   const systemDir = join(workdir, SYSTEM_PROMPT_DIR);
   const nowMs = () => options.now().getTime();
   const parentEnv = options.parentEnv ?? (() => process.env);
+  /** v34 AIKEY: the key's value while it is passed, scrubbed from the CLI's own texts (its stderr, an error result). */
+  const secrets = () => (billing === 'api-key' ? apiKeyValues(parentEnv()) : []);
   const holds = new Map<string, ProviderHold>();
   const warned = new Set<string>();
   let lastRate: RateLimitReading | null = null;
@@ -246,11 +268,14 @@ export function createClaudeCliProvider(options: ClaudeCliProviderOptions): AiPr
     if (request.signal?.aborted) stop.abort();
     else request.signal?.addEventListener('abort', forward, { once: true });
     let outcome;
+    // v34 AIKEY: the key's value (api-key only), kept out of everything the CLI itself writes.
+    const hidden = secrets();
     try {
       outcome = await runCli({
         command: cli.command,
         args: [...cli.prefixArgs, ...argv],
-        env: buildChildEnv(parentEnv()),
+        env: buildChildEnv(parentEnv(), billing), // v34 AIKEY: billing
+        secrets: hidden, // v34 AIKEY (review fix L3): stderr scrubbed before its cut
         cwd: workdir,
         stdin,
         timeoutMs,
@@ -259,7 +284,7 @@ export function createClaudeCliProvider(options: ClaudeCliProviderOptions): AiPr
         onLine: (line) => {
           const before = state.deltaText;
           reduceEvent(state, line, read);
-          if (billedToKey(state)) stop.abort();
+          if (billedAgainst(state, billing)) stop.abort(); // v34 AIKEY: billedAgainst (AI_BILLING)
           // v5: the answer so far, for a caller that reads it as it streams (a metered call never gets that far).
           else if (hearing && state.deltaText !== before && state.deltaText !== '') {
             try {
@@ -275,11 +300,19 @@ export function createClaudeCliProvider(options: ClaudeCliProviderOptions): AiPr
       request.signal?.removeEventListener('abort', forward);
       deleteSystemFile(systemFile);
     }
+    // v34 AIKEY: what the CLI itself wrote never carries the key further (a log line, an error, Admin › AI's test). Each
+    // text is whole here (runCli scrubbed stderr before its cut), so every shortening below comes after the scrub.
+    if (hidden.length > 0) {
+      outcome = { ...outcome, stderr: scrubSecrets(outcome.stderr, hidden) };
+      if (state.resultText !== null) state.resultText = scrubSecrets(state.resultText, hidden);
+      state.errors = state.errors.map((mark) => scrubSecrets(mark, hidden));
+    }
+    // end v34 AIKEY
     // Any turn that reports the seat's usage updates the reading, whether it answered or not.
     if (state.rateLimit) lastRate = readingOf(state.rateLimit, nowMs());
     noteCapacity(outcome, state);
 
-    const verdict = interpretTurn(outcome, state, { nowMs: nowMs(), firstEventMs: ai.firstEventMs, timeoutMs });
+    const verdict = interpretTurn(outcome, state, { nowMs: nowMs(), firstEventMs: ai.firstEventMs, timeoutMs, billing }); // v34 AIKEY: billing
     if (verdict.hold) setHold(verdict.hold, request.tag);
     if (state.usage) noteSideModels(state.usage.models, verdict.ok ? (verdict.model ?? request.model) : request.model);
     // v20 FIX-A (SEC-1): a turn that ended with no result event (cancelled, killed, timed out) is charged what its stream
@@ -329,7 +362,11 @@ export function createClaudeCliProvider(options: ClaudeCliProviderOptions): AiPr
         };
       }
       ensureWorkdir();
-      return probeCli({ cli, env: buildChildEnv(parentEnv()), cwd: workdir, timeoutMs: HEALTH_TIMEOUT_MS, checkedAt });
+      // v34 AIKEY: the CLI is asked with the key it would run on (billing), and its answer's texts are scrubbed.
+      // Review fix L3: probeCli scrubs both commands' outputs before it shortens them; scrubStatus stays as a second pass.
+      const hidden = secrets();
+      const probed = await probeCli({ cli, env: buildChildEnv(parentEnv(), billing), cwd: workdir, timeoutMs: HEALTH_TIMEOUT_MS, checkedAt, secrets: hidden });
+      return scrubStatus(probed, hidden);
     })()
       .then((value) => {
         statusCache = { at: nowMs(), value };

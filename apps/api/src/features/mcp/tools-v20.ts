@@ -9,6 +9,7 @@ import { customFilterVerdicts, filterJobs, prepareStart, VERDICT_REASON_MAX, VER
 import { instructionsFor, noteInstructionsRead } from './instructions';
 import { OWN_AI_FEATURES, ownAiContext, ownAiSave } from './own-ai';
 import { ProfileArg, type McpSession } from './profiles';
+import { toolMeta } from './tool-meta'; // v34 MCPDIR
 import { PAGE_MAX } from './tools-jobs';
 
 // v2.0 P5 (07-mcp.md "New"): the tools v2.0 adds, registered by server.ts in one line: instructions, filter_jobs,
@@ -21,8 +22,6 @@ import { PAGE_MAX } from './tools-jobs';
 /** filter_jobs' and prepare_start's direct ids, at most. */
 export const DIRECT_JOB_IDS_MAX = 100;
 
-const READ = { readOnlyHint: true, openWorldHint: false } as const;
-const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const JobId = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const Id = z.string().min(1).max(64);
 
@@ -38,10 +37,9 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'instructions',
     {
-      title: 'Instructions',
+      ...toolMeta('instructions'),
       description: MCP_TOOL_DESCRIPTIONS.instructions,
       inputSchema: {},
-      annotations: READ,
     },
     () =>
       run('instructions', {}, async () => {
@@ -54,7 +52,7 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'filter_jobs',
     {
-      title: 'Filter jobs',
+      ...toolMeta('filter_jobs'),
       description: MCP_TOOL_DESCRIPTIONS.filter_jobs,
       inputSchema: {
         scope: z.literal('saved').optional(),
@@ -65,7 +63,6 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
         cursor: z.string().max(80).optional(),
         profile: ProfileArg,
       },
-      annotations: READ,
     },
     (args) => run('filter_jobs', args, (ctx) => filterJobs(ctx, argsOf(args))),
   );
@@ -73,7 +70,7 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'custom_filter_verdicts',
     {
-      title: 'Custom filter verdicts',
+      ...toolMeta('custom_filter_verdicts'),
       description: MCP_TOOL_DESCRIPTIONS.custom_filter_verdicts,
       inputSchema: {
         verdicts: z
@@ -82,7 +79,6 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
           .max(VERDICTS_MAX),
         profile: ProfileArg,
       },
-      annotations: { ...WRITE, idempotentHint: true },
     },
     ({ verdicts, profile }) => run('custom_filter_verdicts', { profile }, (ctx) => customFilterVerdicts(ctx, verdicts)),
   );
@@ -90,7 +86,7 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'prepare_start',
     {
-      title: 'Prepare start',
+      ...toolMeta('prepare_start'),
       description: MCP_TOOL_DESCRIPTIONS.prepare_start,
       inputSchema: {
         runId: z.string().max(40).optional(),
@@ -99,7 +95,6 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
         rebuild: z.boolean().optional(),
         profile: ProfileArg,
       },
-      annotations: { ...WRITE, idempotentHint: false },
     },
     // A runId fixes the profile its filter run was made on; jobIds name no profile (a write: PROFILE_REQUIRED then).
     (args) => run('prepare_start', { profile: args.profile, runId: args.runId }, (ctx) => prepareStart(ctx, argsOf(args))),
@@ -108,14 +103,13 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'ai_search_jobs',
     {
-      title: 'AI job search',
+      ...toolMeta('ai_search_jobs'),
       description: MCP_TOOL_DESCRIPTIONS.ai_search_jobs,
       inputSchema: {
         text: z.string().min(1).max(AI_SEARCH_TEXT_CEILING),
         limit: z.number().int().min(1).max(PAGE_MAX).optional(),
         profile: ProfileArg,
       },
-      annotations: { ...READ, openWorldHint: false },
     },
     (args) => run('ai_search_jobs', { profile: args.profile }, (ctx) => aiSearchJobs(ctx, argsOf(args))),
   );
@@ -132,10 +126,9 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'own_ai_context',
     {
-      title: 'Own AI context',
+      ...toolMeta('own_ai_context'),
       description: MCP_TOOL_DESCRIPTIONS.own_ai_context,
       inputSchema: { ...OwnIds, task: z.enum(['write', 'improve']).optional() },
-      annotations: READ,
     },
     (args) => run('own_ai_context', { profile: args.profile }, (ctx) => ownAiContext(ctx, argsOf(args))),
   );
@@ -143,7 +136,7 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'own_ai_save',
     {
-      title: 'Own AI save',
+      ...toolMeta('own_ai_save'),
       description: MCP_TOOL_DESCRIPTIONS.own_ai_save,
       inputSchema: {
         ...OwnIds,
@@ -151,7 +144,6 @@ export function registerV20Tools(server: McpServer, session: McpSession): void {
         mode: z.enum(['replace', 'append']).optional(),
         revision: z.number().int().nonnegative().optional(),
       },
-      annotations: { ...WRITE, idempotentHint: false },
     },
     (args) => run('own_ai_save', { profile: args.profile }, (ctx) => ownAiSave(ctx, argsOf(args))),
   );

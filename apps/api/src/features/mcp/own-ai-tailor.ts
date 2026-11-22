@@ -24,8 +24,9 @@ import { assertRoomForResumes } from './limits';
 import { normalizeAnalysis } from './normalize/analysis';
 import { isRecord } from './normalize/refuse';
 import { ownerWrap } from './profiles'; // v33 SHARE-8
-import { atsSummary, draftOfResume, FACTS_CHANGED, NO_KEYWORDS_KEPT, refuseContent, refuseGrantTripwire, sourceAsTailored, tripwiresOf, type SaveContext } from './save';
-import { contentProblem, tripwireLine } from './screen';
+import { atsSummary, draftOfResume, FACTS_CHANGED, NO_KEYWORDS_KEPT, refuseContent, refuseFencedData, resumeSources, sourceAsTailored, tripwiresOf, type SaveContext } from './save';
+import { refuseWrittenLeaks } from './written'; // v34 MCPDIR
+import { contentProblem, holdsFencedData, newDataId } from './screen'; // v34 MCPFAN: holdsFencedData
 import { ownAnalyzeParts, ownTailorParts } from './step-text';
 import { keepAnalysis, workFor } from './work';
 
@@ -145,7 +146,7 @@ function namedIds(ids: TailorIds, job: McpJob, source: SourceProfile): string {
 const saveLine = (ids: string, output: string) => `own_ai_save {"feature": "tailor", ${ids}, "output": ${output}}`;
 
 /** v33 SHARE-8: the call's profile and payer (SaveContext's parts the tailoring reads). */
-type TailorCtx = Pick<SaveContext, 'deps' | 'userId' | 'profile' | 'canaries'>;
+type TailorCtx = Pick<SaveContext, 'deps' | 'userId' | 'profile' | 'canaries' | 'caller'>;
 
 export async function tailorContext(ctx: TailorCtx, ids: TailorIds) {
   const { deps, userId } = ctx;
@@ -162,7 +163,7 @@ export async function tailorContext(ctx: TailorCtx, ids: TailorIds) {
     return {
       feature: 'tailor',
       step: 'analysis',
-      ...ownAnalyzeParts(job.posting, tripwireLine(work.canary), job.family),
+      ...ownAnalyzeParts(job.posting, newDataId(), job.family), // v34 MCPDIR: the posting fenced with a fresh data id
       output: saveLine(named, '{"analysis": <the JSON object>}'),
       next: 'After that save, call own_ai_context again with the same ids: it answers the resume prompt.',
     };
@@ -185,7 +186,7 @@ export async function tailorSave(ctx: TailorCtx, ids: TailorIds, output: unknown
   if (!isRecord(output) || (output.analysis === undefined) === (output.resume === undefined)) {
     throw validationFailed(OUTPUT_SHAPE);
   }
-  refuseGrantTripwire(ctx, output); // v33 SHARE-8
+  refuseFencedData(ctx, output); // v33 SHARE-8
   const work = await workFor(deps, userId, job.jobId);
   const held = await heldAnalysis(deps, userId, job, work);
 
@@ -215,6 +216,9 @@ export async function tailorSave(ctx: TailorCtx, ids: TailorIds, output: unknown
   // v33 PROMPTS (F5): written for the person's field (else the job's): its numbers and its skill library.
   const fit = personFitOf(source, job);
   const canaries = tripwiresOf(ctx, work.canary); // v33 SHARE-8
+  // v34 MCPFAN (as prepare_save_resume, the coordinator's decision 9): fenced data before contacts.
+  if (holdsFencedData(stringsOf(output.resume), canaries)) throw refuseContent('canary');
+  await refuseWrittenLeaks(ctx, output.resume, resumeSources(source)); // v34 MCPDIR (the security review, finding 1)
   const { draft, dropped } = draftOfResume(output.resume, 'resume', profile, analysis, canaries, fit);
   const problem = contentProblem(stringsOf(draft), canaries);
   if (problem) throw refuseContent(problem);

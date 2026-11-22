@@ -45,8 +45,12 @@ export function clientIdOf(body: Record<string, unknown>): string {
   return clientId;
 }
 
-/** grant_type=authorization_code. */
-export async function exchangeCode(deps: Deps, body: Record<string, unknown>): Promise<IssuedTokens> {
+/**
+ * grant_type=authorization_code. v34 ORIGIN: `origin` is the token request's public origin (config/public-origin.ts):
+ * its issuer must be the one the authorization request was made at (oauth_requests.issuer), so a code from one
+ * address is never exchanged at another, and a named resource must be the request's own.
+ */
+export async function exchangeCode(deps: Deps, body: Record<string, unknown>, origin: string = deps.config.appOrigin): Promise<IssuedTokens> {
   const clientId = clientIdOf(body);
   const code = param(body, 'code');
   const verifier = param(body, 'code_verifier');
@@ -59,16 +63,18 @@ export async function exchangeCode(deps: Deps, body: Record<string, unknown>): P
     client_id: string;
     redirect_uri: string;
     resource: string;
+    issuer: string | null;
     code_challenge: string;
     code_expires_at: string;
     code_used_at: string | null;
     grant_id: string;
     scopes: string;
+    grant_resource: string;
     grant_revoked: string | null;
     disabled_at: string | null;
   }>(
-    `SELECT r.client_id, r.redirect_uri, r.resource, r.code_challenge, r.code_expires_at, r.code_used_at, r.grant_id,
-            g.scopes, g.revoked_at AS grant_revoked, u.disabled_at
+    `SELECT r.client_id, r.redirect_uri, r.resource, r.issuer, r.code_challenge, r.code_expires_at, r.code_used_at,
+            r.grant_id, g.scopes, g.resource AS grant_resource, g.revoked_at AS grant_revoked, u.disabled_at
        FROM oauth_requests r JOIN oauth_grants g ON g.id = r.grant_id JOIN users u ON u.id = g.user_id
       WHERE r.code_hash = ?`,
     [codeHash],
@@ -82,7 +88,11 @@ export async function exchangeCode(deps: Deps, body: Record<string, unknown>): P
   }
   if (Date.parse(row.code_expires_at) <= deps.now().getTime() || row.grant_revoked || row.disabled_at) throw dead();
   if (redirectUri !== undefined && redirectUri !== row.redirect_uri) throw dead();
-  if (resourceNamed !== undefined && resourceOf(oauthAddresses(deps.config), resourceNamed) !== row.resource) {
+  // v34 ORIGIN: the code is exchanged at the address it was issued at (a request kept before 0053: APP_ORIGIN's).
+  if ((row.issuer ?? oauthAddresses(deps.config).issuer) !== oauthAddresses(deps.config, origin).issuer) throw dead();
+  // v34 ORIGIN (review, security 1): the grant moved to another address since this code's Allow (a later consent there).
+  if (row.grant_resource !== row.resource) throw dead();
+  if (resourceNamed !== undefined && resourceOf({ resource: row.resource }, resourceNamed) !== row.resource) {
     throw new OAuthError('invalid_target', 'resource is not the one this code was issued for');
   }
   if (!pkceMatches(verifier, row.code_challenge)) throw dead();
@@ -106,8 +116,13 @@ export async function exchangeCode(deps: Deps, body: Record<string, unknown>): P
   return issued;
 }
 
-/** grant_type=refresh_token. */
-export async function refreshTokens(deps: Deps, body: Record<string, unknown>): Promise<IssuedTokens> {
+/**
+ * grant_type=refresh_token. v34 ORIGIN: `origin` is the token request's public origin: a grant issued for the MCP
+ * endpoint of another address (another tunnel, a changed MCP_PUBLIC_URL) is refused, so the client asks again. The
+ * refresh token's own audience must be this address's resource and its grant's (a token from before the grant moved
+ * is refused without ending the grant that moved), and the new pair keeps that audience (review, security 1).
+ */
+export async function refreshTokens(deps: Deps, body: Record<string, unknown>, origin: string = deps.config.appOrigin): Promise<IssuedTokens> {
   const clientId = clientIdOf(body);
   const token = param(body, 'refresh_token');
   const resourceNamed = param(body, 'resource');
@@ -118,6 +133,7 @@ export async function refreshTokens(deps: Deps, body: Record<string, unknown>): 
     expires_at: string;
     rotated_at: string | null;
     revoked_at: string | null;
+    audience: string;
     grant_id: string;
     client_id: string;
     scopes: string;
@@ -125,7 +141,7 @@ export async function refreshTokens(deps: Deps, body: Record<string, unknown>): 
     grant_revoked: string | null;
     disabled_at: string | null;
   }>(
-    `SELECT t.expires_at, t.rotated_at, t.revoked_at, g.id AS grant_id, g.client_id, g.scopes, g.resource,
+    `SELECT t.expires_at, t.rotated_at, t.revoked_at, t.audience, g.id AS grant_id, g.client_id, g.scopes, g.resource,
             g.revoked_at AS grant_revoked, u.disabled_at
        FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id JOIN users u ON u.id = g.user_id
       WHERE t.token_hash = ? AND t.kind = 'refresh'`,
@@ -133,6 +149,10 @@ export async function refreshTokens(deps: Deps, body: Record<string, unknown>): 
   );
   if (!row || row.client_id !== clientId) throw dead();
   if (row.grant_revoked || row.disabled_at || Date.parse(row.expires_at) <= deps.now().getTime()) throw dead();
+  const addresses = oauthAddresses(deps.config, origin); // v34 ORIGIN: this request's address
+  // v34 ORIGIN (review, security 1): issued for another address than this request's, or than its grant's (the grant
+  // moved since: grants.ts revoked it then). Refused before the reuse check below, so it never ends the grant.
+  if (row.audience !== addresses.resource || row.audience !== row.resource) throw dead();
   if (row.revoked_at) {
     // v31 FIX-AUTH (D13): a refresh token ends alone only when a reuse within the grace replaced the pair it belongs
     // to. Used again, it is a copy beside the chain that lives on: the grant ends, as for any reuse.
@@ -140,7 +160,6 @@ export async function refreshTokens(deps: Deps, body: Record<string, unknown>): 
     deps.log.info(`[oauth] a replaced refresh token was used again: grant ${row.grant_id} revoked`);
     throw dead();
   }
-  const addresses = oauthAddresses(deps.config);
   // Issued for another address of the MCP endpoint: the client must ask the person again.
   if (row.resource !== addresses.resource) throw dead();
   if (resourceNamed !== undefined && resourceOf(addresses, resourceNamed) !== row.resource) {
@@ -165,7 +184,7 @@ export async function refreshTokens(deps: Deps, body: Record<string, unknown>): 
       const now = deps.now();
       if (current.rotated_at === null) {
         await t.run('UPDATE oauth_tokens SET rotated_at = ? WHERE token_hash = ?', [now.toISOString(), tokenHash]);
-        return { issued: await issueTokens(deps, t, { id: row.grant_id, scopes, audience: row.resource }, tokenHash), graced: false };
+        return { issued: await issueTokens(deps, t, { id: row.grant_id, scopes, audience: row.audience }, tokenHash), graced: false };
       }
       // D13: spent within the grace, and the pair its first use made not used to refresh since: that pair ends, a new
       // one answers.
@@ -176,7 +195,7 @@ export async function refreshTokens(deps: Deps, body: Record<string, unknown>): 
       );
       if (successorUsed?.used) return null;
       await t.run('UPDATE oauth_tokens SET revoked_at = ? WHERE rotated_from = ? AND revoked_at IS NULL', [now.toISOString(), tokenHash]);
-      return { issued: await issueTokens(deps, t, { id: row.grant_id, scopes, audience: row.resource }, tokenHash), graced: true };
+      return { issued: await issueTokens(deps, t, { id: row.grant_id, scopes, audience: row.audience }, tokenHash), graced: true };
     },
     { label: 'oauthRefresh' },
   );

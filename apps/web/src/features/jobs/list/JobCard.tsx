@@ -18,6 +18,21 @@ import { cardAge, cardLocationLine, cardSalary } from '../format';
 import { VerificationBadge } from '../verification/VerificationBadge'; // v31 JOBSWEB
 import { verificationMark } from '../verification/copy';
 import { saveBlockReason } from './useSaveSelected';
+import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
+import { SaveToMenu, SavedOnChips } from '../../sharing/fanout/parts'; // v34 FANWEB
+import type { FanoutProfile, LabelOf } from '../../sharing/fanout/targets'; // v34 FANWEB
+import type { SavedOnJob } from '../../sharing/fanout/useFanout'; // v34 FANWEB
+import type { FanoutTargets } from '@tailorit/shared/sharing';
+
+/** v34 FANWEB (PLAN G4): a row's Save to… (the arrow beside its bookmark), once the person has a shared profile. */
+export interface RowSaveTo {
+  profiles: readonly FanoutProfile[];
+  label: LabelOf;
+  /** Saves the row's job on these profiles. */
+  onPick: (jobId: number, targets: FanoutTargets) => void;
+  /** Opens the choice of profiles for the row's job. */
+  onChoose: (jobId: number) => void;
+}
 
 /** How a row was opened: by a pointer, or by the keyboard (Enter on its link), which moves focus to the job. */
 export interface OpenHow {
@@ -42,6 +57,10 @@ export interface JobCardProps {
    * (below 1024 px, from 640 px): beside the list, the job's own Apply is one look away.
    */
   onApply?: (jobId: number) => void;
+  /** v34 FANWEB: Save to… beside the bookmark (absent without a shared profile). */
+  saveTo?: RowSaveTo;
+  /** v34 FANWEB: where the job is saved ("Saved on Ana · Ben" names the other profiles). */
+  savedOn?: SavedOnJob;
   /** Choosing jobs to save (v2.0): the row shows its box. */
   selectable?: boolean;
   checked?: boolean;
@@ -132,6 +151,8 @@ export const JobCard = memo(function JobCard({
   onToggleSave,
   onApply,
   canSave = true,
+  saveTo,
+  savedOn,
   selectable = false,
   checked = false,
   onToggleChecked,
@@ -161,6 +182,7 @@ export const JobCard = memo(function JobCard({
       </Badge>
     ) : null;
   const applied = Boolean(job.appliedOn);
+  const others = savedOn?.others ?? [];
 
   return (
     <li
@@ -258,6 +280,18 @@ export const JobCard = memo(function JobCard({
                 <BookmarkSimpleIcon size={18} weight={job.saved ? 'fill' : 'bold'} />
               </button>
             </Tooltip>
+            {saveTo && (
+              <SaveToMenu
+                look="row"
+                triggerLabel={FANOUT_COPY.saveToLabel(job.title)}
+                profiles={saveTo.profiles}
+                label={saveTo.label}
+                savedOn={savedOn?.choices}
+                onPick={(targets) => saveTo.onPick(job.id, targets)}
+                onChoose={() => saveTo.onChoose(job.id)}
+                className="-ml-1"
+              />
+            )}
           </div>
         </div>
         {/* The company, where, the pay, the kind and the age: the place gives way first, the pay is never cut. v32 INT-2:
@@ -309,11 +343,15 @@ export const JobCard = memo(function JobCard({
             </span>
           )}
         </div>
-        {(marked || applied) && (
+        {(marked || applied || others.length > 0) && (
           // The marks of a job others do not see; in a narrow list the Applied mark too (the wide row has it by the title).
-          <div className={clsx('mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5', !marked && '@min-[30rem]/job-list:hidden')}>
+          // v34 FANWEB: the other profiles that have the job saved ("Saved on Ana · Ben").
+          <div
+            className={clsx('mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5', !marked && others.length === 0 && '@min-[30rem]/job-list:hidden')}
+          >
             {applied && <span className="flex @min-[30rem]/job-list:hidden">{appliedMark('narrow')}</span>}
             {marked && <VerificationBadge held={job.held} verification={job.verification} sentenceId={markId} />}
+            <SavedOnChips names={others} />
           </div>
         )}
         {/* v30 S4: the credit line its source asks for ("Source: Himalayas"), above the row's link so it stays its own. */}

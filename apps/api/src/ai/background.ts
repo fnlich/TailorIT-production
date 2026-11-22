@@ -9,7 +9,8 @@ import { HOUR_MS } from '@tailorit/shared';
 //   - the gate stays shut while any hold is active, and while the CLI's last usage reading is not plain "allowed"
 //     (e.g. "allowed_warning": the window is nearly used up), until that window resets;
 //   - v2.0: it stays shut while the server AI capacity block is on (ai/capacity.ts), looking again at most every
-//     CAPACITY_RECHECK_MS (a newer reading or the admin's change of the threshold may lift it sooner);
+//     CAPACITY_RECHECK_MS (a newer reading or the admin's change of the threshold may lift it sooner); v34 AIKEY: with
+//     AI_BILLING=api-key, also while the API key's daily budget is spent (until 00:00 UTC);
 //   - an hourly budget caps how many tasks a backlog starts (AI_RESUME_ANALYSIS_PER_HOUR, AI_JOB_ANALYSIS_PER_HOUR).
 // Both only answer questions; the workers decide what to do (wait until `retryAtMs` or `nextAtMs(now)`).
 
@@ -21,6 +22,8 @@ const NO_AI_RETRY_MS = 5 * 60_000;
 export const CAPACITY_RECHECK_MS = 10 * 60_000;
 /** v2.0: the reason the gate gives while the capacity block is on (logs and Admin › AI › Background work). */
 export const CAPACITY_BLOCK_REASON = 'the server AI capacity block';
+/** v34 AIKEY (review fix H1): the reason while the API key's daily budget is spent (AI_BILLING=api-key). */
+export const KEY_BUDGET_REASON = "the API key's daily AI budget is spent (AI_KEY_DAILY_BUDGET_USD)";
 
 export type GateAnswer = { ok: true } | { ok: false; retryAtMs: number; reason: string };
 
@@ -72,7 +75,7 @@ export function createBackgroundGate(deps: Pick<AppDeps, 'services' | 'now'>): B
         const blockedUntil = Math.min(capacity.blockedUntilMs ?? nowMs + CAPACITY_RECHECK_MS, nowMs + CAPACITY_RECHECK_MS);
         if (blockedUntil > until) {
           until = blockedUntil;
-          reason = CAPACITY_BLOCK_REASON;
+          reason = capacity.keyBudget?.reached ? KEY_BUDGET_REASON : CAPACITY_BLOCK_REASON; // v34 AIKEY
         }
       }
       return until > nowMs ? { ok: false, retryAtMs: until, reason } : { ok: true };

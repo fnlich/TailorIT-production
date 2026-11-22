@@ -111,3 +111,40 @@ export function botUserAgentState(value) {
   const placeholder = !host.includes('.') || RESERVED_DOMAIN.test(host) || RESERVED_DOMAIN.test(mailbox[1].toLowerCase());
   return { userAgent: text, placeholder };
 }
+
+// ── v34 AIKEY (review fix L4): who pays for TailorIT's AI, for the doctor. apps/api/src/config/env.ts (AI_BILLING) and
+// apps/api/src/ai/provider/env.ts (buildChildEnv) are the API's rules; apps/api/test/v34-aikey.test.ts runs both ──
+
+/** AI_BILLING's choices (@tailorit/shared AI_BILLING_MODES). */
+export const AI_BILLING_MODES = ['subscription', 'api-key'];
+
+/** AI_BILLING as the API reads it: blank is subscription; a value that is not one of the two is `{ error }`. */
+export function aiBillingState(value) {
+  const text = (value ?? '').trim();
+  if (text === '') return { billing: 'subscription' };
+  return AI_BILLING_MODES.includes(text) ? { billing: text } : { error: `Use one of: ${AI_BILLING_MODES.join(', ')}` };
+}
+
+/**
+ * The environment the API gives the `claude` CLI (buildChildEnv): the server's own minus ANTHROPIC_API_KEY,
+ * ANTHROPIC_AUTH_TOKEN, CLAUDECODE, MAX_THINKING_TOKENS and CLAUDE_* (CLAUDE_CONFIG_DIR stays); with `api-key`,
+ * ANTHROPIC_API_KEY stays and every other ANTHROPIC_* goes. Names are compared case-insensitively.
+ */
+export function cliChildEnv(parent, billing = 'subscription') {
+  const dropped = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDECODE', 'MAX_THINKING_TOKENS']);
+  const child = {};
+  for (const [name, value] of Object.entries(parent)) {
+    if (value === undefined) continue;
+    const upper = name.toUpperCase();
+    if (billing === 'api-key') {
+      if (upper.startsWith('ANTHROPIC_') && upper !== 'ANTHROPIC_API_KEY') continue;
+      if (dropped.has(upper) && upper !== 'ANTHROPIC_API_KEY') continue;
+    } else if (dropped.has(upper)) continue;
+    if (upper.startsWith('CLAUDE_') && upper !== 'CLAUDE_CONFIG_DIR') continue;
+    child[name] = value;
+  }
+  return child;
+}
+
+/** The `authMethod` values of an API key's sign-in (apps/api/src/ai/provider/health.ts API_KEY_AUTH_METHODS). */
+export const API_KEY_AUTH_METHODS = ['api_key', 'api_key_helper'];

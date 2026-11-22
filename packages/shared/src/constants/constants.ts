@@ -7,6 +7,7 @@
 
 import { AUTOFILL_AGENT_QUEUE_MAX } from '../autofill/agent';
 import { AUTOFILL_TAILOR_PER_HOUR } from '../autofill/tailor';
+import { AI_BILLING_MODES } from '../ai/billing'; // v34 AIKEY
 
 /** "Unlimited", the same value everywhere: a limit or budget that is UNLIMITED is never checked. */
 export const UNLIMITED = null;
@@ -363,7 +364,7 @@ export const CONSTANTS = {
     help: 'The most saved jobs one Prepare & Queue takes.',
   },
   PREPARE_MCP_STALE_DAYS: {
-    kind: 'int', default: 7, adminEditable: true, public: false, group: 'prepare', min: 1, max: 90,
+    kind: 'int', default: 7, adminEditable: true, public: true /* v34 FIX-COPY: the guide says it */, group: 'prepare', min: 1, max: 90,
     label: 'Abandoned own-AI Prepare (days)',
     help: "A Prepare left waiting for the person's own AI this long is cancelled.",
   },
@@ -867,7 +868,7 @@ export const CONSTANTS = {
   // read them (constantsOf(deps).get / .message, the web's t) and remove the copies; the scans list who still holds
   // one (apps/api/test/structure/allowlist.*.ts).
   AI_TASK_KEEP_DAYS: {
-    kind: 'int', default: 30, adminEditable: true, public: false, group: 'retention', min: 1, max: 3650,
+    kind: 'int', default: 30, adminEditable: true, public: true /* v34 PUBLIC: the Privacy page says it */, group: 'retention', min: 1, max: 3650,
     label: 'Finished AI tasks (days)',
     help: 'Days a finished AI task (its input and result) is kept before it is pruned.',
   },
@@ -882,7 +883,7 @@ export const CONSTANTS = {
     help: 'Live extension connections (browsers) one account may hold.',
   },
   EXTENSION_TOKEN_KEEP_DAYS: {
-    kind: 'int', default: 30, adminEditable: true, public: false, group: 'retention', min: 1, max: 3650,
+    kind: 'int', default: 30, adminEditable: true, public: true /* v34 PUBLIC: the Privacy page says it */, group: 'retention', min: 1, max: 3650,
     label: 'Ended extension connections (days)',
     help: 'Days a revoked or expired extension connection is kept (with why it ended) before it is pruned.',
   },
@@ -1699,7 +1700,7 @@ export const CONSTANTS = {
   // v31 NOTIFY: in-app notifications (docs/design/v3.1/24-notifications-usage.md, D8): how long they are kept, when
   // extra credit counts as low, and the words of each kind (a title, a body; rendered when the notification is written).
   NOTIFICATIONS_KEEP_DAYS: {
-    kind: 'int', default: 90, adminEditable: true, public: false, group: 'retention', min: 7, max: 3650,
+    kind: 'int', default: 90, adminEditable: true, public: true /* v34 PUBLIC: the Privacy page says it */, group: 'retention', min: 7, max: 3650,
     label: 'Notifications kept (days)',
     help: 'How long a notification is kept, read or not, before the daily housekeeping deletes it.',
   },
@@ -1911,7 +1912,7 @@ export const CONSTANTS = {
     help: 'How long one access token a connected AI app (Claude, ChatGPT) gets works; it then asks for a new one with its refresh token.',
   },
   OAUTH_REFRESH_IDLE_DAYS: {
-    kind: 'int', default: 30, adminEditable: true, public: false, group: 'mcp', min: 1, max: 365,
+    kind: 'int', default: 30, adminEditable: true, public: true /* v34 PUBLIC: the Privacy page says it */, group: 'mcp', min: 1, max: 365,
     label: 'Connected AI: idle days',
     help: 'A connected AI app that asks for no new token in this many days is disconnected (its refresh token ends).',
   },
@@ -1921,7 +1922,7 @@ export const CONSTANTS = {
     help: 'How long the one-time code an AI app gets after Allow works; it is used once, within seconds.',
   },
   OAUTH_REQUEST_MINUTES: {
-    kind: 'int', default: 10, adminEditable: true, public: false, group: 'mcp', min: 1, max: 60,
+    kind: 'int', default: 10, adminEditable: true, public: true /* v34 PUBLIC: the Privacy page says it */, group: 'mcp', min: 1, max: 60,
     label: 'Connected AI: consent page (minutes)',
     help: 'How long a person has to answer the consent page (Allow or Cancel) after their AI app opened it.',
   },
@@ -1968,7 +1969,7 @@ export const CONSTANTS = {
     help: "How long TailorIT keeps an AI app's Client ID Metadata Document before reading it again (less when the app's own cache header says so).",
   },
   OAUTH_RECORD_KEEP_DAYS: {
-    kind: 'int', default: 7, adminEditable: true, public: false, group: 'retention', min: 1, max: 365,
+    kind: 'int', default: 7, adminEditable: true, public: true /* v34 PUBLIC: the Privacy page says it */, group: 'retention', min: 1, max: 365,
     label: 'Connected AI records (days)',
     help: 'Days TailorIT keeps ended OAuth records (expired consent requests and tokens, disconnected apps, registrations never used).',
   },
@@ -2006,6 +2007,25 @@ export const CONSTANTS = {
   },
   // end v31 FIX-AUTH
   // end v31 OAUTH
+  // v34 ORIGIN (PLAN G8 "Limits for Claude's shared identity"): every person who connects Claude comes with one client
+  // document and from Claude's published egress range (160.79.104.0/21, read 2026-11-21), so one address there speaks
+  // for many people: it gets higher limits per address on discovery, the OAuth endpoints and wrong MCP tokens.
+  OAUTH_SHARED_EGRESS_RANGES: {
+    kind: 'text', default: '160.79.104.0/21', adminEditable: false, public: false, group: 'mcp', maxLength: 1000,
+    label: 'Connected AI: shared server ranges',
+    help: "IP ranges many people's AI apps call from at once (Claude's servers), comma separated; they get the higher limits below (set in .env only).",
+  },
+  OAUTH_SHARED_EGRESS_CALLS_PER_MINUTE: {
+    kind: 'int', default: 1200, adminEditable: true, public: false, group: 'mcp', min: 1, max: 100_000,
+    label: 'Connected AI: OAuth calls per minute, shared servers',
+    help: 'Calls to the OAuth pages and metadata one address in a shared server range may make a minute (others: the OAuth calls limit).',
+  },
+  MCP_FAILED_TOKENS_PER_MINUTE_SHARED: {
+    kind: 'int', default: 600, adminEditable: true, public: false, group: 'mcp', min: 1, max: 100_000,
+    label: 'MCP: unknown tokens per minute, shared servers',
+    help: 'Requests with a token TailorIT does not know that one address in a shared server range may send a minute before it must wait.',
+  },
+  // end v34 ORIGIN
   // v33 SHARE-0: shared profiles (PLAN F9; SP v33 PLAN-sharing.md §2, §3, §5, §10, §11). A shares their profile with B
   // (a grant, its key `p` + 11 characters); B works on it and pays for every TailorIT AI use B starts there. The limits
   // and reserves below are read through core/auth/grants.ts's sharingSettings; the words through the shared contracts
@@ -2036,7 +2056,7 @@ export const CONSTANTS = {
     help: 'Days a sharing invite waits to be accepted before it expires.',
   },
   SHARING_MCP_STALE_HOURS: {
-    kind: 'int', default: 24, adminEditable: true, public: false, group: 'accounts', min: 1, max: 168,
+    kind: 'int', default: 24, adminEditable: true, public: true /* v34 FIX-COPY: the guide says it */, group: 'accounts', min: 1, max: 168,
     label: 'Shared profile: own-AI Prepare lasts (hours)',
     help: "Hours a Prepare started by someone's own AI on a profile shared with them waits before it expires.",
   },
@@ -2056,7 +2076,7 @@ export const CONSTANTS = {
     help: 'Auto-apply queue places on a shared profile that only its owner may fill.',
   },
   SHARING_ACTIVITY_KEEP_DAYS: {
-    kind: 'int', default: 90, adminEditable: true, public: false, group: 'retention', min: 7, max: 3650,
+    kind: 'int', default: 90, adminEditable: true, public: true /* v34 PUBLIC: the Privacy page says it */, group: 'retention', min: 7, max: 3650,
     label: 'Keep sharing activity (days)',
     help: 'Days the hourly counts of what was done on a shared profile are kept.',
   },
@@ -2604,6 +2624,148 @@ export const CONSTANTS = {
   MSG_AUTOFILL_FILL_NO_RESUME: message('Autofill profile: no resume to fill from', 'Add a resume to fill from it.'),
   LABEL_AUTOFILL_ADD_RESUME: message('Autofill profile: add a resume (link)', 'Add a resume', [] as const, LABEL_MAX),
   // end v32 FIX-API
+  // v34 PUBLIC (PLAN G8): who runs this TailorIT, as the public Privacy, Terms and Support pages name them (an AI
+  // directory asks for both). Blank: the pages name no operator and no website; production sets them. The contact
+  // address is ADMIN_CONTACT_EMAIL's (CONTACT_EMAIL). The website shows as a link only when it is an https address
+  // (http for localhost only; apps/web/src/features/public/operator.ts). The public pages read the public constants signed out too, so a
+  // signed-out read of GET /api/constants/public is limited per network address.
+  OPERATOR_NAME: {
+    kind: 'text', default: '', adminEditable: true, public: true, group: 'contact', maxLength: 100,
+    label: 'Operator name',
+    help: 'Who runs this TailorIT (a person or a company), as the Privacy, Terms and Support pages name them.',
+  },
+  OPERATOR_WEBSITE: {
+    kind: 'text', default: '', adminEditable: true, public: true, group: 'contact', maxLength: 200,
+    label: 'Operator website',
+    help: "The operator's own website (an https address), linked from the Privacy, Terms and Support pages.",
+  },
+  PUBLIC_PAGE_READS_PER_MINUTE: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'accounts', min: 10, max: 10_000,
+    label: 'Public page reads per minute',
+    help: 'Reads of the public constants one network address may make a minute while signed out (the public pages).',
+  },
+  // end v34 PUBLIC
+  // v34 MCPDIR (PLAN G8; Claude's directory review asks for answers within about 150,000 characters and 240 seconds):
+  // how much one MCP tool answer holds and how long one call may take (features/mcp/profiles.ts runs every tool).
+  // The MCPDIR reviews: 75,000 by default (Claude Code's 25,000-token output cap at about 3 characters a token), at least
+  // 50,000 (above TailorIT's largest prompt, which is refused rather than cut); at least 30 seconds.
+  MCP_RESULT_MAX_CHARS: {
+    kind: 'int', default: 75_000, adminEditable: true, public: false, group: 'mcp', min: 50_000, max: 140_000,
+    label: 'MCP answer size (characters)',
+    help: 'The most characters one MCP tool answer holds; a longer page keeps the rows that fit, and a longer prompt is refused.',
+  },
+  MCP_TOOL_TIME_LIMIT_MS: {
+    kind: 'int', default: 200_000, adminEditable: true, public: false, group: 'mcp', min: 30_000, max: 230_000,
+    label: 'MCP tool time limit (ms)',
+    help: "Milliseconds one MCP tool call may take before it answers that it took too long, under Claude's 240 seconds.",
+  },
+  MSG_MCP_TOOL_TOO_SLOW: message(
+    'MCP: a tool took too long (to the person\'s AI)',
+    '{tool} did not finish within {seconds} seconds, so TailorIT stopped waiting. {check}',
+    ['tool', 'seconds', 'check'] as const,
+  ),
+  // end v34 MCPDIR
+  // v34 FANOUT: one action on several profiles (PLAN G1-G3; @tailorit/shared/sharing fanout.ts): the refusals of the
+  // /api/profiles routes and of the filters' PATCH.
+  MSG_FANOUT_TOO_MANY_PROFILES: message('Several profiles: too many at once', 'Choose at most {max} profiles at once.', ['max'] as const),
+  MSG_FANOUT_TOO_MANY_JOBS: message('Several profiles: too many jobs at once', 'Choose at most {max} jobs at once.', ['max'] as const),
+  MSG_FANOUT_FILTER_TEXT: message(
+    'Prepare filters: custom filter text with markup',
+    'Write the custom filter in plain words, without tags or markers, then save again.',
+  ),
+  MSG_FANOUT_PROFILE_FAILED: message('Several profiles: one profile failed', 'Something failed on our side for this profile. Try it again.'),
+  // A profile the person may not use for this action, whatever the reason (a share that ended, an unknown key, a box
+  // its owner did not tick): one answer, which never says why.
+  MSG_FANOUT_PROFILE_UNUSABLE: message('Several profiles: a profile not available for this', "This profile isn't available for this action."),
+  // end v34 FANOUT
+  // v34 AIKEY (PLAN Addendum G11): who pays for TailorIT's own AI, @tailorit/shared/ai billing.ts. Set in .env only (a
+  // billing choice of the machine's operator, never an admin's) and read once at start: apps/api/src/config/env.ts
+  // refuses `api-key` while ANTHROPIC_API_KEY is blank. Not public. The key itself is never a constant.
+  AI_BILLING: {
+    kind: 'text', default: 'subscription', choices: AI_BILLING_MODES, adminEditable: false, public: false, group: 'ai', maxLength: 20,
+    label: 'AI billing',
+    help: "Who pays for TailorIT's AI: subscription (the claude CLI's own sign-in) or api-key (ANTHROPIC_API_KEY); set in .env only.",
+  },
+  // Review fix H1: with AI_BILLING=api-key, the whole server's AI spend per UTC day (every account, the server's own job
+  // analysis, company work and backlogs), from the cost each AI run records (ai_usage_hourly). At it every server-AI
+  // action is refused until 00:00 UTC (apps/api/src/ai/capacity.ts). Ignored on a subscription. At least $1: never
+  // Unlimited, never 0.
+  AI_KEY_DAILY_BUDGET_USD: {
+    kind: 'usd', default: 20_000_000, min: 1_000_000, adminEditable: true, public: false, group: 'ai',
+    label: 'API key daily AI budget',
+    // v34 FIX-API (the final security review, F2): soft but tight (asked before every AI call); a tip is one sentence,
+    // so the Anthropic workspace's spend limit (the hard guard) is in the start line, SETUP and DEPLOYMENT.
+    help: "With AI_BILLING=api-key: TailorIT stops starting AI calls when today's spend (UTC) reaches it; calls already running finish.",
+  },
+  // end v34 AIKEY
+  // v34 ACCTDEL (PLAN G10): deleting an account (Settings › Account › Delete my account; Admin › Users › Delete account):
+  // the refusals, what a deletion that finishes on its own says, the sign-in page's lines after it, and what the other
+  // side of an ended share is told (in words that name nobody: the account, its name and its address are gone; the
+  // words say who deleted it: the person, or an administrator).
+  MSG_ACCOUNT_DELETE_EMAIL: message(
+    "Delete account: the typed address is not the account's",
+    'Type the email address of the account exactly as it is shown, then delete it.',
+  ),
+  MSG_ACCOUNT_DELETE_LAST_ADMIN: message(
+    'Delete account: the last administrator',
+    'This is the only administrator account that can sign in. Make another account an administrator first, then delete this one.',
+  ),
+  MSG_ACCOUNT_DELETE_OWN: message(
+    'Delete account: your own account from Admin › Users',
+    'You cannot delete the account you are signed in with here. Use Settings › Account › Delete my account.',
+  ),
+  MSG_ACCOUNT_DELETE_BLOCKED: message(
+    'Delete account: something on our side holds on to the account',
+    "This account cannot be deleted right now because of a problem on our side. Ask an administrator of this installation to look at the server's log.",
+  ),
+  MSG_ACCOUNT_DELETED: message('Sign in: your account was deleted', 'We deleted your account and everything in it.'),
+  MSG_ACCOUNT_DELETE_PENDING: message(
+    'Delete my account: turned off, the rest finishes on its own',
+    'We turned your account off and are deleting it. That finishes on its own within a day; there is nothing more to do.',
+  ),
+  MSG_ACCOUNT_DELETE_PENDING_ADMIN: message(
+    'Delete account (Admin › Users): turned off, the rest finishes on its own',
+    'The account is off and being deleted. That finishes on its own within a day, or delete it again to finish it now.',
+  ),
+  MSG_ACCOUNT_BEING_DELETED: message(
+    'Sign in: the account is being deleted',
+    'This account is being deleted. That finishes within a day; then this address can start a new account.',
+  ),
+  MSG_NOTIFY_SHARED_PROFILE_DELETED_TITLE: message(
+    'Notification: a profile shared with you was deleted (title)',
+    'A profile shared with you was deleted',
+  ),
+  MSG_NOTIFY_SHARED_PROFILE_DELETED_BODY: message(
+    'Notification: a profile shared with you was deleted by its owner',
+    'Its owner deleted their account, so it is no longer among your profiles. Settings › Sharing shows what is shared now.',
+  ),
+  MSG_NOTIFY_SHARED_PROFILE_DELETED_ADMIN_BODY: message(
+    'Notification: a profile shared with you was deleted by an administrator',
+    'The account that shared it with you was deleted, so it is no longer among your profiles. Settings › Sharing shows what is shared now.',
+  ),
+  MSG_NOTIFY_SHARE_GRANTEE_DELETED_TITLE: message(
+    'Notification: someone you shared with deleted their account (title)',
+    'A share of your profile ended',
+  ),
+  MSG_NOTIFY_SHARE_GRANTEE_DELETED_BODY: message(
+    'Notification: someone you shared with deleted their account',
+    'Someone you shared your profile with deleted their account, so they no longer see it. Settings › Sharing shows what is shared now.',
+  ),
+  MSG_NOTIFY_SHARE_GRANTEE_DELETED_ADMIN_BODY: message(
+    "Notification: an administrator deleted the account of someone you shared with",
+    'An account you shared your profile with was deleted, so it no longer sees it. Settings › Sharing shows what is shared now.',
+  ),
+  // end v34 ACCTDEL
+  // v34 DIRKIT (PLAN G8; docs/directory/CHECKLIST.md): whether report_unsupported keeps the person's words. Claude's
+  // directory asks a connector to collect no conversation data beyond what a tool needs: a listed server turns it off,
+  // and the tool then keeps only what TailorIT lacks and the tools tried (features/mcp/tools-report.ts). On by default,
+  // so a self-hosted server keeps working as before. Public: `npm run directory:check` reads it (a WARN while on).
+  MCP_REPORT_REQUEST_TEXT: {
+    kind: 'bool', default: true, adminEditable: true, public: true, group: 'mcp',
+    label: "Keep the request's words in AI reports",
+    help: "Whether a report from a person's AI keeps what they asked; off: only what TailorIT lacks and the tools tried.",
+  },
+  // end v34 DIRKIT
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

@@ -7,6 +7,7 @@ import { userMessage } from '@/lib/api';
 import { Button, type ButtonVariant } from './Button';
 import { BACKDROP } from './Dialog';
 import { Notice } from './Notice';
+import { ScrollBody } from './ScrollBody';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -43,7 +44,9 @@ export interface ConfirmDialogProps {
 
 /**
  * A yes/no question that must be answered ("Disconnect Claude?" / "Claude can no longer reach your TailorIT account.").
- * Built on Base UI AlertDialog: no outside-press dismissal.
+ * Built on Base UI AlertDialog: no outside-press dismissal. v34 FIX-WEB (final review U-M3): never taller than the
+ * window; the title and the buttons stay on screen and the words between them scroll (a line per profile on a phone
+ * held sideways).
  */
 export function ConfirmDialog({
   open,
@@ -96,24 +99,30 @@ export function ConfirmDialog({
             initialFocus={focusCancel ? cancelRef : focusConfirm ? confirmRef : undefined}
             finalFocus={finalFocus}
             className={clsx(
-              'w-full max-w-md rounded-popup border border-border bg-surface p-6 text-foreground shadow-dialog outline-none',
+              'flex max-h-full w-full max-w-md flex-col rounded-popup border border-border bg-surface p-6 text-foreground shadow-dialog outline-none',
               'transition-[opacity,scale] duration-200 ease-out-soft data-starting-style:scale-[0.97] data-starting-style:opacity-0',
               'data-ending-style:scale-[0.97] data-ending-style:opacity-0',
             )}
+            data-confirm-dialog=""
+            data-kit-modal="" // v34 FIX-WEB (final review U-M4): on a phone the toasts go under it (Toast.tsx).
           >
-            <AlertDialog.Title className="text-heading font-semibold">{title}</AlertDialog.Title>
-            {description && (
-              <AlertDialog.Description className="mt-2 text-sm leading-5 text-muted-foreground">
-                {description}
-              </AlertDialog.Description>
+            <AlertDialog.Title className="shrink-0 text-heading font-semibold">{title}</AlertDialog.Title>
+            {(description || children || error) && (
+              <ScrollBody className="-mx-6 px-6" data-confirm-body="">
+                {description && (
+                  <AlertDialog.Description className="mt-2 text-sm leading-5 text-muted-foreground">
+                    {description}
+                  </AlertDialog.Description>
+                )}
+                {children && <div className="mt-3 text-sm">{children}</div>}
+                {error && (
+                  <Notice tone="error" className="mt-4">
+                    {error}
+                  </Notice>
+                )}
+              </ScrollBody>
             )}
-            {children && <div className="mt-3 text-sm">{children}</div>}
-            {error && (
-              <Notice tone="error" className="mt-4">
-                {error}
-              </Notice>
-            )}
-            <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
+            <div className="mt-6 flex shrink-0 flex-wrap items-center justify-end gap-2.5" data-confirm-buttons="">
               <AlertDialog.Close ref={cancelRef} render={<Button variant="outline" disabled={busy} />}>
                 {cancelLabel}
               </AlertDialog.Close>

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { AppError, sendError } from './errors';
 
 /** Gives every request a short id, echoed in error bodies and the X-Request-Id header. */
@@ -20,8 +20,23 @@ const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
  * Two exceptions. A request with an extension token (core/auth/extension-tokens.ts) is not checked. A `cookieFree`
  * path (the extension's code exchange, which reads no cookie) accepts only an absent or chrome-extension:// Origin; its
  * route also carries extensionOriginOnly, because Express routes other spellings of the path there too.
+ *
+ * v34 ORIGIN (PLAN G7): `publicOrigin(req)`, when given, is the request's own public origin (config/public-origin.ts
+ * publicOriginOf: APP_ORIGIN, or a trusted forwarded host such as a test tunnel's); an Origin equal to it is the app's
+ * own page at that address and passes. Only that exact origin: a page at another host that a TRUSTED_PUBLIC_HOSTS
+ * pattern also names (another tunnel) is refused, since the request's own forwarded host is not its host.
+ *
+ * v34 ORIGIN2 (PLAN G7b): `onRefused(req, origin)`, when given, hears each refusal of the ordinary check (the log's
+ * note for a device opening TailorIT at an address no setting trusts: config/public-origin.ts refusedAddressNote).
  */
-export function originCheck(appOrigin: string, options: { cookieFree?: readonly string[] } = {}): RequestHandler {
+export function originCheck(
+  appOrigin: string,
+  options: {
+    cookieFree?: readonly string[];
+    publicOrigin?: (req: Request) => string;
+    onRefused?: (req: Request, origin: string) => void; // v34 ORIGIN2
+  } = {},
+): RequestHandler {
   const allowed = new Set([appOrigin]);
   try {
     const url = new URL(appOrigin);
@@ -47,6 +62,8 @@ export function originCheck(appOrigin: string, options: { cookieFree?: readonly 
       return sendError(res, new AppError('bad_origin', 'Request not allowed.'), req.requestId);
     }
     if (!origin || allowed.has(origin)) return next();
+    if (options.publicOrigin && origin === options.publicOrigin(req)) return next(); // v34 ORIGIN
+    options.onRefused?.(req, origin); // v34 ORIGIN2
     sendError(res, new AppError('bad_origin', 'Request not allowed.'), req.requestId);
   };
 }

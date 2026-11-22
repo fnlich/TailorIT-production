@@ -7,7 +7,10 @@ import { takeAddSlot } from '../jobs/add/limits';
 import { addJobByLink } from '../jobs/add/pipeline';
 import { addJobResultOf } from '../jobs/add/router';
 import { ProfileArg, type McpSession } from './profiles';
-import { refuseGrantTripwire } from './save';
+import { refuseFencedData } from './save';
+import { addJobOnMany, onManyOrOne } from './tools-fanout'; // v34 MCPFAN
+import { toolMeta } from './tool-meta'; // v34 MCPDIR
+import { refuseLinkLeak } from './written'; // v34 MCPDIR
 
 // v31 LINK: the MCP tool add_job (docs/design/v3.1/21-jobs-from-links.md §7): the person's AI adds a job by its link,
 // through the one pipeline (jobs/add/pipeline.ts addJobByLink, origin `mcp`): TailorIT reads the posting itself, and
@@ -24,24 +27,31 @@ export function registerV31Tools(server: McpServer, session: McpSession): void {
   server.registerTool(
     'add_job',
     {
-      title: 'Add a job',
+      ...toolMeta('add_job'),
       description: MCP_TOOL_DESCRIPTIONS.add_job,
       inputSchema: {
         url: z.string().trim().min(1).max(JOB_LINK_MAX_CHARS).describe(MCP_ARG_DESCRIPTIONS.url),
         profile: ProfileArg,
       },
-      // It writes (a job, a tracker entry) and reads the posting's own site; adding the same link again changes nothing.
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
+    // v34 MCPFAN: several profiles ("all", or keys joined by commas): FANOUT's add on each, answered per profile.
     ({ url, profile }) =>
-      session.run('add_job', { profile }, async (ctx) => {
-        refuseGrantTripwire(ctx, url);
-        takeAddSlot(ctx.deps, ctx.caller.id);
-        // v33 INT-D (SHARE-6's exact edit 1, SHARE-8's 2): on another person's profile the caller is the link's adder
-        // under the grant (jobs/add/pipeline.ts AddJobByLinkInput.actor): the link's later notices reach them there.
-        const actor = ctx.profile.grant ? { actor: { id: ctx.caller.id, grantId: ctx.profile.grant.id } } : {};
-        const outcome = await addJobByLink(ctx.deps, { url, userId: ctx.userId, origin: 'mcp', save: true, inFlight, ...actor });
-        return addJobResultOf(ctx.deps, outcome);
-      }),
+      onManyOrOne(
+        session,
+        'add_job',
+        { profile },
+        (own, many) => addJobOnMany(session, own, many, url),
+        () =>
+          session.run('add_job', { profile }, async (ctx) => {
+            refuseFencedData(ctx, url);
+            await refuseLinkLeak(ctx, url); // v34 MCPDIR (the security review, finding 1)
+            takeAddSlot(ctx.deps, ctx.caller.id);
+            // v33 INT-D (SHARE-6's exact edit 1, SHARE-8's 2): on another person's profile the caller is the link's
+            // adder under the grant (jobs/add/pipeline.ts AddJobByLinkInput.actor): its later notices reach them there.
+            const actor = ctx.profile.grant ? { actor: { id: ctx.caller.id, grantId: ctx.profile.grant.id } } : {};
+            const outcome = await addJobByLink(ctx.deps, { url, userId: ctx.userId, origin: 'mcp', save: true, inFlight, ...actor });
+            return addJobResultOf(ctx.deps, outcome);
+          }),
+      ),
   );
 }

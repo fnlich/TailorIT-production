@@ -53,3 +53,40 @@ export function todayText(capacity: Pick<AiCapacity, 'today'>): string {
   const { chargedMicros, writtenOffMicros } = capacity.today;
   return `${formatUsd(chargedMicros)} charged today · ${formatUsd(writtenOffMicros)} written off`;
 }
+
+// v34 AIKEY (review fix H1) -------------------------------------------------------------------------------------------
+// With AI_BILLING=api-key there is no subscription window: the card shows the whole server's AI spend this UTC day
+// against AI_KEY_DAILY_BUDGET_USD (AiCapacity.keyBudget, sent only then) in place of the window block.
+
+type KeyBudget = NonNullable<AiCapacity['keyBudget']>;
+
+/** "Today: $4.12 of $20.00". */
+export function keyBudgetText(budget: KeyBudget): string {
+  return `Today: ${formatUsd(budget.spentMicros)} of ${formatUsd(budget.capMicros)}`;
+}
+
+/** The share of today's budget spent, 0 to 100, for the meter. */
+export function keyBudgetFill(budget: KeyBudget): number {
+  if (budget.capMicros <= 0) return 100;
+  return Math.min(100, Math.max(0, (budget.spentMicros / budget.capMicros) * 100));
+}
+
+/** The state line with the budget: paused for everyone until 00:00 UTC, a ledger block, or open. */
+export function keyBudgetState(
+  capacity: Pick<AiCapacity, 'blocked' | 'threshold' | 'utilization'> & { keyBudget: KeyBudget },
+  now: number,
+): { tone: 'open' | 'blocked' | 'none'; text: string } {
+  const budget = capacity.keyBudget;
+  if (budget.reached) {
+    return {
+      tone: 'blocked',
+      text: `Paused for everyone: today's AI spend reached the daily budget. ${resetsText(budget.resetsAt, now)} (00:00 UTC).`,
+    };
+  }
+  if (capacity.blocked) return capacityState(capacity);
+  // v34 FIX-API (the final security review, F2): a soft cap, tight (asked before every AI call).
+  return {
+    tone: 'open',
+    text: `Server AI is open. TailorIT stops starting AI calls when today's spend reaches ${formatUsd(budget.capMicros)}; calls already running finish.`,
+  };
+}

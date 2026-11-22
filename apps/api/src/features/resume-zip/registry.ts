@@ -129,6 +129,11 @@ export interface ResumeZipService {
   clearLeftovers(): void;
   /** At shutdown: stops the running builds and removes every zip. */
   stop(): Promise<void>;
+  /**
+   * v34 ACCTDEL: an account is being deleted: its builds (of its own profile) stop and are forgotten, their folders
+   * removed (a download reading one removes it at its end). Answers how many builds it had.
+   */
+  forgetAccount(userId: string): Promise<number>;
 }
 
 declare module '../../core/context' {
@@ -395,6 +400,15 @@ export function createResumeZipService(deps: AppDeps, overrides: Partial<ResumeZ
         }
       }
     },
+
+    // v34 ACCTDEL
+    async forgetAccount(userId) {
+      const theirs = [...builds.values()].filter((build) => build.userId === userId);
+      for (const build of theirs) if (build.status === 'building') build.stop.abort(new Error('The account was deleted.'));
+      await Promise.all(theirs.map(forget));
+      return theirs.length;
+    },
+    // end v34 ACCTDEL
 
     async stop() {
       stopping = true;

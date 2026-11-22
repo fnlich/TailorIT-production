@@ -9,7 +9,7 @@ import { quoteSheetTitle, type ParsedSheetTab } from './table';
 export interface SheetImportTiming {
   /** The longest a read of Google may take: sign-in, the tab list and the cells. */
   readBudgetMs: number;
-  /** An import answers 201 only when its run ends this soon after the request came in, else 202 (Next's proxy waits 120 s). */
+  /** An import answers 201 only when its run ends this soon after the request came in, else 202 (Next's proxy waits 240 s since v3.4). */
   responseBudgetMs: number;
   /** How long a read stays reusable for re-mapping (`refresh: false`). */
   cacheTtlMs: number;

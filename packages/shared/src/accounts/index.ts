@@ -166,6 +166,8 @@ export const AdminUserSchema = z.object({
   name: z.string(),
   role: z.enum(ROLES),
   disabled: z.boolean(),
+  /** v34 ACCTDEL: its deletion was asked and has not finished yet (it is off; the daily pass finishes it). */
+  beingDeleted: z.boolean().optional(),
   createdAt: IsoDateTime,
   lastSignInAt: IsoDateTime.nullable(),
   accountType: z.enum(ACCOUNT_TYPES),

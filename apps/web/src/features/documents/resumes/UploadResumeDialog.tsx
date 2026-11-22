@@ -332,7 +332,7 @@ function UploadForm({
     >
       <form onSubmit={submit} className="mt-4 flex min-h-0 flex-col">
         {/* On a short screen the fields scroll between the title and the buttons, which stay in view with the notices. */}
-        <div className="-mx-6 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pt-1">
+        <div className="relative -mx-6 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pt-1">
           {several ? null : (
             <Field label="File name" hint="Leave it empty to use the file's own name." optional>
               <Input

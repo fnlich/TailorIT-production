@@ -17,6 +17,13 @@ export interface AppDeps {
   now: () => Date;
   /** Services registered by work packages (AI queue, PDF pool, analysis...). Filled in by createServices(). */
   services: AppServices;
+  /**
+   * v34 DIRKIT: true in a maintenance command's process (cli.ts sets it for every `npm run <command>`, the ingest worker
+   * too). Such a process runs beside the API and never takes up the API's background work: the AI queue refuses to
+   * queue (a task would run here), the Prepare runner never looks for work, and startFeatures refuses (the API's queue,
+   * Prepare, backlogs, sweeps and daily steps would start here). What a command changes is taken up by the running API.
+   */
+  commandProcess?: boolean;
 }
 
 /**

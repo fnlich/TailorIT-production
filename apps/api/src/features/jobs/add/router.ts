@@ -19,7 +19,7 @@ import { notFound } from '../../../core/http/errors';
 import { closeLink } from '../../../core/seams'; // v32 FIX-API (SB-4)
 import { refuse } from '../../../core/http/refuse';
 import { parseInput } from '../../../core/http/validate';
-import { newInFlight } from '../../autofill/jobs';
+import { newInFlight, type InFlight } from '../../autofill/jobs'; // v34 FANOUT: InFlight
 import { takeAddSlot } from './limits';
 import { approveUnverifiedJob } from './approve'; // v32 ADMINAPP (E6)
 import { addJobByLink, verifyJob, type AddJobByLinkOutcome } from './pipeline';
@@ -64,10 +64,24 @@ export function addJobResultOf(deps: Deps, outcome: AddJobByLinkOutcome, retry =
   return { ...outcome, message: constantsOf(deps).message(key) };
 }
 
+// v34 FANOUT (the FANOUT review, spec 16): one set of reads under way per app, shared with Add job to profiles
+// (POST /api/profiles/jobs/add), so one link added through both at once is read once.
+const IN_FLIGHT = new WeakMap<object, InFlight>();
+
+/** The app's adds by link under way (made once per deps). */
+export function addInFlightOf(deps: object): InFlight {
+  let set = IN_FLIGHT.get(deps);
+  if (!set) {
+    set = newInFlight();
+    IN_FLIGHT.set(deps, set);
+  }
+  return set;
+}
+
 /** Mounted at /api/jobs (beside the jobs router, whose routes never take these paths). */
 export function createJobLinksRouter(deps: AppDeps): Router {
   const router = Router();
-  const inFlight = newInFlight();
+  const inFlight = addInFlightOf(deps); // v34 FANOUT
   router.use(requireUser);
 
   // v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"; SHARE-3's exact edit 5): on a shared profile the job and its entry

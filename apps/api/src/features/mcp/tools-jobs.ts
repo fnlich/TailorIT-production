@@ -1,9 +1,9 @@
 import { type EMPLOYMENT_TYPES, EXPERIENCE_LEVELS, STATUS, formatLocation, type ExperienceLevel } from '@tailorit/shared';
 import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
-import { POSTING_TEXT_RULE } from '../../ai/prompts/tailor/posting-text-rule';
+import { MCP_POSTING_NOTE } from '../../ai/prompts/mcp/tool-descriptions'; // v34 MCPDIR
 import type { DbQueries } from '../../core/db/index';
-import { notFound, validationFailed } from '../../core/http/errors';
+import { AppError, validationFailed } from '../../core/http/errors';
 import { untrustedLines, untrustedText } from '../autofill/ai/untrusted';
 import { jobVisible } from '../autofill/lookup';
 import type { SOURCE_KINDS } from '../ingest/types';
@@ -15,6 +15,7 @@ import { APPLIED_SQL, Params, placeSql, SPONSORS_SQL, visibleSql } from '../jobs
 import { jobVisibleTo } from '../jobs/visibility';
 import { dayIn, instantOf, offsetMinutes, zoneOf, type Zone } from './dates';
 import { PLATFORMS } from './platform';
+import { dataFence } from './screen'; // v34 MCPDIR
 import { loadResultSet, readSetCursor, saveResultSet, SET_MAX_IDS, setCursor, type ResultSet, type SetOwner } from './result-sets';
 import { matchExpression, type MatchExpression } from './terms';
 
@@ -715,6 +716,9 @@ export async function searchJobs(
 
 // ------------------------------------------------------------------------------------------------- job_details
 
+/** v34 MCPDIR: job_details' refusal of ids this profile cannot see. */
+export const JOB_NOT_FOUND = 'No job with that id is visible on this profile: use an id from search_jobs or list_applications.';
+
 export const DETAIL_SECTIONS = ['requirements', 'responsibilities', 'desired'] as const;
 export type DetailSection = (typeof DETAIL_SECTIONS)[number];
 /** The most posting text one job_details answer holds, over all its jobs. */
@@ -737,7 +741,8 @@ export async function jobDetails(deps: Deps, userId: string, args: DetailArgs) {
   const zone = zoneOf(args.tz);
   const visible: number[] = [];
   for (const id of ids) if (await jobVisible(deps, userId, id)) visible.push(id);
-  if (visible.length === 0) throw notFound('That job');
+  // v34 MCPDIR: a refusal says what to do (Claude's directory review: no generic errors).
+  if (visible.length === 0) throw new AppError('not_found', JOB_NOT_FOUND);
   const rows = await jobRows(deps.db, userId, visible);
   // v30 FIX-B (REQ-1): the credit column when a shown job's source asks for one.
   const credited = rows.some((row) => creditTextOf(row) !== null);
@@ -763,7 +768,7 @@ export async function jobDetails(deps: Deps, userId: string, args: DetailArgs) {
         const take = Math.min(perJob, left);
         const body = untrustedLines(posting, take);
         left -= [...body].length;
-        text.posting = `<untrusted>\n${body}\n</untrusted>`;
+        text.posting = dataFence('job posting', body); // v34 MCPDIR: fenced with a data id and its label
         text.cut = [...posting].length > take;
       }
       texts.push(text);
@@ -788,7 +793,7 @@ export async function jobDetails(deps: Deps, userId: string, args: DetailArgs) {
     cols,
     rows: table,
     ...(texts.length > 0 ? { texts } : {}),
-    ...(texts.some((text) => text.posting) ? { rule: POSTING_TEXT_RULE } : {}),
+    ...(texts.some((text) => text.posting) ? { rule: MCP_POSTING_NOTE } : {}),
     ...(missing.length > 0 ? { notFound: missing } : {}),
     tz: zone.tz,
   };

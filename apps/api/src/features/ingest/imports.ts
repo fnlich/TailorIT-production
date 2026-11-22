@@ -16,7 +16,7 @@ import type { ImportLinksNote } from '../jobs/add/imports'; // v31 LINK2
 // the source is found or made in one transaction, and its file and config are written once the run holds the source's
 // lease (RunOptions.prepare), so a second import of it at once is refused before it touches the first one's file.
 
-/** Imports with more rows than this run in the background instead of holding the request (Next's proxy waits 120 s). */
+/** Imports with more rows than this run in the background instead of holding the request (Next's proxy waits 240 s since v3.4). */
 export const BACKGROUND_IMPORT_ROWS = 2000;
 
 export function safeFileName(fileName: string): string {

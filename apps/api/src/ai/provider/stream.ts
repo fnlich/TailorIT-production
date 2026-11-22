@@ -38,6 +38,8 @@ function decode(bytes: Buffer): string {
 export class TailBuffer {
   private chunks: Buffer[] = [];
   private size = 0;
+  /** v34 AIKEY: whether a chunk was let go from the front (what is kept starts mid-text). */
+  private dropped = false;
 
   constructor(private readonly max = 64 * 1024) {}
 
@@ -46,12 +48,19 @@ export class TailBuffer {
     this.size += chunk.length;
     while (this.chunks.length > 1 && this.size - this.chunks[0]!.length >= this.max) {
       this.size -= this.chunks.shift()!.length;
+      this.dropped = true; // v34 AIKEY
     }
   }
 
-  text(): string {
+  /**
+   * The last `max` bytes. v34 AIKEY (review fix L3): with `scrub`, what is kept is scrubbed BEFORE it is cut to `max`
+   * (`cutAtStart`: a chunk was let go, so its first characters may be the end of a value cut there).
+   */
+  text(scrub?: (text: string, cutAtStart: boolean) => string): string {
     const all = Buffer.concat(this.chunks);
-    return all.subarray(Math.max(0, all.length - this.max)).toString('utf8');
+    if (!scrub) return all.subarray(Math.max(0, all.length - this.max)).toString('utf8');
+    const clean = Buffer.from(scrub(all.toString('utf8'), this.dropped), 'utf8');
+    return clean.subarray(Math.max(0, clean.length - this.max)).toString('utf8');
   }
 }
 

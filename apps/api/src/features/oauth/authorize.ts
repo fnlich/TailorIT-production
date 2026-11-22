@@ -22,6 +22,9 @@ import { hashOAuthSecret, newOAuthSecret } from './tokens';
 // 3. The request is kept (oauth_requests, single use, OAUTH_REQUEST_MINUTES), bound to the browser (the SHA-256 of
 //    its `ti_oauth` cookie), under the SHA-256 of a random id that only the consent page's address carries; the
 //    browser goes to the consent page (/oauth/consent?request=<id>), which asks the person to sign in first.
+// v34 ORIGIN (PLAN G7): every address here (the consent page, `iss`, the resource) is the request's public origin's
+// (APP_ORIGIN, or a trusted test tunnel's: config/public-origin.ts); the request keeps its issuer and resource
+// (oauth_requests.issuer, migration 0053), which the consent answers with and the code exchange holds the client to.
 
 /** The browser binding cookie (httpOnly, SameSite=Lax): the consent must come from the browser that began. */
 export const BROWSER_COOKIE = 'ti_oauth';
@@ -65,10 +68,18 @@ type Deps = AppDeps;
 /**
  * Handles one authorization request. `query` is the request's query; `browserSecret` the browser's binding cookie (made
  * by the caller when it had none); `caller` the caller's network address (limits.ts addressOf), which a client
- * document's read counts against (v31 FIX-AUTH, SEC-6).
+ * document's read counts against (v31 FIX-AUTH, SEC-6); `origin` the request's public origin (v34 ORIGIN:
+ * config/public-origin.ts publicOriginOf), whose issuer and resource the stored request keeps for the consent and the
+ * code exchange.
  */
-export async function authorize(deps: Deps, query: Record<string, unknown>, browserSecret: string, caller = 'unknown'): Promise<AuthorizeOutcome> {
-  const addresses = oauthAddresses(deps.config);
+export async function authorize(
+  deps: Deps,
+  query: Record<string, unknown>,
+  browserSecret: string,
+  caller = 'unknown',
+  origin: string = deps.config.appOrigin,
+): Promise<AuthorizeOutcome> {
+  const addresses = oauthAddresses(deps.config, origin);
   const pageError = (error: OAuthPageError): AuthorizeOutcome => ({
     kind: 'page_error',
     error,
@@ -91,7 +102,9 @@ export async function authorize(deps: Deps, query: Record<string, unknown>, brow
   } catch (error) {
     if (!(error instanceof OAuthError)) throw error;
     if (error.error === 'temporarily_unavailable') return pageError('temporarily_unavailable');
-    deps.log.debug(`[oauth] an authorization request named a client TailorIT does not know (${error.message})`);
+    // v3.3.1: info, not debug, so the reason shows in the server's log when a connector cannot sign in (a fixed
+    // technical phrase: never the client's address or anything a person typed).
+    deps.log.info(`[oauth] an authorization request named a client TailorIT does not know (${error.message})`);
     return pageError('invalid_client');
   }
   // OAuth 2.1 §4.1.1: the address may be left out only when the client registered exactly one.
@@ -127,9 +140,10 @@ export async function authorize(deps: Deps, query: Record<string, unknown>, brow
     // 3. The request, bound to this browser.
     const requestId = newOAuthSecret();
     const now = deps.now();
+    // v34 ORIGIN (migration 0053): the issuer beside the resource, both of this request's public origin.
     await deps.db.run(
-      `INSERT INTO oauth_requests(id_hash, client_id, redirect_uri, code_challenge, scopes, resource, state, browser_hash,
-         created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO oauth_requests(id_hash, client_id, redirect_uri, code_challenge, scopes, resource, issuer, state,
+         browser_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         hashOAuthSecret(requestId),
         client.id,
@@ -137,6 +151,7 @@ export async function authorize(deps: Deps, query: Record<string, unknown>, brow
         challenge,
         JSON.stringify(scopes),
         resource,
+        addresses.issuer,
         state ?? null,
         hashOAuthSecret(browserSecret),
         now.toISOString(),

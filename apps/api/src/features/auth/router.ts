@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import type { AppDeps } from '../../core/context';
+import { fixedCodeUsable } from '../../core/auth/fixed-code'; // v34 FIX-API
 import { clearSessionCookie, destroySession, hashSessionToken, readSessionToken } from '../../core/auth/session';
 import { getAccount } from '../../core/auth/users';
 import { asyncHandler } from '../../core/http/errors';
@@ -33,7 +34,8 @@ export function createAuthRouter(deps: AppDeps): Router {
   );
 
   router.post('/email/verify', ...limited, async (req, res) => {
-    const identity = await verifyEmailCode(deps, bodyText(req, 'email'), bodyText(req, 'code'));
+    // v34 FIX-API (the final security review, F1): the fixed code only from this computer (or the test servers' opt-in).
+    const identity = await verifyEmailCode(deps, bodyText(req, 'email'), bodyText(req, 'code'), fixedCodeUsable(deps, req));
     res.json(await completeSignIn(deps, req, res, identity));
   });
 
@@ -56,7 +58,7 @@ export function createAuthRouter(deps: AppDeps): Router {
     const token = readSessionToken(req);
     const tokenHash = req.sessionTokenHash ?? (token ? hashSessionToken(token) : null);
     if (tokenHash) await destroySession(deps, tokenHash);
-    clearSessionCookie(req, res);
+    clearSessionCookie(req, res, deps);
     res.json({ ok: true });
   });
 

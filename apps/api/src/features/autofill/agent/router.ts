@@ -11,6 +11,7 @@ import {
   type AutofillAgentOpened,
   type AutofillAgentSettings,
 } from '@tailorit/shared/autofill';
+import { AutoSaveRulePatchSchema } from '@tailorit/shared/sharing'; // v34 FANOUT
 import { userOf } from '../../../core/auth/guards';
 import type { AppDeps } from '../../../core/context';
 import { AppError, asyncHandler } from '../../../core/http/errors';
@@ -44,6 +45,7 @@ import {
   type StoredAgentSettings,
 } from './queue';
 import { reservationRunOf, settleReservation, usageOf } from './reservations';
+import { patchAgentSettings } from './rule-patch'; // v34 FANOUT
 
 // The auto-apply agent (work package AF, autofill API version 3, Phase 5), mounted at /api/autofill:
 //   GET    /agent/next                   a token (agent:run) → AutofillAgentNext {item, dailyLimit}: this browser's own
@@ -69,6 +71,7 @@ import { reservationRunOf, settleReservation, usageOf } from './reservations';
 //   POST   /agent/queue/clear-finished   Settings → {removed}
 //   GET    /agent/settings               Settings → AutofillAgentSettings {ruleEnabled, minMatch}
 //   PUT    /agent/settings               Settings AutofillAgentSettings → the same
+//   PATCH  /agent/settings               v34 FANOUT: Settings AutoSaveRulePatch (either field) → AutofillAgentSettings
 // The agent is the extension's worker, polling with its token; a page can never start it. v2.0: a Free account's daily
 // auto-apply limit is reserved at the claim (reservations.ts); the per-minute limits below only keep a broken worker
 // from flooding TailorIT. The debug lines name the account, the source and the state or reason codes, never a job, a
@@ -315,6 +318,15 @@ export function createAutofillAgentRouter(deps: AppDeps): Router {
     const userId = userOf(req).id;
     const settings = parseInput(AutofillAgentSettingsSchema, req.body ?? {}, 'settings');
     const saved = await saveAgentSettings(deps, userId, settings);
+    deps.log.debug(`[autofill] account ${userId} set the auto-apply rule ${saved.ruleEnabled ? 'on' : 'off'}`);
+    res.json(saved);
+  });
+
+  // v34 FANOUT (PLAN G3): the PATCH form: the fields given laid over the saved rule (rule-patch.ts; the fan-out's too).
+  router.patch('/agent/settings', allow('session'), pageLimit, async (req, res) => {
+    const userId = userOf(req).id;
+    const patch = parseInput(AutoSaveRulePatchSchema, req.body ?? {}, 'settings');
+    const saved: AutofillAgentSettings = await patchAgentSettings(deps, userId, patch);
     deps.log.debug(`[autofill] account ${userId} set the auto-apply rule ${saved.ruleEnabled ? 'on' : 'off'}`);
     res.json(saved);
   });

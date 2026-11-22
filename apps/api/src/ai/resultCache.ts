@@ -116,6 +116,15 @@ export function createResultCache(client: DbClient, now: () => Date): ResultCach
   };
 }
 
-export async function pruneResultCache(db: Pick<DbQueries, 'run'>, now: Date): Promise<number> {
-  return (await db.run('DELETE FROM ai_result_cache WHERE expires_at <= ?', [now.toISOString()])).changes;
+/**
+ * Deletes the expired rows. v34 PUBLIC (PLAN G8, the review's finding 6): with `personalKeepDays` (the queue passes
+ * AI_TASK_KEEP_DAYS), an account's rows are also deleted once older than that, so the Privacy page's "what was sent to
+ * the AI for a task, and its answer, are deleted within N days" holds when an admin keeps tasks fewer days than
+ * RESULT_CACHE_DAYS. Shared rows (nothing of a person) keep RESULT_CACHE_DAYS.
+ */
+export async function pruneResultCache(db: Pick<DbQueries, 'run'>, now: Date, personalKeepDays?: number): Promise<number> {
+  const expired = (await db.run('DELETE FROM ai_result_cache WHERE expires_at <= ?', [now.toISOString()])).changes;
+  if (personalKeepDays === undefined) return expired;
+  const cutoff = new Date(now.getTime() - personalKeepDays * DAY_MS).toISOString();
+  return expired + (await db.run('DELETE FROM ai_result_cache WHERE user_id IS NOT NULL AND created_at <= ?', [cutoff])).changes;
 }

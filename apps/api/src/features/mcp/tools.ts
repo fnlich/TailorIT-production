@@ -1,6 +1,6 @@
 import { RESUME_TEMPLATES } from '@tailorit/shared';
 import type { McpPromptMode } from '@tailorit/shared/mcp';
-import { POSTING_TEXT_RULE } from '../../ai/prompts/tailor/posting-text-rule';
+import { MCP_POSTING_NOTE } from '../../ai/prompts/mcp/tool-descriptions'; // v34 MCPDIR
 import { AppError } from '../../core/http/errors';
 import { untrustedBlock, untrustedLines, untrustedText } from '../autofill/ai/untrusted';
 import { readDraftFacts } from '../autofill/draft-facts';
@@ -8,13 +8,14 @@ import { readableForAi } from '../job-analysis/service';
 import { profileForPrompt } from '../tailor/pipeline';
 import { chooseTemplates } from '../tailor/source';
 import { chosenContent, chosenResume, NO_CHOSEN_RESUME } from './chosen';
-import { rulesPointer } from './instructions';
+import { unreadInstructions } from './instructions';
 import { heldAnalysis, mcpJobOf, sourceProfile, type SourceProfile } from './job';
 import { finishedView, finishIfDone, howTo, jobArg, mcpPrepareOf, nextAfterSave, nextJob, nextStep } from './next';
 import { openQuestions, questionView } from './questions';
 import { countCall, profileNote, profileWrapped, type McpSession } from './profiles'; // v33 SHARE-8
-import { modeOf, refuseGrantTripwire, RESUME_CHOSEN, requireMcpPrepare, type SaveContext } from './save';
-import { tripwireLine } from './screen';
+import { modeOf, refuseFencedData, RESUME_CHOSEN, requireMcpPrepare, type SaveContext } from './save';
+import { newDataId } from './screen'; // v34 MCPDIR
+import { refuseWrittenLeaks } from './written'; // v34 MCPDIR
 import { mcpSettings } from './settings';
 import { postingForPrompt } from './step-text';
 import { workFor } from './work';
@@ -33,7 +34,8 @@ import { workFor } from './work';
 // v33 SHARE-8 (PLAN-sharing.md §7): prepare_queue lists the jobs the caller's AI prepares on every profile (column `p`,
 // "me" or the key, when there is more than one), each next call naming its profile; on another person's profile the
 // context's resume and facts are that person's words, wrapped as untrusted with the grant's tripwire, and the context
-// says whose profile it is with the custom instructions' scope line.
+// says whose profile it is with the custom instructions' scope line. v34 MCPDIR: each wrapper ends with a data label
+// (screen.ts), no longer the grant's tripwire.
 
 /** The refusals a source resume can give, which the context reports instead of failing. */
 const SOURCE_REFUSALS = new Set(['needs_editable_copy', 'validation_failed', 'not_found']);
@@ -117,13 +119,15 @@ export async function prepareQueue(session: McpSession, options: { limit?: numbe
     nextCursor: offset + limit < waiting.length ? String(offset + limit) : null,
     // Once, with the first page.
     ...(offset === 0 ? { howTo: howTo(settings, await own.prepare.resumeMode(deps, own.userId)) } : {}),
-    ...(await rulesPointer(deps, session.caller.id, session.tokenId)),
+    ...(await unreadInstructions(deps, session.caller.id, session.tokenId)), // v34 MCPDIR: neutral metadata
     next: first
-      ? `Call prepare_job_context with {${jobArg(first.job.jobId, first.ctx.hint)}}, then follow each answer's "next".`
-      : multi
-        ? 'No job waits for your AI. For each profile: filter_jobs {"scope": "saved", "profile": <"me" or its key>}, ' +
-          'then prepare_start {"runId": <its runId>, "profile": <the same>}.'
-        : 'No job waits for your AI. Start with filter_jobs {"scope": "saved"}, then prepare_start {"runId": <its runId>}.',
+      ? `Call prepare_job_context with {${jobArg(first.job.jobId, first.ctx.hint)}}; each answer's "next" names the call after it.`
+      : // v34 MCPDIR (the directory review, finding 7): a read points at the writes only for when the person asks.
+        multi
+        ? 'No job waits for your AI. When the person wants saved jobs prepared, for each profile: filter_jobs {"scope": ' +
+          '"saved", "profile": <"me" or its key>}, then prepare_start {"runId": <its runId>, "profile": <the same>}.'
+        : 'No job waits for your AI. When the person wants their saved jobs prepared: filter_jobs {"scope": "saved"}, ' +
+          'then prepare_start {"runId": <its runId>}.',
   };
 }
 
@@ -161,7 +165,7 @@ export async function jobContext(
 
   /**
    * The chosen resume's words for the person's own prompts: a built resume as profile JSON, an upload's text. v33
-   * SHARE-8: on another person's profile, their words in the profile's wrapper (with the grant's tripwire).
+   * SHARE-8: on another person's profile, their words in the profile's wrapper (with its data label).
    */
   const resumeContent = async () => {
     if (!options.includeResume || !chosen.id) return {};
@@ -185,11 +189,12 @@ export async function jobContext(
     company: untrustedText(job.company, 200),
     title: untrustedText(job.title, 200),
     prepare: prepare ? { id: prepare.id, state: prepare.state } : null,
-    // The posting only on request: TailorIT's prompts quote it (with the tripwire) already.
+    // The posting only on request: TailorIT's prompts quote it (with its data label) already. v34 MCPDIR: the note is a
+    // plain statement (the tailoring prompts' rule quotes the phrases a posting may hide), the label a fresh id.
     ...(options.includePosting
       ? {
           posting: job.posting.trim()
-            ? { untrusted: true, rule: POSTING_TEXT_RULE, text: postingForPrompt(job.posting, tripwireLine(work.canary)) }
+            ? { untrusted: true, rule: MCP_POSTING_NOTE, text: postingForPrompt(job.posting, newDataId()) }
             : null,
         }
       : {}),
@@ -257,7 +262,8 @@ export async function markJob(
   const { deps, userId } = ctx;
   const job = await mcpJobOf(deps, userId, jobId);
   const prepare = await requireMcpPrepare(ctx, job);
-  refuseGrantTripwire(ctx, input.reason); // v33 SHARE-8
+  refuseFencedData(ctx, input.reason); // v33 SHARE-8
+  await refuseWrittenLeaks(ctx, input.reason); // v34 MCPDIR
   const part = input.part ?? 'all';
   if (part === 'resume' && prepare.resumeMode !== 'tailor') throw new AppError('conflict', RESUME_CHOSEN);
   // A required part (the tailored resume, a wanted letter) marked ends the Prepare: its kit cannot be complete.

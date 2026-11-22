@@ -23,8 +23,10 @@ import { foundJobsLabel, relevanceHint } from '../format';
 import { HelpTip } from '@/components/ui/HelpTip';
 import type { useJobsList } from '../hooks';
 import { jobHrefBuilder } from '../url';
-import { JobCard, type OpenHow } from './JobCard';
-import { SaveAllButton } from './SaveAllButton';
+import { JobCard, type OpenHow, type RowSaveTo } from './JobCard';
+import type { SavedOnJob } from '../../sharing/fanout/useFanout'; // v34 FANWEB
+import { SaveAllButton, SaveAllToButton } from './SaveAllButton';
+import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
 import { BAR_BUTTON, BAR_WORD } from './styles';
 import { saveBlockReason } from './useSaveSelected';
 
@@ -40,6 +42,8 @@ export interface JobSelection {
   /** Every job the list shows now, or none. */
   onSelectAll: (selected: boolean) => void;
   onSave: () => void;
+  /** v34 FANWEB: Save to… (the chosen jobs on other profiles too); absent without a shared profile. */
+  onSaveTo?: () => void;
   onDone: () => void;
 }
 
@@ -126,6 +130,11 @@ function SelectionBar({ selection, shown }: { selection: JobSelection; shown: re
         <Button size="sm" variant="ghost" disabled={selection.pending} onClick={selection.onDone}>
           Done
         </Button>
+        {selection.onSaveTo && (
+          <Button size="sm" variant="outline" disabled={count === 0 || selection.pending} onClick={selection.onSaveTo} data-selection-save-to="">
+            {FANOUT_COPY.saveTo}
+          </Button>
+        )}
         <Button size="sm" loading={selection.pending} disabled={count === 0} onClick={selection.onSave}>
           Save ({count})
         </Button>
@@ -192,6 +201,8 @@ export function ResultsBar({ query, list, selection, needsResume: noResume, onQu
           <div className="ml-auto flex flex-wrap items-center justify-end gap-x-0.5">
             {canSave && <SelectButton disabled={!list.data || items.length === 0} onClick={selection.onStart} />}
             {canSave && <SaveAllButton query={query} list={list} />}
+            {/* v34 FANWEB: this search's jobs saved on other profiles too (each profile's own matches). */}
+            <SaveAllToButton query={query} list={list} />
             <SortMenu
               sort={query.sort}
               onChange={(sort) => onQueryChange({ sort })}
@@ -232,6 +243,10 @@ export interface JobListProps {
   onToggleSave: (job: JobListItem) => void;
   /** v33 FIX-1: the rows' Save is on (off on a profile shared without the Job Tracker's Change). */
   canSave?: boolean;
+  /** v34 FANWEB: each row's Save to… (absent without a shared profile). */
+  saveTo?: RowSaveTo;
+  /** v34 FANWEB: where each listed job is saved (by job id). */
+  savedOn?: ReadonlyMap<number, SavedOnJob>;
   onClearAll: () => void;
   companyNames: ReadonlyMap<string, string>;
   selection: JobSelection;
@@ -255,6 +270,8 @@ export function JobList({
   onApply,
   onToggleSave,
   canSave = true,
+  saveTo,
+  savedOn,
   onClearAll,
   companyNames,
   selection,
@@ -332,6 +349,8 @@ export function JobList({
                 onApply={onApply}
                 onToggleSave={onToggleSave}
                 canSave={canSave}
+                saveTo={saveTo}
+                savedOn={savedOn?.get(job.id)}
                 selectable={selection.active}
                 checked={selection.active && selection.selected.has(job.id)}
                 onToggleChecked={selection.onToggle}

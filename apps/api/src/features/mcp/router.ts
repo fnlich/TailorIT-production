@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import { IdParam, MINUTE_MS } from '@tailorit/shared';
 import { McpTokenCreateBodySchema } from '@tailorit/shared/mcp';
+import { publicOriginOf } from '../../config/public-origin'; // v34 ORIGIN
 import { rateKeyOf, requireUser, userOf } from '../../core/auth/guards';
 import type { AppDeps } from '../../core/context';
 import { forbidden, notFound } from '../../core/http/errors';
@@ -37,7 +38,8 @@ export function createMcpTokensRouter(deps: AppDeps): Router {
   const revokeLimit = perAccount('mcp-token-revoke', 30);
 
   router.get('/tokens', listLimit, async (req, res) => {
-    res.json(await listMcpTokens(deps, userOf(req).id));
+    // v34 ORIGIN: the MCP address of the address the page is open at (config/public-origin.ts).
+    res.json(await listMcpTokens(deps, userOf(req).id, publicOriginOf(deps.config, req)));
   });
 
   router.post('/tokens', createLimit, async (req, res) => {

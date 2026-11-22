@@ -50,13 +50,13 @@ const OWN = {
 export function howTo(settings: McpSettings, resumeMode: PrepareResumeMode): string[] {
   return [
     'Take the jobs one at a time. Start each with prepare_job_context {"jobId"}; every answer\'s "next" names the ' +
-      'exact next call: follow it. TailorIT queues a job when the save that completes it is done.',
-    `Prompts: ${settings.promptMode === 'own-prompt' ? 'your own' : "TailorIT's"} (prepare_settings {"mode": ` +
+      'call that comes next. TailorIT queues a job when the save that completes it is done.',
+    `Prompts: ${settings.promptMode === 'own-prompt' ? 'your own' : "TailorIT's"} (set_prepare_settings {"mode": ` +
       '"tailorit"|"own-prompt"} changes it; a save may also say "mode"). Resume mode: ' +
       `${resumeMode} (the person's setting; each job's context names its resume, and its letter and answers are ` +
       'written from that resume).',
-    'TailorIT\'s prompts: each step\'s instructions come from prepare_prompt {"jobId", "step"}; follow the prompt ' +
-      'exactly and send the JSON it asks for to the tool it names. Steps: analyze -> prepare_save_analysis ' +
+    'TailorIT\'s prompts: prepare_prompt {"jobId", "step"} gives each step\'s prompt, which says what JSON to write ' +
+      'and the tool that saves it. Steps: analyze -> prepare_save_analysis ' +
       '{"analysis"}; review -> prepare_save_analysis {"missing"}; tailor -> prepare_save_resume {"resume"}; revise ' +
       `(while a save answers "revise": true, at most ${settings.reviseRounds} rounds) -> prepare_save_resume ` +
       '{"revision"}; write_cover_letter -> prepare_save_cover_letter {"paragraphs"}; write_answers -> ' +

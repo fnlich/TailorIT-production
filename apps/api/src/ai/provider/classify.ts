@@ -1,5 +1,7 @@
+import type { AiBilling } from '@tailorit/shared'; // v34 AIKEY
 import { AI_DETAILS, AiError, type AiErrorKind } from '../errors';
-import { billedToKey, turnText, type RateLimitInfo, type TurnState } from './events';
+// v34 AIKEY: billedToSubscription, keySourceUnnamed
+import { billedToKey, billedToSubscription, keySourceUnnamed, turnText, type RateLimitInfo, type TurnState } from './events';
 import type { CliRunOutcome } from './spawn';
 import { lastLines } from './stream';
 
@@ -114,14 +116,66 @@ function limitHold(info: RateLimitInfo | null, nowMs: number): HoldRequest {
   return { scope: '*', ms, kind: 'rateLimited', reason: 'the Claude usage limit was reached' };
 }
 
+// v34 AIKEY
+/**
+ * A turn the CLI said its own sign-in (a Claude subscription) pays for while AI_BILLING=api-key: stopped at its first
+ * event and all AI held, as a key-billed turn is in the default mode (PLAN decision 11: a public service must never fall
+ * back to one person's subscription).
+ */
+function subscriptionBilled(): TurnVerdict {
+  return {
+    ok: false,
+    error: new AiError('auth', {
+      message: AI_DETAILS.subscriptionBilled,
+      detail:
+        'The CLI reported apiKeySource "none" (its own sign-in, a Claude subscription) while AI_BILLING=api-key, so this ' +
+        'call would have been billed to that subscription; it was stopped at its first event.',
+    }),
+    hold: {
+      scope: '*',
+      ms: API_KEY_HOLD_MS,
+      kind: 'auth',
+      reason: 'the CLI is using its Claude subscription, not the API key (AI_BILLING=api-key)',
+    },
+  };
+}
+
+/**
+ * Review fix L1: a turn whose init named no credential source while AI_BILLING=api-key, stopped at that init (or at its
+ * first event, with no init) and holding all AI, as a subscription-billed one: nothing says the key pays for it.
+ */
+function keySourceUnknown(): TurnVerdict {
+  return {
+    ok: false,
+    error: new AiError('auth', {
+      message: AI_DETAILS.keySourceUnknown,
+      detail:
+        "The CLI's system/init named no apiKeySource while AI_BILLING=api-key, so this call could have been billed to " +
+        'a Claude subscription; it was stopped at that event.',
+    }),
+    hold: {
+      scope: '*',
+      ms: API_KEY_HOLD_MS,
+      kind: 'auth',
+      reason: 'the CLI did not say it is using the API key (AI_BILLING=api-key)',
+    },
+  };
+}
+// end v34 AIKEY
+
 export function interpretTurn(
   outcome: CliRunOutcome,
   state: TurnState,
-  context: { nowMs: number; firstEventMs: number; timeoutMs: number },
+  // v34 AIKEY: `billing`, AI_BILLING (absent: subscription, the default).
+  context: { nowMs: number; firstEventMs: number; timeoutMs: number; billing?: AiBilling },
 ): TurnVerdict {
   const stderr = lastLines(outcome.stderr, 2000);
-  // First: the turn was stopped at system/init, which otherwise reads as a cancellation.
-  if (billedToKey(state)) {
+  // First: the turn was stopped at system/init, which otherwise reads as a cancellation. v34 AIKEY: with
+  // AI_BILLING=api-key the reverse holds: a key paying is normal, the subscription paying is stopped.
+  if (context.billing === 'api-key') {
+    if (billedToSubscription(state)) return subscriptionBilled();
+    if (keySourceUnnamed(state)) return keySourceUnknown(); // review fix L1
+  } else if (billedToKey(state)) {
     return {
       ok: false,
       error: new AiError('auth', {

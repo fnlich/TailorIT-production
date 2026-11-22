@@ -28,7 +28,7 @@ export const PUBLIC_CONSTANTS_STALE_MS = 5 * 60_000;
 /** The public constants' messages (every message is public): the keys `t` renders. */
 export type PublicMessageKey = Extract<MessageKey, PublicConstantKey>;
 
-/** GET /api/constants/public (session). */
+/** GET /api/constants/public (signed in or out: v34 PUBLIC made it answer without a session, rate limited per address). */
 export function fetchPublicConstants(signal?: AbortSignal): Promise<PublicConstantsResponse> {
   // v30 CT (edit B, INT-1): the shared checks' words follow the answer, so an admin's edit reaches them in the browser.
   return apiFetch<PublicConstantsResponse>('/api/constants/public', { schema: PublicConstantsResponseSchema, signal }).then(

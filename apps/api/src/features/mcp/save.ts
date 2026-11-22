@@ -54,8 +54,9 @@ import type { McpPrepare, PrepareAdapter } from './prepare';
 import { profilesPreparing, type McpCallerInfo, type McpProfile } from './profiles'; // v33 SHARE-8
 import type { SetScope } from './result-sets'; // v33 SHARE-8
 import { answerShape, openQuestions } from './questions';
-import { contentProblem, CONTENT_REFUSALS, holdsTripwire, type ContentProblem } from './screen';
+import { contentProblem, CONTENT_REFUSALS, holdsFencedData, type ContentProblem } from './screen';
 import { mcpSettings } from './settings';
+import { answerNamesOtherProfile, refuseWrittenLeaks } from './written'; // v34 MCPDIR
 import { keepAnalysis, keepLetter, keepResume, workFor } from './work';
 
 // What the MCP save tools do with what the person's own AI wrote (v1.5 M): v1.4's code steps, never its model calls.
@@ -78,8 +79,8 @@ import { keepAnalysis, keepLetter, keepResume, workFor } from './work';
 // - Answers: each checked against the job's open questions (questions.ts) and refused when it is to any other
 //   question, does not fit its question, or states something sensitive or a contact detail; the rest go to the draft
 //   (P's saveDraftAnswers, which screens them again). A question left out is not ready.
-// Every text the AI wrote is screened first (screen.ts: TailorIT's tripwire, AI talk, prompt markup): a resume or a
-// letter that fails keeps nothing, an answer that fails is refused alone.
+// Every text the AI wrote is screened first (screen.ts: copied data labels and tripwires, AI talk, prompt markup): a
+// resume or a letter that fails keeps nothing, an answer that fails is refused alone.
 // v3.0 D2: async. A save's writes (the resume or letter, the draft's link to it, this file's work row) land in one
 // transaction (deps.db.tx). The resume, letter and draft helpers it calls there (features/resumes, cover-letters,
 // prepare) must join it: they use deps.db.atomic or the open tx, never a tx of their own, and no outside I/O.
@@ -100,7 +101,11 @@ export const NOT_A_RESUME =
   'Write the whole tailor-resume JSON object and save it again.';
 export const NO_DRAFT_TO_REVISE =
   'There is no saved resume of this job to revise. Save the tailor step\'s resume with prepare_save_resume first.';
-export const FACTS_CHANGED = 'TailorIT did not keep this resume: it would have changed facts of your resume.';
+// v34 MCPDIR (the directory review, finding 3): the save keeps the facts itself, so a failed check is TailorIT's own
+// failure (an internal error): what helps is one more save, then marking the resume failed.
+export const FACTS_CHANGED =
+  "TailorIT could not keep this resume's facts as the person's resume has them (logged for the operator). Save it once " +
+  'more; if it is refused again, mark the resume failed with prepare_mark and go on.';
 /** v2.0 P5: a save for a job no Prepare of the person's AI covers. */
 export const NOT_STARTED =
   'This job is not being prepared for your AI, so TailorIT keeps nothing for it. Prepare exactly the jobs that pass: ' +
@@ -114,7 +119,7 @@ export interface SaveContext {
   deps: AppDeps;
   /**
    * v33 SHARE-8: whose data the call reads and writes: the profile's owner (= profile.userId; the caller on "me"). The
-   * caller's own (settings, custom instructions, the rules pointer, own-AI saves' limits, reports) is `caller.id`.
+   * caller's own (settings, custom instructions, the read mark, own-AI saves' limits, reports) is `caller.id`.
    */
   userId: string;
   prepare: PrepareAdapter;
@@ -127,17 +132,25 @@ export interface SaveContext {
   hint: string | null;
   /** The result sets' owner: the caller on this profile (result-sets.ts). */
   sets: SetScope;
-  /** Every tripwire of the caller's grants (live or ended): a save holding one is refused, on any profile. */
+  /**
+   * Every tripwire of the caller's grants (live or ended), handed out before v3.4: a save holding one is refused, on any
+   * profile (v34 MCPDIR: as is one holding a data label or its id, screen.ts holdsFencedData).
+   */
   canaries: readonly string[];
   // end v33 SHARE-8
 }
 
-/** v33 SHARE-8: the job's tripwire and the caller's grants' (every save's content screen). */
+/** v33 SHARE-8: the job's tripwire and the caller's grants' (every save's content screen; words handed out before v3.4). */
 export const tripwiresOf = (ctx: Pick<SaveContext, 'canaries'>, ...more: readonly string[]): string[] => [...new Set([...more, ...ctx.canaries])];
 
-/** v33 SHARE-8: refused as `canary` when `value` holds a tripwire of the caller's grants (a save on any profile). */
-export function refuseGrantTripwire(ctx: Pick<SaveContext, 'canaries'>, value: unknown): void {
-  if (ctx.canaries.length > 0 && holdsTripwire(stringsOf(value), ctx.canaries)) throw refuseContent('canary');
+/**
+ * v33 SHARE-8: refused as `canary` when `value` holds a tripwire of the caller's grants (a save on any profile). v34
+ * MCPDIR: or a data label or its id (fenced text copied into a save). The fence's markers (<untrusted> tags, the JSON
+ * sentinels) are refused in the written saves (contentProblem: a resume, a letter, answers, own-AI documents) and
+ * defused in the short fields these guard (a report, a reason: untrustedText), as before.
+ */
+export function refuseFencedData(ctx: Pick<SaveContext, 'canaries'>, value: unknown): void {
+  if (holdsFencedData(stringsOf(value), ctx.canaries)) throw refuseContent('canary');
 }
 
 /** v2.0 P5: the job's active Prepare of the person's AI; refused (conflict) when there is none. */
@@ -187,6 +200,15 @@ export function sourceAsTailored(source: SourceProfile): TailoredContent {
 
 export const refuseContent = (problem: ContentProblem) => new AppError('validation_failed', CONTENT_REFUSALS[problem]);
 
+/** v34 MCPDIR: the texts whose contacts are the person's own for a text written from a resume (written.ts). */
+export const evidenceSources = (evidence: { text: string; profile: unknown } | null | undefined): string[] =>
+  evidence ? [evidence.text, JSON.stringify(evidence.profile)] : [];
+/** v34 MCPDIR: evidenceSources of a tailoring's source, with its document. */
+export const resumeSources = (source: Pick<SourceProfile, 'editor' | 'evidence'>): string[] => [
+  JSON.stringify(source.editor),
+  ...evidenceSources(source.evidence),
+];
+
 /** A list cut short for an answer. */
 const MAX_LISTED = 50;
 
@@ -207,7 +229,7 @@ export async function saveAnalysis(
   const job = await mcpJobOf(deps, userId, jobId);
   await requireMcpPrepare(ctx, job);
   if (!readableForAi(job.posting)) throw new AppError('validation_failed', TOO_LITTLE_POSTING);
-  refuseGrantTripwire(ctx, [input.analysis, input.missing]); // v33 SHARE-8
+  refuseFencedData(ctx, [input.analysis, input.missing]); // v33 SHARE-8, v34 MCPDIR
   const work = await workFor(deps, userId, jobId);
   const postingHash = postingHashOf(job.posting);
   let raw: RawAnalysis;
@@ -303,6 +325,11 @@ export async function saveResume(
   const { profile } = source;
   const settings = await mcpSettings(deps, ctx.caller.id); // v33 SHARE-8: the caller's revision rounds
   const canaries = tripwiresOf(ctx, work.canary); // v33 SHARE-8
+  // v34 MCPFAN (the MCPFAN security review's runs; the coordinator's decision 9): fenced data first, so a copied label
+  // or tripwire is refused as such (a legacy tripwire's digit run would otherwise read as a phone number below).
+  if (holdsFencedData(stringsOf(input.resume ?? input.revision), canaries)) throw refuseContent('canary');
+  // v34 MCPDIR (the security review, finding 1): no contact that is not the person's own, no other profile's details.
+  await refuseWrittenLeaks(ctx, input.resume ?? input.revision, resumeSources(source));
   // v33 PROMPTS (F5): written for the person's field (else the job's): its numbers and its skill library.
   const fit = personFitOf(source, job);
 
@@ -417,6 +444,8 @@ export async function saveCoverLetter(
   const normalized = normalizeLetter(input);
   // v2.0 P5, A29: the letter is the chosen resume's (the tailored one, the default or the most similar).
   const source = await chosenContent(deps, userId, await chosenResume(ctx, job, prepare));
+  // v34 MCPDIR (the security review, findings 1 and 5): a letter names only the person's own links and contacts.
+  await refuseWrittenLeaks(ctx, [input.paragraphs, input.letter], evidenceSources(source.evidence));
   const paragraphs = finishedLetter(normalized, source.profile, job.company);
   if (paragraphs.length === 0) throw new AppError('validation_failed', 'The letter has no text. Write it again.');
   const held = readableForAi(job.posting) ? await heldAnalysis(deps, userId, job, work) : null;
@@ -478,6 +507,7 @@ export type AnswerRefusal =
   | 'ambiguous_option'
   | 'sensitive'
   | 'contact'
+  | 'other_profile' // v34 MCPDIR
   | ContentProblem;
 
 /** What each refusal reason asks of the AI (P's own reasons too), sent once per reason a save met. */
@@ -491,6 +521,7 @@ export const ANSWER_REFUSALS: Record<AnswerRefusal | 'not_this_job' | 'never_dra
   ambiguous_option: "A label is as close to two of the question's options: copy the one you mean exactly.",
   sensitive: 'The answer states something sensitive (pay, work authorization, self-identification...): leave it out.',
   contact: 'The answer holds a contact detail or an address: leave those out; the profile fills them.',
+  other_profile: "The answer holds another profile's name or contact details: answer from this profile's facts only.",
   canary: CONTENT_REFUSALS.canary,
   ai_talk: CONTENT_REFUSALS.ai_talk,
   prompt_markup: CONTENT_REFUSALS.prompt_markup,
@@ -518,9 +549,9 @@ export function answerRefusal(
   } else {
     return 'does_not_fit';
   }
-  // v2.0 FIX-C (REQ-8): the tripwire first. An answer that obeyed the posting's hidden instruction is refused as that,
-  // whatever else it holds: a tripwire of digits reads as a phone number to the contact screen.
-  if (answer.kind === 'text' && holdsTripwire([answer.text], canary)) return 'canary';
+  // v2.0 FIX-C (REQ-8): the tripwire first. An answer holding copied fenced data is refused as that, whatever else it
+  // holds: a data id of digits reads as a phone number to the contact screen.
+  if (answer.kind === 'text' && holdsFencedData([answer.text], canary)) return 'canary';
   const screened = screenAnswer({ category: null, questionKey: question.questionKey, questionLabel: question.label, answer });
   if (screened !== null) return 'sensitive';
   if (answer.kind === 'text') {
@@ -569,6 +600,8 @@ export async function saveAnswers(
       else {
         answer = normalized.answer;
         reason = answerRefusal(question, answer, canaries);
+        // v34 MCPDIR: another reachable profile's name or contact details (the contact screen refuses any contact).
+        if (!reason && answer.kind === 'text' && (await answerNamesOtherProfile(ctx, answer.text))) reason = 'other_profile';
       }
     }
     seen.add(questionId);

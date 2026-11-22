@@ -13,6 +13,8 @@ import { Notice } from '@/components/ui/Notice';
 import { ApiError, userMessage } from '@/lib/api';
 import { ME_QUERY_KEY } from '@/lib/auth';
 import { safeNextPath } from '@/lib/navigation';
+import { ACCOUNT_DELETED_PARAM, accountDeletedMarkOf, type AccountDeletionState } from '@tailorit/shared/account-deletion'; // v34 ACCTDEL
+import { usePublicConstants } from '@/lib/constants'; // v34 ACCTDEL
 import { fetchAuthOptions, requestEmailCode, signInWithGoogle, verifyEmailCode } from './api';
 import { codeAlreadySentNotice, cooldownSeconds } from './cooldown';
 import { SIGN_IN_CARD, SIGN_IN_TITLE, SignInFrame } from './SignInFrame';
@@ -43,14 +45,32 @@ type Stage = 'address' | 'code';
 
 /** The address was proven but the account is disabled: trying again cannot help, only an administrator can. */
 function isDisabledAccount(error: unknown): boolean {
-  return error instanceof ApiError && error.code === 'account_disabled';
+  // v34 ACCTDEL: or it is being deleted (off, and gone on its own within a day): the card says that instead.
+  return error instanceof ApiError && (error.code === 'account_disabled' || error.code === 'account_being_deleted');
 }
+
+/** v34 ACCTDEL: the card's title for a refused account. */
+const refusedTitle = (error: unknown) =>
+  error instanceof ApiError && error.code === 'account_being_deleted' ? 'Account being deleted' : 'This account is disabled';
 
 export function SignInPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeNextPath(searchParams.get('next'));
   const queryClient = useQueryClient();
+  // v34 ACCTDEL (PLAN G10): Delete my account ends here, signed out (/login?deleted=1, or =pending when the rest finishes
+  // on its own): the page says so once, and drops the mark from the address (a reload says nothing); the notice goes when
+  // a code is sent. The page is opened by a full load after a deletion (leaveForSignIn): the mark is read as it mounts.
+  const mark = accountDeletedMarkOf(searchParams.get(ACCOUNT_DELETED_PARAM));
+  const [deletedNotice, setDeletedNotice] = useState<AccountDeletionState | null>(mark);
+  const { t } = usePublicConstants();
+  useEffect(() => {
+    if (!mark) return;
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete(ACCOUNT_DELETED_PARAM);
+    const query = rest.toString();
+    router.replace(query ? `/login?${query}` : '/login');
+  }, [mark, searchParams, router]);
 
   const options = useQuery({
     queryKey: ['auth', 'options'],
@@ -66,6 +86,7 @@ export function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [disabledAccount, setDisabledAccount] = useState<string | null>(null);
+  const [disabledTitle, setDisabledTitle] = useState(''); // v34 ACCTDEL
   const [googleReady, setGoogleReady] = useState(false);
   const googleButton = useRef<HTMLDivElement>(null);
 
@@ -84,8 +105,10 @@ export function SignInPage() {
       try {
         finish(await signInWithGoogle(credential));
       } catch (caught) {
-        if (isDisabledAccount(caught)) setDisabledAccount(userMessage(caught));
-        else setError(userMessage(caught, 'That Google sign-in did not work.'));
+        if (isDisabledAccount(caught)) {
+          setDisabledTitle(refusedTitle(caught));
+          setDisabledAccount(userMessage(caught));
+        } else setError(userMessage(caught, 'That Google sign-in did not work.'));
       } finally {
         setBusy(false);
       }
@@ -117,6 +140,7 @@ export function SignInPage() {
     setBusy(true);
     setError(null);
     setNotice(null);
+    setDeletedNotice(null); // v34 ACCTDEL
     try {
       const result = await requestEmailCode(email.trim());
       setNotice(result.message);
@@ -142,8 +166,10 @@ export function SignInPage() {
     try {
       finish(await verifyEmailCode(email.trim(), code));
     } catch (caught) {
-      if (isDisabledAccount(caught)) setDisabledAccount(userMessage(caught));
-      else setError(userMessage(caught, 'That code did not work.'));
+      if (isDisabledAccount(caught)) {
+        setDisabledTitle(refusedTitle(caught));
+        setDisabledAccount(userMessage(caught));
+      } else setError(userMessage(caught, 'That code did not work.'));
       setCode('');
     } finally {
       setBusy(false);
@@ -185,7 +211,7 @@ export function SignInPage() {
 
       {disabledAccount ? (
         <div className={SIGN_IN_CARD}>
-          <h1 className={SIGN_IN_TITLE}>This account is disabled</h1>
+          <h1 className={SIGN_IN_TITLE}>{disabledTitle}</h1>
           <p className="mt-3 text-sm break-words text-muted-foreground">{disabledAccount}</p>
           <div className="mt-6 flex flex-col gap-3">
             {contactEmail && (
@@ -211,6 +237,14 @@ export function SignInPage() {
             <h1 className={SIGN_IN_TITLE}>Sign in</h1>
             <HelpTip label="Sign in">TailorIT keeps your resumes to your own account.</HelpTip>
           </div>
+
+          {deletedNotice && (
+            <Notice tone={deletedNotice === 'deleted' ? 'success' : 'info'} className="mt-6">
+              <span data-account-deleted={deletedNotice}>
+                {t(deletedNotice === 'deleted' ? 'MSG_ACCOUNT_DELETED' : 'MSG_ACCOUNT_DELETE_PENDING')}
+              </span>
+            </Notice>
+          )}
 
           {optionsError && (
             <Notice

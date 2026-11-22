@@ -37,6 +37,8 @@ export function expectedOf(key: ConstantKey): string {
     case 'limit':
       return `Use a whole number${between(spec.min ?? 0, spec.max)}, or Unlimited.`;
     case 'usd':
+      // v34 AIKEY: a usd constant with a minimum (AI_KEY_DAILY_BUDGET_USD) names it.
+      if (spec.min !== undefined) return `Use a dollar amount of ${microsToUsdText(spec.min)} or more (at most 6 decimal places).`;
       return 'Use a dollar amount of 0 or more, such as 0.10 (at most 6 decimal places).';
     case 'usd_limit':
       return 'Use a dollar amount of 0 or more, such as 0.10 (at most 6 decimal places), or Unlimited.';
@@ -80,7 +82,8 @@ export function validateConstant<K extends ConstantKey>(key: K, value: unknown):
   const parsed = (KIND_SCHEMAS[spec.kind] as z.ZodType<unknown>).safeParse(value);
   if (!parsed.success) return refuse();
   const checked = parsed.data;
-  if (typeof checked === 'number' && (spec.kind === 'int' || spec.kind === 'limit')) {
+  // v34 AIKEY: a usd amount's own bounds too, in micro-dollars (AI_KEY_DAILY_BUDGET_USD's minimum).
+  if (typeof checked === 'number' && (spec.kind === 'int' || spec.kind === 'limit' || spec.kind === 'usd')) {
     if (spec.min !== undefined && checked < spec.min) return refuse();
     if (spec.max !== undefined && checked > spec.max) return refuse();
   }
@@ -151,6 +154,8 @@ export function envFormOf(key: ConstantKey): string {
     case 'limit':
       return `a whole number${between(spec.min ?? 0, spec.max)}, or unlimited`;
     case 'usd':
+      // v34 AIKEY: with a minimum, the .env refusal names it.
+      if (spec.min !== undefined) return `a dollar amount of ${microsToUsdText(spec.min)} or more (at most 6 decimal places)`;
       return 'a dollar amount such as 0.10 (at most 6 decimal places)';
     case 'usd_limit':
       return 'a dollar amount such as 0.10 (at most 6 decimal places), or unlimited';

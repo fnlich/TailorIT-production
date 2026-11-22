@@ -14,7 +14,13 @@ import { XIcon } from './icons';
  *       <DialogFooter><Button variant="outline" onClick={…}>Cancel</Button><Button>Rename</Button></DialogFooter>
  *     </DialogContent>
  *   </Dialog>
- * Escape and an outside press close the top-most dialog only; focus is trapped and returns to the opener.
+ * Escape and an outside press close the top-most dialog only; focus is trapped and returns to the opener, unless an
+ * alert opened as the dialog closed (a result, a confirm): that alert keeps it (v34 FIX-WEB, final review U-M5).
+ *
+ * A body that scrolls (`min-h-0 flex-1 overflow-y-auto` under the title) must also be `relative` (v34 FIX-WEB, final
+ * review U-M1): an absolutely placed piece inside it (an sr-only name, a field's "$") otherwise takes the popup as its
+ * containing block, escapes the body's clipping, hangs below the popup and makes the whole dialog scroll, title and ✕
+ * off the screen.
  */
 
 export function Dialog(props: ComponentProps<typeof BaseDialog.Root>) {
@@ -37,6 +43,28 @@ const SIZES: Record<DialogSize, string> = {
   xl: 'max-w-2xl',
   full: 'h-full max-w-none rounded-none sm:rounded-popup',
 };
+
+/** v34 FIX-WEB (final review U-M5): an alert open outside `popup` (raised by the dialog's action as it closes). */
+export function alertOpenOutside(popup: HTMLElement | null): boolean {
+  if (typeof document === 'undefined') return false;
+  return [...document.querySelectorAll('[role="alertdialog"]')].some((alert) => !popup?.contains(alert));
+}
+
+/**
+ * Where focus goes as a dialog closes: nowhere when an alert opened meanwhile (it took the focus and keeps it), else as
+ * `finalFocus` says (the opener by default).
+ */
+export function closingFocus(
+  popup: HTMLElement | null,
+  finalFocus: DialogContentProps['finalFocus'],
+  closeType: Parameters<Extract<NonNullable<DialogContentProps['finalFocus']>, (...args: never[]) => unknown>>[0],
+): boolean | HTMLElement | null | void {
+  if (alertOpenOutside(popup)) return false;
+  if (finalFocus === undefined) return true;
+  if (typeof finalFocus === 'function') return finalFocus(closeType);
+  if (typeof finalFocus === 'boolean') return finalFocus;
+  return finalFocus.current ?? true;
+}
 
 export const BACKDROP =
   'fixed inset-0 z-50 min-h-dvh bg-overlay backdrop-blur-[2px] transition-opacity duration-200 ease-out-soft ' +
@@ -89,7 +117,9 @@ export function DialogContent({
         <BaseDialog.Popup
           ref={popup}
           initialFocus={initialFocus ?? (() => firstFocusSkippingTips(popup.current))}
-          finalFocus={finalFocus}
+          finalFocus={(closeType) => closingFocus(popup.current, finalFocus, closeType)}
+          // v34 FIX-WEB (final review U-M4): a kit dialog is open: on a phone the toasts go under it (Toast.tsx).
+          data-kit-modal=""
           className={clsx(
             'relative flex max-h-full w-full flex-col bg-surface text-foreground shadow-dialog outline-none',
             size !== 'full' && 'rounded-popup border border-border p-6',

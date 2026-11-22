@@ -17,12 +17,20 @@ import { RadioGroup } from '../../../components/ui/RadioGroup';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { useToast } from '../../../components/ui/Toast';
 import { isProfileRefusal, userMessage } from '../../../lib/api';
+import { useDocumentProfile } from '../../../components/shell/profile/useProfile';
 import { usePublicConstants, type PublicMessageKey } from '../../../lib/constants';
 import { Section, SwitchRow } from '../parts';
 import { NotShared, OWN_ACCESS, refusedRead, type ProfileAccess } from '../../sharing/access'; // v33 SHARE-7
 import { fetchPrepareSettings, prepareSettingsKeys, savePrepareSettings } from './api';
+import { fetchOwnPrepareSettings, ownPrepareSettingsKey, saveOwnPrepareSettings } from '../../prepare/api'; // v34 FIX-WEB
 import { LETTER_MODE_HINT, LETTER_MODE_LABEL, PREPARE_COPY, RESUME_MODE_HINT } from './copy';
 import { PrepareFilters } from './PrepareFilters';
+import { ApplyOthers, tickedBody } from '../../sharing/fanout/ApplyOthers'; // v34 FANWEB
+import { fanoutKeys, patchPrepareSettingsOn } from '../../sharing/fanout/api';
+import { FANOUT_COPY, namesList } from '../../sharing/fanout/copy';
+import { fanoutReport } from '../../sharing/fanout/results';
+import { useFanoutChoices } from '../../sharing/fanout/useFanout';
+import { ReadOnlyLine } from './FiltersScope';
 
 // v2.0: Settings › Prepare & Queue (/settings#prepare; docs/design/v2.0/08-ui.md, "Settings › Prepare & Queue"; A29):
 // - Resume (A29/A30): "Only my default resume", "Use my best-matched resume" or "Always tailor" (the constants' words),
@@ -56,11 +64,14 @@ export function PrepareSection({
   filters?: ProfileAccess;
 }) {
   const eligibility = !sensitive.see ? 'hidden' : sensitive.change ? 'shown' : 'readOnly'; // as filtersAccessOf
+  const { t } = usePublicConstants();
   const settings = useQuery({
     queryKey: prepareSettingsKeys.settings,
     queryFn: ({ signal }) => fetchPrepareSettings(signal),
     enabled: access.ready && access.see, // v33 SHARE-7
   });
+  // v34 FANWEB (PLAN G3): the three settings copied to other profiles ("Apply to other profiles…").
+  const applyTo = useApplySettings(settings.data);
   useScrollToAnchor(PREPARE_ANCHOR, settings.isSuccess);
   // v33 SHARE-7: not shared with the person (or a read refused because of it).
   const settingsShared = !(access.ready && !access.see) && !(settings.isError && refusedRead(settings.error));
@@ -72,12 +83,23 @@ export function PrepareSection({
     );
   }
   return (
-    <Section title={PREPARE_COPY.title} description={PREPARE_COPY.description} id={PREPARE_ANCHOR} className={className}>
+    <Section
+      title={PREPARE_COPY.title}
+      description={PREPARE_COPY.description}
+      id={PREPARE_ANCHOR}
+      className={className}
+      // v34 FANWEB fix (both reviews): no copy to other profiles from a tab that may not change these settings.
+      actions={settingsShared && settings.data && access.change ? applyTo : undefined}
+    >
       <div className="flex flex-col gap-8">
         {!settingsShared ? (
           <NotShared owner={access.owner} />
         ) : settings.data ? (
-          <PrepareSettingsForm settings={settings.data} readOnly={!access.change} />
+          <>
+            {/* v34 FANWEB: a shared profile without Job settings' Change says so. */}
+            {access.acting && !access.change && access.ready && <ReadOnlyLine owner={access.owner} label={(key) => t(key as PublicMessageKey)} settings />}
+            <PrepareSettingsForm settings={settings.data} readOnly={!access.change} ownAsk={access.acting} />
+          </>
         ) : settings.isError ? (
           <Notice
             tone="error"
@@ -118,7 +140,12 @@ function useScrollToAnchor(anchor: string, ready: boolean) {
   }, [anchor, ready]);
 }
 
-function PrepareSettingsForm({ settings, readOnly = false }: { settings: PrepareSettings; readOnly?: boolean }) {
+/**
+ * `ownAsk` (v34 FIX-WEB, final review share M1): the tab works on someone else's profile, so "Ask before using AI" is
+ * the person's OWN (the payer's: it decides whether Prepare & Queue asks them, on every profile), read and saved with
+ * 'me'; the profile's owner keeps theirs.
+ */
+function PrepareSettingsForm({ settings, readOnly = false, ownAsk = false }: { settings: PrepareSettings; readOnly?: boolean; ownAsk?: boolean }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const { t } = usePublicConstants();
@@ -172,17 +199,94 @@ function PrepareSettingsForm({ settings, readOnly = false }: { settings: Prepare
           />
         </Field>
       </div>
+      {ownAsk ? (
+        <OwnAskRow />
+      ) : (
+        <SwitchRow
+          title={PREPARE_COPY.askTitle}
+          hint={PREPARE_COPY.askHint}
+          checked={!settings.skipConfirm}
+          disabled={save.isPending || readOnly}
+          onCheckedChange={(ask) => save.mutate({ skipConfirm: !ask })}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * v34 FIX-WEB (final review share M1): "Ask before using AI" on a tab working on someone else's profile: the person's
+ * own setting ('me'), the one the confirm reads there; theirs to change whatever the share's boxes.
+ */
+function OwnAskRow() {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const key = ownPrepareSettingsKey(useDocumentProfile());
+  const own = useQuery({ queryKey: key, queryFn: ({ signal }) => fetchOwnPrepareSettings(signal) });
+  const save = useMutation({
+    mutationFn: (skipConfirm: boolean) => saveOwnPrepareSettings({ skipConfirm }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(key, saved);
+      toast.success(PREPARE_COPY.saved);
+    },
+    onError: (error) => toast.error(PREPARE_COPY.saveFailed, userMessage(error)),
+  });
+  return (
+    <div data-prepare-ask="own">
       <SwitchRow
         title={PREPARE_COPY.askTitle}
-        hint={PREPARE_COPY.askHint}
-        checked={!settings.skipConfirm}
-        disabled={save.isPending || readOnly}
-        onCheckedChange={(ask) => save.mutate({ skipConfirm: !ask })}
+        hint={PREPARE_COPY.askOwnHint}
+        checked={!(own.data?.skipConfirm ?? false)}
+        disabled={!own.data || save.isPending}
+        onCheckedChange={(ask) => save.mutate(!ask)}
       />
-    </>
+    </div>
   );
 }
 
 function stripUndefined<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
+}
+
+/**
+ * v34 FANWEB: the Prepare settings' words as the copy dialog lists them. v34 FIX-WEB (final review share M1): never
+ * "Ask before using AI": it is each payer's own (only its owner sets it on a profile), so it is not copied.
+ */
+export function settingsFields(settings: PrepareSettings, t: (key: PublicMessageKey) => string) {
+  return [
+    { key: 'resumeMode' as const, label: PREPARE_COPY.resume, value: t(PREPARE_RESUME_MODE_LABELS[settings.resumeMode] as PublicMessageKey) },
+    { key: 'letterMode' as const, label: PREPARE_COPY.letters, value: LETTER_MODE_LABEL[settings.letterMode] },
+  ];
+}
+
+/**
+ * v34 FANWEB (PLAN G3): "Apply to other profiles…" for the Prepare settings: the ticked settings, as this profile has
+ * them now, on the profiles chosen (PATCH /api/profiles/prepare/settings; Job settings › Change on each).
+ */
+function useApplySettings(settings: PrepareSettings | undefined) {
+  const queryClient = useQueryClient();
+  const { t } = usePublicConstants();
+  const choices = useFanoutChoices(['settings:edit']);
+  if (!settings) return null;
+  const fields = settingsFields(settings, t);
+  return (
+    <ApplyOthers
+      help={FANOUT_COPY.applySettingsHelp}
+      fields={fields}
+      perform={async (targets, keys) => {
+        const body: PrepareSettingsBody = tickedBody(settings, keys);
+        const answer = await patchPrepareSettingsOn(targets, body);
+        void queryClient.invalidateQueries({ queryKey: fanoutKeys.settingsAll });
+        const words = namesList(fields.filter((field) => keys.includes(field.key)).map((field) => field.label));
+        return fanoutReport(answer, {
+          profiles: choices.profiles,
+          label: choices.label,
+          did: () => true,
+          detail: () => words,
+          title: FANOUT_COPY.settingsChangedOn,
+          none: FANOUT_COPY.notChanged,
+        });
+      }}
+    />
+  );
 }

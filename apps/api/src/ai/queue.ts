@@ -13,9 +13,10 @@ import type { Dialect } from '../core/db/dialect';
 import type { DbQueries } from '../core/db/types';
 import { AppError } from '../core/http/errors';
 import { refuse } from '../core/http/refuse'; // v33 SHARE-3
+import { capacityBlockedText, describeApiKeyHealth } from './billing'; // v34 AIKEY
 import { capacityOf } from './capacity';
 import { AI_DETAILS, AI_ERROR_MESSAGES, AiError, aboutMinutes, holdError } from './errors';
-import { capacityOrBudgetRefusal, refusalError } from './gate';
+import { capacityOrBudgetRefusal, capacityRefusal, refusalError } from './gate'; // v34 FIX-API: capacityRefusal
 import { createClaudeCliProvider } from './provider/claudeCli';
 import { isSubscriptionSignIn, type CliStatus } from './provider/health';
 import type { AiProvider, ProviderHold } from './provider/types';
@@ -330,6 +331,8 @@ const TERMINAL: ReadonlySet<AiTaskStatus> = new Set(['succeeded', 'failed', 'can
 const MESSAGES = {
   slotsBusy: 'Every AI slot is busy right now. Try the test again in a minute.',
 };
+/** v34 DIRKIT (AppDeps.commandProcess): why a maintenance command's process queues no AI task (for the log). */
+export const AI_COMMAND_PROCESS = 'AI tasks run in the API, never in a maintenance command (npm run <command>).';
 
 // v30 ST0: the connectivity test's words live in the prompt catalogue (ai/prompts/system/echo.ts).
 
@@ -394,15 +397,18 @@ export function describeHealth(status: CliStatus, holds: ProviderHold[], ai: App
   let message: string;
   if (status.problem || !status.found) {
     message = status.problem ?? 'The Claude CLI could not be found.';
+  } else if (ai.billing === 'api-key') {
+    ({ available, message } = describeApiKeyHealth(status)); // v34 AIKEY: the API key, not the subscription
   } else if (!status.loggedIn) {
     message = 'The Claude CLI is installed but not signed in. Run "claude auth login" as the user this server runs as.';
   } else if (!isSubscriptionSignIn(status)) {
     const keyed = status.apiKeySource && status.apiKeySource !== 'none';
     const key = keyed ? ` and apiKeySource "${status.apiKeySource}"` : '';
     message =
+      // v34 AIKEY (review fix L7): copy only; the default mode still runs on the subscription alone.
       `The Claude CLI is signed in with authMethod "${status.authMethod ?? 'unknown'}"${key}, which is billed per ` +
-      'request. TailorIT only runs on a Claude subscription: run "claude auth login" and sign in with your Claude ' +
-      'account.';
+      'request. By default TailorIT runs on the Claude subscription the CLI is signed in with: run "claude auth login" ' +
+      'and sign in with your Claude account. To bill an Anthropic API key instead, set AI_BILLING=api-key in .env.';
   } else {
     available = true;
     message = `Claude CLI ${status.version ?? '(unknown version)'} is signed in on ${plan(status.subscriptionType)}.`;
@@ -423,6 +429,7 @@ export function describeHealth(status: CliStatus, holds: ProviderHold[], ai: App
     models: Object.fromEntries(AI_TASK_KINDS.map((kind) => [kind, ai.features[kind].model])),
     message,
     checkedAt: status.checkedAt,
+    billing: ai.billing, // v34 AIKEY
   };
 }
 
@@ -588,6 +595,8 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
         }
         const atMs = deps.now().getTime();
         await recordUsage(db, { atMs, kind, model: info.model, calls: info.calls, reportedCalls: info.reportedCalls, usage: info.usage });
+        // v34 FIX-API (the final security review, F2): with AI_BILLING=api-key the next gate reads today's spend afresh.
+        capacity.forgetKeyBudget();
       } catch (error) {
         log.warn(`[ai] could not record what a ${kind} call used`, error);
       }
@@ -715,7 +724,8 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
     // review: and the grant is this task's (A's profile, B paying).
     await assertTaskGrant(deps, row.user_id, { charge_user_id: payer.id, grant_id: payer.grantId, grant_perm: payer.perm });
     // v2.0 (A8): the gate again, for a task that waited in line: the capacity block may have come, or the person's
-    // budget and credit run out, since it was queued. From here on the task runs to its end.
+    // budget and credit run out, since it was queued. From here on the task runs to its end (v34 FIX-API: under
+    // AI_BILLING=api-key each of its AI calls asks the API key's daily budget first, below).
     const refusal = await capacityOrBudgetRefusal(deps, payer);
     if (refusal) throw refusalError(deps, refusal);
     // v30 D5L: a queued task's payload day is kept (11 §8.2); none means it was lost.
@@ -730,11 +740,16 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
       taskId,
       payer, // v33 SHARE-3
       publish: (item) => publish(taskId, item),
-      runPrompt: (module, input, opts = {}) =>
-        bound(module, input, {
+      runPrompt: async (module, input, opts = {}) => {
+        // v34 FIX-API (the final security review, F2): with AI_BILLING=api-key no AI call starts at or over the day's
+        // budget (read afresh after each recorded cost); a call already running finishes. Soft but tight: the overshoot
+        // is the calls running at once; the Anthropic workspace's spend limit is the hard guard.
+        if (await capacity.keyBudgetReached()) throw refusalError(deps, capacityRefusal(deps, true)!);
+        return bound(module, input, {
           ...opts,
           signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
-        }),
+        });
+      },
     };
     const result = await handler(input, ctx);
     await notesWritten(taskId);
@@ -779,6 +794,7 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
 
   /** enqueue's refusals before the database is read (both versions). */
   function assertCanQueue(kind: AiTaskKind, priority: AiPriority): void {
+    if (deps.commandProcess) throw unavailable(AI_COMMAND_PROCESS); // v34 DIRKIT: the task would run in the command
     if (!ai.enabled) throw unavailable(AI_DETAILS.disabled);
     if (stopping) throw unavailable(AI_DETAILS.stopping);
     if (!handlers.has(kind)) throw unavailable(AI_DETAILS.noHandler);
@@ -976,13 +992,16 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
           models: modelsByKind(deps, ai), // v30 INT-4
           message: 'AI features are turned off on this server (AI_ENABLED=false).',
           checkedAt: nowIso(),
+          billing: ai.billing, // v34 AIKEY
         };
       }
       const status = await provider.status(force);
       const health = { ...describeHealth(status, provider.activeHolds(), ai, deps.now().getTime()), models: modelsByKind(deps, ai) }; // v30 INT-4
       // v2.0: during the capacity block no server-AI action starts (Admin › AI's Server AI status says more).
-      if (!(await capacity.blocked())) return health;
-      return { ...health, available: false, message: `${health.message} The server AI capacity block is on.` };
+      // v34 AIKEY (review fix H1): with AI_BILLING=api-key a reached daily budget too; the text names it and its reset.
+      const state = await capacity.state();
+      if (!state.blocked) return health;
+      return { ...health, available: false, message: `${health.message}${capacityBlockedText(state, deps.now().getTime())}` };
     },
 
     async test({ model } = {}) {
@@ -1031,6 +1050,8 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
     },
 
     async start() {
+      // v34 DIRKIT: never in a maintenance command: it would mark the running API's tasks interrupted and run its queue.
+      if (deps.commandProcess) throw new Error(AI_COMMAND_PROCESS);
       // A previous process's CLI children died with it; their tasks cannot be resumed.
       let interrupted = 0;
       for (const { id } of await db.all<{ id: string }>(SQL.running)) {
@@ -1048,7 +1069,7 @@ export function createAiService(deps: AppDeps, options: { provider?: AiProvider 
         // v1.3 C: the usage ledger past AI_USAGE_KEEP_DAYS (35 by default), and expired result-cache rows.
         try {
           await pruneUsage(db, deps.now().getTime(), constantsOf(deps).get('AI_USAGE_KEEP_DAYS'));
-          await pruneResultCache(db, deps.now());
+          await pruneResultCache(db, deps.now(), constantsOf(deps).get('AI_TASK_KEEP_DAYS')); // v34 PUBLIC: an account's rows within AI_TASK_KEEP_DAYS
         } catch (error) {
           log.warn('[ai] could not prune the AI usage ledger and result cache', error);
         }

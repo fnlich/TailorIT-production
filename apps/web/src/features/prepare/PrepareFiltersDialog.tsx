@@ -25,6 +25,10 @@ import {
   type PrepareFiltersFormState,
 } from '../settings/prepare/PrepareFiltersForm';
 import { FILTERS_DIALOG, passCount } from './copy';
+import { ReadOnlyLine, untickedWords, useFiltersScope } from '../settings/prepare/FiltersScope'; // v34 FANWEB
+import { FANOUT_COPY } from '../sharing/fanout/copy';
+import { useFanoutReport, type ReportShow } from '../sharing/fanout/useFanout';
+import { usePublicConstants, type PublicMessageKey } from '../../lib/constants';
 
 // v31 AUTO: the owner's "Filters Option in Auto Apply should be implement like dialog (not move to new page). And In
 // dialog, there will be `Only Filter`, and `Filter and Prepare` buttons." The Prepare filters as a dialog over the page
@@ -51,7 +55,10 @@ export function PrepareFiltersDialog({ open, onOpenChange, onFilterAndPrepare, f
     queryFn: ({ signal }) => fetchPrepareFilters(signal),
     enabled: open,
   });
+  // v34 FANWEB: a save on several profiles is said here, after the dialog has closed.
+  const report = useFanoutReport();
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         title={FILTERS_DIALOG.title}
@@ -67,6 +74,7 @@ export function PrepareFiltersDialog({ open, onOpenChange, onFilterAndPrepare, f
             saved={query.data}
             onClose={() => onOpenChange(false)}
             onFilterAndPrepare={onFilterAndPrepare}
+            report={report}
           />
         ) : query.isError ? (
           <Notice
@@ -90,6 +98,8 @@ export function PrepareFiltersDialog({ open, onOpenChange, onFilterAndPrepare, f
         )}
       </DialogContent>
     </Dialog>
+    {report.element}
+    </>
   );
 }
 
@@ -98,37 +108,59 @@ export function FiltersDialogForm({
   saved,
   onClose,
   onFilterAndPrepare,
+  report,
 }: {
   saved: PrepareFiltersResponse;
   onClose: () => void;
   onFilterAndPrepare: () => void;
+  /** v34 FANWEB: where a save on several profiles is said (outlives the dialog). */
+  report?: ReportShow;
 }) {
   const state = usePrepareFiltersForm(saved);
-  const save = useSaveFilters({ onError: state.showServerErrors });
+  const save = useSaveFilters({ onError: state.showServerErrors, report });
   // v33 SHARE-7: on a shared profile the filters change only with the owner's Job settings Change box (else they are
   // shown and Filter and Prepare uses them as stored); the eligibility switches follow Sensitive answers.
   const tab = useTabProfile();
   const access: FiltersAccess = tab.key === null ? {} : filtersAccessOf((perm) => tab.profile?.permissions.includes(perm) ?? false);
+  // v34 FANWEB: Apply to this profile, several or all (only the changed or marked filters go).
+  const scope = useFiltersScope(state, { readOnly: access.readOnly });
+  const { t } = usePublicConstants();
 
   /** Saves when the form changed something, then runs `then`; a wrong field keeps the dialog open. */
   const finish = (then: () => void) => {
-    const filters = state.check();
-    if (!filters) return;
-    if (!state.dirty) {
+    if (!state.check()) return;
+    if (!scope.dirty) {
+      then();
+      return;
+    }
+    const input = scope.input();
+    // v34 FANWEB fix: several profiles with nothing ticked (a change unticked is named above): nothing to save.
+    if (!input) {
       then();
       return;
     }
     // The save sets the stored filters, which starts a new form (its key): the promise, not a per-call callback,
     // carries `then` past that. A refused save is told by useSaveFilters (a toast, the fields' errors).
-    save.mutateAsync(filters).then(then, () => undefined);
+    save.mutateAsync(input).then(then, () => undefined);
   };
 
   return (
     <>
-      <div className="-mx-6 mt-4 min-h-0 flex-1 overflow-y-auto border-t border-divider-soft px-6 pt-3 max-sm:-mx-4 max-sm:px-4">
+      <div className="relative -mx-6 mt-4 min-h-0 flex-1 overflow-y-auto border-t border-divider-soft px-6 pt-3 max-sm:-mx-4 max-sm:px-4" data-filters-dialog-body="">
+        {/* v34 FIX-WEB (final review U-M1): `relative`, so the marks' sr-only names and the pay field's "$" stay inside
+            this scrolling body (the dialog itself never scrolls; its title stays on screen). */}
+        {/* v34 FANWEB: where the changes go, and a shared profile without Job settings' Change says so. */}
+        {scope.control && <div className="mb-2 flex justify-end">{scope.control}</div>}
+        {/* v34 FANWEB fix (spec L6): a change whose mark is unticked is not sent: said, not dropped silently. */}
+        {scope.unticked.length > 0 && (
+          <p className="mb-2 text-[13px] leading-5 text-muted-foreground" aria-live="polite" data-filters-unticked="">
+            {FANOUT_COPY.notTicked(untickedWords(scope.unticked))}
+          </p>
+        )}
+        {access.readOnly && <ReadOnlyLine owner={tab.ownerName} label={(key) => t(key as PublicMessageKey)} />}
         {/* v33 SHARE-7: read-only on a shared profile without Job settings' Change box (a disabled fieldset). */}
         <fieldset disabled={access.readOnly} className="m-0 min-w-0 border-0 p-0" data-filters-read-only={access.readOnly ? '' : undefined}>
-          <PrepareFiltersFields state={state} whereYouLiveHref={`/settings#${WHERE_YOU_LIVE_ANCHOR}`} access={access} />
+          <PrepareFiltersFields state={state} whereYouLiveHref={`/settings#${WHERE_YOU_LIVE_ANCHOR}`} access={access} marks={scope.marks} />
         </fieldset>
       </div>
       <div
@@ -164,6 +196,7 @@ export function FiltersDialogForm({
           </Button>
         </div>
       </div>
+      {save.element}
     </>
   );
 }

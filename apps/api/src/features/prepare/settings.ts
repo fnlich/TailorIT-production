@@ -1,5 +1,13 @@
-import type { CoverLetterMode, PrepareResumeMode, PrepareSettings, PrepareSettingsBody } from '@tailorit/shared';
+import {
+  PREPARE_OWNER_ONLY_NOTE,
+  type CoverLetterMode,
+  type PrepareResumeMode,
+  type PrepareSettings,
+  type PrepareSettingsBody,
+  type PrepareSettingsSaved,
+} from '@tailorit/shared';
 import type { AppDeps } from '../../core/context';
+import type { DbTx } from '../../core/db/types'; // v34 FANOUT
 import { constantsOf } from '../../core/constants/service';
 import { readAutofillProfile, setCoverLetterMode } from '../autofill/profile/repository';
 import { prepareUserSettings, writePrepareUserSettings } from './store';
@@ -44,10 +52,31 @@ export async function prepareSettingsOf(deps: Deps, userId: string): Promise<Pre
   };
 }
 
-/** PUT /api/prepare/settings: any of the three; the rest stay as they are. Answers the settings as saved. */
-export async function savePrepareSettings(deps: Deps, userId: string, body: PrepareSettingsBody): Promise<PrepareSettings> {
+/**
+ * PUT /api/prepare/settings: any of the three; the rest stay as they are. Answers the settings as saved. Each field is
+ * written in place (one column, or the profile's one JSON key), never read, merged and written back, so a change of
+ * another field at the same moment is never lost. v34 FANOUT: `options.lock` runs first in the transaction (the fan-out
+ * locks the share FOR SHARE there: a Stop waits for the write).
+ * v34 FIX-API (the final sharing review, M1): `options.actorId`, who changes them; someone else than `userId` (working
+ * on a shared profile) never writes "Ask before using AI" (skipConfirm: the confirm of whoever pays, each person's own
+ * setting): it is kept and answered as `kept` with PREPARE_OWNER_ONLY_NOTE. Nothing else to write: nothing is written.
+ */
+export async function savePrepareSettings(
+  deps: Deps,
+  userId: string,
+  given: PrepareSettingsBody,
+  options: { lock?: (t: DbTx) => Promise<void>; actorId?: string } = {}, // v34 FANOUT; v34 FIX-API: actorId
+): Promise<PrepareSettingsSaved> {
+  // v34 FIX-API (M1): only the profile's owner sets skipConfirm.
+  const ownerOnly = options.actorId !== undefined && options.actorId !== userId && given.skipConfirm !== undefined;
+  const body: Partial<PrepareSettingsBody> = ownerOnly ? { ...given, skipConfirm: undefined } : given;
+  const kept = ownerOnly ? { kept: ['skipConfirm' as const], keptNote: PREPARE_OWNER_ONLY_NOTE } : {};
+  if (body.letterMode === undefined && body.resumeMode === undefined && body.skipConfirm === undefined) {
+    return { ...(await prepareSettingsOf(deps, userId)), ...kept };
+  }
   const now = deps.now().toISOString();
-  await deps.db.tx(async () => {
+  await deps.db.tx(async (t) => {
+    await options.lock?.(t); // v34 FANOUT
     if (body.letterMode !== undefined) await setLetterMode(deps, userId, body.letterMode);
     if (body.resumeMode !== undefined || body.skipConfirm !== undefined) {
       await writePrepareUserSettings(
@@ -67,5 +96,5 @@ export async function savePrepareSettings(deps: Deps, userId: string, body: Prep
       .filter((key) => body[key as keyof PrepareSettingsBody] !== undefined)
       .join(', ')})`,
   );
-  return prepareSettingsOf(deps, userId);
+  return { ...(await prepareSettingsOf(deps, userId)), ...kept };
 }

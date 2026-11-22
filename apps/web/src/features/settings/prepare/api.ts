@@ -10,6 +10,12 @@ import {
   type PrepareSettings,
   type PrepareSettingsBody,
 } from '@tailorit/shared/prepare';
+import {
+  PROFILE_SELF,
+  PrepareFiltersPatchResponseSchema,
+  type PrepareFiltersPatch,
+  type PrepareFiltersPatchResponse,
+} from '@tailorit/shared/sharing';
 // Relative, not '@/': the web tests read these.
 import { api } from '../../../lib/api';
 import { prepareKeys } from '../../prepare/api';
@@ -24,6 +30,8 @@ export const prepareSettingsKeys = {
    */
   settings: prepareKeys.settings,
   filters: ['prepare', 'filters'] as const,
+  /** v34 FANWEB: the signed-in person's own filters, whatever profile the tab works on (Change filters for all profiles). */
+  ownFilters: ['prepare', 'filters', 'own'] as const,
   preview: (filters: PrepareFilters) => ['prepare', 'filters', 'preview', filters] as const,
 };
 
@@ -40,6 +48,20 @@ export function savePrepareSettings(body: PrepareSettingsBody): Promise<PrepareS
 /** GET /api/prepare/filters: the saved filters, and whether the person's location and time zone are known. */
 export function fetchPrepareFilters(signal?: AbortSignal): Promise<PrepareFiltersResponse> {
   return api.get<PrepareFiltersResponse>('/api/prepare/filters', { signal, schema: PrepareFiltersResponseSchema });
+}
+
+/** v34 FANWEB: the person's own filters (no profile header), for the form over every profile. */
+export function fetchOwnPrepareFilters(signal?: AbortSignal): Promise<PrepareFiltersResponse> {
+  return api.get<PrepareFiltersResponse>('/api/prepare/filters', { signal, profile: PROFILE_SELF, schema: PrepareFiltersResponseSchema });
+}
+
+/**
+ * v34 FANWEB (PLAN G3; FANOUT's PATCH): only the filters given change, on the tab's profile. The answer names what was
+ * applied and the eligibility switches kept (no Sensitive answers' Change there); the filters as saved come back only
+ * with Prepare & queue's See there.
+ */
+export function patchPrepareFilters(filters: PrepareFiltersPatch): Promise<PrepareFiltersPatchResponse> {
+  return api.patch<PrepareFiltersPatchResponse>('/api/prepare/filters', { filters }, { schema: PrepareFiltersPatchResponseSchema });
 }
 
 /** PUT /api/prepare/filters: saved whole. */

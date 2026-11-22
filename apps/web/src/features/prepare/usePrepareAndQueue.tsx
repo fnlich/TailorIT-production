@@ -10,7 +10,16 @@ import { ApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { redirectToLogin } from '@/lib/navigation';
 import { invalidateApplications } from '../tracker/data';
-import { fetchPrepareAllPlan, fetchPrepareSettings, prepareKeys, savePrepareSettings, startPrepare, startPrepareAll } from './api';
+import { useDocumentProfile } from '@/components/shell/profile/useProfile';
+import {
+  fetchOwnPrepareSettings,
+  fetchPrepareAllPlan,
+  ownPrepareSettingsKey,
+  prepareKeys,
+  saveOwnPrepareSettings,
+  startPrepare,
+  startPrepareAll,
+} from './api';
 import { announcement, CHANGE_FILTERS, PREPARE_ALL_NONE, prepareResultCopy, type PreparedJobName } from './copy';
 import { PrepareAllConfirmDialog } from './PrepareAllConfirmDialog';
 import { PrepareConfirmDialog } from './PrepareConfirmDialog';
@@ -111,6 +120,8 @@ export function focusBack(origin: FocusOrigin | null): HTMLElement | true {
 
 export function usePrepareAndQueue(): PrepareAndQueue {
   const queryClient = useQueryClient();
+  // v34 FIX-WEB (final review share M1): the confirm is the payer's: their own "Ask before using AI" ('me'), on any tab.
+  const ownSettingsKey = ownPrepareSettingsKey(useDocumentProfile());
   const toast = useToast();
   const limits = useLimitDialog();
   const { t } = usePublicConstants();
@@ -193,8 +204,8 @@ export function usePrepareAndQueue(): PrepareAndQueue {
         let settings: PrepareSettings | null = null;
         try {
           settings = await queryClient.fetchQuery({
-            queryKey: prepareKeys.settings,
-            queryFn: ({ signal }) => fetchPrepareSettings(signal),
+            queryKey: ownSettingsKey,
+            queryFn: ({ signal }) => fetchOwnPrepareSettings(signal),
             staleTime: 30_000,
           });
         } catch {
@@ -208,7 +219,7 @@ export function usePrepareAndQueue(): PrepareAndQueue {
         setAsking(request);
       })();
     },
-    [queryClient, send],
+    [queryClient, send, ownSettingsKey],
   );
 
   const endAll = useCallback(() => {
@@ -324,8 +335,9 @@ export function usePrepareAndQueue(): PrepareAndQueue {
           const request = asking;
           if (!request) return;
           if (dontShowAgain) {
-            const saved = await savePrepareSettings({ skipConfirm: true });
-            queryClient.setQueryData(prepareKeys.settings, saved);
+            // v34 FIX-WEB (final review share M1): the person's own setting, never the shared profile's owner's.
+            const saved = await saveOwnPrepareSettings({ skipConfirm: true });
+            queryClient.setQueryData(ownSettingsKey, saved);
           }
           // The dialog closes now; the request runs with the pressed button's spinner.
           continuing.current = true;

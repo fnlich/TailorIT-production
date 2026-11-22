@@ -20,6 +20,7 @@ import { hashOAuthSecret, newOAuthSecret } from './tokens';
 // - POST /api/oauth/consent {request, decision}: Allow (the account's plan must include MCP, FREE_MCP / PAID_MCP) keeps
 //   the grant (grants.ts) and a one-time code (OAUTH_CODE_SECONDS) and answers the redirect address with the code,
 //   the client's state and `iss`; Cancel answers it with error=access_denied. Either way the request is used up.
+//   v34 ORIGIN: `iss` is the issuer the request was made at (oauth_requests.issuer), and the grant takes its resource.
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
@@ -71,7 +72,6 @@ export async function decide(
 ): Promise<OAuthConsentAnswer> {
   const userId = payer.id;
   if (!browserSecret) throw gone(deps);
-  const issuer = oauthAddresses(deps.config).issuer;
   if (body.decision === 'allow') {
     // The plan's MCP access first: a refusal leaves the request open (the person may still Cancel).
     await assertFeature(deps, payer, 'mcp');
@@ -81,13 +81,15 @@ export async function decide(
     async (t) => {
       await t.lockPerson(userId);
       const now = deps.now();
-      const row = await t.one<RequestRow>(
+      const row = await t.one<RequestRow & { issuer: string | null }>(
         `UPDATE oauth_requests SET decided_at = ?, decision = ?, user_id = ?
           WHERE id_hash = ? AND browser_hash = ? AND decided_at IS NULL AND expires_at > ?
-          RETURNING client_id, redirect_uri, scopes, resource, state, expires_at`,
+          RETURNING client_id, redirect_uri, scopes, resource, issuer, state, expires_at`,
         [now.toISOString(), body.decision, userId, hashOAuthSecret(body.request), hashOAuthSecret(browserSecret), now.toISOString()],
       );
       if (!row) throw gone(deps);
+      // v34 ORIGIN: the issuer the request was made at (a request kept before 0053 has none: APP_ORIGIN's).
+      const issuer = row.issuer ?? oauthAddresses(deps.config).issuer;
       const state = row.state ?? undefined;
       if (body.decision === 'deny') {
         return withParams(row.redirect_uri, { error: 'access_denied', error_description: 'the person cancelled', state, iss: issuer });

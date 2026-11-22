@@ -79,6 +79,12 @@ export interface AddJobByLinkInput {
    * out: the person adds on their own profile.
    */
   actor?: { id: string; grantId: string | null };
+  // v34 FANOUT (the FANOUT review, sharing 5): an add of one link on several profiles in one request reads it once.
+  /** Step 3's read of this link made earlier in the same request (closed or unreadable): reused, never read again. */
+  knownRead?: Extract<LinkRead, { kind: 'closed' | 'unreadable' }>;
+  /** Told step 3's read, once made (the next profile's add reuses a failed one). */
+  onRead?: (read: LinkRead) => void;
+  // end v34 FANOUT
 }
 
 export interface AddJobByLinkOutcome {
@@ -229,8 +235,9 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
     if (job && userId && job.owner_user_id === userId) own = found.id;
   }
 
-  // 3. TailorIT's own read.
-  const read = await readLink(deps, url, input.inFlight, page, { readAt: given });
+  // 3. TailorIT's own read (v34 FANOUT: or the failed one this request already made of the link).
+  const read = input.knownRead ?? (await readLink(deps, url, input.inFlight, page, { readAt: given }));
+  input.onRead?.(read);
   if (read.kind === 'shared') {
     if (userId) {
       // The person's own job of this link gives way to the shared one (its tracker entry, aliases and queue rows move).

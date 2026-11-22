@@ -5,6 +5,7 @@ import {
   type PrepareFilters,
   type PrepareFiltersPreview,
 } from '@tailorit/shared/filters';
+import type { PrepareFilterKey, PrepareFiltersPatch } from '@tailorit/shared/sharing';
 import {
   EMPLOYMENT_TYPES_V2,
   EXPERIENCE_LEVELS,
@@ -216,4 +217,150 @@ export function previewLine(preview: PrepareFiltersPreview): string {
     .sort((a, b) => b.count - a.count || a.index - b.index)
     .map((entry) => `${entry.count} ${REASON_SHORT[entry.reason]}`);
   return reasons.length > 0 ? `${head} ${reasons.join(', ')}.` : head;
+}
+
+// v34 FANWEB (PLAN G3: "only the fields A changed are applied"; FANOUT's PATCH semantics) -------------------------------
+
+/** The filters' names, in PrepareFilters' order (the PATCH's keys). */
+export const FILTER_KEYS = [
+  'locationTypes',
+  'jobTypes',
+  'industries',
+  'locationMismatch',
+  'qualificationMismatch',
+  'certificationMismatch',
+  'autoApplySupport',
+  'minSalaryUsd',
+  'experienceLevels',
+  'noSponsorship',
+  'clearanceMismatch',
+  'custom',
+] as const satisfies readonly PrepareFilterKey[];
+
+/** The filters that differ between `saved` and `next` (lists compared in their vocabulary's order). */
+export function changedFilters(saved: PrepareFilters, next: PrepareFilters): PrepareFilterKey[] {
+  const a = normalizeFilters(saved);
+  const b = normalizeFilters(next);
+  return FILTER_KEYS.filter((key) => JSON.stringify(a[key]) !== JSON.stringify(b[key]));
+}
+
+/** The custom filter's part of a PATCH. */
+export type CustomFilterPatch = NonNullable<PrepareFiltersPatch['custom']>;
+
+/**
+ * The PATCH of `next` for `keys` on ONE profile: each filter whole (a list replaces the saved one; `null` clears the
+ * industries or the minimum pay), but the custom filter, which sends only the part that changed (its switch, its words).
+ * v34 FANWEB fix (the reviews' custom-filter findings; MCPFAN's checkPatchAlone): a switch turned on always carries its
+ * words, and words sent empty always carry the switch (off), so the change stands on its own for a writer who may not
+ * read the filters there. Null when no key is given.
+ */
+export function filtersPatch(saved: PrepareFilters, next: PrepareFilters, keys: readonly PrepareFilterKey[]): PrepareFiltersPatch | null {
+  if (keys.length === 0) return null;
+  const b = normalizeFilters(next);
+  const patch: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (key !== 'custom') {
+      patch[key] = b[key];
+      continue;
+    }
+    const custom: { enabled?: boolean; prompt?: string } = {};
+    if (saved.custom.enabled !== b.custom.enabled) custom.enabled = b.custom.enabled;
+    if (saved.custom.prompt !== b.custom.prompt || custom.enabled === true) custom.prompt = b.custom.prompt;
+    if (custom.prompt !== undefined && custom.prompt.trim() === '') custom.enabled = false;
+    if (Object.keys(custom).length > 0) patch.custom = custom;
+  }
+  return Object.keys(patch).length > 0 ? (patch as PrepareFiltersPatch) : null;
+}
+
+/** What a change of the filters on SEVERAL profiles sends (severalFiltersPatch). */
+export interface SeveralFiltersPatch {
+  /** What every chosen profile gets: the marked filters (null: none of them goes to every profile). */
+  patch: PrepareFiltersPatch | null;
+  /**
+   * The custom filter on, with words the person did not type in this form: the other profiles are left out of it (their
+   * owners' words stay theirs). `here`: what the form's own profile gets (its switch turned on with its own words), null
+   * when it is on there already.
+   */
+  customHeld: { here: CustomFilterPatch | null } | null;
+}
+
+/**
+ * v34 FANWEB fix (both reviews' HIGH: the custom filter's words went to every profile): the marked filters of `next` for
+ * several profiles. Each filter whole, as the form shows it (a marked one equal to the saved one goes as it is). The
+ * custom filter (one mark for its switch and its words): turned off, the switch goes alone (every owner keeps their
+ * words); on with words the person typed here, the switch and the words go together; on with the words as they were,
+ * nothing of it goes to the other profiles (`customHeld`).
+ */
+export function severalFiltersPatch(saved: PrepareFilters, next: PrepareFilters, keys: readonly PrepareFilterKey[]): SeveralFiltersPatch {
+  const b = normalizeFilters(next);
+  const patch: Record<string, unknown> = {};
+  let customHeld: SeveralFiltersPatch['customHeld'] = null;
+  for (const key of keys) {
+    if (key !== 'custom') patch[key] = b[key];
+    else if (!b.custom.enabled) patch.custom = { enabled: false };
+    else if (customWordsTyped(saved, b)) patch.custom = { enabled: true, prompt: b.custom.prompt };
+    else customHeld = { here: saved.custom.enabled ? null : { enabled: true, prompt: b.custom.prompt } };
+  }
+  return { patch: Object.keys(patch).length > 0 ? (patch as PrepareFiltersPatch) : null, customHeld };
+}
+
+/** Whether the custom filter's words in `next` are not the saved ones (typed in this form). */
+export function customWordsTyped(saved: PrepareFilters, next: Pick<PrepareFilters, 'custom'>): boolean {
+  return next.custom.prompt.trim() !== saved.custom.prompt.trim();
+}
+
+/** A filter's name as the form shows it (a kept switch's words, a mark's label). */
+export const FILTER_FIELD_LABEL: Record<PrepareFilterKey, string> = {
+  locationTypes: 'Location type',
+  jobTypes: 'Job type',
+  industries: 'Industry',
+  locationMismatch: 'Location mismatch',
+  qualificationMismatch: 'Qualifications',
+  certificationMismatch: 'Certifications',
+  autoApplySupport: 'Auto-apply support',
+  minSalaryUsd: 'Minimum pay',
+  experienceLevels: 'Experience level',
+  noSponsorship: 'I need visa sponsorship',
+  clearanceMismatch: 'Clearance',
+  custom: 'Custom (AI)',
+};
+
+/** Whole dollars in the page's style ("90,000"). */
+const dollars = (amount: number) => amount.toLocaleString('en-US');
+
+/**
+ * The Profiles page's one line of a profile's filters ("Remote, Full-time, Location, Pay from $90,000"): each filter
+ * that is on (filtersOn), a list by its values, the rest by their names.
+ */
+export function filtersLineWords(filters: PrepareFilters, on: readonly PrepareFilterKey[]): string[] {
+  const jobType = new Map(JOB_TYPE_CHIPS.map((chip) => [chip.value, chip.label] as const));
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  return on.map((key) => {
+    switch (key) {
+      case 'locationTypes':
+        return ordered(filters.locationTypes, WORK_ARRANGEMENTS)
+          .map((value) => LOCATION_TYPE_LABEL[value])
+          .join('/');
+      case 'jobTypes':
+        return ordered(filters.jobTypes, EMPLOYMENT_TYPES_V2)
+          .map((value) => jobType.get(value) ?? value)
+          .join('/');
+      case 'industries': {
+        const ids = filters.industries?.ids.length ?? 0;
+        return `${filters.industries?.mode === 'exclude' ? 'Skip' : 'Only'} ${count(ids, 'industry', 'industries')}`;
+      }
+      case 'locationMismatch':
+        return 'Location';
+      case 'autoApplySupport':
+        return 'Auto-apply only';
+      case 'minSalaryUsd':
+        return 'Pay from $' + dollars(filters.minSalaryUsd ?? 0);
+      case 'experienceLevels':
+        return count(filters.experienceLevels.length, 'level', 'levels');
+      case 'noSponsorship':
+        return 'Visa sponsorship';
+      default:
+        return FILTER_FIELD_LABEL[key];
+    }
+  });
 }

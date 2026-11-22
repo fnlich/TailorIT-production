@@ -25,7 +25,9 @@
     "refdata:match": "node scripts/run-api-script.mjs refdata:match",
     "refdata:coverage": "node scripts/run-api-script.mjs refdata:coverage",
     "doctor": "node scripts/doctor.mjs",
-    "setup:browser": "node scripts/install-browser.mjs"
+    "setup:browser": "node scripts/install-browser.mjs",
+    "directory:check": "node --import tsx scripts/directory-check.mjs",
+    "directory:reviewer": "node --import tsx scripts/directory-reviewer.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

@@ -198,7 +198,10 @@ const prepareOf = (row: PrepareRow): McpPrepare => ({
  */
 function service(deps: AppDeps): PrepareService {
   const prepare = deps.services.prepare;
-  if (!prepare) throw new AppError('internal', 'Prepare & Queue is not available on this TailorIT server.');
+  if (!prepare) {
+    // v34 MCPDIR: what to do.
+    throw new AppError('internal', 'Prepare & Queue is not available on this TailorIT server: tell the person (its operator turns it on).');
+  }
   return prepare;
 }
 

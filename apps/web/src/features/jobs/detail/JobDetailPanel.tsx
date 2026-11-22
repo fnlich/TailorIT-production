@@ -4,7 +4,7 @@ import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { appliedChipLabel, type JobDetail } from '@tailorit/shared';
 import { clsx } from 'clsx';
 import Link from 'next/link';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -39,6 +39,10 @@ import { SkillsCard } from './SkillsCard'; // v33 JOBDETAIL
 import { BenefitsCard, TailorCard } from './TailorCard'; // v33 JOBDETAIL
 import { tabCan, useTabProfile, type TabProfile } from '../../sharing/access'; // v33 FIX-1
 import { ReportDialog } from '../report/ReportDialog';
+import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
+import { ProfilesDialog, SaveToMenu } from '../../sharing/fanout/parts'; // v34 FANWEB
+import { useSavedOn } from '../../sharing/fanout/useFanout'; // v34 FANWEB
+import { useSaveToProfiles } from '../../sharing/fanout/useSaveTo'; // v34 FANWEB
 
 export type { DetailVariant } from './JobHeader';
 
@@ -392,6 +396,16 @@ function JobDetailBody({
   // offered (each was refused): Mark as applied, Save and Hide need the Job Tracker's Change, Tailor my resume Documents'
   // Change; a report is always made from the person's own profile (never while acting).
   const { acting, trackerEdit, documentsEdit } = jobControlsOf(useTabProfile());
+  // v34 FANWEB (PLAN G2, G4): with a shared profile, Save is a split button: its arrow saves the job on other profiles
+  // too (Save to…), and the header says which other profiles have it ("Saved on").
+  const saveTo = useSaveToProfiles();
+  const savedOn = useSavedOn(useMemo(() => [job.id], [job.id])).get(job.id);
+  const [choosingProfiles, setChoosingProfiles] = useState(false);
+  const saveOn = (targets: Parameters<typeof saveTo.save>[0]) =>
+    saveTo.save(targets, [job.id]).then(
+      () => undefined,
+      (error: unknown) => failure(toast, 'The job could not be saved', error),
+    );
 
   // The sheet opened before the job was read (focus went to the sheet itself): the title takes it now. The pane's title
   // takes it when the page asks (a row opened with the keyboard). A job reached with Previous / Next leaves focus on the
@@ -562,15 +576,31 @@ function JobDetailBody({
         </Button>
       ) : null}
       <div className="ml-auto flex items-center gap-2">
-        <Button
-          variant="outline"
-          aria-pressed={saved}
-          icon={<BookmarkSimpleIcon size={16} weight={saved ? 'fill' : 'bold'} />}
-          onClick={toggleSave}
-          disabled={saveToggle.pending || !trackerEdit}
-        >
-          {saved ? 'Saved' : 'Save'}
-        </Button>
+        {/* v34 FANWEB: Save | ▾ Save to… once the person has a shared profile (one button otherwise, as before). */}
+        <span className="inline-flex items-center" data-save-split={saveTo.available ? '' : undefined}>
+          <Button
+            variant="outline"
+            aria-pressed={saved}
+            icon={<BookmarkSimpleIcon size={16} weight={saved ? 'fill' : 'bold'} />}
+            onClick={toggleSave}
+            disabled={saveToggle.pending || !trackerEdit}
+            className={saveTo.available ? 'rounded-r-none' : undefined}
+            data-detail-save=""
+          >
+            {/* On a phone the split keeps the row on one line: Save's word is said, its bookmark drawn. */}
+            <span className={saveTo.available ? 'max-sm:sr-only' : undefined}>{saved ? 'Saved' : 'Save'}</span>
+          </Button>
+          {saveTo.available && (
+            <SaveToMenu
+              triggerLabel={FANOUT_COPY.saveToLabel(job.title)}
+              profiles={saveTo.profiles}
+              label={saveTo.label}
+              savedOn={savedOn?.choices}
+              onPick={(targets) => void saveOn(targets)}
+              onChoose={() => setChoosingProfiles(true)}
+            />
+          )}
+        </span>
         {job.active ? (
           <Button
             ref={applyRef}
@@ -601,7 +631,15 @@ function JobDetailBody({
           <div className={clsx('grid grid-cols-1 items-start gap-4', BODY_COLUMNS)} data-detail-columns="">
             {/* v33 FIX-1: the header is the left column's top on a wide detail (the right column starts at the top of
                 the scroll area), the band above the cards otherwise (HEADER_PLACE). */}
-            <JobHeader job={job} variant={variant} titleRef={titleRef} now={now} onUnhide={unhide} className={HEADER_PLACE} />
+            <JobHeader
+              job={job}
+              variant={variant}
+              titleRef={titleRef}
+              now={now}
+              onUnhide={unhide}
+              savedOn={savedOn?.others}
+              className={HEADER_PLACE}
+            />
             <div
               ref={sideRef}
               className={clsx(
@@ -648,6 +686,22 @@ function JobDetailBody({
         onConfirm={() => recordApplied(true)}
       />
       <ReportDialog jobId={job.id} jobTitle={job.title} open={reportOpen} onOpenChange={setReportOpen} />
+      {saveTo.available && (
+        <ProfilesDialog
+          open={choosingProfiles}
+          onOpenChange={setChoosingProfiles}
+          title={FANOUT_COPY.saveToTitle}
+          help={FANOUT_COPY.saveToHelp}
+          profiles={saveTo.profiles}
+          label={saveTo.label}
+          savedOn={savedOn?.choices}
+          confirmLabel={FANOUT_COPY.saveToConfirm}
+          onConfirm={async (targets) => {
+            await saveTo.save(targets, [job.id]);
+          }}
+        />
+      )}
+      {saveTo.element}
     </>
   );
 }

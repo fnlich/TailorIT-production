@@ -428,7 +428,7 @@ export function ImportCsvDialog({ open, onOpenChange }: { open: boolean; onOpenC
         size="xl"
         className="sm:max-w-3xl"
       >
-        <div className="mt-5 flex min-h-0 flex-col gap-4 overflow-y-auto">
+        <div className="relative mt-5 flex min-h-0 flex-col gap-4 overflow-y-auto">
           {step === 'file' && (
             <div
               onDragOver={(event) => {

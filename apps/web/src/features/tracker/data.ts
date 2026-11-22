@@ -132,6 +132,8 @@ export function invalidateApplications(client: QueryClient): Promise<void> {
     trackerKeys.companies,
     trackerKeys.applyRecordsAll,
     trackerKeys.savedMarkers,
+    // v34 FANWEB fix (spec L1): the Jobs page's "Saved on" follows the Job Tracker's own changes (archive, delete, move).
+    ['jobs', 'saved-on'] as const,
   ];
   return Promise.all(keys.map((queryKey) => client.invalidateQueries({ queryKey }))).then(() => undefined);
 }

@@ -2,12 +2,13 @@
 
 import type { PrepareFilters as Filters, PrepareFiltersPreview, PrepareFiltersResponse } from '@tailorit/shared/filters';
 import { EXPERIENCE_LEVELS, EMPLOYMENT_TYPES_V2, INDUSTRIES, INDUSTRY_IDS, WORK_ARRANGEMENTS } from '@tailorit/shared/jobs';
-import type { SharePermission } from '@tailorit/shared/sharing';
+import type { FanoutFiltersAnswer, FanoutTargets, PrepareFilterKey, PrepareFiltersPatch, ProfileChoice, SharePermission } from '@tailorit/shared/sharing';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 // Relative, not '@/': the web tests draw these views.
 import { Badge } from '../../../components/ui/Badge';
+import { Checkbox } from '../../../components/ui/Checkbox';
 import { Field } from '../../../components/ui/Field';
 import { HelpTip } from '../../../components/ui/HelpTip';
 import { WarningCircleIcon } from '../../../components/ui/icons';
@@ -19,18 +20,31 @@ import { ApiError, isProfileRefusal, userMessage } from '../../../lib/api';
 import { usePublicConstants } from '../../../lib/constants';
 import { EXPERIENCE_CHOICES, LOCATION_TYPE_CHOICES } from '../choices';
 import { CharacterCount, ChoiceGroup, SwitchRow } from '../parts';
-import { prepareSettingsKeys, previewPrepareFilters, savePrepareFilters } from './api';
+import { patchPrepareFilters, prepareSettingsKeys, previewPrepareFilters } from './api';
+import { filtersReport, keptWords, mergeFiltersAnswers, storedFilters } from './applyTo'; // v34 FANWEB
+import { fanoutKeys, patchFiltersOn } from '../../sharing/fanout/api';
+import { FANOUT_COPY } from '../../sharing/fanout/copy';
+import { profilesOfTargets, type FanoutProfile } from '../../sharing/fanout/targets';
+import { useFanoutChoices, useFanoutReport, type ReportShow } from '../../sharing/fanout/useFanout';
 import { FILTERS_COPY } from './copy';
 import {
+  FILTER_FIELD_LABEL,
+  FILTER_KEYS,
   JOB_TYPE_CHIPS,
+  changedFilters,
+  customWordsTyped,
+  filtersPatch,
   filtersToForm,
   formToFilters,
   previewLine,
   sameFilters,
+  severalFiltersPatch,
   toggleIn,
+  type CustomFilterPatch,
   type FilterForm,
   type FilterFormErrors,
   type FormResult,
+  type SeveralFiltersPatch,
 } from './filters';
 
 // v31 AUTO: the Prepare filters as one form, shared by Settings › Prepare & Queue (PrepareFilters, with its save bar)
@@ -80,6 +94,18 @@ export interface PrepareFiltersFormState {
   showServerErrors: (error: unknown) => void;
   /** CUSTOM_FILTER_PROMPT_MAX_CHARS. */
   promptMax: number;
+  /** v34 FANWEB: the filters the form changed from the saved ones. */
+  changed: PrepareFilterKey[];
+  /** v34 FANWEB: whether a filter goes to several profiles (changed, or ticked to send as it is; unticked: left out). */
+  marked: (key: PrepareFilterKey) => boolean;
+  toggleMark: (key: PrepareFilterKey) => void;
+  /** v34 FANWEB: the filters to send to several profiles (the marked ones). */
+  applying: PrepareFilterKey[];
+  /**
+   * v34 FANWEB: what to send: this profile's changed filters (`patch`), or (several profiles) the marked ones whole and
+   * the custom filter by its own rule (severalFiltersPatch). Null when the form is wrong (its errors shown).
+   */
+  patch: (several: boolean) => SeveralFiltersPatch | null;
 }
 
 /** The form's own errors show once the person has typed something that is wrong, not for an empty prompt not yet typed. */
@@ -90,7 +116,37 @@ function visibleErrors(errors: FilterFormErrors, form: FilterForm): FilterFormEr
   };
 }
 
-export function usePrepareFiltersForm(saved: PrepareFiltersResponse): PrepareFiltersFormState {
+/**
+ * v34 FIX-WEB (final review, owner item 1, decided): a filter's "Apply" mark as the person set it, and whether the
+ * filter differed from where the form started when they did. A mark set on a changed filter holds only while it stays
+ * changed: a filter back where the form started is neither marked nor sent (turn a switch on and off again, and every
+ * profile keeps its own). A mark set on an unchanged filter (send it as it is) holds whatever happens next.
+ */
+export interface FilterMark {
+  on: boolean;
+  changedWhenSet: boolean;
+}
+
+/** Whether `key` is marked: the person's mark while it still applies, else whether the filter changed. */
+export function isFilterMarked(marks: ReadonlyMap<PrepareFilterKey, FilterMark>, changed: readonly PrepareFilterKey[], key: PrepareFilterKey): boolean {
+  const isChanged = changed.includes(key);
+  const mark = marks.get(key);
+  return mark && mark.changedWhenSet === isChanged ? mark.on : isChanged;
+}
+
+/** The marks after the person presses `key`'s mark. */
+export function toggledMarks(
+  marks: ReadonlyMap<PrepareFilterKey, FilterMark>,
+  changed: readonly PrepareFilterKey[],
+  key: PrepareFilterKey,
+): Map<PrepareFilterKey, FilterMark> {
+  const next = new Map(marks);
+  next.set(key, { on: !isFilterMarked(marks, changed, key), changedWhenSet: changed.includes(key) });
+  return next;
+}
+
+export function usePrepareFiltersForm(saved: PrepareFiltersResponse, options: { preview?: boolean } = {}): PrepareFiltersFormState {
+  const { preview: withPreview = true } = options;
   const { get, t } = usePublicConstants();
   const promptMax = get('CUSTOM_FILTER_PROMPT_MAX_CHARS');
   const initial = useMemo(() => filtersToForm(saved.filters), [saved.filters]);
@@ -99,6 +155,13 @@ export function usePrepareFiltersForm(saved: PrepareFiltersResponse): PrepareFil
   const result = useMemo(() => formToFilters(form, promptMax, (max) => t('MSG_TEXT_TOO_LONG', { max })), [form, promptMax, t]);
   const valid = result.ok ? result.filters : null;
   const dirty = valid === null || !sameFilters(valid, saved.filters);
+  // v34 FANWEB: a field equal to the saved one is still sent to several profiles when ticked (FANOUT: "a field given
+  // with the value already saved is still applied"); a changed one is ticked until the person unticks it.
+  const changed = useMemo(() => (valid ? changedFilters(saved.filters, valid) : []), [valid, saved.filters]);
+  const [marks, setMarks] = useState<ReadonlyMap<PrepareFilterKey, FilterMark>>(() => new Map());
+  const marked = useCallback((key: PrepareFilterKey) => isFilterMarked(marks, changed, key), [marks, changed]);
+  const toggleMark = useCallback((key: PrepareFilterKey) => setMarks((current) => toggledMarks(current, changed, key)), [changed]);
+  const applying = FILTER_KEYS.filter((key) => marked(key));
 
   const set = useCallback(<K extends keyof FilterForm>(key: K, value: FilterForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -117,7 +180,7 @@ export function usePrepareFiltersForm(saved: PrepareFiltersResponse): PrepareFil
   const preview = useQuery({
     queryKey: prepareSettingsKeys.preview(previewed ?? saved.filters),
     queryFn: ({ signal }) => previewPrepareFilters(previewed ?? saved.filters, signal),
-    enabled: previewed !== null,
+    enabled: previewed !== null && withPreview,
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
@@ -134,6 +197,7 @@ export function usePrepareFiltersForm(saved: PrepareFiltersResponse): PrepareFil
     reset: () => {
       setForm(initial);
       setErrors({});
+      setMarks(new Map());
     },
     check: () => {
       if (!result.ok) {
@@ -155,24 +219,113 @@ export function usePrepareFiltersForm(saved: PrepareFiltersResponse): PrepareFil
       }));
     },
     promptMax,
+    changed,
+    marked,
+    toggleMark,
+    applying,
+    patch: (several) => {
+      if (!result.ok) {
+        setErrors(result.errors);
+        return null;
+      }
+      setErrors({});
+      return several
+        ? severalFiltersPatch(saved.filters, result.filters, applying)
+        : { patch: filtersPatch(saved.filters, result.filters, changed), customHeld: null };
+    },
   };
 }
 
+/** v34 FANWEB: what a save sends: the PATCH, and where (null: the tab's own profile, the single PATCH). */
+export interface SaveFiltersInput {
+  /** What every target gets (null: only the custom filter's change on the form's own profile, `customHeld`). */
+  patch: PrepareFiltersPatch | null;
+  targets: FanoutTargets | null;
+  /**
+   * v34 FANWEB fix (several profiles): the custom filter turned on with words not typed in this form. Only `self` (the
+   * profile whose values the form shows) gets it, `here` (null: on there already); the other chosen profiles are left
+   * out of it and told so.
+   */
+  customHeld?: { self: ProfileChoice; here: CustomFilterPatch | null } | null;
+}
+
+/** The answers of a save on several profiles, and the profiles the custom filter was left out on. */
+export interface SeveralSaved {
+  answer: FanoutFiltersAnswer;
+  /** The chosen profiles other than the form's own, when the custom filter was held back from them. */
+  customLeftOn: ProfileChoice[];
+}
+
 /**
- * Saves the filters: the stored copy is set at once (every form over it starts again from it), the Auto-apply page's
- * reads are marked stale (the Saved jobs' "Filtered: …" labels and the Filters count follow), and a toast says so.
- * A refused save shows its error in a toast; `onError` puts its field errors on the fields.
+ * v34 FANWEB fix: a save on several profiles: the marked filters on every target (PATCH /api/profiles/prepare/filters),
+ * then, when the custom filter is held back from the others, its change on the form's own profile alone (the same route,
+ * one target). `send` is the route's call (the tests pass a fake).
  */
-export function useSaveFilters({ onSaved, onError }: { onSaved?: () => void; onError?: (error: unknown) => void } = {}) {
+export async function saveFiltersOnProfiles(
+  input: SaveFiltersInput & { targets: FanoutTargets },
+  profiles: readonly FanoutProfile[],
+  send: (targets: FanoutTargets, patch: PrepareFiltersPatch) => Promise<FanoutFiltersAnswer> = patchFiltersOn,
+): Promise<SeveralSaved> {
+  const held = input.customHeld ?? null;
+  const main = input.patch ? await send(input.targets, input.patch) : null;
+  const selfChosen = held !== null && (input.targets === 'all' || input.targets.includes(held.self));
+  const own = held?.here && selfChosen ? await send([held.self], { custom: held.here }) : null;
+  const refusedHere = new Set((main?.results ?? []).filter((result) => !result.ok).map((result) => result.profile));
+  const customLeftOn = held
+    ? profilesOfTargets(profiles, input.targets)
+        .map((profile) => profile.choice)
+        .filter((choice) => choice !== held.self && !refusedHere.has(choice))
+    : [];
+  return { answer: mergeFiltersAnswers(main, own, held?.self ?? null), customLeftOn };
+}
+
+/**
+ * Saves the filters (v34 FANWEB: a PATCH of only what changed; or, with Apply to, the same PATCH on several profiles in
+ * one request): the stored copy is set at once (every form over it starts again from it), the Auto-apply page's reads
+ * are marked stale (the Saved jobs' "Filtered: ..." labels and the Filters count follow), and a toast says so; on
+ * several profiles one message says what changed where, a kept eligibility switch as the one alert. A refused save
+ * shows its error in a toast; `onError` puts its field errors on the fields.
+ */
+export function useSaveFilters({
+  onSaved,
+  onError,
+  report: outer,
+}: {
+  onSaved?: () => void;
+  onError?: (error: unknown) => void;
+  /** Where the result of several profiles is said: a part that outlives the form (a save starts a new form). */
+  report?: ReportShow;
+} = {}) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  return useMutation({
-    mutationFn: (filters: Filters) => savePrepareFilters(filters),
-    onSuccess: (answer) => {
+  const choices = useFanoutChoices(['settings:edit']);
+  const own = useFanoutReport();
+  const report = outer ?? own;
+  const mutation = useMutation({
+    mutationFn: async (input: SaveFiltersInput) => {
+      const { patch, targets } = input;
+      if (targets === null) {
+        if (!patch) throw new Error('Nothing to save');
+        return { kind: 'single' as const, answer: await patchPrepareFilters(patch) };
+      }
+      return { kind: 'several' as const, ...(await saveFiltersOnProfiles({ ...input, targets }, choices.profiles)) };
+    },
+    onSuccess: (saved) => {
       onSaved?.();
-      queryClient.setQueryData(prepareSettingsKeys.filters, answer);
+      // The tab's own profile's answer sets the stored copy (null without Prepare & queue's See there: read again).
+      const tabAnswer =
+        saved.kind === 'single' ? saved.answer : saved.answer.results.find((result) => result.profile === choices.tab && result.ok);
+      const stored = tabAnswer && !('ok' in tabAnswer && !tabAnswer.ok) ? storedFilters(tabAnswer as Parameters<typeof storedFilters>[0]) : null;
+      if (stored) queryClient.setQueryData(prepareSettingsKeys.filters, stored);
+      else void queryClient.invalidateQueries({ queryKey: prepareSettingsKeys.filters, exact: true });
+      if (saved.kind === 'several') void queryClient.invalidateQueries({ queryKey: prepareSettingsKeys.ownFilters });
       void queryClient.invalidateQueries({ queryKey: ['auto-apply'] });
-      toast.success(FILTERS_COPY.savedToast);
+      void queryClient.invalidateQueries({ queryKey: fanoutKeys.settingsAll });
+      if (saved.kind === 'single') {
+        toast.success(FILTERS_COPY.savedToast, saved.answer.kept.length > 0 ? FANOUT_COPY.keptOnYours(keptWords(saved.answer.kept)) : undefined);
+      } else {
+        report.show(filtersReport(saved.answer, choices.profiles, choices.label, saved.customLeftOn));
+      }
     },
     onError: (error) => {
       onError?.(error);
@@ -181,11 +334,46 @@ export function useSaveFilters({ onSaved, onError }: { onSaved?: () => void; onE
       toast.error(FILTERS_COPY.saveFailed, userMessage(error));
     },
   });
+  return { ...mutation, element: outer ? null : own.element };
 }
 
-/** One filter of the list. */
-function FilterRow({ children }: { children: ReactNode }) {
-  return <div className="py-4 first:pt-1 last:pb-1">{children}</div>;
+/** v34 FANWEB: the per-filter marks while the changes go to several profiles. */
+export interface FieldMarks {
+  isMarked: (key: PrepareFilterKey) => boolean;
+  toggle: (key: PrepareFilterKey) => void;
+}
+
+/**
+ * A filter's mark: "Apply" this filter to the chosen profiles (ticked once it changed). v34 FANWEB fix (spec M4): its
+ * name says the filter ("Apply Minimum pay to the chosen profiles"); the word drawn beside it is the short "Apply".
+ */
+function MarkBox({ field, marks, disabled }: { field: PrepareFilterKey; marks: FieldMarks; disabled?: boolean }) {
+  return (
+    <span className="flex shrink-0 items-center pt-0.5" data-filter-mark={field}>
+      <Checkbox
+        checked={marks.isMarked(field)}
+        disabled={disabled}
+        onCheckedChange={() => marks.toggle(field)}
+        label={
+          <span className="text-[13px] leading-5 text-muted-foreground">
+            <span aria-hidden="true">{FANOUT_COPY.mark}</span>
+            <span className="sr-only">{FANOUT_COPY.markLabel(FILTER_FIELD_LABEL[field])}</span>
+          </span>
+        }
+      />
+    </span>
+  );
+}
+
+/** One filter of the list (v34 FANWEB: with its "Apply" mark while the changes go to several profiles). */
+function FilterRow({ children, mark }: { children: ReactNode; mark?: ReactNode }) {
+  if (!mark) return <div className="py-4 first:pt-1 last:pb-1">{children}</div>;
+  return (
+    <div className="flex items-start gap-3 py-4 first:pt-1 last:pb-1">
+      <div className="min-w-0 flex-1">{children}</div>
+      {mark}
+    </div>
+  );
 }
 
 /**
@@ -218,11 +406,14 @@ export function PrepareFiltersFields({
   state,
   whereYouLiveHref = `#${WHERE_YOU_LIVE_ANCHOR}`,
   access = {},
+  marks,
 }: {
   state: PrepareFiltersFormState;
   whereYouLiveHref?: string;
   /** v33 SHARE-7: on a shared profile (the person's own: everything). */
   access?: FiltersAccess;
+  /** v34 FANWEB: the changes go to several profiles: each filter has its "Apply" mark. */
+  marks?: FieldMarks;
 }) {
   const { form, errors, saved, promptMax } = state;
   // v33 SHARE-7: a read-only form changes nothing (the switches are spans a disabled fieldset does not reach).
@@ -238,9 +429,11 @@ export function PrepareFiltersFields({
     state.set(key, value);
   };
   const locationMissing = form.locationMismatch && (!saved.locationKnown || !saved.timeZoneKnown);
+  // v34 FANWEB: a filter's mark is off where the filter itself is (read-only, a locked eligibility switch).
+  const mark = (field: PrepareFilterKey, off = false) => (marks ? <MarkBox field={field} marks={marks} disabled={readOnly || off} /> : undefined);
   return (
     <div className="flex flex-col divide-y divide-divider-soft" data-prepare-filters-fields="">
-      <FilterRow>
+      <FilterRow mark={mark('locationTypes')}>
         <ChoiceGroup
           label={FILTERS_COPY.locationType}
           hint={FILTERS_COPY.anyHint}
@@ -249,7 +442,7 @@ export function PrepareFiltersFields({
           onToggle={(value) => set('locationTypes', toggleIn(form.locationTypes, value, WORK_ARRANGEMENTS))}
         />
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('jobTypes')}>
         <ChoiceGroup
           label={FILTERS_COPY.jobType}
           hint={FILTERS_COPY.anyHint}
@@ -258,7 +451,7 @@ export function PrepareFiltersFields({
           onToggle={(value) => set('jobTypes', toggleIn(form.jobTypes, value, EMPLOYMENT_TYPES_V2))}
         />
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('industries')}>
         <div className="flex flex-col gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="flex items-center gap-1.5">
@@ -284,7 +477,7 @@ export function PrepareFiltersFields({
           />
         </div>
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('locationMismatch')}>
         <SwitchRow
           title={FILTERS_COPY.locationMismatch}
           hint={FILTERS_COPY.locationMismatchHint}
@@ -308,7 +501,7 @@ export function PrepareFiltersFields({
           )}
         </SwitchRow>
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('qualificationMismatch', qualificationLocked)}>
         <SwitchRow
           title={FILTERS_COPY.qualifications}
           hint={qualificationLocked ? `${FILTERS_COPY.qualificationsHint} ${FILTERS_COPY.qualificationsLocked}` : FILTERS_COPY.qualificationsHint}
@@ -317,7 +510,7 @@ export function PrepareFiltersFields({
           onCheckedChange={(on) => set('qualificationMismatch', on)}
         />
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('certificationMismatch')}>
         <SwitchRow
           title={FILTERS_COPY.certifications}
           hint={FILTERS_COPY.certificationsHint}
@@ -334,7 +527,7 @@ export function PrepareFiltersFields({
           </Link>
         </SwitchRow>
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('autoApplySupport')}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-sm leading-5 font-medium text-foreground">{FILTERS_COPY.autoApply}</span>
           <SegmentedControl
@@ -349,7 +542,7 @@ export function PrepareFiltersFields({
           />
         </div>
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('minSalaryUsd')}>
         <Field label={FILTERS_COPY.minPay} hint={FILTERS_COPY.minPayHint} error={errors.minSalary} className="max-w-xs">
           <Input
             inputMode="numeric"
@@ -361,7 +554,7 @@ export function PrepareFiltersFields({
           />
         </Field>
       </FilterRow>
-      <FilterRow>
+      <FilterRow mark={mark('experienceLevels')}>
         <ChoiceGroup
           label={FILTERS_COPY.experience}
           hint={FILTERS_COPY.anyHint}
@@ -372,7 +565,7 @@ export function PrepareFiltersFields({
       </FilterRow>
       {/* v33 SHARE-7: the eligibility switches follow the owner's Sensitive answers boxes on a shared profile. */}
       {eligibility !== 'hidden' && (
-        <FilterRow>
+        <FilterRow mark={mark('noSponsorship', eligibilityOff)}>
           <SwitchRow
             title={FILTERS_COPY.sponsorshipSwitch}
             hint={FILTERS_COPY.sponsorshipHint}
@@ -383,7 +576,7 @@ export function PrepareFiltersFields({
         </FilterRow>
       )}
       {eligibility !== 'hidden' && (
-        <FilterRow>
+        <FilterRow mark={mark('clearanceMismatch', eligibilityOff)}>
           <SwitchRow
             title={FILTERS_COPY.clearance}
             hint={FILTERS_COPY.clearanceHint}
@@ -393,7 +586,7 @@ export function PrepareFiltersFields({
           />
         </FilterRow>
       )}
-      <FilterRow>
+      <FilterRow mark={mark('custom')}>
         <SwitchRow
           title={FILTERS_COPY.custom}
           hint={FILTERS_COPY.customHint}
@@ -401,6 +594,10 @@ export function PrepareFiltersFields({
           disabled={readOnly}
           onCheckedChange={(on) => set('customEnabled', on)}
         >
+          {/* v34 FANWEB fix: on several profiles, what happens to each owner's own words. */}
+          {marks?.isMarked('custom') && form.customEnabled && (
+            <CustomWordsNote typed={customWordsTyped(saved.filters, { custom: { enabled: true, prompt: form.customPrompt } })} />
+          )}
           {form.customEnabled && (
             <Field label={FILTERS_COPY.customPrompt} error={errors.customPrompt}>
               <Textarea
@@ -418,6 +615,18 @@ export function PrepareFiltersFields({
         </SwitchRow>
       </FilterRow>
     </div>
+  );
+}
+
+/**
+ * v34 FANWEB fix: under the custom filter on several profiles: words typed here replace each chosen profile's own; the
+ * words as they were stay on this profile only (the other profiles keep theirs, so it is not turned on there).
+ */
+function CustomWordsNote({ typed }: { typed: boolean }) {
+  return (
+    <span className="text-[13px] leading-5 text-muted-foreground" data-custom-words={typed ? 'replace' : 'kept'}>
+      {typed ? FANOUT_COPY.customReplaces : FANOUT_COPY.customKept}
+    </span>
   );
 }
 

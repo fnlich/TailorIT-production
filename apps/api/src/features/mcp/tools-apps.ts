@@ -1,8 +1,9 @@
 import { STATUS, type ApplicationStatus, type StatusKey } from '@tailorit/shared';
-import { AUTOFILL_AGENT_STATES, type AutofillAgentState } from '@tailorit/shared/autofill';
+import { AUTOFILL_AGENT_FINISHED_STATES, AUTOFILL_AGENT_STATES, type AutofillAgentState } from '@tailorit/shared/autofill';
 import type { AppDeps } from '../../core/context';
 import type { Dialect, SqlParam } from '../../core/db/index';
-import { AppError, notFound, validationFailed } from '../../core/http/errors';
+import type { DbQueries } from '../../core/db/types'; // v34 MCPFAN
+import { AppError, validationFailed } from '../../core/http/errors';
 import { clearFinished, removeQueued } from '../autofill/agent/queue';
 import { resumeChooser } from '../applications/resume-choice';
 import { saveJobs } from '../applications/service';
@@ -10,6 +11,7 @@ import { archiveRow, LIVE_QUEUE_ROW_AT_SQL } from '../applications/store';
 import { untrustedText } from '../autofill/ai/untrusted';
 import { dayIn, dayRange, zoneOf, type DayRange, type Zone } from './dates';
 import { loadResultSet, readSetCursor, saveResultSet, setCursor, targetsOf, type ResultSet, type SetOwner } from './result-sets';
+import { ConfirmPreview } from './profiles'; // v34 MCPDIR; v34 FIX-API (D1): a preview, never a refusal
 import { PAGE_DEFAULT, PAGE_MAX, type Table } from './tools-jobs';
 
 // v1.5 Q2: the tracker and the auto-apply queue for the person's own AI: save_jobs / unsave_jobs, queue_remove /
@@ -50,6 +52,23 @@ export interface BulkInput {
   setId?: string;
   exclude?: number[];
   limit?: number;
+  /** v34 MCPDIR: a removal by set (or queue_clear_finished): the number of rows it changes, as the refusal named it. */
+  confirm?: number;
+}
+
+/**
+ * v34 MCPDIR (the security review, finding 1; the coordinator's decision): a removal over a whole set, or of every
+ * finished queue row, needs `confirm` equal to the number of rows it changes, checked on the server (a client's own
+ * confirmation may be set to always allow). v34 FIX-API (the final directory review, D1): without it (or with another
+ * number) the call answers a preview, a success that changed nothing (profiles.ts ConfirmPreview: done false, the count
+ * to send), so the person's go-ahead can be asked for; thrown before anything changes (inside a transaction: none).
+ */
+export function requireConfirm(confirm: number | undefined, count: number, what: string): void {
+  if (count === 0 || confirm === count) return;
+  throw new ConfirmPreview(
+    count,
+    `Nothing changed yet: this would ${what.replace('{n}', String(count))}. With the person's go-ahead, call again with "confirm": ${count}.`,
+  );
 }
 
 type Refusal = [number, string];
@@ -103,17 +122,50 @@ export async function saveJobsTool(
 /** unsave_jobs: archives the Saved applications of the jobs, as the Jobs page's un-save does; never one past Saved. */
 export async function unsaveJobsTool(deps: Deps, userId: string, input: BulkInput, sets: SetOwner = userId) {
   const targets = await targetsOf(deps, sets, input);
+  // v34 MCPDIR: by set, only with the number it archives.
+  const check = targets.setId === null ? undefined : (archives: number) => requireConfirm(input.confirm, archives, 'archive {n} Saved entries');
+  return archiveSavedJobs(deps, userId, targets.ids, check);
+}
+
+interface UnsaveRow {
+  job_id: number;
+  id: string;
+  current_status: number;
+  archived_at: string | null;
+}
+
+/** The entries of `jobIds` on `userId`'s profile, by job id (unsave_jobs reads them in its transaction). */
+async function entriesOf(t: Pick<DbQueries, 'all' | 'dialect'>, userId: string, jobIds: readonly number[]): Promise<Map<number, UnsaveRow>> {
+  const found = await t.all<UnsaveRow>(
+    `SELECT job_id, id, current_status, archived_at FROM applications
+     WHERE user_id = ? AND job_id IN (${jobIdsIn(t.dialect)})`,
+    [userId, JSON.stringify(jobIds)],
+  );
+  return new Map(found.map((row) => [row.job_id, row]));
+}
+
+/** The entries unsave_jobs archives: Saved and not archived yet. */
+const archivable = (row: UnsaveRow | undefined): boolean => row !== undefined && row.current_status === STATUS.saved && row.archived_at === null;
+
+/** v34 MCPFAN: how many of `jobIds` unsave_jobs would archive on `userId`'s profile (a removal by set on several profiles confirms their sum). */
+export async function archivableAmong(deps: Pick<AppDeps, 'db'>, userId: string, jobIds: readonly number[]): Promise<number> {
+  if (jobIds.length === 0) return 0;
+  const rows = await entriesOf(deps.db, userId, jobIds);
+  return jobIds.filter((jobId) => archivable(rows.get(jobId))).length;
+}
+
+/**
+ * unsave_jobs' archive of `jobIds` on one profile, in one transaction; `check` sees how many it archives before it
+ * does (a removal by set: requireConfirm). v34 MCPFAN: also each profile's work of an unsave on several profiles.
+ */
+export async function archiveSavedJobs(deps: Deps, userId: string, jobIds: readonly number[], check?: (archives: number) => void) {
   const now = deps.now().toISOString();
   return deps.db.tx(async (t) => {
-    const found = await t.all<{ job_id: number; id: string; current_status: number; archived_at: string | null }>(
-      `SELECT job_id, id, current_status, archived_at FROM applications
-       WHERE user_id = ? AND job_id IN (${jobIdsIn(t.dialect)})`,
-      [userId, JSON.stringify(targets.ids)],
-    );
-    const rows = new Map(found.map((row) => [row.job_id, row]));
+    const rows = await entriesOf(t, userId, jobIds);
+    check?.(jobIds.filter((jobId) => archivable(rows.get(jobId))).length);
     const refused: Refusal[] = [];
     let unsaved = 0;
-    for (const jobId of targets.ids) {
+    for (const jobId of jobIds) {
       const row = rows.get(jobId);
       if (!row || (row.archived_at !== null && row.current_status === STATUS.saved)) refused.push([jobId, 'not_saved']);
       else if (row.current_status !== STATUS.saved) refused.push([jobId, 'applied']);
@@ -137,6 +189,8 @@ export async function queueRemoveTool(deps: Deps, userId: string, input: BulkInp
       [userId, JSON.stringify(targets.ids)],
     );
     const rows = new Map(found.map((row) => [row.job_id, row.id]));
+    // v34 MCPDIR: by set, only with the number of queue rows it removes.
+    if (targets.setId !== null) requireConfirm(input.confirm, rows.size, 'remove {n} jobs from the auto-apply queue');
     const refused: Refusal[] = [];
     let removed = 0;
     for (const jobId of targets.ids) {
@@ -157,8 +211,13 @@ export async function queueRemoveTool(deps: Deps, userId: string, input: BulkInp
   }, { label: 'queue_remove' });
 }
 
-/** queue_clear_finished: the queue's Clear finished. */
-export async function queueClearFinishedTool(deps: Deps, userId: string) {
+/** queue_clear_finished: the queue's Clear finished. v34 MCPDIR: only with the number of finished rows it removes. */
+export async function queueClearFinishedTool(deps: Deps, userId: string, confirm?: number) {
+  const finished = await deps.db.one<{ n: number }>(
+    `SELECT count(*) AS n FROM autofill_agent_queue WHERE user_id = ? AND state IN (${AUTOFILL_AGENT_FINISHED_STATES.map(() => '?').join(', ')})`,
+    [userId, ...AUTOFILL_AGENT_FINISHED_STATES],
+  );
+  requireConfirm(confirm, Number(finished?.n ?? 0), 'remove {n} finished rows from the auto-apply queue');
   return { removed: await clearFinished(deps, userId) };
 }
 
@@ -591,7 +650,8 @@ export async function applicationTimeline(deps: Pick<AppDeps, 'db'>, userId: str
      FROM ${APP_FROM} WHERE a.id = ? AND a.user_id = ?`,
     [applicationId, userId],
   );
-  if (!row) throw notFound('That application');
+  // v34 MCPDIR: a refusal says what to do.
+  if (!row) throw new AppError('not_found', 'That Job Tracker entry is not on this profile: use an applicationId from list_applications.');
   const events = await deps.db.all<{ status: number; occurred_on: string }>(
     'SELECT status, occurred_on FROM application_status_events WHERE application_id = ? ORDER BY occurred_on, status',
     [row.id],

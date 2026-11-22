@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { apiOrigin as apiOriginFrom } from '@/lib/addresses';
+import { isPublicPath } from '@/features/public/paths'; // v34 PUBLIC
+import { apiOrigin as apiOriginFrom, forwardedAddress } from '@/lib/addresses'; // v34 ORIGIN2: forwardedAddress
 import { DEFAULT_AFTER_SIGN_IN, safeNextPath } from '@/lib/navigation';
 
 /*
@@ -10,7 +11,8 @@ import { DEFAULT_AFTER_SIGN_IN, safeNextPath } from '@/lib/navigation';
  * - app pages          → /login?next=<page> when there is no session cookie
  * - /login             → `next` (or /jobs) when the cookie belongs to a live session; a dead cookie is cleared
  * - /dev/*             → open without a session outside production (the kit page)
- * - /api/*, assets     → never reach this function (matcher below)
+ * - public pages       → open without a session (v34 PUBLIC: /guide, /privacy, /terms, /support, the 4 brand icons)
+ * - /api/*, Next files, root icons and /brand icons → never reach this function (matcher below)
  */
 
 /** Must match apps/api/src/core/auth/session.ts SESSION_COOKIE. */
@@ -27,7 +29,8 @@ type SessionVerdict = 'valid' | 'invalid' | 'unknown';
 async function sessionVerdict(request: NextRequest): Promise<SessionVerdict> {
   try {
     const response = await fetch(`${apiOrigin()}/api/auth/me`, {
-      headers: { cookie: request.headers.get('cookie') ?? '', accept: 'application/json' },
+      // v34 ORIGIN2: and the page's address (lib/addresses.ts forwardedAddress): a session works at its own only.
+      headers: { cookie: request.headers.get('cookie') ?? '', accept: 'application/json', ...forwardedAddress(request.headers) },
       cache: 'no-store',
       signal: AbortSignal.timeout(2500),
     });
@@ -69,6 +72,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // v34 PUBLIC (PLAN G8): the public pages (/guide, /privacy, /terms, /support) and the brand icons (/brand/*) open
+  // without a session, signed in or not; nothing else does (features/public/paths.ts isPublicPath).
+  if (isPublicPath(pathname)) return NextResponse.next();
+
   if (!hasSession) {
     // Client navigations carry Next's internal `_rsc` parameter; it does not belong in the page to come back to.
     const params = new URLSearchParams(search);
@@ -83,8 +90,13 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except the API rewrite, Next internals and files with an extension (favicon, logo, fonts…).
+  // Everything except the API rewrite and Next internals (its built files and fonts under _next/ and, in development,
+  // __nextjs_font/).
   // v31 OAUTH: and the MCP endpoint, the well-known documents and the OAuth endpoints the API answers
   // (features/oauth/passthrough.ts): an AI app calling them has no session to sign in with.
-  matcher: ['/((?!api|_next/|mcp(?:/|$)|\\.well-known/|oauth/(?:authorize|token|register|revoke)(?:/|$)|.*\\.[A-Za-z0-9]+$).*)'],
+  // v34 PUBLIC (the review's finding 10): and only real static files: a file at the root with an image, text or manifest
+  // extension (the app's icon.svg, a favicon.ico) and the brand icons (/brand/<name>.png|svg). Before, any path whose
+  // last part had a dot skipped the gate, so an app page such as /companies/1.json opened without a session.
+  // (One line: features/oauth/passthrough.test.ts reads the literal.)
+  matcher: ['/((?!api|_next/|__nextjs_font/|mcp(?:/|$)|\\.well-known/|oauth/(?:authorize|token|register|revoke)(?:/|$)|[^/]+\\.(?:ico|png|svg|txt|xml|webmanifest)$|brand/[^/]+\\.(?:png|svg)$).*)'],
 };

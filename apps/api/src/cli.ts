@@ -27,6 +27,8 @@ async function main(): Promise<void> {
   }
 
   const deps = await createRuntimeDeps(); // opening the database applies migrations
+  // v34 DIRKIT: a command never takes up the running API's background work (AppDeps.commandProcess).
+  deps.commandProcess = true;
   try {
     if (command === 'db:migrate') {
       console.log('Database is up to date.');

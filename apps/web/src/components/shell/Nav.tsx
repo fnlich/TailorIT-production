@@ -13,6 +13,7 @@ import {
   KanbanIcon,
   MagicWandIcon,
   PlugsConnectedIcon,
+  QuestionIcon,
   RobotIcon,
   ShieldCheckIcon,
   XIcon,
@@ -48,6 +49,7 @@ export const NAV_ICONS: Readonly<Record<string, Icon>> = {
   '/settings': GearSixIcon,
   '/settings/autofill': MagicWandIcon,
   '/settings/admin': ShieldCheckIcon,
+  '/help': QuestionIcon, // v34 HELP
 };
 
 /** Keyboard focus on the dark denim: the tape colour, drawn inside the control so nothing clips it. */

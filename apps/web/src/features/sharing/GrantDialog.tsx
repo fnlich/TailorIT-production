@@ -261,7 +261,7 @@ function GrantForm({ mode, onDone }: { mode: GrantDialogMode; onDone: () => void
   return (
     <form onSubmit={submit} noValidate className="mt-5 flex min-h-0 flex-col" data-grant-form={mode.kind}>
       {/* The fields scroll inside the dialog on a short window; the buttons stay. */}
-      <div className="-mx-6 flex min-h-0 flex-col gap-5 overflow-y-auto px-6 pb-1">
+      <div className="relative -mx-6 flex min-h-0 flex-col gap-5 overflow-y-auto px-6 pb-1">
         {mode.kind === 'create' && (
           <Field label={GRANT_COPY.email} error={errors.email}>
             <Input

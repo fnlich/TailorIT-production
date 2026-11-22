@@ -47,8 +47,26 @@ export const McpTokenItemSchema = z.object({
 });
 export type McpTokenItem = z.infer<typeof McpTokenItemSchema>;
 
-/** The account's live tokens, newest first, and the MCP endpoint's address (MCP_PUBLIC_URL, else API_HOST:API_PORT). */
-export const McpTokenListSchema = z.object({ items: z.array(McpTokenItemSchema), endpoint: z.string() });
+// v34 ORIGIN2 (PLAN G7b)
+/**
+ * Where else Claude and ChatGPT could connect, for a page open at an address their servers cannot reach (this computer,
+ * a LAN address): `origins`, this server's fixed public https addresses (APP_ORIGIN, TRUSTED_PUBLIC_HOSTS's https
+ * addresses and host names), other than the page's own; `tunnels`, the domains of its trusted tunnel patterns
+ * (`trycloudflare.com` for `*.trycloudflare.com`), whose changing addresses only the person knows.
+ */
+export const McpConnectAtSchema = z.object({ origins: z.array(z.string()), tunnels: z.array(z.string()) });
+export type McpConnectAt = z.infer<typeof McpConnectAtSchema>;
+// end v34 ORIGIN2
+
+/**
+ * The account's live tokens, newest first, and the MCP endpoint's address (MCP_PUBLIC_URL, else <the page's address>/mcp),
+ * and (v34 ORIGIN2) where else an AI app could connect (absent from an older server).
+ */
+export const McpTokenListSchema = z.object({
+  items: z.array(McpTokenItemSchema),
+  endpoint: z.string(),
+  connectAt: McpConnectAtSchema.optional(), // v34 ORIGIN2
+});
 export type McpTokenList = z.infer<typeof McpTokenListSchema>;
 
 export const McpTokenCreateBodySchema = z.object({
@@ -112,6 +130,7 @@ export function genericMcpConfig(token: string, url = mcpEndpointUrl()): string 
 // and write them:
 //   GET /api/mcp/settings          → McpSettings
 //   PUT /api/mcp/settings          McpSettingsBody (any of its fields) → McpSettings, as saved
+//   POST /api/mcp/settings/pending McpPendingDecision → McpSettings (v34 MCPDIR: the person's OK to their AI's request)
 // - reviseRounds: how many revision rounds prepare_save_resume asks the person's AI for after its first resume, while
 //   TailorIT's check still finds something to fix (0 to 5). TailorIT's own Prepare keeps its two.
 // - promptMode: whose prompts the MCP tools' next steps point to: TailorIT's (prepare_prompt, the default) or the
@@ -154,8 +173,17 @@ export const McpSettingsSchema = z.object({
   promptMode: z.enum(MCP_PROMPT_MODES),
   /** v2.0: '' for none. An older answer without it reads as none. */
   customInstructions: CustomInstructionsSchema.default(''),
+  /**
+   * v34 MCPDIR: custom instructions the person's AI asked for (set_prepare_settings), waiting for the person's OK in
+   * Settings › Integrations; absent when nothing waits. Every prompt keeps customInstructions until then.
+   */
+  pendingCustomInstructions: CustomInstructionsSchema.optional(),
 });
 export type McpSettings = z.infer<typeof McpSettingsSchema>;
+
+/** v34 MCPDIR: POST /api/mcp/settings/pending: the person's OK (approve) or no (discard) to their AI's request. */
+export const McpPendingDecisionSchema = z.object({ decision: z.enum(['approve', 'discard']) });
+export type McpPendingDecision = z.infer<typeof McpPendingDecisionSchema>;
 
 export const McpSettingsBodySchema = z
   .object({

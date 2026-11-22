@@ -1,5 +1,9 @@
 import { JOB_VERIFY_REASON_MESSAGE, type AddJobResult, type JobVerifyReason } from '@tailorit/shared';
+import type { FanoutAddJobResult } from '@tailorit/shared/sharing';
 import type { MessageRenderer } from '@/lib/messages';
+import { FANOUT_COPY, namesList } from '../../sharing/fanout/copy'; // v34 FANWEB
+import { refusalText } from '../../sharing/fanout/results';
+import type { FanoutProfile, LabelOf } from '../../sharing/fanout/targets';
 import type { PublicMessageKey } from '@/lib/constants';
 
 // v31 JOBSWEB: what the Add job dialog says after TailorIT tried to read a link (docs/design/v3.1/21-jobs-from-links.md
@@ -92,4 +96,29 @@ export function linkInput(text: string): string {
   if (!value) return '';
   if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return value;
   return /^[\w-]+(\.[\w-]+)+(?:[/:?#]|$)/.test(value) ? `https://${value}` : value;
+}
+
+/**
+ * v34 FANWEB fix (sharing L7): the outcome when the tab's own profile refused the add (the other profiles' line follows
+ * under it): its reason, and try again from another profile or later.
+ */
+export function refusedHereView(why: string): AddOutcomeView {
+  return { tone: 'error', title: FANOUT_COPY.addRefusedTitle, body: why, why: null, jobId: null, next: 'retry' };
+}
+
+/**
+ * v34 FANWEB: what "Also save to" did on the other profiles, one line under the outcome ("Also on Ana. Not on Ben:
+ * Needs Job Tracker › Change."); null without other profiles. A profile where the link added nothing (closed, or a
+ * link TailorIT cannot read before its details are typed) says the server's words for it.
+ */
+export function alsoSavedLine(others: readonly FanoutAddJobResult[], profiles: readonly FanoutProfile[], label: LabelOf): string | null {
+  if (others.length === 0) return null;
+  const nameOf = (choice: string, answered: string) => profiles.find((profile) => profile.choice === choice)?.label ?? answered;
+  const added = others.filter((entry) => entry.ok && entry.jobId !== null).map((entry) => nameOf(entry.profile, entry.name));
+  const not = others
+    .filter((entry) => !entry.ok || entry.jobId === null)
+    .map((entry) => `${nameOf(entry.profile, entry.name)}: ${(entry.ok ? entry.message : refusalText(profiles, entry, label)).replace(/\.$/, '')}`);
+  return [added.length > 0 ? FANOUT_COPY.alsoSaved(namesList(added)) : null, not.length > 0 ? FANOUT_COPY.alsoNot(not.join('; ')) : null]
+    .filter(Boolean)
+    .join(' ');
 }

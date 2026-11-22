@@ -269,7 +269,7 @@ function GenerateForm({
       ) : (
         <>
           {/* On a short screen the fields scroll between the title and the buttons, which stay in view. */}
-          <div className="-mx-6 mt-4 min-h-0 flex-1 overflow-y-auto px-6 py-1">
+          <div className="relative -mx-6 mt-4 min-h-0 flex-1 overflow-y-auto px-6 py-1">
             <SegmentedControl<Tab>
               aria-label="Generate options"
               // On a phone the three segments share the dialog's width (13 px labels, 6 px padding).

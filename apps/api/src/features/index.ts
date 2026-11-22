@@ -45,6 +45,9 @@ import { oauthFeature } from './oauth/index'; // v31 OAUTH
 import { jobLinksFeature } from './jobs/add/index'; // v31 LINK
 import { rolesFeature } from './roles/index'; // v33 ROLES
 import { sharingFeature } from './sharing/index'; // v33 SHARE-2
+import { profilesFeature } from './sharing/fanout/index'; // v34 FANOUT
+import { accountDeletionFeature } from './account-deletion/index'; // v34 ACCTDEL
+import { directoryFeature } from './directory/index'; // v34 DIRKIT
 
 /**
  * Every feature of the API, in setup order: services are created in this order (AI before the features that queue
@@ -99,8 +102,11 @@ export const FEATURES: Feature[] = [
   mcpFeature,
   oauthFeature, // v31 OAUTH: the OAuth 2.1 server Claude and ChatGPT connect to the MCP server through
   sharingFeature, // v33 SHARE-2: shared profiles (/api/sharing: grants, invites, activity, overview; the hourly sweep)
+  profilesFeature, // v34 FANOUT: one action on several profiles (/api/profiles: save, copy, bulk, filters and settings)
+  accountDeletionFeature, // v34 ACCTDEL: deleting an account (/api/account/delete; Admin › Users' route is admin-users')
   // v30 ST0: features only a development install has (dev-only/index.ts), last.
   notificationsFeature, // v31 NOTIFY: notifications and the header's summary (after every feature that writes them)
+  directoryFeature, // v34 DIRKIT: directory:reviewer, the Connectors Directory reviewer's account (a command only)
   dbMaintenanceFeature, // v30 D5L (before the dev-only seam, which stays last)
   ...DEV_FEATURES,
 ];

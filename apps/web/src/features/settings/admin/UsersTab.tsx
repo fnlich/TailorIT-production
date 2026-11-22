@@ -5,7 +5,9 @@ import { initialsOf } from '@tailorit/shared/auth';
 import { formatUsd } from '@tailorit/shared/constants';
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
+import type { AccountDeletionState } from '@tailorit/shared/account-deletion'; // v34 ACCTDEL
+import { DELETE_COPY } from '@/features/account-deletion/copy'; // v34 ACCTDEL
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { MagnifyingGlassIcon } from '@/components/ui/icons';
@@ -39,6 +41,7 @@ export function UsersTab() {
   const [type, setType] = useState<AdminUserTypeFilter>('all');
   const [openId, setOpenId] = useState<string | null>(null);
   const [opened, setOpened] = useState<AdminUser | null>(null);
+  const tabId = useId(); // v34 ACCTDEL: the tab's section, whose heading takes the focus after a deletion
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQ(search.trim()), SEARCH_DELAY_MS);
@@ -69,6 +72,34 @@ export function UsersTab() {
     );
   };
 
+  /**
+   * v34 ACCTDEL: a deleted account leaves the sheet and every page of the list at once (then the list is read again);
+   * one being deleted (`pending`) stays, read again as "Being deleted". The focus goes to the next row (else the one
+   * before, else the list's heading); for one being deleted, back to its own row.
+   */
+  const onDeleted = (id: string, state: AccountDeletionState) => {
+    const ids = items.map((item) => item.id);
+    const at = ids.indexOf(id);
+    const focusOn = state === 'pending' ? id : (ids[at + 1] ?? (at > 0 ? ids[at - 1] : undefined));
+    setOpenId(null);
+    setOpened(null);
+    if (state === 'deleted') {
+      queryClient.setQueriesData<InfiniteData<AdminUserList>>({ queryKey: [...adminKeys.users, 'page'] }, (current) =>
+        current ? { ...current, pages: current.pages.map((page) => ({ ...page, items: page.items.filter((item) => item.id !== id) })) } : current,
+      );
+    }
+    void queryClient.invalidateQueries({ queryKey: adminKeys.users });
+    // After the sheet is gone (its own focus return finds no opener for a deleted row).
+    window.setTimeout(() => {
+      const row = focusOn ? document.querySelector<HTMLElement>(`[data-user-open="${CSS.escape(focusOn)}"]`) : null;
+      const heading = document.getElementById(tabId)?.querySelector<HTMLElement>('h2');
+      const target = row ?? heading;
+      if (!target) return;
+      if (target === heading) target.tabIndex = -1;
+      target.focus();
+    }, 0);
+  };
+
   const columns: AdminColumn<AdminUser>[] = [
     {
       key: 'account',
@@ -82,6 +113,7 @@ export function UsersTab() {
           }}
           className="flex min-w-0 items-center gap-3 rounded-control text-left"
           aria-label={`Open the account of ${user.email}`}
+          data-user-open={user.id} // v34 ACCTDEL: the focus after a deletion
         >
           <LetterAvatar letters={initialsOf(user.name, user.email)} size={32} tone="brand" />
           <span className="min-w-0">
@@ -135,12 +167,23 @@ export function UsersTab() {
       key: 'status',
       header: 'Status',
       className: 'w-28',
-      cell: (user) => (user.disabled ? <Badge tone="destructive">Disabled</Badge> : <span className="text-muted-foreground">Active</span>),
+      cell: (user) =>
+        // v34 ACCTDEL: an account whose deletion finishes on its own.
+        user.beingDeleted ? (
+          <Badge tone="warning" data-being-deleted="">
+            {DELETE_COPY.beingDeleted}
+          </Badge>
+        ) : user.disabled ? (
+          <Badge tone="destructive">Disabled</Badge>
+        ) : (
+          <span className="text-muted-foreground">Active</span>
+        ),
     },
   ];
 
   return (
     <AdminResourceTab
+      sectionProps={{ id: tabId }} // v34 ACCTDEL
       title="Users"
       description="Accounts, their plan and today's use; open one to change it."
       lead={
@@ -188,6 +231,7 @@ export function UsersTab() {
           open={openId === opened.id}
           onOpenChange={(open) => !open && setOpenId(null)}
           onChanged={onChanged}
+          onDeleted={onDeleted} // v34 ACCTDEL
         />
       )}
     </AdminResourceTab>

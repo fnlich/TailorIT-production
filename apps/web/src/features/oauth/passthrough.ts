@@ -1,6 +1,7 @@
 // v3.1 OAUTH: the paths outside /api that the web server passes on to the API (next.config.ts's rewrites; the
 // production reverse proxy routes the same ones, DEPLOYMENT.md), so Claude and ChatGPT reach the MCP endpoint and
-// TailorIT's OAuth server at the address people open (APP_ORIGIN). The sign-in gate (proxy.ts) never redirects them.
+// TailorIT's OAuth server at the address people open (APP_ORIGIN, or v34 ORIGIN: a trusted test tunnel's). The sign-in
+// gate (proxy.ts) never redirects them.
 // No imports: next.config.ts loads this file before Next compiles anything. passthrough.test.ts keeps it in step with
 // packages/shared/src/oauth (OAUTH_API_PATHS, the well-known paths) and with proxy.ts's matcher.
 

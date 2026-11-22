@@ -44,6 +44,14 @@ export async function grantFor(
   ]);
   if (live) {
     await t.run('UPDATE oauth_grants SET scopes = ?, resource = ? WHERE id = ?', [JSON.stringify(scopes), resource, live.id]);
+    // v34 ORIGIN (the ORIGIN security review, finding 1): a consent at another address of the MCP endpoint (another
+    // tunnel, a changed MCP_PUBLIC_URL) moves the grant there; the tokens issued for the old address end now, so the
+    // first connection really stops (exchange.ts also refuses a refresh token issued for another address).
+    await t.run('UPDATE oauth_tokens SET revoked_at = ? WHERE grant_id = ? AND audience <> ? AND revoked_at IS NULL', [
+      deps.now().toISOString(),
+      live.id,
+      resource,
+    ]);
     return live.id;
   }
   const max = constantsOf(deps).get('OAUTH_GRANTS_PER_ACCOUNT');

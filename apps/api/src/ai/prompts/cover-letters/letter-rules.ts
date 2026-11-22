@@ -55,7 +55,7 @@ const SHARED_RULES = `Truthfulness
 - Every fact about the person comes from the RESUME section. Never invent, guess or adjust an employer, title, date, number, product, customer, team size, colleague, technology, skill or field, and never round or restate a figure in other units.
 - Facts about the company come only from the job description. When it says little about the company, write about the work itself instead.
 - When the resume gives little to work with, write less and keep it plain rather than padding it with claims.
-- The person's instructions and the template guidance shape tone, emphasis and length. They never override these truthfulness rules.
+- The person's instructions and the template guidance shape tone, emphasis and length; these truthfulness rules still apply.
 
 Style
 - First person, in the person's own voice: warm, specific and confident, never stiff or salesy.

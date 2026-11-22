@@ -80,6 +80,14 @@ export const AI_DETAILS = {
   noHandler: 'This AI feature is not available on this server.',
   noBackground: 'Background AI work is turned off on this server (AI_CLI_BACKGROUND_SLOTS=0).',
   stopping: 'The server is restarting.',
+  // v34 AIKEY: AI_BILLING=api-key while the CLI runs on its own sign-in.
+  subscriptionBilled:
+    'AI was stopped because AI_BILLING=api-key, but the Claude CLI on this server is using its Claude subscription ' +
+    "instead of the API key. Check that ANTHROPIC_API_KEY is set for this server, then run Admin › AI's test.",
+  // v34 AIKEY (review fix L1): AI_BILLING=api-key while the CLI names no credential source.
+  keySourceUnknown:
+    'AI was stopped because AI_BILLING=api-key, but the Claude CLI on this server did not say which sign-in pays for ' +
+    "its calls, so TailorIT cannot tell that the API key does. Update the Claude CLI, then run Admin › AI's test.",
 } as const;
 
 /** The sentences a person sees for those cases: v2.0, MSG_AI_UNAVAILABLE for each (the reason is in AI_DETAILS). */
@@ -87,6 +95,8 @@ export const AI_MESSAGES = {
   apiKey: AI_UNAVAILABLE_TEXT,
   binaryMissing: AI_UNAVAILABLE_TEXT,
   disabled: AI_UNAVAILABLE_TEXT,
+  subscriptionBilled: AI_UNAVAILABLE_TEXT, // v34 AIKEY
+  keySourceUnknown: AI_UNAVAILABLE_TEXT, // v34 AIKEY (review fix L1)
 } as const;
 
 export function aiErrorCode(kind: AiErrorKind): ErrorCode {

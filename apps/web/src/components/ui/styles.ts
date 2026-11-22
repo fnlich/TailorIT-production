@@ -34,5 +34,8 @@ export const POPOVER_SURFACE =
   'rounded-popup border border-border bg-surface text-sm text-foreground shadow-popover outline-none focus-visible:outline-none ' +
   POPUP_MOTION;
 
-/** Stacking order: sticky top bar 30, the menu sheet and dialogs 50, floating layers (menus, popovers) 60, tooltips 70. */
+/**
+ * Stacking order: sticky top bar 30, the menu sheet and dialogs 50, floating layers (menus, popovers) 60, tooltips 70,
+ * toasts 80 (40 on a phone while a kit dialog is open, under it: v34 FIX-WEB, final review U-M4).
+ */
 export const Z_FLOATING = 'z-[60]';

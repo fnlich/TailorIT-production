@@ -303,6 +303,26 @@ export const PrepareSettingsBodySchema = z
   );
 export type PrepareSettingsBody = z.infer<typeof PrepareSettingsBodySchema>;
 
+// v34 FIX-API (the final sharing review, M1; the coordinator's decision: the payer's own setting) --------------------
+/**
+ * The Prepare settings only the profile's owner sets: "Ask before using AI" (skipConfirm), whose confirm guards the
+ * money of whoever pays for a Prepare. Someone working on another person's profile never writes it there (the single
+ * PATCH/PUT and the fan-out keep it and say so); their own setting decides whether they are asked (the web reads it
+ * with profile 'me').
+ */
+export const PREPARE_OWNER_ONLY_SETTINGS = ['skipConfirm'] as const;
+export type PrepareOwnerOnlySetting = (typeof PREPARE_OWNER_ONLY_SETTINGS)[number];
+/** What a save answers beside the settings when it kept an owner-only one. */
+export const PREPARE_OWNER_ONLY_NOTE = '"Ask before using AI" was kept: only its owner sets this.';
+
+/** PUT and PATCH /api/prepare/settings's answer: the settings as saved, and what was kept (only when something was). */
+export const PrepareSettingsSavedSchema = PrepareSettingsSchema.extend({
+  kept: z.array(z.enum(PREPARE_OWNER_ONLY_SETTINGS)).optional(),
+  keptNote: z.string().optional(),
+});
+export type PrepareSettingsSaved = z.infer<typeof PrepareSettingsSavedSchema>;
+// end v34 FIX-API
+
 // The Prepare and its kit ----------------------------------------------------------------------------------------------
 
 /** One Prepare (prepare_jobs), as the person sees it: never its cost. */

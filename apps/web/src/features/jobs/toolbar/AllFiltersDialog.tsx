@@ -200,7 +200,7 @@ export function AllFiltersDialog({
         )}
       </span>
       <DialogContent title="All filters" size="xl">
-        <div className="-mx-6 mt-2 min-h-0 flex-1 overflow-y-auto px-6">
+        <div className="relative -mx-6 mt-2 min-h-0 flex-1 overflow-y-auto px-6">
           <Group title="Last updated">
             <div className="flex flex-wrap gap-2">
               <Chip size="sm" selected={!draft.updatedWithin} onClick={() => change({ updatedWithin: undefined })}>

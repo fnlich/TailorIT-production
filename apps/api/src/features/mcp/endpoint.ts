@@ -9,11 +9,12 @@ import { AppError } from '../../core/http/errors';
 import { waitSentence } from '../autofill/auth';
 import type { PrepareAdapter } from './prepare';
 import { createMcpServer } from './server';
-import { presentedMcpToken, resolveMcpToken, type McpCaller } from './tokens';
+import { checkMcpToken, presentedMcpToken, type McpCaller, type McpTokenCheck } from './tokens';
 import { MINUTE_MS } from '@tailorit/shared';
 import { OAUTH_SCOPE_MCP } from '@tailorit/shared/oauth'; // v31 OAUTH
+import { publicOriginOf, trustedForwardedHostname } from '../../config/public-origin'; // v34 ORIGIN
 import { oauthAddresses } from '../oauth/addresses'; // v31 OAUTH
-import { addressOf } from '../oauth/limits'; // v31 FIX-AUTH
+import { addressOf, isSharedEgress } from '../oauth/limits'; // v31 FIX-AUTH; v34 ORIGIN: isSharedEgress
 
 // TailorIT's MCP endpoint (v1.5 M): Streamable HTTP at /mcp on the API (v3.1: reached at APP_ORIGIN/mcp), in the
 // SDK's stateless mode with JSON answers: each POST gets its own server and transport, built for the account its token
@@ -24,7 +25,9 @@ import { addressOf } from '../oauth/limits'; // v31 FIX-AUTH
 //    MCP_PUBLIC_URL's host and MCP_ALLOWED_HOSTS; config/addresses.ts), any port. Any other name is a DNS rebinding (a
 //    page of another site resolved to this machine): 403.
 // 2. Origin: none (an MCP client is no browser), or a page at one of those names; any other is a page elsewhere: 403.
-//    A refused Host or Origin never reaches the token check.
+//    A refused Host or Origin never reaches the token check. v34 ORIGIN: both also accept the host of the request's
+//    trusted forwarded address (X-Forwarded-Host from this machine naming APP_ORIGIN's host or a TRUSTED_PUBLIC_HOSTS
+//    pattern's host: a test tunnel's), never a pattern alone.
 // 3. The token: `Authorization: Bearer tim_...`, live and its account enabled; otherwise 401 with WWW-Authenticate.
 //    v31 OAUTH: or `Bearer tio_...`, an OAuth access token a connected app (Claude, ChatGPT) got through TailorIT's
 //    authorization server (features/oauth), issued for this endpoint (its audience), not expired, its grant not
@@ -34,7 +37,10 @@ import { addressOf } from '../oauth/limits'; // v31 FIX-AUTH
 //    v31 FIX-AUTH (SEC-4): failed token checks are limited per caller address (REFUSALS_PER_MINUTE; oauth/limits.ts
 //    addressOf), so one address cannot try tokens fast. Only a credential shaped like a token that does not work
 //    counts (a request with no token is the normal first step of Claude and ChatGPT: 401 with the challenge), and the
-//    limit is read only after the token was checked, so a token that works is never refused by it. v2.0 P5:
+//    limit is read only after the token was checked, so a token that works is never refused by it. v34 ORIGIN (PLAN
+//    G7, G8): a token TailorIT issued that expired, was revoked or is for another address no longer counts (401 alone),
+//    a credential not shaped like a token does; an address in OAUTH_SHARED_EGRESS_RANGES (Claude's servers) gets
+//    MCP_FAILED_TOKENS_PER_MINUTE_SHARED; the audience and the challenge follow the request's public origin. v2.0 P5:
 //    the scope `prepare` (a stored v1.5 `prebuild` reads as it, tokens.ts), then the account's plan must include MCP
 //    (assertFeature 'mcp', FREE_MCP / PAID_MCP): 403 with the plan's message otherwise.
 // 4. Per token: the constants MCP_CALLS_PER_MINUTE (120) a minute and MCP_CALLS_PER_HOUR (2,000) an hour, read per
@@ -71,22 +77,29 @@ export const UNKNOWN_HOST_MESSAGE =
 
 /**
  * Steps 1 and 2: the request is addressed to one of `allowedHosts` (config.mcp.allowedHosts: lower case, an IPv6
- * address in brackets), from no page or a page at one of them.
+ * address in brackets), from no page or a page at one of them. v34 ORIGIN (PLAN G7): `forwardedHost(req)` names one
+ * more for this request: the host of its trusted forwarded address (config/public-origin.ts trustedForwardedHostname:
+ * X-Forwarded-Host from this machine, APP_ORIGIN's host or a TRUSTED_PUBLIC_HOSTS pattern's), never a pattern alone.
  */
-export function knownAddressOnly(allowedHosts: readonly string[]): RequestHandler {
+export function knownAddressOnly(
+  allowedHosts: readonly string[],
+  forwardedHost: (req: Request) => string | null = () => null,
+): RequestHandler {
   const names = new Set(allowedHosts);
   return (req, res, next) => {
-    if (!names.has(hostnameOf(req.get('host') ?? ''))) return refuse(res, 403, -32000, UNKNOWN_HOST_MESSAGE);
+    const extra = forwardedHost(req);
+    const known = (name: string) => names.has(name) || (extra !== null && name === extra);
+    if (!known(hostnameOf(req.get('host') ?? ''))) return refuse(res, 403, -32000, UNKNOWN_HOST_MESSAGE);
     const origin = req.get('origin');
     if (origin !== undefined) {
-      let known = false;
+      let fromKnownPage = false;
       try {
         const url = new URL(origin);
-        known = (url.protocol === 'http:' || url.protocol === 'https:') && names.has(url.hostname.toLowerCase());
+        fromKnownPage = (url.protocol === 'http:' || url.protocol === 'https:') && known(url.hostname.toLowerCase());
       } catch {
-        known = false;
+        fromKnownPage = false;
       }
-      if (!known) return refuse(res, 403, -32000, 'Requests from web pages are not allowed.');
+      if (!fromKnownPage) return refuse(res, 403, -32000, 'Requests from web pages are not allowed.');
     }
     next();
   };
@@ -118,7 +131,8 @@ const callerOf = (req: Request): McpCaller => req.mcpCaller!;
 export function failedTokenCounter(limit: number, windowMs: number, now: () => number = Date.now) {
   const windows = new Map<string, { start: number; count: number }>();
   return {
-    fail(address: string): number | null {
+    /** v34 ORIGIN: `max` is this address's limit (a shared egress range's is higher), `limit` by default. */
+    fail(address: string, max: number = limit): number | null {
       const at = now();
       if (windows.size > 10_000) {
         for (const [key, window] of windows) if (at - window.start >= windowMs) windows.delete(key);
@@ -131,7 +145,7 @@ export function failedTokenCounter(limit: number, windowMs: number, now: () => n
         windows.set(address, window);
       }
       window.count += 1;
-      return window.count > limit ? Math.max(1, Math.ceil((window.start + windowMs - at) / 1000)) : null;
+      return window.count > max ? Math.max(1, Math.ceil((window.start + windowMs - at) / 1000)) : null;
     },
   };
 }
@@ -163,18 +177,29 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
 
   /** Step 3. */
   const authenticate: RequestHandler = async (req, res, next) => {
-    const token = presentedMcpToken(req.get('authorization'));
-    let caller: McpCaller | null = null;
+    const authorization = req.get('authorization');
+    const token = presentedMcpToken(authorization);
+    // v34 ORIGIN (PLAN G7): this request's addresses (its public origin: APP_ORIGIN or a trusted test tunnel's), so a
+    // token works only at the MCP endpoint it was issued for, and the challenge points at this address's metadata.
+    const addresses = oauthAddresses(deps.config, publicOriginOf(deps.config, req));
+    let checked: McpTokenCheck | null = null;
     try {
-      caller = token ? await resolveMcpToken(deps, token) : null;
+      checked = token ? await checkMcpToken(deps, token, addresses.resource) : null;
     } catch (error) {
       deps.log.error('[mcp] could not read an MCP token', error instanceof Error ? error.name : 'unknown');
       return refuse(res, 500, -32603, 'Something went wrong on TailorIT\'s side. Try again.');
     }
+    const caller: McpCaller | null = checked?.ok ? checked.caller : null;
     if (!caller || !caller.scopes.includes('prepare')) {
-      deps.log.debug(`[mcp] refused a request: ${token ? 'a token that does not work' : 'no token'}`);
-      // v31 FIX-AUTH (SEC-4): a token that does not work counts against its caller's address; past the limit, 429.
-      const waitSeconds = token ? failedTokens.fail(addressOf(req)) : null;
+      deps.log.debug(`[mcp] refused a request: ${token ? 'a token that does not work' : authorization ? 'no token of ours' : 'no token'}`);
+      // v31 FIX-AUTH (SEC-4): a credential that does not work counts against its caller's address; past the limit, 429.
+      // v34 ORIGIN (PLAN G8): only one TailorIT never issued (unknown, or not shaped like its tokens). A token it issued
+      // that expired, was revoked or is for another address answers 401 alone: Claude then refreshes, and the many
+      // people behind one of its addresses are never held back. A shared egress range has a higher limit.
+      const unknown = checked ? !checked.ok && !checked.known : authorization !== undefined;
+      const address = addressOf(req);
+      const max = isSharedEgress(deps, req.ip) ? constantsOf(deps).get('MCP_FAILED_TOKENS_PER_MINUTE_SHARED') : REFUSALS_PER_MINUTE;
+      const waitSeconds = unknown ? failedTokens.fail(address, max) : null;
       if (waitSeconds !== null) {
         res.setHeader('Retry-After', String(waitSeconds));
         return refuse(res, 429, -32000, `There have been too many requests with a wrong MCP token. ${waitSentence(waitSeconds)}`);
@@ -182,8 +207,7 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
       // v31 OAUTH: the challenge names the MCP endpoint's metadata and the scope (RFC 9728 §5.1, the MCP authorization
       // spec), so Claude and ChatGPT find TailorIT's authorization server; error="invalid_token" only when a credential
       // was sent (RFC 6750 §3.1).
-      const metadataUrl = oauthAddresses(deps.config).resourceMetadataUrl;
-      res.setHeader('WWW-Authenticate', bearerChallenge(metadataUrl, req.get('authorization') !== undefined));
+      res.setHeader('WWW-Authenticate', bearerChallenge(addresses.resourceMetadataUrl, authorization !== undefined));
       return refuse(
         res,
         401,
@@ -211,7 +235,7 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
     next();
   });
   router.use(
-    knownAddressOnly(deps.config.mcp.allowedHosts),
+    knownAddressOnly(deps.config.mcp.allowedHosts, (req) => trustedForwardedHostname(deps.config, req)), // v34 ORIGIN
     authenticate,
     perToken(MINUTE_MS, 'MCP_CALLS_PER_MINUTE'),
     perToken(60 * MINUTE_MS, 'MCP_CALLS_PER_HOUR'),
@@ -232,7 +256,9 @@ export function createMcpEndpoint(deps: AppDeps, prepare: PrepareAdapter, versio
     try {
       // v3.0 D2: the server's instructions read the person's settings, so it is built by an async call.
       // v33 SHARE-8: built for the caller (McpCaller {id, payer}); each tool call names its profile (profiles.ts).
-      server = await createMcpServer(deps, caller, prepare, version);
+      // v34 INT-A (MCPDIR's exact edit 1): serverInfo's websiteUrl and icon addresses are the request's own trusted
+      // public origin (APP_ORIGIN, or the test tunnel Claude connected through: config/public-origin.ts).
+      server = await createMcpServer(deps, caller, prepare, version, publicOriginOf(deps.config, req));
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (error) {

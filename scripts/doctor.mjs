@@ -5,7 +5,8 @@ import { existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { databaseSettings, loadRootEnv, outsideSettings, readEnvText, repoRoot } from './env.mjs';
+// v34 AIKEY: aiBillingState, API_KEY_AUTH_METHODS, cliChildEnv
+import { aiBillingState, API_KEY_AUTH_METHODS, cliChildEnv, databaseSettings, loadRootEnv, outsideSettings, readEnvText, repoRoot } from './env.mjs';
 import { paint } from './proc.mjs';
 
 loadRootEnv();
@@ -88,23 +89,59 @@ check('Chrome/Edge for PDF', Boolean(chrome), chrome ?? 'none found -> set CHROM
 // Claude CLI (the AI provider)
 const cli = process.env.AI_CLI_BIN || 'claude';
 const shell = process.platform === 'win32';
-const version = spawnSync(cli, ['--version'], { encoding: 'utf8', shell, windowsHide: true, timeout: 20_000 });
+// v34 AIKEY (review fix L4): AI_BILLING as the API reads it (an unknown value refuses the API's start), and the CLI asked
+// with the environment the API gives it (cliChildEnv, the rule of apps/api/src/ai/provider/env.ts), so a stray key or
+// token in .env changes nothing here that it would not change for the API. The key is never printed.
+const billingState = aiBillingState(process.env.AI_BILLING);
+const billing = 'error' in billingState ? null : billingState.billing;
+check(
+  'AI billing (AI_BILLING)',
+  billing !== null,
+  billing === null
+    ? `${billingState.error} -> fix AI_BILLING in .env (the API refuses to start)`
+    : billing === 'api-key'
+      ? 'api-key: every AI call is billed to ANTHROPIC_API_KEY'
+      : "subscription: the claude CLI's own sign-in",
+);
+const childEnv = cliChildEnv(process.env, billing ?? 'subscription');
+// end v34 AIKEY
+const version = spawnSync(cli, ['--version'], { encoding: 'utf8', shell, windowsHide: true, timeout: 20_000, env: childEnv });
 if (version.status !== 0) {
   check('claude CLI', false, 'not found -> npm i -g @anthropic-ai/claude-code, then: claude auth login');
-} else {
+} else if (billing !== null) {
   check('claude CLI', true, version.stdout.trim());
-  const status = spawnSync(cli, ['auth', 'status'], { encoding: 'utf8', shell, windowsHide: true, timeout: 20_000 });
+  const status = spawnSync(cli, ['auth', 'status'], { encoding: 'utf8', shell, windowsHide: true, timeout: 20_000, env: childEnv });
   let info = null;
   try {
     info = JSON.parse(status.stdout);
   } catch {
     /* not JSON */
   }
-  check(
-    'claude signed in (subscription)',
-    Boolean(info?.loggedIn) && info?.authMethod !== 'api_key',
-    info ? `loggedIn=${info.loggedIn} authMethod=${info.authMethod} plan=${info.subscriptionType ?? '?'}` : 'run: claude auth login',
-  );
+  if (billing === 'api-key') {
+    // v34 AIKEY: ANTHROPIC_API_KEY set, and the CLI naming a key as its source (or, naming none, an API-key sign-in:
+    // API_KEY_AUTH_METHODS, as the API's isApiKeySignIn).
+    const keySet = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+    const onKey =
+      Boolean(info?.loggedIn) && (info?.apiKeySource ? info.apiKeySource !== 'none' : API_KEY_AUTH_METHODS.includes(info?.authMethod));
+    check(
+      'claude on the Anthropic API key (AI_BILLING=api-key)',
+      keySet && onKey,
+      !keySet
+        ? 'ANTHROPIC_API_KEY is not set -> set it in .env (the API refuses to start without it)'
+        : info
+          ? `loggedIn=${info.loggedIn} authMethod=${info.authMethod} apiKeySource=${info.apiKeySource ?? '?'}`
+          : '"claude auth status" did not answer with JSON',
+    );
+    // end v34 AIKEY
+  } else {
+    check(
+      'claude signed in (subscription)',
+      Boolean(info?.loggedIn) && info?.authMethod !== 'api_key',
+      info ? `loggedIn=${info.loggedIn} authMethod=${info.authMethod} plan=${info.subscriptionType ?? '?'}` : 'run: claude auth login',
+    );
+  }
+} else {
+  check('claude CLI', true, version.stdout.trim());
 }
 check('AI model', true, process.env.AI_CLI_MODEL || 'claude-sonnet-5-5 (default)');
 
@@ -113,7 +150,6 @@ check('AI model', true, process.env.AI_CLI_MODEL || 'claude-sonnet-5-5 (default)
 const LOOPBACK_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|::1|\[::1\])$/i;
 const WILDCARD_HOST = /^(?:0\.0\.0\.0|::|\[::\])$/;
 const bareHost = (host) => host.toLowerCase().replace(/^\[(.*)\]$/, '$1');
-const urlHost = (host) => (bareHost(host).includes(':') ? `[${bareHost(host)}]` : bareHost(host));
 const webHost = process.env.WEB_HOST?.trim() || 'localhost';
 const webPort = process.env.WEB_PORT?.trim() || '3100';
 const apiHost = process.env.API_HOST?.trim() || '127.0.0.1';
@@ -156,8 +192,8 @@ if (internal) {
     addressProblems.push(`API_INTERNAL_URL=${internal} is not an address`);
   }
 }
-const dialApi = WILDCARD_HOST.test(apiHost) || /^localhost$/i.test(apiHost) ? '127.0.0.1' : urlHost(apiHost);
-const mcpEndpoint = process.env.MCP_PUBLIC_URL?.trim() || `http://${dialApi}:${apiPort}/mcp`;
+// v34 ORIGIN: the MCP endpoint is APP_ORIGIN/mcp unless MCP_PUBLIC_URL says otherwise (v3.1: the web passes /mcp on).
+const mcpEndpoint = process.env.MCP_PUBLIC_URL?.trim() || `${appOrigin?.origin ?? appOriginSetting}/mcp`;
 check(
   'Addresses',
   addressProblems.length === 0,
@@ -165,16 +201,40 @@ check(
     ? `${addressProblems.join('; ')} -> see "Addresses" in .env.example`
     : `open ${appOrigin.origin}; web listens on ${webHost}:${webPort}, API on ${apiHost}:${apiPort}; MCP ${mcpEndpoint}`,
 );
+// v34 ORIGIN (PLAN G8): people, Claude and ChatGPT reach a public TailorIT at an https address (the API only warns at
+// its start: the release export's boot check starts production on http://localhost). Checked whenever APP_ORIGIN is a
+// public name or address (DEPLOYMENT tells servers to leave NODE_ENV out of .env, so doctor runs without it: the ORIGIN
+// spec review, finding 1), or NODE_ENV=production; this computer, a private address or a local network's name is fine.
+const PRIVATE_V4 = /^(?:10\.|127\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/;
+const LOCAL_NAME = /(?:^|\.)(?:localhost|local|lan|internal|intranet|home|home\.arpa|corp|localdomain)$/;
+const isPublicHost = (host) => {
+  const name = bareHost(host).replace(/\.+$/, '');
+  if (!name.includes('.') || name.includes(':') || LOOPBACK_HOST.test(name) || LOCAL_NAME.test(name)) return false;
+  return !PRIVATE_V4.test(name);
+};
+if (process.env.NODE_ENV === 'production' || (appOrigin && isPublicHost(appOrigin.hostname))) {
+  const https = appOrigin?.protocol === 'https:';
+  check(
+    'HTTPS address',
+    https,
+    https
+      ? appOrigin.origin
+      : `APP_ORIGIN=${appOriginSetting} is not https -> put TailorIT behind https (DEPLOYMENT.md) and set APP_ORIGIN to that address`,
+  );
+}
 const exposed = [['WEB_HOST', webHost], ['API_HOST', apiHost]].filter(([, host]) => !LOOPBACK_HOST.test(host));
 if (exposed.length) {
   const names = exposed.map(([name, host]) => `${name}=${host}`).join(', ');
   const fixedCode = Boolean(process.env.AUTH_DEV_FIXED_CODE?.trim()) && process.env.NODE_ENV !== 'production';
+  // v34 FIX-API (the final security review, F1): the fixed code answers only this computer, unless the test servers'
+  // AUTH_DEV_FIXED_CODE_ANY_ADDRESS is on.
+  const fixedAnywhere = fixedCode && /^(1|true|yes|on)$/i.test(process.env.AUTH_DEV_FIXED_CODE_ANY_ADDRESS?.trim() ?? '');
   check(
     'Network exposure',
-    !fixedCode,
-    fixedCode
-      ? `${names} with AUTH_DEV_FIXED_CODE set: anyone on the network signs in as anyone -> clear AUTH_DEV_FIXED_CODE`
-      : `${names}: other computers on the network can reach it (sign-in and tokens still apply)`,
+    !fixedAnywhere,
+    fixedAnywhere
+      ? `${names} with AUTH_DEV_FIXED_CODE and AUTH_DEV_FIXED_CODE_ANY_ADDRESS set: anyone on the network signs in as anyone -> clear both`
+      : `${names}: other computers on the network can reach it (sign-in and tokens still apply${fixedCode ? '; AUTH_DEV_FIXED_CODE works only from this computer' : ''})`,
   );
 }
 

@@ -17,6 +17,8 @@ export const PREPARE_COPY = {
 
   askTitle: 'Ask before using AI',
   askHint: 'Confirm before Prepare & Queue uses AI.',
+  /** v34 FIX-WEB (final review share M1): on a shared profile, the row is the person's own setting. */
+  askOwnHint: 'Your own on every profile: confirm before Prepare & Queue uses your AI.',
   askOn: 'TailorIT asks before Prepare & Queue uses its AI',
   askOff: 'Prepare & Queue starts without asking',
 } as const;

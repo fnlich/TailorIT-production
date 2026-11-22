@@ -7,13 +7,14 @@ import type { AppDeps } from '../../core/context';
 import { AppError, validationFailed } from '../../core/http/errors';
 import { untrustedText } from '../autofill/ai/untrusted';
 import { reasonsFor } from '../prepare/kit'; // v33 SHARE-8
-import { rulesPointer } from './instructions';
+import { unreadInstructions } from './instructions';
 import { mcpJobOf } from './job';
 import { finishIfDone } from './next';
 import { assertRoomForResumes } from './limits';
-import { profileWrapped } from './profiles'; // v33 SHARE-8
+import { filterTextFenced } from './profiles'; // v33 SHARE-8; v34 MCPFAN: filterTextFenced
 import { loadResultSet, readSetCursor, saveResultSet, setCursor, SET_GONE, type SetScope } from './result-sets';
-import { refuseGrantTripwire, type SaveContext } from './save';
+import { refuseFencedData, type SaveContext } from './save';
+import { refuseWrittenLeaks } from './written'; // v34 MCPDIR
 
 // v2.0 P5 (07-mcp.md "New"; 06-filters-analysis.md): which saved jobs the person's own AI prepares is decided by the
 // platform, never by that AI (R1).
@@ -33,6 +34,17 @@ import { refuseGrantTripwire, type SaveContext } from './save';
 // tripwire, a reason from an eligibility answer reads as one `eligibility` without `sensitive:view` (maskEligibility),
 // verdict reasons holding a tripwire of the caller's grants are refused, and prepare_start starts the caller's Prepares
 // there, paid by the caller under the grant (payerOfGrant(grant, 'mcp')).
+// v34 MCPFAN (the MCPFAN security review, M1 and M2; the coordinator's decisions 1 and 2): on EVERY profile, the
+// caller's own included and with Sensitive answers' See too, the Custom filter prompt comes fenced as the profile's data
+// (filterTextFenced: someone the profile is shared with may have written it), and a reason from an eligibility answer
+// (sponsorship, clearance, a citizenship) reads as one `eligibility` in filter_jobs and prepare_start
+// (REASONS_TO_AI): the person's AI never reads those answers, nor a filter switch that states them.
+
+/**
+ * v34 MCPFAN (the coordinator's decision 2): how MCP's filter reasons read on every profile: an eligibility reason as
+ * one `eligibility` (prepare/kit.ts reasonsFor, as for a share without Sensitive answers' See).
+ */
+const REASONS_TO_AI = { sensitive: false } as const;
 
 /** One row of a run: [job id, 1 pass | 0 fail, the first reason code or ""]. */
 type FilterRow = [number, 0 | 1, string];
@@ -48,7 +60,8 @@ interface FilterRun {
   promptHash: string | null;
   /**
    * v33 SHARE-8 (review): whether the rows name eligibility reasons (made by a caller who could see them). Its later
-   * pages are gone for a caller who cannot (any more); missing (a run made before this): as if true.
+   * pages are gone for a caller who cannot (any more); missing (a run made before this): as if true. v34 MCPFAN: false
+   * for every run made now (REASONS_TO_AI); an earlier run that named them is gone on every profile.
    */
   sensitive?: boolean;
 }
@@ -92,7 +105,10 @@ export const CUSTOM_PENDING = 'custom_pending';
 /** P4's service; refused plainly while a server has none (a build before INT wires it). */
 function filters(deps: AppDeps) {
   const service = deps.services.prepareFilters;
-  if (!service) throw new AppError('internal', 'The prepare filters are not available on this TailorIT server.');
+  if (!service) {
+    // v34 MCPDIR: what to do.
+    throw new AppError('internal', 'The prepare filters are not available on this TailorIT server: tell the person (its operator turns them on).');
+  }
   return service;
 }
 
@@ -130,8 +146,8 @@ async function entriesOfJobs(deps: Pick<AppDeps, 'db'>, userId: string, jobIds: 
  * A check's row: pass, a failing filter's first reason, the Custom filter's fail, or not judged yet. v33 SHARE-8: the
  * reason as the caller may see it on the profile (`sensitive` false: an eligibility reason is one `eligibility`).
  */
-function rowOf(check: FilterCheck, sensitive = true): FilterRow {
-  if (check.verdict.verdict === 'fail') return [check.jobId, 0, reasonsFor({ sensitive }, check.verdict.reasons)[0]?.code ?? 'filtered'];
+function rowOf(check: FilterCheck): FilterRow {
+  if (check.verdict.verdict === 'fail') return [check.jobId, 0, reasonsFor(REASONS_TO_AI, check.verdict.reasons)[0]?.code ?? 'filtered'];
   if (check.custom === 'fail') return [check.jobId, 0, 'custom'];
   return [check.jobId, 1, check.custom === 'pending' ? CUSTOM_PENDING : ''];
 }
@@ -155,10 +171,10 @@ async function pageOf(
     fail: run.rows.length - pass,
     cols: FILTER_COLUMNS,
     rows,
-    // v33 SHARE-8: the owner's prompt in the profile's wrapper on another person's profile.
-    ...(pendingHere.length > 0 && prompt !== null ? { custom: { prompt: profileWrapped(ctx.profile, prompt), pending: pendingHere } } : {}),
+    // v33 SHARE-8: the owner's prompt in the profile's wrapper. v34 MCPFAN: on every profile (filterTextFenced).
+    ...(pendingHere.length > 0 && prompt !== null ? { custom: { prompt: filterTextFenced(ctx.profile, prompt), pending: pendingHere } } : {}),
     ...(offset + size < run.rows.length ? { nextCursor: setCursor(runId, offset + size) } : {}),
-    ...(await rulesPointer(deps, ctx.caller.id, ctx.tokenId ?? null)),
+    ...(await unreadInstructions(deps, ctx.caller.id, ctx.tokenId ?? null)), // v34 MCPDIR: neutral metadata
   };
 }
 
@@ -195,7 +211,8 @@ export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
     if (set.source !== 'filter') throw validationFailed('cursor: that cursor is not a filter_jobs cursor.');
     const run = set.query as FilterRun;
     // v33 SHARE-8 (review): rows made while the caller saw eligibility reasons are not paged to one who no longer does.
-    if (!ctx.profile.sensitive && run.sensitive !== false) throw new AppError('not_found', SET_GONE);
+    // v34 MCPFAN: no run names them now (REASONS_TO_AI): one made before is gone on every profile.
+    if (run.sensitive !== false) throw new AppError('not_found', SET_GONE);
     const custom = await service.customPrompt(userId);
     return pageOf(ctx, set.id, run, offset, custom && custom.hash === run.promptHash ? custom.prompt : null);
   }
@@ -225,7 +242,7 @@ export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
   const unknown = await unknownToViewer(ctx, extra); // v33 SHARE-8 (review)
   const rows = entries.flatMap((entry) => {
     const check = byApplication.get(entry.applicationId);
-    return check ? [rowOf(withUnknown(check, unknown), ctx.profile.sensitive)] : [];
+    return check ? [rowOf(withUnknown(check, unknown))] : [];
   });
   const custom = await service.customPrompt(userId);
   const run: FilterRun = {
@@ -236,7 +253,7 @@ export async function filterJobs(ctx: SaveContext, input: FilterJobsInput) {
     rows,
     pending: rows.filter((row) => row[2] === CUSTOM_PENDING).map((row) => row[0]),
     promptHash: custom?.hash ?? null,
-    sensitive: ctx.profile.sensitive, // v33 SHARE-8 (review)
+    sensitive: REASONS_TO_AI.sensitive, // v33 SHARE-8 (review); v34 MCPFAN: never by name
   };
   const passing = rows.filter((row) => row[1] === 1).map((row) => row[0]);
   const set = await saveResultSet(deps, ctx.sets, 'filter', run, passing, passing.length);
@@ -285,7 +302,8 @@ export async function customFilterVerdicts(
   verdicts: ReadonlyArray<{ jobId: number; pass: boolean; reason?: string }>,
 ) {
   const { deps, userId } = ctx;
-  refuseGrantTripwire(ctx, verdicts.map((verdict) => verdict.reason ?? '')); // v33 SHARE-8
+  refuseFencedData(ctx, verdicts.map((verdict) => verdict.reason ?? '')); // v33 SHARE-8
+  await refuseWrittenLeaks(ctx, verdicts.map((verdict) => verdict.reason ?? '')); // v34 MCPDIR
   const service = filters(deps);
   const custom = await service.customPrompt(userId);
   const ignored: number[] = [];
@@ -396,7 +414,7 @@ export async function prepareStart(ctx: SaveContext, input: PrepareStartInput) {
       toStart.push(entry.applicationId);
       continue;
     }
-    const [, ok, why] = rowOf(check, ctx.profile.sensitive);
+    const [, ok, why] = rowOf(check); // v34 MCPFAN: REASONS_TO_AI
     if (ok === 0) rows.set(entry.applicationId, [entry.key, 'filtered', why]);
     else if (why === CUSTOM_PENDING) rows.set(entry.applicationId, [entry.key, 'skipped', CUSTOM_PENDING]);
     else toStart.push(entry.applicationId);
@@ -416,7 +434,7 @@ export async function prepareStart(ctx: SaveContext, input: PrepareStartInput) {
         deps,
         userId,
         { applicationIds: chunk, rebuild: input.rebuild ?? false },
-        { payer: ctx.profile.payer, viewer: { sensitive: ctx.profile.sensitive } },
+        { payer: ctx.profile.payer, viewer: REASONS_TO_AI }, // v34 MCPFAN: an eligibility reason as one word
       );
       for (const result of answer.results) {
         const key = keys.get(result.applicationId) ?? result.applicationId;

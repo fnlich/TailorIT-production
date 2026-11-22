@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { OAUTH_PAGE_ERRORS, type OAuthPageError, type OAuthRequestView } from '@tailorit/shared/oauth';
+import { PUBLIC_PAGE_PATHS } from '@tailorit/shared/public-pages'; // v34 FIX-COPY
 import { LimitNotice } from '@/components/limits/LimitNotice';
 import { LogoMark } from '@/components/shell/Logo';
 import { Button, buttonClasses } from '@/components/ui/Button';
@@ -13,13 +14,15 @@ import { LetterAvatar, lettersOf } from '@/components/ui/LetterAvatar';
 import { Notice } from '@/components/ui/Notice';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { isLimitError, userMessage } from '@/lib/api';
+import { TextLink } from '../public/prose'; // v34 FIX-COPY: the public pages' in-sentence link
 import { fetchOAuthRequest, sendOAuthConsent } from './api';
-import { CONSENT_COPY, CONSENT_ERRORS, clientName } from './copy';
+import { ASKS, CONSENT_COPY, CONSENT_ERRORS, askerOf, clientName } from './copy';
 
 // v3.1 OAUTH: the consent page (/oauth/consent?request=<id>), where an AI app the person connects (Claude, ChatGPT)
 // asks for their TailorIT account: the app's name and where it is described, where the browser goes next (a warning
 // when that is a program on this computer; v31 FIX-AUTH: another when the app is not Claude or ChatGPT by their exact
-// addresses), what it can and cannot do, Allow and Cancel. Signed-in only (the app
+// addresses), what it can and cannot do, Allow and Cancel. v34 ORIGIN: the scopes in plain words, and an app described
+// at an address named by that address's host in the heading. Signed-in only (the app
 // layout's AuthGate keeps the address through sign-in), and only in the browser that began the request: the API
 // checks that. The page is never framed (next.config.ts: frame-ancestors 'none'). After either answer the browser goes
 // back to the app, which shows the result.
@@ -73,6 +76,9 @@ function List({ items, tone }: { items: readonly string[]; tone: 'can' | 'cannot
 
 function RequestPanel({ requestId, view }: { requestId: string; view: OAuthRequestView }) {
   const name = clientName(view);
+  // v34 ORIGIN: an app described at an address is named by its host (its own name stays beside it, in the App row).
+  const asker = askerOf(view);
+  const asks = ASKS; // every connection gets both, whatever scopes the app named (view.scopes)
   // v31 FIX-AUTH (SEC-5): TailorIT knows Claude and ChatGPT by their exact addresses; any other app is unverified.
   const unverified = view.client.kind === 'other';
   const heading = useRef<HTMLHeadingElement>(null);
@@ -95,7 +101,7 @@ function RequestPanel({ requestId, view }: { requestId: string; view: OAuthReque
       <div className="flex items-center gap-3" aria-hidden="true">
         <LogoMark size={40} />
         <span className="h-px w-6 border-t-[1.5px] border-dashed border-border-strong" />
-        <LetterAvatar letters={lettersOf(name)} size={40} tone="tint" />
+        <LetterAvatar letters={lettersOf(asker)} size={40} tone="tint" />
       </div>
       <div className="mt-5 flex items-start gap-1.5">
         <h1
@@ -104,7 +110,7 @@ function RequestPanel({ requestId, view }: { requestId: string; view: OAuthReque
           tabIndex={-1}
           className="min-w-0 font-display text-xl leading-7 font-semibold break-words text-foreground outline-none"
         >
-          {CONSENT_COPY.title(name)}
+          {CONSENT_COPY.title(asker)}
         </h1>
         <HelpTip label={CONSENT_COPY.pageTitle} className="mt-1">
           {CONSENT_COPY.intro}
@@ -120,6 +126,18 @@ function RequestPanel({ requestId, view }: { requestId: string; view: OAuthReque
           </span>
           {unverified && <span className="block text-muted-foreground">{CONSENT_COPY.unverifiedLabel}</span>}
         </dd>
+        {asks.length > 0 && (
+          <>
+            <dt className="text-muted-foreground">{CONSENT_COPY.asksLabel}</dt>
+            <dd className="min-w-0 text-foreground">
+              <ul className="flex flex-col gap-0.5">
+                {asks.map((words) => (
+                  <li key={words}>{words}</li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
         <dt className="text-muted-foreground">{CONSENT_COPY.returnLabel}</dt>
         <dd className="min-w-0 font-semibold break-words text-foreground">{view.redirectHost}</dd>
       </dl>
@@ -155,7 +173,7 @@ function RequestPanel({ requestId, view }: { requestId: string; view: OAuthReque
         ))}
       {leaving && (
         <p role="status" className="mt-5 text-sm text-muted-foreground">
-          {CONSENT_COPY.leaving(name)}
+          {CONSENT_COPY.leaving(asker)}
         </p>
       )}
 
@@ -167,6 +185,11 @@ function RequestPanel({ requestId, view }: { requestId: string; view: OAuthReque
           {answer.isPending && answer.variables === 'allow' ? CONSENT_COPY.allowing : CONSENT_COPY.allow}
         </Button>
       </div>
+      {/* v34 FIX-COPY (final review dir D4 = ux U-L8): the public pages, at their fixed paths, before Allow. */}
+      <p className="mt-4 text-[13px] leading-5 text-muted-foreground" data-consent-policies="">
+        {CONSENT_COPY.policiesLead} <TextLink href={PUBLIC_PAGE_PATHS.privacy}>{CONSENT_COPY.privacy}</TextLink> and{' '}
+        <TextLink href={PUBLIC_PAGE_PATHS.terms}>{CONSENT_COPY.terms}</TextLink>.
+      </p>
     </Panel>
   );
 }

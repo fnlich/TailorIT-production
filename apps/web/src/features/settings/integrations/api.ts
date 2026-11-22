@@ -2,6 +2,7 @@ import {
   McpSettingsSchema,
   McpTokenCreatedSchema,
   McpTokenListSchema,
+  type McpPendingDecision, // v34 MCPDIR
   type McpSettings,
   type McpSettingsBody,
   type McpTokenCreated,
@@ -42,17 +43,24 @@ export function fetchMcpSettings(signal?: AbortSignal): Promise<McpSettings> {
 export function saveMcpSettings(body: McpSettingsBody): Promise<McpSettings> {
   return api.put<McpSettings>('/api/mcp/settings', body, { schema: McpSettingsSchema });
 }
+
+// v34 MCPDIR: custom instructions the person's AI asked for wait for the person's OK.
+/** POST /api/mcp/settings/pending: approve (they become the custom instructions) or discard them. */
+export function decidePendingInstructions(decision: McpPendingDecision['decision']): Promise<McpSettings> {
+  return api.post<McpSettings>('/api/mcp/settings/pending', { decision }, { schema: McpSettingsSchema });
+}
 // end v1.5 Q1
 
 // v31 INTEG: TailorIT's own address as Claude and ChatGPT see it. The authorization server's metadata (RFC 8414, served
-// beside /mcp at the address people open: Next's rewrites, Caddy's @api_direct block) names its issuer, APP_ORIGIN, from
-// the configuration (never the request's Host). The Connect dialog checks it is a public https address.
+// beside /mcp at the address people open: Next's rewrites, Caddy's @api_direct block) names its issuer: v34 ORIGIN, the
+// address this page is open at (APP_ORIGIN, or a trusted test tunnel's; never the request's Host header). The Connect
+// dialog checks it is a public https address.
 export const OAUTH_SERVER_KEY = ['oauth', 'server'] as const;
 
 const AuthorizationServerSchema = z.object({ issuer: z.string() });
 export type AuthorizationServer = z.infer<typeof AuthorizationServerSchema>;
 
-/** GET /.well-known/oauth-authorization-server: the issuer (APP_ORIGIN). */
+/** GET /.well-known/oauth-authorization-server: the issuer (v34 ORIGIN: the address this page is open at). */
 export function fetchAuthorizationServer(signal?: AbortSignal): Promise<AuthorizationServer> {
   return api.get<AuthorizationServer>(OAUTH_SERVER_METADATA_PATH, { signal, schema: AuthorizationServerSchema });
 }

@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { IsoDateTime } from '../core/list';
+// v34 AIKEY: who pays for TailorIT's own AI (AI_BILLING).
+import { AI_BILLING_MODES } from './billing';
+export { AI_BILLING_MODES, type AiBilling } from './billing';
+// end v34 AIKEY
 
 // AI work runs through the local Claude CLI and can take minutes, longer than Next's /api proxy waits. So every AI
 // endpoint answers `202 { taskId }` and the page polls GET /api/ai/tasks/:id until the task finishes.
@@ -120,6 +124,8 @@ export const AiHealthSchema = z.object({
   models: z.record(z.string(), z.string()),
   message: z.string(),
   checkedAt: IsoDateTime,
+  /** v34 AIKEY: AI_BILLING, how this server's AI is paid for (never the key). */
+  billing: z.enum(AI_BILLING_MODES),
 });
 export type AiHealth = z.infer<typeof AiHealthSchema>;
 
@@ -259,6 +265,19 @@ export const AiCapacitySchema = z.object({
     writtenOffMicros: z.number().int().nonnegative(),
   }),
   checkedAt: IsoDateTime,
+  /**
+   * v34 AIKEY (review fix H1): with AI_BILLING=api-key only (absent on a subscription): the whole server's AI spend this
+   * UTC day against AI_KEY_DAILY_BUDGET_USD. `reached`: every server-AI action is refused until `resetsAt` (00:00 UTC).
+   */
+  keyBudget: z
+    .object({
+      capMicros: z.number().int().nonnegative(),
+      spentMicros: z.number().int().nonnegative(),
+      dayStart: IsoDateTime,
+      resetsAt: IsoDateTime,
+      reached: z.boolean(),
+    })
+    .optional(),
 });
 export type AiCapacity = z.infer<typeof AiCapacitySchema>;
 // end v2.0 --------------------------------------------------------------------------------------------------------

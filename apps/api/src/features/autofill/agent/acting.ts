@@ -17,4 +17,5 @@ export const AGENT_ACTING = {
   'DELETE /agent/queue/:id': 'queue:edit',
   'GET /agent/settings': 'settings:view',
   'PUT /agent/settings': 'settings:edit',
+  'PATCH /agent/settings': 'settings:edit', // v34 FANOUT
 } as const satisfies ActingTable;

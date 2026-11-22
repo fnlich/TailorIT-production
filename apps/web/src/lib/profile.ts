@@ -420,6 +420,7 @@ export function sectionListPath(pathname: string, toShared: boolean): string {
   if (inside('/auto-apply')) return '/auto-apply';
   if (inside('/notifications')) return '/notifications';
   if (inside(SHARING_PROFILES_PATH)) return SHARING_PROFILES_PATH;
+  if (inside('/help')) return '/help'; // v34 HELP: the guide is the same on every profile
   if (inside('/resumes')) return '/documents?tab=resumes';
   if (inside('/cover-letter-template')) return '/documents?tab=templates';
   if (inside('/cover-letter')) return '/documents?tab=letters';

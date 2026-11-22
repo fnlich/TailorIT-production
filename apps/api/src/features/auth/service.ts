@@ -28,6 +28,7 @@ import type { AppDeps } from '../../core/context';
 import { AppError } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse';
 import { createSmtpMailer, type Mailer } from '../../core/mail/mailer';
+import { deletionRequestOf } from '../account-deletion/service'; // v34 ACCTDEL
 import { signInCodeEmail } from '../../core/mail/sign-in-code';
 
 // Passwordless sign-in (free_tailor's rules). Both paths prove control of an address and then do exactly the same
@@ -170,16 +171,20 @@ export async function requestEmailCode(deps: AppDeps, rawEmail: string): Promise
   };
 }
 
-/** Checks an emailed code; the address it proves is returned for completeSignIn. */
-export async function verifyEmailCode(deps: AppDeps, rawEmail: string, rawCode: string): Promise<ProvenIdentity> {
+/**
+ * Checks an emailed code; the address it proves is returned for completeSignIn. v34 FIX-API (the final security review,
+ * F1): `fixedCodeHere`, whether AUTH_DEV_FIXED_CODE may sign this request in (core/auth/fixed-code.ts fixedCodeUsable:
+ * from this computer only, or the test servers' opt-in); otherwise the fixed code is checked as any wrong code is.
+ */
+export async function verifyEmailCode(deps: AppDeps, rawEmail: string, rawCode: string, fixedCodeHere = false): Promise<ProvenIdentity> {
   const email = normalizeEmail(rawEmail);
   if (!isEmailAddress(email)) throw invalid('email', NOT_AN_EMAIL);
   const code = rawCode.trim();
   if (!/^\d{6}$/.test(code)) throw invalid('code', NOT_SIX_DIGITS);
 
   const fixed = deps.config.auth.devFixedCode;
-  if (fixed !== null && code === fixed) {
-    // AUTH_DEV_FIXED_CODE (never set in production) signs in any address, requested or not.
+  if (fixed !== null && fixedCodeHere && code === fixed) {
+    // AUTH_DEV_FIXED_CODE (never set in production) signs in any address, requested or not, from this computer.
     await deleteLoginCode(deps, email);
     return { email };
   }
@@ -223,6 +228,10 @@ export async function completeSignIn(deps: AppDeps, req: Request, res: Response,
   const result = await deps.db.tx(
     async () => {
       const { user, created } = await findOrCreateUser(deps, identity);
+      // v34 ACCTDEL: an account whose deletion has not finished says so (it is off, and goes on its own within a day).
+      if (user.disabled_at && (await deletionRequestOf(deps.db, user.id))) {
+        throw refuse(deps, 'account_being_deleted', 'MSG_ACCOUNT_BEING_DELETED');
+      }
       if (user.disabled_at) throw new AppError('account_disabled', ACCOUNT_DISABLED);
       await promoteIfConfiguredAdmin(deps, user);
       if (created) await grantNewAdminPaid(deps, user); // v30 FIX-B (BEH-7, P6.3): the admin's first term on a fresh install

@@ -133,7 +133,8 @@ export interface ConnectReadiness {
 
 /**
  * Whether Claude and ChatGPT can connect (D6): both call TailorIT from the internet, the MCP endpoint and the OAuth
- * server at `appOrigin` (the authorization server's issuer, APP_ORIGIN), so both must be public https addresses
+ * server at `appOrigin` (the authorization server's issuer: v34 ORIGIN, the address this page is open at, APP_ORIGIN or
+ * a trusted test tunnel's), so both must be public https addresses
  * (`connectorsReachable`). On a local or plain http address the Connect dialog explains this instead.
  */
 export function connectReadiness(endpoint: string, appOrigin: string): ConnectReadiness {
@@ -167,7 +168,8 @@ export const CONNECT_COPY = {
       { title: 'Choose Add', body: `Claude then sends you to ${APP_NAME}. Sign in if it asks.` },
       {
         title: `Choose Allow on ${APP_NAME}'s page`,
-        body: `It names Claude and what it can do with your account. Back in Claude, ${APP_NAME}'s tools are ready in your chats.`,
+        // v34 ORIGIN (spec review 7): the consent page names Claude's own address, claude.ai, in its heading.
+        body: `It names claude.ai and what it can do with your account. Back in Claude, ${APP_NAME}'s tools are ready in your chats.`,
       },
     ] satisfies ConnectStep[],
     action: 'Open Claude',
@@ -212,9 +214,31 @@ export const CONNECT_COPY = {
     file: 'DEPLOYMENT.md',
     after: `in ${APP_NAME}'s folder, section 8, "Put HTTPS in front".`,
   },
-  meanwhile: 'AI clients on this computer can connect with a personal access token.',
+  // v34 FIX-WEB (final review U-L6): the page may be open on another device (a LAN or tunnel address), so the words name
+  // the computer that runs TailorIT, never "this computer".
+  meanwhile: `AI clients on the computer that runs ${APP_NAME} can connect with a personal access token.`,
   useToken: 'Use a personal token',
+  // v34 ORIGIN2 (PLAN G7b): this server at an address Claude's servers can reach, when the page is open elsewhere (this
+  // computer, a LAN address): a fixed one, or a test tunnel whose address only the person knows.
+  elsewhere: {
+    before: (client: string) => `To connect ${client}, open ${APP_NAME} at`,
+    after: 'and connect from there.',
+    tunnel: (client: string) => `To connect ${client} while testing, open ${APP_NAME} at your test tunnel's address,`,
+    tunnelAfter: 'and connect from there.',
+  },
 } as const;
+
+// v34 ORIGIN2
+/** Integrations at `origin` (another address of this server): where the person connects from there. */
+export function integrationsAt(origin: string): string {
+  return `${origin.replace(/\/+$/, '')}${INTEGRATIONS_PATH}`;
+}
+
+/** A tunnel domain (`trycloudflare.com`, from TRUSTED_PUBLIC_HOSTS's `*.trycloudflare.com`) as its addresses look. */
+export function tunnelAddressShape(domain: string): string {
+  return `https://<name>.${domain}`;
+}
+// end v34 ORIGIN2
 
 // ------------------------------------------------------------------------------------------------- Connections
 

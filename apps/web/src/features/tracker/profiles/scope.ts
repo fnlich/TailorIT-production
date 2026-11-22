@@ -55,6 +55,8 @@ export interface TrackerProfile {
   canEdit: boolean;
   /** Its auto-apply markers may be read (prepare:view). */
   canSeePrepare: boolean;
+  /** v34 FANWEB: its saved jobs may be prepared (prepare:run): the All profiles view's Prepare & Queue. */
+  canPrepare: boolean;
 }
 
 const holds = (permissions: readonly SharePermission[], perm: SharePermission) => permissions.includes(perm);
@@ -70,7 +72,7 @@ export function trackerProfiles(
   gone: ReadonlySet<string> = new Set(),
 ): TrackerProfile[] {
   return [
-    { choice: PROFILE_SELF, label: ALL_PROFILES_COPY.you, own: true, canEdit: true, canSeePrepare: true },
+    { choice: PROFILE_SELF, label: ALL_PROFILES_COPY.you, own: true, canEdit: true, canSeePrepare: true, canPrepare: true },
     ...shared
       .filter((profile) => holds(profile.permissions, 'tracker:view') && !gone.has(profile.key))
       .map((profile) => ({
@@ -79,6 +81,7 @@ export function trackerProfiles(
         own: false,
         canEdit: holds(profile.permissions, 'tracker:edit'),
         canSeePrepare: holds(profile.permissions, 'prepare:view'),
+        canPrepare: holds(profile.permissions, 'prepare:run'),
       })),
   ];
 }

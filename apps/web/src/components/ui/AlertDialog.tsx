@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef, useState, type ReactElement, type ReactNo
 import { Button } from './Button';
 import { BACKDROP } from './Dialog';
 import { InfoIcon, LockSimpleIcon, WarningCircleIcon } from './icons';
+import { ScrollBody } from './ScrollBody';
 
 // v32 COPY (E4): a plan or limit gate, or any notice the person must see, is an alert when they act, never a
 // full-width banner on the page. A short title, one sentence of reason, the main action (Subscribe) and Not now.
@@ -57,6 +58,9 @@ export interface AlertDialogProps {
 /**
  * An alert dialog (role="alertdialog", Base UI AlertDialog: no outside-press dismissal; Escape and the dismiss button
  * close it, focus returns to the button that asked). A tone tile, the title, one sentence, then Not now and the action.
+ * v34 FIX-WEB (final review U-M5): never taller than the window: the title and the buttons stay on screen and the
+ * words between them scroll (a result with a line per profile), so its button is always within reach on a phone,
+ * which has no Escape.
  */
 export function AlertDialog({ open, onOpenChange, alert, finalFocus }: AlertDialogProps) {
   const tone = alert?.tone ?? 'warning';
@@ -89,28 +93,31 @@ export function AlertDialog({ open, onOpenChange, alert, finalFocus }: AlertDial
             ref={popup}
             finalFocus={focusOnClose}
             data-gate-alert={tone}
+            data-kit-modal="" // v34 FIX-WEB (final review U-M4): on a phone the toasts go under it (Toast.tsx).
             {...alert?.dataAttributes}
             className={clsx(
-              'w-full max-w-sm rounded-popup border border-border bg-surface p-6 text-foreground shadow-dialog outline-none',
+              'flex max-h-full w-full max-w-sm flex-col rounded-popup border border-border bg-surface p-6 text-foreground shadow-dialog outline-none',
               'transition-[opacity,scale] duration-200 ease-out-soft data-starting-style:scale-[0.97] data-starting-style:opacity-0',
               'data-ending-style:scale-[0.97] data-ending-style:opacity-0',
             )}
           >
             {alert && (
               <>
-                <div className="flex items-start gap-3.5">
+                <div className="flex min-h-0 items-start gap-3.5">
                   <span className={clsx('flex size-10 shrink-0 items-center justify-center rounded-card', tile.className)} aria-hidden="true">
                     {tile.icon}
                   </span>
-                  <div className="min-w-0 flex-1 pt-0.5">
-                    <BaseAlertDialog.Title className="text-heading font-semibold">{alert.title}</BaseAlertDialog.Title>
-                    <BaseAlertDialog.Description className="mt-1.5 text-sm leading-5 text-muted-foreground">
-                      {alert.message}
-                    </BaseAlertDialog.Description>
-                    {alert.children && <div className="mt-2 text-sm leading-5 text-muted-foreground">{alert.children}</div>}
+                  <div className="flex max-h-full min-h-0 min-w-0 flex-1 flex-col self-stretch pt-0.5">
+                    <BaseAlertDialog.Title className="shrink-0 text-heading font-semibold">{alert.title}</BaseAlertDialog.Title>
+                    <ScrollBody className="-mr-6 pr-6" data-alert-body="">
+                      <BaseAlertDialog.Description className="mt-1.5 text-sm leading-5 text-muted-foreground">
+                        {alert.message}
+                      </BaseAlertDialog.Description>
+                      {alert.children && <div className="mt-2 text-sm leading-5 text-muted-foreground">{alert.children}</div>}
+                    </ScrollBody>
                   </div>
                 </div>
-                <div className="mt-6 flex flex-wrap items-center justify-end gap-2.5">
+                <div className="mt-6 flex shrink-0 flex-wrap items-center justify-end gap-2.5" data-alert-buttons="">
                   <BaseAlertDialog.Close render={<Button variant={!hasAction ? 'primary' : alert.secondaryAction && alert.action ? 'ghost' : 'outline'} className="max-sm:h-11" />}>
                     {alert.dismissLabel ?? (hasAction ? ALERT_COPY.notNow : ALERT_COPY.ok)}
                   </BaseAlertDialog.Close>

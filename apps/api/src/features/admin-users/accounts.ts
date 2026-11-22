@@ -37,6 +37,7 @@ interface AdminUserRow extends UserRow {
   ai_spent_micros: number;
   written_off_micros: number;
   auto_applies: number;
+  being_deleted: boolean; // v34 ACCTDEL
 }
 
 /** The row with its v2.0 columns; `:day` is today's day key. */
@@ -47,7 +48,8 @@ const ROW_SELECT = `SELECT u.*,
     coalesce(s.daily_spent_micros + s.credit_spent_micros, 0) AS ai_spent_micros,
     coalesce(s.written_off_micros, 0) AS written_off_micros,
     (SELECT count(*) FROM auto_apply_reservations r
-      WHERE r.user_id = u.id AND r.day_key = @day AND r.state IN ('reserved', 'used')) AS auto_applies
+      WHERE r.user_id = u.id AND r.day_key = @day AND r.state IN ('reserved', 'used')) AS auto_applies,
+    EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id) AS being_deleted -- v34 ACCTDEL
   FROM users u LEFT JOIN ai_spend_daily s ON s.user_id = u.id AND s.day_key = @day`;
 
 function toAdminUser(row: AdminUserRow, now: Date): AdminUser {
@@ -58,6 +60,7 @@ function toAdminUser(row: AdminUserRow, now: Date): AdminUser {
     name: row.name,
     role: row.role,
     disabled: row.disabled_at !== null,
+    ...(row.being_deleted ? { beingDeleted: true } : {}), // v34 ACCTDEL: its deletion finishes on its own
     createdAt: row.created_at,
     lastSignInAt: row.last_sign_in_at,
     accountType: row.account_type,

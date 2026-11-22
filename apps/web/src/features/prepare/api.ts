@@ -13,6 +13,7 @@ import {
   type PrepareSettingsBody,
   type PrepareStartResponse,
 } from '@tailorit/shared/prepare';
+import { PROFILE_SELF, type ProfileKey } from '@tailorit/shared/sharing';
 import { api } from '../../lib/api';
 
 // v2.0: Prepare & Queue's session routes (docs/design/v2.0/05-prepare-flow.md), as the Auto-apply page, the Tracker's
@@ -22,6 +23,11 @@ import { api } from '../../lib/api';
 export const prepareKeys = {
   all: ['prepare'] as const,
   settings: ['prepare', 'settings'] as const,
+  /**
+   * v34 FIX-WEB (final review share M1): the signed-in person's OWN Prepare settings, read in a document that works on a
+   * profile someone shared (its `settings` are that owner's). See ownPrepareSettingsKey.
+   */
+  ownSettings: ['prepare', 'settings', 'own'] as const,
   drafts: ['prepare', 'draft'] as const,
   draft: (applicationId: string) => ['prepare', 'draft', applicationId] as const,
 };
@@ -61,6 +67,33 @@ export function fetchPrepareSettings(signal?: AbortSignal) {
 /** PUT /api/prepare/settings: any of the fields (the confirm sends `{skipConfirm: true}` alone). */
 export function savePrepareSettings(body: PrepareSettingsBody) {
   return api.put<PrepareSettings>('/api/prepare/settings', body, { schema: PrepareSettingsSchema });
+}
+
+// v34 FIX-WEB (final review share M1, decided: the payer's own) -------------------------------------------------------
+// "Ask before using AI" (skipConfirm) is the PAYER's: whoever starts a Prepare pays for it with their AI use, on their
+// own profile and on any profile shared with them, so whether they are asked first is their own setting, never the
+// profile owner's. The confirm reads it, and "Don't show this again" saves it, on the person's own profile ('me': no
+// profile header), whatever profile the tab works on: the fourth exception to "every /api request names its page's
+// profile" (after /api/auth/*, /api/profiles/* and the own-filters read of the form over every profile). The server
+// never writes it on someone else's profile (FIX-API).
+
+/** GET /api/prepare/settings on the person's own profile ('me'), whatever profile the tab works on. */
+export function fetchOwnPrepareSettings(signal?: AbortSignal) {
+  return api.get<PrepareSettings>('/api/prepare/settings', { signal, profile: PROFILE_SELF, schema: PrepareSettingsSchema });
+}
+
+/** PUT /api/prepare/settings on the person's own profile ('me'): the confirm's `{skipConfirm}`. */
+export function saveOwnPrepareSettings(body: PrepareSettingsBody) {
+  return api.put<PrepareSettings>('/api/prepare/settings', body, { profile: PROFILE_SELF, schema: PrepareSettingsSchema });
+}
+
+/**
+ * Where the person's own Prepare settings sit in this document's cache: on their own profile the tab's settings key (so
+ * Settings › Prepare & Queue and the confirm share one copy), on a shared profile `ownSettings` (the tab's key holds the
+ * owner's). A document's profile never changes (lib/profile.ts), so the key is fixed for its life.
+ */
+export function ownPrepareSettingsKey(documentProfile: ProfileKey | null): readonly string[] {
+  return documentProfile === null ? prepareKeys.settings : prepareKeys.ownSettings;
 }
 
 /** GET /api/applications/:id/draft: the application's kit (the Tracker's "Prepared" tab). */

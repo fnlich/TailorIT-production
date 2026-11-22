@@ -3,7 +3,7 @@ import { assertFeature } from '../../core/accounts/entitlements';
 import { aiUnavailableError } from '../../core/accounts/refusals';
 import { constantsOf } from '../../core/constants/service';
 import type { SaveContext } from './save'; // v33 SHARE-8
-import { validationFailed } from '../../core/http/errors';
+import { AppError, validationFailed } from '../../core/http/errors'; // v34 FIX-API: AppError
 import { assertServerAi } from '../../core/seams';
 import { searchJobs, type SearchArgs } from './tools-jobs';
 
@@ -20,6 +20,9 @@ const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1
 
 /** How long the tool waits for the task. */
 export const AI_SEARCH_WAIT_MS = 60_000;
+
+/** v34 FIX-API (the final directory review, D10): the free way, after a plan's refusal of AI job search over MCP. */
+export const SEARCH_JOBS_INSTEAD = 'Search with search_jobs instead: it is on every plan.';
 
 /** The Jobs page's filters MCP's search has no place for: named in the answer, never silently dropped. */
 const UNMAPPED = ['categories', 'subcategories', 'leadership', 'industries', 'companySizes', 'companies'] as const;
@@ -57,7 +60,13 @@ export async function aiSearchJobs(
   // 'mcp') on another person's: B's budget, B's Paid feature; A's spend stays 0). The search reads the profile's flags.
   const { deps, userId } = ctx;
   const payer = ctx.profile.payer;
-  await assertFeature(deps, payer, 'ai_job_search');
+  try {
+    await assertFeature(deps, payer, 'ai_job_search');
+  } catch (error) {
+    // v34 FIX-API (the final directory review, D10): the refusal names the free way (search_jobs).
+    if (error instanceof AppError && error.code === 'paid_feature') throw new AppError('paid_feature', `${error.message} ${SEARCH_JOBS_INSTEAD}`);
+    throw error;
+  }
   const text = input.text.trim();
   const max = constantsOf(deps).get('AI_SEARCH_TEXT_MAX_CHARS');
   if (!text) throw validationFailed('text: say what jobs the person is looking for.');

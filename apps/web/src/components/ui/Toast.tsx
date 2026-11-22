@@ -90,13 +90,19 @@ function ToastList() {
   ));
 }
 
-/** Holds the toast queue and draws it bottom-right. */
+/**
+ * Holds the toast queue and draws it bottom-right. v34 FIX-WEB (final review U-M4): on a phone a toast spans the width,
+ * so while one of the kit's dialogs is open (a centred popup marked `data-kit-modal`: a dialog, a confirm, an alert)
+ * the toasts sit under the dialogs' layer (z 40 < 50) and never cover its buttons (their words were announced already;
+ * they show again once it closes). With no such dialog open, they are on top as before, over a full-window sheet too
+ * (the job details on a phone), so a save's Undo is always within reach.
+ */
 export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <BaseToast.Provider limit={3}>
       {children}
       <BaseToast.Portal>
-        <BaseToast.Viewport className="pointer-events-none fixed right-4 bottom-4 z-[80] flex w-[calc(100vw-2rem)] flex-col-reverse gap-2.5 outline-none sm:right-6 sm:bottom-6 sm:w-[360px]">
+        <BaseToast.Viewport className="pointer-events-none fixed right-4 bottom-4 z-[80] flex max-sm:[body:has([data-kit-modal])_&]:z-40 w-[calc(100vw-2rem)] flex-col-reverse gap-2.5 outline-none sm:right-6 sm:bottom-6 sm:w-[360px]">
           <ToastList />
         </BaseToast.Viewport>
       </BaseToast.Portal>

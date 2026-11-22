@@ -1,4 +1,4 @@
-import { CONSTANTS } from '@tailorit/shared';
+import { CONSTANTS, type AiBilling } from '@tailorit/shared'; // v34 AIKEY: AiBilling
 import { priceOf, usageOfResult, type AiUsage, type UsageReadOptions } from '../usage';
 
 // Reduces the CLI's stream-json events into one turn's outcome. Unknown event types are ignored by construction: new
@@ -43,6 +43,11 @@ export interface TurnState {
   streamed: StreamedUsage;
   retries: number;
   events: number;
+  /**
+   * v34 AIKEY (review fix L1): the CLI's system/init arrived, or an event other than `system` did (the CLI is past its
+   * init, whether it sent one or not). Either way an apiKeySource still unnamed will never be named.
+   */
+  pastInit: boolean;
 }
 
 /** v20 FIX-A (SEC-1): the usage a turn's stream reported before its end. */
@@ -88,6 +93,7 @@ export function createTurnState(): TurnState {
     },
     retries: 0,
     events: 0,
+    pastInit: false, // v34 AIKEY
   };
 }
 
@@ -154,6 +160,9 @@ export function reduceEvent(state: TurnState, line: string, read: Pick<UsageRead
   }
   if (!isObject(event)) return;
   state.events += 1;
+  // v34 AIKEY (review fix L1): an init names its source in the same event, so after it (or after any later event) a
+  // source still unnamed will not come.
+  if (event.type !== 'system' || event.subtype === 'init') state.pastInit = true;
 
   switch (event.type) {
     case 'system':
@@ -218,6 +227,34 @@ export function turnText(state: TurnState): string {
 export function billedToKey(state: TurnState): boolean {
   return state.apiKeySource !== null && state.apiKeySource !== 'none';
 }
+
+// v34 AIKEY
+/**
+ * True when `system/init` said "none": the CLI's own sign-in, a Claude subscription, pays for the call. A turn whose
+ * init named no source at all is neither (an older CLI), as billedToKey reads it.
+ */
+export function billedToSubscription(state: TurnState): boolean {
+  return state.apiKeySource === 'none';
+}
+
+/**
+ * Review fix L1: the CLI's init named no credential source (or the CLI went past its init without one: an event other
+ * than `system` arrived). With AI_BILLING=api-key that turn is stopped too, at that event: nothing says the key pays,
+ * and whichever sign-in the CLI used would.
+ */
+export function keySourceUnnamed(state: TurnState): boolean {
+  return state.pastInit && !state.apiKeySource?.trim();
+}
+
+/**
+ * Whether the turn is billed the way AI_BILLING forbids, read at every event so the child is stopped at system/init:
+ * to a key with `subscription` (the default, billedToKey as before v3.4), to the subscription with `api-key`, or, with
+ * `api-key`, to a source the CLI never named (review fix L1: stopped at its init, or at its first event without one).
+ */
+export function billedAgainst(state: TurnState, billing: AiBilling): boolean {
+  return billing === 'api-key' ? billedToSubscription(state) || keySourceUnnamed(state) : billedToKey(state);
+}
+// end v34 AIKEY
 
 /**
  * v20 FIX-A (SEC-1): what a turn that ended with no `result` event used, as far as its stream showed: the input and

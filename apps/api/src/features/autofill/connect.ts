@@ -25,6 +25,7 @@ import { getUserById } from '../../core/auth/users';
 import type { AppDeps, SessionUser } from '../../core/context';
 import { AppError } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse';
+import { deletionRequestOf } from '../account-deletion/service'; // v34 FIX-API
 
 // Connecting the TailorIT Autofill extension. The Settings page mints a connect code (16 Crockford base32 characters,
 // 80 random bits) that lives 10 minutes and works once; the database keeps only its SHA-256 and the scopes chosen with
@@ -149,6 +150,11 @@ export async function redeemConnectCode(
     if (!claimed) throw refuse(deps, 'not_signed_in', 'MSG_CONNECT_CODE_EXPIRED');
     await t.lockPerson(claimed.user_id);
     const user = await getUserById(deps, claimed.user_id);
+    // v34 FIX-API (the final security review, F4): an account whose deletion has not finished says so (as sign-in does),
+    // never "ask an administrator to re-enable it", which Admin › Users refuses for it.
+    if (user?.disabled_at && (await deletionRequestOf(t, user.id))) {
+      throw refuse(deps, 'account_being_deleted', 'MSG_ACCOUNT_BEING_DELETED');
+    }
     if (!user || user.disabled_at) throw new AppError('account_disabled', ACCOUNT_DISABLED);
     await assertRoomForExtensionToken(deps, user.id);
 

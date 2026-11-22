@@ -106,7 +106,27 @@ export interface OAuthAccess {
  * minute.
  */
 export async function resolveOAuthAccessToken(deps: Pick<AppDeps, 'db' | 'now'>, token: string, audience: string): Promise<OAuthAccess | null> {
-  if (!isAccessToken(token)) return null;
+  const checked = await checkOAuthAccessToken(deps, token, audience);
+  return checked.ok ? checked.access : null;
+}
+
+// v34 ORIGIN (PLAN G8)
+/**
+ * An access token checked: the account behind it, or why not, telling a token TailorIT issued (`known`: expired,
+ * revoked, for another address, its grant or account ended) from one it never issued or that is no token at all. The
+ * MCP endpoint counts only the latter toward its failed-token limit per address, so the people behind one shared
+ * address (Claude's servers) whose tokens expire are never held back as if they were guessing.
+ */
+export type OAuthAccessCheck = { ok: true; access: OAuthAccess } | { ok: false; known: boolean };
+
+export async function checkOAuthAccessToken(deps: Pick<AppDeps, 'db' | 'now'>, token: string, audience: string): Promise<OAuthAccessCheck> {
+  const access = await readAccessToken(deps, token, audience);
+  return access === 'unknown' ? { ok: false, known: false } : access === 'refused' ? { ok: false, known: true } : { ok: true, access };
+}
+// end v34 ORIGIN
+
+async function readAccessToken(deps: Pick<AppDeps, 'db' | 'now'>, token: string, audience: string): Promise<OAuthAccess | 'unknown' | 'refused'> {
+  if (!isAccessToken(token)) return 'unknown';
   const row = await deps.db.one<{
     kind: string;
     audience: string;
@@ -129,8 +149,10 @@ export async function resolveOAuthAccessToken(deps: Pick<AppDeps, 'db' | 'now'>,
     [hashOAuthSecret(token)],
   );
   const now = deps.now();
-  if (!row || row.kind !== 'access' || row.revoked_at || row.grant_revoked || row.disabled_at) return null;
-  if (Date.parse(row.expires_at) <= now.getTime() || row.audience !== audience) return null;
+  // A refresh token sent as an access token is no access token: unknown, like any string TailorIT never issued as one.
+  if (!row || row.kind !== 'access') return 'unknown';
+  if (row.revoked_at || row.grant_revoked || row.disabled_at) return 'refused';
+  if (Date.parse(row.expires_at) <= now.getTime() || row.audience !== audience) return 'refused';
   let scopes: string[] = [];
   try {
     const parsed: unknown = JSON.parse(row.scopes);
@@ -138,7 +160,7 @@ export async function resolveOAuthAccessToken(deps: Pick<AppDeps, 'db' | 'now'>,
   } catch {
     scopes = [];
   }
-  if (!scopes.includes(OAUTH_SCOPE_MCP)) return null;
+  if (!scopes.includes(OAUTH_SCOPE_MCP)) return 'refused';
   const lastUsed = row.last_used_at ? Date.parse(row.last_used_at) : Number.NaN;
   if (Number.isNaN(lastUsed) || now.getTime() - lastUsed >= LAST_USED_EVERY_MS) {
     await deps.db.run('UPDATE oauth_grants SET last_used_at = ? WHERE id = ?', [now.toISOString(), row.grant_id]);

@@ -12,7 +12,7 @@ import { JobDrawer } from './detail/JobDrawer';
 import { DetailPaneSkeleton, JobDetailPanel, type DrawerNav } from './detail/JobDetailPanel';
 import { clearedQuery } from './filters';
 import { matchCount } from './format';
-import { useFacet, useJobDetail, useJobsList, useRowMatches, useSaveToggle } from './hooks';
+import { failure, useFacet, useJobDetail, useJobsList, useRowMatches, useSaveToggle } from './hooks';
 import type { OpenHow } from './list/JobCard';
 import { JobList, ResultsBar, needsResume, type JobSelection } from './list/JobList';
 import { tabCan, useTabProfile } from '../sharing/access'; // v33 FIX-1
@@ -21,6 +21,13 @@ import { JobsToolbar } from './toolbar/JobsToolbar';
 import { queryKeyOf } from './url';
 import { useJobsUrl } from './useJobsUrl';
 import { usePaneHeight, useSplitLayout } from './useSplitLayout';
+import { useToast } from '@/components/ui/Toast';
+import type { FanoutTargets } from '@tailorit/shared/sharing';
+import type { RowSaveTo } from './list/JobCard';
+import { FANOUT_COPY } from '../sharing/fanout/copy'; // v34 FANWEB
+import { ProfilesDialog } from '../sharing/fanout/parts'; // v34 FANWEB
+import { useSavedOn } from '../sharing/fanout/useFanout'; // v34 FANWEB
+import { useSaveToProfiles } from '../sharing/fanout/useSaveTo'; // v34 FANWEB
 
 const NO_JOBS: ReadonlySet<number> = new Set();
 
@@ -64,6 +71,28 @@ function JobsPageContent() {
   const matches = useRowMatches(pages);
 
   const items = useMemo(() => pages.flatMap((page) => page.items), [pages]);
+  // v34 FANWEB (PLAN G2, G4): with a shared profile, rows and the Select bar save to other profiles too (Save to…), and
+  // each row says which other profiles have its job ("Saved on"), read for the jobs on screen.
+  const toast = useToast();
+  const saveTo = useSaveToProfiles();
+  const itemIds = useMemo(() => items.map((item) => item.id), [items]);
+  const savedOn = useSavedOn(itemIds);
+  /** The jobs the choice of profiles is open for (a row's, or the selection's), and whether it ends the selection. */
+  const [choosingFor, setChoosingFor] = useState<{ jobIds: number[]; selection: boolean } | null>(null);
+  const { save: saveOn, profiles: saveProfiles, label: saveLabel, available: saveAvailable } = saveTo;
+  const rowSaveTo = useMemo<RowSaveTo | undefined>(
+    () =>
+      saveAvailable
+        ? {
+            profiles: saveProfiles,
+            label: saveLabel,
+            onPick: (jobId: number, targets: FanoutTargets) =>
+              void saveOn(targets, [jobId]).catch((error: unknown) => failure(toast, 'The job could not be saved', error)),
+            onChoose: (jobId: number) => setChoosingFor({ jobIds: [jobId], selection: false }),
+          }
+        : undefined,
+    [saveAvailable, saveProfiles, saveLabel, saveOn, toast],
+  );
   const total = pages[0]?.total ?? 0;
   const settled = list.isSuccess && !list.isPlaceholderData;
   const filtersKey = queryKeyOf(query);
@@ -122,6 +151,10 @@ function JobsPageContent() {
       setSelection({ key: filtersKey, ids: on ? new Set(items.filter(choosable).map((item) => item.id)) : NO_JOBS }),
     // Only what the list shows now is saved, in its order.
     onSave: () => saveSelected(items.filter((item) => choosable(item) && selected.has(item.id)).map((item) => item.id)),
+    // v34 FANWEB: the chosen jobs on the profiles chosen next (one request).
+    onSaveTo: saveAvailable
+      ? () => setChoosingFor({ jobIds: items.filter((item) => choosable(item) && selected.has(item.id)).map((item) => item.id), selection: true })
+      : undefined,
     onDone: () => {
       focusAfterMode.current = 'select';
       endSelection();
@@ -303,6 +336,8 @@ function JobsPageContent() {
             onApply={split === false ? quickApply : undefined}
             onToggleSave={toggleSave}
             canSave={trackerEdit}
+            saveTo={rowSaveTo}
+            savedOn={savedOn}
             onClearAll={() => setQuery(clearedQuery(query))}
             companyNames={companyNames}
             selection={selectionProps}
@@ -347,6 +382,31 @@ function JobsPageContent() {
           )}
         </div>
       </div>
+      {saveAvailable && (
+        <ProfilesDialog
+          open={choosingFor !== null}
+          onOpenChange={(open) => !open && setChoosingFor(null)}
+          title={choosingFor && choosingFor.jobIds.length > 1 ? FANOUT_COPY.saveSelectedTitle(choosingFor.jobIds.length) : FANOUT_COPY.saveToTitle}
+          help={FANOUT_COPY.saveToHelp}
+          profiles={saveProfiles}
+          label={saveLabel}
+          savedOn={choosingFor && choosingFor.jobIds.length === 1 ? savedOn.get(choosingFor.jobIds[0]!)?.choices : undefined}
+          initial={choosingFor?.selection ? [saveTo.tab] : []}
+          confirmLabel={FANOUT_COPY.saveToConfirm}
+          // v34 FANWEB fix (spec L2): the Select bar goes with the save: focus returns to Select.
+          finalFocus={choosingFor?.selection ? () => document.querySelector<HTMLElement>('[data-select-start]') ?? true : undefined}
+          onConfirm={async (targets) => {
+            if (!choosingFor) return;
+            await saveOn(targets, choosingFor.jobIds);
+            if (choosingFor.selection) {
+              // v34 FANWEB fix (spec L2): focus back on Select, as Done does (the bar goes).
+              focusAfterMode.current = 'select';
+              endSelection();
+            }
+          }}
+        />
+      )}
+      {saveTo.element}
       {split === false && (
         <JobDrawer
           jobId={jobId}

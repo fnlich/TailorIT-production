@@ -17,8 +17,17 @@ import { credentialColumns } from './tokens'; // v31 OAUTH
 // transaction behind the person's lock (a token is one account's), so two reports at once keep both limits.
 // v31 OAUTH: a report made with an OAuth access token names its grant (grant_id, migration 0041) instead of a personal
 // token, and its hourly count is the grant's (credentialColumns); the list names the connected app.
+// v34 DIRKIT (docs/directory/CHECKLIST.md): MCP_REPORT_REQUEST_TEXT off (a server listed in Claude's directory, which
+// asks for no conversation data beyond what a tool needs), a report keeps only what TailorIT lacks and the tools tried:
+// the request's words are never stored (its column, which needs text, holds REPORT_REQUEST_PLACEHOLDER, the server's
+// own sentence the person reads in Integrations), and the answer says so. The tool's description is the same either way.
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
+
+/** v34 DIRKIT: what the answer says while the request's words are not kept. */
+export const REPORT_REQUEST_NOT_KEPT = "Kept: what TailorIT lacks and the tools tried. This server does not keep the request's words.";
+/** v34 DIRKIT: the report's request line while the words are not kept (the person reads it in Integrations). */
+export const REPORT_REQUEST_PLACEHOLDER = 'What you asked is not kept on this server.';
 
 export interface ReportInput {
   request: string;
@@ -36,6 +45,7 @@ export async function reportUnsupported(deps: Deps, userId: string, tokenId: str
   const tried = [...new Set((input.triedTools ?? []).filter((name) => TOOL_NAME.test(name)))].slice(0, 20);
   const now = deps.now();
   const kept = constantsOf(deps).get('MCP_REPORTS_KEPT');
+  const keepWords = constantsOf(deps).get('MCP_REPORT_REQUEST_TEXT'); // v34 DIRKIT
   return deps.db.tx(async (t) => {
     await t.lockPerson(userId);
     const credential = credentialColumns(tokenId); // v31 OAUTH
@@ -54,7 +64,7 @@ export async function reportUnsupported(deps: Deps, userId: string, tokenId: str
     await t.run(
       `INSERT INTO mcp_unsupported_reports(id, user_id, token_id, grant_id, request, missing, tried_tools, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, userId, credential.tokenId, credential.grantId, request, missing, JSON.stringify(tried), now.toISOString()],
+      [id, userId, credential.tokenId, credential.grantId, keepWords ? request : REPORT_REQUEST_PLACEHOLDER, missing, JSON.stringify(tried), now.toISOString()],
     );
     // seq: the insertion order among reports of one instant (v3.0 PG-G: the baseline's identity column).
     await t.run(
@@ -62,7 +72,7 @@ export async function reportUnsupported(deps: Deps, userId: string, tokenId: str
          SELECT id FROM mcp_unsupported_reports WHERE user_id = ? ORDER BY created_at DESC, ${t.dialect.seq()} DESC LIMIT ?)`,
       [userId, userId, kept],
     );
-    return { reported: id };
+    return keepWords ? { reported: id } : { reported: id, kept: REPORT_REQUEST_NOT_KEPT }; // v34 DIRKIT
   }, { label: 'report_unsupported' });
 }
 

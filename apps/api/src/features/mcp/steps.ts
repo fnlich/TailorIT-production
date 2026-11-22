@@ -11,10 +11,10 @@ import { postingHashOf } from '../tailor/store';
 import { chosenContent, chosenResume, type ChosenResume } from './chosen';
 import { heldAnalysis, mcpJobOf, personFitOf, sourceProfile, type McpJob } from './job';
 import { ANSWER_BATCH_JOBS, mcpPrepareOf, type PrepareStep } from './next';
-import { LETTER_GUIDANCE_MAX, ownerWrap, profileNote, profileWrapped, wrappedWithin } from './profiles'; // v33 SHARE-8
+import { LETTER_GUIDANCE_MAX, ownerWrap, profileNote, wrappedWithin } from './profiles'; // v33 SHARE-8
 import { openQuestions } from './questions';
 import { NO_ANALYSIS, NO_DRAFT_TO_REVISE, NO_FIRST_PASS, RESUME_CHOSEN, TOO_LITTLE_POSTING, type SaveContext } from './save';
-import { tripwireLine } from './screen';
+import { newDataId, postingLabel } from './screen'; // v34 MCPDIR
 import { mcpSettings } from './settings';
 import { analyzePromptText, letterPromptText, reviewPromptText, revisePromptText, tailorPromptText } from './step-text';
 import { writtenFamily } from '../tailor/family'; // v33 PROMPTS
@@ -64,7 +64,7 @@ async function answersJob(ctx: SaveContext, jobId: number): Promise<AnswersJob &
     company: job.company,
     title: job.title,
     posting: job.posting,
-    tripwire: tripwireLine((await workFor(deps, userId, jobId)).canary),
+    label: postingLabel(), // v34 MCPDIR: a data label, a fresh id per call
     chosenId: (await chosenOf(ctx, job)).id,
   };
 }
@@ -80,10 +80,11 @@ async function letterPrompt(ctx: SaveContext, job: McpJob): Promise<string> {
     const family = personFitOf(content.built, job).family;
     return letterPromptText(job.jobId, content.built.profile, held?.analysis ?? null, job.company, job.title, family, wrap);
   }
-  const posting = job.posting.trim() ? `${job.posting}\n${tripwireLine((await workFor(deps, userId, job.jobId)).canary)}` : '';
+  const posting = job.posting; // v34 MCPDIR: its data label goes in once the letter prompt cleaned it (label below)
   const templatePrompt = content.coverLetterTemplate?.aiPrompt ?? '';
   return uploadLetterText({
     jobId: job.jobId,
+    ...(posting.trim() ? { label: postingLabel() } : {}), // v34 MCPDIR
     module: coverLetterPrompt,
     input: {
       job: { companyName: job.company, jobTitle: job.title, jobDescription: posting },
@@ -104,14 +105,14 @@ async function stepText(ctx: SaveContext, step: PrepareStep, ids: readonly numbe
   switch (step) {
     case 'analyze': {
       const job = await readableJob(ctx, jobId);
-      return analyzePromptText(jobId, job.posting, tripwireLine((await workFor(deps, userId, jobId)).canary), job.family);
+      return analyzePromptText(jobId, job.posting, newDataId(), job.family); // v34 MCPDIR: a fresh data id
     }
     case 'review': {
       const job = await readableJob(ctx, jobId);
       const work = await workFor(deps, userId, jobId);
       const first = work.postingHash === postingHashOf(job.posting) ? (work.analysisRaw as RawAnalysis | null) : null;
       if (!first) throw new AppError('validation_failed', NO_FIRST_PASS);
-      return reviewPromptText(jobId, job.posting, tripwireLine(work.canary), first, job.family);
+      return reviewPromptText(jobId, job.posting, newDataId(), first, job.family); // v34 MCPDIR: a fresh data id
     }
     case 'tailor': {
       const job = await tailoredJob(ctx, jobId);
@@ -172,10 +173,10 @@ export async function stepPrompt(ctx: SaveContext, step: PrepareStep, jobIds: re
 
 /**
  * v33 SHARE-8: what a step prompt ends with on another person's profile: whose profile it is (R8) with the custom
- * instructions' scope line, and the grant's tripwire in the profile's wrapper (only an AI that obeys the owner's words
- * repeats it, and every save holding it is refused). The owner's own words above (their resume, a draft made from it,
- * their facts and note, an upload's text, their template's guidance) are each in that wrapper too (the review).
+ * instructions' scope line. The owner's own words above (their resume, a draft made from it, their facts and note, an
+ * upload's text, their template's guidance) are each in the profile's wrapper (the review), each ending with its data
+ * label. v34 MCPDIR: the wrapper this block added for the grant's tripwire line is gone with the line.
  */
 function onAnotherProfile(ctx: SaveContext): string {
-  return `PROFILE\n${profileNote(ctx)}\n${profileWrapped(ctx.profile, `(The resume, facts and note above are ${ctx.profile.name}'s.)`)}`;
+  return `PROFILE\n${profileNote(ctx)}`;
 }

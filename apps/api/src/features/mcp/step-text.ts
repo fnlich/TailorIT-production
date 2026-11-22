@@ -9,7 +9,7 @@ import { mcpWriteLetterPrompt } from '../../ai/prompts/mcp/write-cover-letter';
 import type { RoleFamilyId } from '@tailorit/shared';
 import type { PromptValues } from '../../ai/prompts/tailor/render';
 import { untrustedText } from '../autofill/ai/untrusted';
-import { quotedPosting } from '../tailor/analysis';
+import { dataFence } from './screen'; // v34 MCPDIR
 import { analyzePromptValues, foundKeywordTerms, type RawAnalysis } from '../tailor/keywords';
 import {
   coverLetterPromptValues,
@@ -29,14 +29,18 @@ import type { JobAnalysis, Profile, TailoredContent } from '../tailor/types';
 // v33 PROMPTS (F5): each step in its family's words: analyze and review the job's (`jobFamily`), the rest the person's
 // fit (`fit`: the person's field, else the job's). Missing reads as technical: tailor_builder0's words, as before.
 
-/** The posting as the prompts quote it: its cleaned text and TailorIT's tripwire line, in one <untrusted> wrapper. */
-export function postingForPrompt(posting: string, tripwire: string): string {
-  return quotedPosting(`${posting}\n${tripwire}`);
+/**
+ * The posting as the prompts quote it: its cleaned text in one <untrusted> wrapper. v34 MCPDIR: the wrapper names the
+ * posting and a data id (a fresh one per call, screen.ts newDataId), and its last line is the posting's data label
+ * with the same id; it was TailorIT's tripwire line.
+ */
+export function postingForPrompt(posting: string, id: string): string {
+  return dataFence('job posting', posting, id);
 }
 
-/** The own-AI tailor's first prompt: the keyword analysis of the posting (with TailorIT's tripwire, in its wrapper). */
-export function ownAnalyzeParts(posting: string, tripwire: string, jobFamily?: RoleFamilyId | null) {
-  return ownAnalyzePromptParts({ ...analyzePromptValues(posting), jobDescription: postingForPrompt(posting, tripwire) }, jobFamily);
+/** The own-AI tailor's first prompt: the keyword analysis of the posting (fenced with its data id). */
+export function ownAnalyzeParts(posting: string, id: string, jobFamily?: RoleFamilyId | null) {
+  return ownAnalyzePromptParts({ ...analyzePromptValues(posting), jobDescription: postingForPrompt(posting, id) }, jobFamily);
 }
 
 /**
@@ -59,20 +63,20 @@ export function ownTailorParts(
   return ownTailorPromptParts({ ...values, profileJson: wrap(values.profileJson!) }, fit.family);
 }
 
-export function analyzePromptText(jobId: number, posting: string, tripwire: string, jobFamily?: RoleFamilyId | null): string {
-  const values = { ...analyzePromptValues(posting), jobDescription: postingForPrompt(posting, tripwire) };
+export function analyzePromptText(jobId: number, posting: string, id: string, jobFamily?: RoleFamilyId | null): string {
+  const values = { ...analyzePromptValues(posting), jobDescription: postingForPrompt(posting, id) };
   return mcpAnalyzePrompt.text({ jobId, values, family: jobFamily });
 }
 
 export function reviewPromptText(
   jobId: number,
   posting: string,
-  tripwire: string,
+  id: string,
   firstPass: RawAnalysis,
   jobFamily?: RoleFamilyId | null,
 ): string {
   const values = {
-    jobDescription: postingForPrompt(posting, tripwire),
+    jobDescription: postingForPrompt(posting, id),
     keywordsJson: JSON.stringify(foundKeywordTerms(firstPass, posting)),
   };
   return mcpReviewPrompt.text({ jobId, values, family: jobFamily });

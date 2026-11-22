@@ -1,0 +1,10 @@
+{
+  "mark": "apps/web/src/app/icon.svg",
+  "markSha256": "9816f76854b42b04e2fa8ddb6fb5b05c451976a581393957249564013b111406",
+  "pngSizes": [
+    64,
+    256,
+    512
+  ],
+  "svgSize": 512
+}

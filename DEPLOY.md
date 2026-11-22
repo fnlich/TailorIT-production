@@ -16,8 +16,9 @@ How to install, configure, run, back up and update TailorIT. The overview and th
 - **Google Chrome or Microsoft Edge** for PDF export and thumbnails (found by itself; else `CHROME_PATH`, or
   `npm run setup:browser`).
 - **The `claude` CLI** for the AI features: `npm i -g @anthropic-ai/claude-code`, then `claude auth login` as the
-  user TailorIT runs as. No API key is used; one subscription serves every account of the install, within its usage
-  windows. Without the CLI the rest of TailorIT works.
+  user TailorIT runs as. By default no API key is used; one subscription serves every account of the install, within
+  its usage windows. A public service for people you do not know bills the AI to an Anthropic API key instead
+  (`AI_BILLING=api-key`, section 3 "Who pays for the AI"). Without the CLI the rest of TailorIT works.
 
 ## 2. Install
 
@@ -36,8 +37,9 @@ Every value in `.env.example` is empty: blank, or a line left commented, means t
 
 `npm start` sets `NODE_ENV=production` when it is unset. **Leave it unset, or set it to `production`; never to anything
 else on a server.** Outside production the development sign-in helpers are on: sign-in codes are printed to the API's
-console when SMTP is not set, and a fixed sign-in code (`AUTH_DEV_FIXED_CODE`) would let anyone sign in as any address.
-In production both are forced off. `npm run dev` runs in development mode: use it only on your own machine.
+console when SMTP is not set, and a fixed sign-in code (`AUTH_DEV_FIXED_CODE`) lets anyone on this computer sign in as
+any address (it works only from this computer: a page at localhost, no tunnel or proxy). In production both are forced
+off; never set them on a server. `npm run dev` runs in development mode: use it only on your own machine.
 
 ### Addresses
 
@@ -47,7 +49,9 @@ In production both are forced off. `npm run dev` runs in development mode: use i
 | `WEB_HOST`, `WEB_PORT` | `localhost`, `3100` | Where the web server listens. |
 | `API_HOST`, `API_PORT` | `127.0.0.1`, `4100` | Where the API listens. The browser never calls it (the web server passes `/api` on), so keep it on `127.0.0.1`. |
 | `API_INTERNAL_URL` | `http://API_HOST:API_PORT` | Where the web server reaches the API, when it runs on another machine. |
-| `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS` | `APP_ORIGIN/mcp` | The MCP endpoint AI apps connect to (Claude, ChatGPT, people's own clients), and the extra names it answers to. |
+| `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS` | `APP_ORIGIN/mcp` | The MCP endpoint AI apps connect to (Claude, ChatGPT, people's own clients), and the extra names it answers to. Leave `MCP_PUBLIC_URL` blank on a server listed in Claude's Connectors Directory. |
+| `TRUSTED_PUBLIC_HOSTS` | none in production | More addresses TailorIT answers at through a proxy (test tunnels) or as exact addresses with their scheme (an operator's second https name, `https://www.example.com`): each gets its own sign-in and OAuth addresses. Leave it blank on a server unless you list your own second name. |
+| `TRUST_PROXY` | `loopback` | The proxies whose `X-Forwarded-For` and `X-Forwarded-Proto` the API believes. A proxy on the same machine needs nothing; behind a load balancer: `loopback,<its address ranges>`, and the same ranges as your proxy's trusted proxies. Never a count or `true`. |
 
 **Put HTTPS in front of TailorIT** (a reverse proxy such as Caddy, nginx or IIS) for anything beyond your own machine,
 and set `APP_ORIGIN` to the `https://` address people open. Route `/mcp`, `/.well-known/oauth-protected-resource`,
@@ -55,7 +59,9 @@ and set `APP_ORIGIN` to the `https://` address people open. Route `/mcp`, `/.wel
 straight to the API and everything else to the web server: Claude and ChatGPT connect there (they need the public https
 address). A network address or `0.0.0.0` in `WEB_HOST` or `API_HOST`
 exposes that server to the network. `npm run build` writes the web's way to the API into the build: run it again after
-changing an address.
+changing the API's address (`API_HOST`, `API_PORT`, `API_INTERNAL_URL`); a changed `APP_ORIGIN` needs a restart only.
+A firewall, WAF or CDN in front must allow Claude's outgoing addresses, `160.79.104.0/21`, on the whole site
+(`OAUTH_SHARED_EGRESS_RANGES` gives them higher limits).
 
 ### Sign-in and accounts
 
@@ -65,6 +71,29 @@ changing an address.
 - `ADMIN_EMAILS`: the addresses that become administrators (at sign-in and at every start). On a new install they start
   on the Paid plan for one term.
 - `CONTACT_EMAIL`: the "Contact admin" address on the sign-in page, and the one Subscribe and Buy extra credit show.
+- `OPERATOR_NAME` and `OPERATOR_WEBSITE` (an https address): who runs this TailorIT, as the public Privacy, Terms and
+  Support pages (`/privacy`, `/terms`, `/support`) name them (Admin › Constants › Contact too). Read those pages before
+  other people use the server: they are templates filled from your settings, not legal advice.
+- People delete their own account in Settings › Account › Delete my account; an administrator deletes one in Admin ›
+  Users › Delete account. An account shown as "Being deleted" finishes on its own within a day.
+
+### Who pays for the AI
+
+By default (`AI_BILLING=subscription`) the `claude` CLI runs on its own sign-in, one Claude subscription for every
+account. A public service sets:
+
+```ini
+# A public service: every AI call billed to your Anthropic API key (leave both unset to use the CLI's subscription).
+AI_BILLING=api-key
+ANTHROPIC_API_KEY=...
+# The most TailorIT's AI may spend in all per UTC day on the key (default 20.00; Admin › Constants › Server AI too).
+# AI_KEY_DAILY_BUDGET_USD=20.00
+```
+
+The API refuses to start with `AI_BILLING=api-key` and no `ANTHROPIC_API_KEY`; its start log and Admin › AI (Billed to)
+say which billing is in use, never the key. TailorIT stops starting AI calls when today's spend reaches
+`AI_KEY_DAILY_BUDGET_USD`; calls already running finish. Give the key's Anthropic workspace a spend limit: it is the
+hard guard. Keep the key in `.env` (private) or the service's environment, never in the repository.
 
 ### Data
 
@@ -198,7 +227,13 @@ These features are built and **off**. Each stays off until its setting is given;
 
 ## 9. Security checklist
 
-- `NODE_ENV` unset (so `npm start` makes it `production`) or `production`; never `AUTH_DEV_FIXED_CODE`.
+- `NODE_ENV` unset (so `npm start` makes it `production`) or `production`; never `AUTH_DEV_FIXED_CODE` or
+  `AUTH_DEV_LOG_CODES`.
+- `TRUSTED_PUBLIC_HOSTS` blank (or only your own second https name); `TRUST_PROXY` blank with a proxy on the same
+  machine.
+- A public service: `AI_BILLING=api-key`, the key only in `.env` or the service's environment, a spend limit on its
+  Anthropic workspace, and `AI_KEY_DAILY_BUDGET_USD` what one day may cost.
+- `OPERATOR_NAME`, `OPERATOR_WEBSITE` and `CONTACT_EMAIL` set; `/privacy` and `/terms` read and true for you.
 - HTTPS in front, `APP_ORIGIN` the `https://` address, the API on `127.0.0.1`.
 - `.env`, `DATA_DIR`, `<PG_DATA_DIR>.password`, the service account key and every backup private, outside the
   repository, never committed.
@@ -223,7 +258,26 @@ These features are built and **off**. Each stays off until its setting is given;
   `APP_ORIGIN` and `API_INTERNAL_URL`, then `npm run build` again.
 - **No PDF export**: install Chrome or Edge, set `CHROME_PATH`, or run `npm run setup:browser`.
 - **AI requests fail**: `npm run doctor`; sign the CLI in with `claude auth login` as the user TailorIT runs as; set
-  `AI_CLI_BIN` to its full path when `claude` is not on that user's PATH. Admin › AI shows its health.
+  `AI_CLI_BIN` to its full path when `claude` is not on that user's PATH. Admin › AI shows its health and who pays
+  (Billed to); with `AI_BILLING=api-key`, check `ANTHROPIC_API_KEY`, and whether today's spend reached
+  `AI_KEY_DAILY_BUDGET_USD` (AI resumes at 00:00 UTC).
 - **No sign-in code arrives**: check the `SMTP_*` settings (port 465 is implicit TLS).
 - **better-sqlite3 fails to load** after a Node version change: `npm ci` again with Node 24 (only the job lake source
   uses it).
+
+## 12. Claude's Connectors Directory
+
+People can add TailorIT to Claude from Claude's Connectors Directory once Anthropic has reviewed and listed it. The kit
+(the listing text and the operator's checklist) is `docs/directory` in a checkout of TailorIT's development repository
+at the same release: this copy ships no docs. Two commands ship here:
+
+- `npm run directory:check -- https://<your address> --token <an MCP token>` checks the running server against what
+  the directory asks (discovery, the OAuth answers Claude expects, the public pages and icons, every tool's title and
+  hints, the wording and the size of the tool list). Exit codes: 0 passed, 1 a check failed, 2 a wrong command line,
+  3 a check was skipped (no token). The token is never printed.
+- `npm run directory:reviewer -- --email <address>` makes (or refreshes) the reviewer's account with a made-up
+  person's sample data on this server (run it in this folder, as the user TailorIT runs as).
+
+Before you submit: `APP_ORIGIN` is your https address, `MCP_PUBLIC_URL` and `TRUSTED_PUBLIC_HOSTS` blank, the operator's
+details set, `FREE_MCP`, `PAID_MCP` and `PAID_AI_JOB_SEARCH` on, `MCP_REPORT_REQUEST_TEXT` off (Admin › Constants), and
+the AI billed to an API key (section 3).

@@ -15,7 +15,8 @@ import type { Role } from '@tailorit/shared';
 import { refuse } from '../../core/http/refuse';
 import { OAUTH_ACCESS_TOKEN_PREFIX } from '@tailorit/shared/oauth'; // v31 OAUTH
 import { oauthAddresses } from '../oauth/addresses'; // v31 OAUTH
-import { resolveOAuthAccessToken } from '../oauth/tokens'; // v31 OAUTH
+import { checkOAuthAccessToken } from '../oauth/tokens'; // v31 OAUTH; v34 ORIGIN: known or unknown
+import { connectorAddresses } from '../../config/public-origin'; // v34 ORIGIN2
 
 // Personal MCP tokens (v1.5 M, migration 0816): `tim_` and 32 random bytes in base64url, made in Settings and given to
 // the person's own AI client. Only the SHA-256 is stored (the input is random, not a password: a fast hash is right);
@@ -68,15 +69,23 @@ const itemOf = (row: TokenRow): McpTokenItem => ({
   lastUsedAt: row.last_used_at,
 });
 
-/** The account's live tokens, newest first, and the endpoint the API answers MCP on (MCP_PUBLIC_URL, else API_HOST and
- *  API_PORT: config/addresses.ts), which Settings puts in its setup snippets. */
-export async function listMcpTokens(deps: Pick<AppDeps, 'db' | 'config'>, userId: string): Promise<McpTokenList> {
+/**
+ * The account's live tokens, newest first, and the MCP endpoint's address, which Settings puts in its setup snippets:
+ * MCP_PUBLIC_URL, else <the address the page is open at>/mcp (v34 ORIGIN: `origin`, the request's public origin,
+ * config/public-origin.ts; APP_ORIGIN when left out), and (v34 ORIGIN2) the other addresses of this server an AI app
+ * could connect at, for a page open where Claude's servers cannot reach (public-origin.ts connectorAddresses).
+ */
+export async function listMcpTokens(deps: Pick<AppDeps, 'db' | 'config'>, userId: string, origin?: string): Promise<McpTokenList> {
   const rows = await deps.db.all<TokenRow>(
     `SELECT id, name, scopes, created_at, last_used_at FROM mcp_tokens
       WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC, id`,
     [userId],
   );
-  return { items: rows.map(itemOf), endpoint: deps.config.mcp.endpoint };
+  return {
+    items: rows.map(itemOf),
+    endpoint: oauthAddresses(deps.config, origin).resource,
+    connectAt: connectorAddresses(deps.config, origin ?? deps.config.appOrigin), // v34 ORIGIN2
+  };
 }
 
 /**
@@ -157,9 +166,6 @@ const callerIds = (userId: string): Pick<McpCaller, 'id' | 'payer'> => ({ id: us
 /** The prefix of an OAuth caller's tokenId. */
 const OAUTH_KEY = 'oauth:';
 
-/** The resource OAuth tokens must be issued for: the MCP endpoint (features/oauth/addresses.ts). */
-const oauthResource = (config: AppDeps['config']) => oauthAddresses(config).resource;
-
 /** A caller's tokenId as the columns that name it (mcp_unsupported_reports.token_id or .grant_id). */
 export function credentialColumns(tokenId: string | null): { tokenId: string | null; grantId: string | null } {
   if (tokenId?.startsWith(OAUTH_KEY)) return { tokenId: null, grantId: tokenId.slice(OAUTH_KEY.length) };
@@ -169,16 +175,34 @@ export function credentialColumns(tokenId: string | null): { tokenId: string | n
 
 /**
  * The account behind a token, or null when it is unknown or revoked, or its account is disabled (so a disable takes
- * effect on the next request). Writes `last_used_at` at most once a minute.
+ * effect on the next request). Writes `last_used_at` at most once a minute. v34 ORIGIN: `audience` is the MCP endpoint
+ * an OAuth token must have been issued for (the request's: features/oauth/addresses.ts; APP_ORIGIN's when left out).
  */
-export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now' | 'config'>, token: string): Promise<McpCaller | null> {
+export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now' | 'config'>, token: string, audience?: string): Promise<McpCaller | null> {
+  const checked = await checkMcpToken(deps, token, audience);
+  return checked.ok ? checked.caller : null;
+}
+
+// v34 ORIGIN (PLAN G8)
+/**
+ * A token checked: its caller, or why not, telling a token TailorIT issued (`known`: revoked, expired, for another
+ * address, its account disabled) from one it never issued (oauth/tokens.ts OAuthAccessCheck). The MCP endpoint counts
+ * only unknown tokens toward its failed-token limit per address.
+ */
+export type McpTokenCheck = { ok: true; caller: McpCaller } | { ok: false; known: boolean };
+
+export async function checkMcpToken(
+  deps: Pick<AppDeps, 'db' | 'now' | 'config'>,
+  token: string,
+  audience: string = oauthAddresses(deps.config).resource,
+): Promise<McpTokenCheck> {
   // v31 OAUTH: an OAuth access token, issued for this MCP endpoint (its audience) and its grant's scope `mcp`, acts
   // for the grant's account with the personal token's one scope.
   if (token.startsWith(OAUTH_ACCESS_TOKEN_PREFIX)) {
-    const access = await resolveOAuthAccessToken(deps, token, oauthResource(deps.config));
-    return access
-      ? { ...callerIds(access.user.id), user: access.user, tokenId: `${OAUTH_KEY}${access.grantId}`, scopes: ['prepare'], via: 'oauth' }
-      : null;
+    const access = await checkOAuthAccessToken(deps, token, audience);
+    if (!access.ok) return access;
+    const { user, grantId } = access.access;
+    return { ok: true, caller: { ...callerIds(user.id), user, tokenId: `${OAUTH_KEY}${grantId}`, scopes: ['prepare'], via: 'oauth' } };
   }
   // end v31 OAUTH
   const row = await deps.db.one<{
@@ -196,17 +220,22 @@ export async function resolveMcpToken(deps: Pick<AppDeps, 'db' | 'now' | 'config
        FROM mcp_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
     [hashMcpToken(token)],
   );
-  if (!row || row.revoked_at || row.disabled_at) return null;
+  if (!row) return { ok: false, known: false };
+  if (row.revoked_at || row.disabled_at) return { ok: false, known: true };
   const now = deps.now();
   const lastUsed = row.last_used_at ? Date.parse(row.last_used_at) : Number.NaN;
   if (Number.isNaN(lastUsed) || now.getTime() - lastUsed >= LAST_USED_EVERY_MS) {
     await deps.db.run('UPDATE mcp_tokens SET last_used_at = ? WHERE id = ?', [now.toISOString(), row.id]);
   }
   return {
-    ...callerIds(row.user_id),
-    user: { id: row.user_id, email: row.email, name: row.name, role: row.role },
-    tokenId: row.id,
-    scopes: readScopes(row.scopes),
-    via: 'personal',
+    ok: true,
+    caller: {
+      ...callerIds(row.user_id),
+      user: { id: row.user_id, email: row.email, name: row.name, role: row.role },
+      tokenId: row.id,
+      scopes: readScopes(row.scopes),
+      via: 'personal',
+    },
   };
 }
+// end v34 ORIGIN
