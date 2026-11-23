@@ -7,7 +7,7 @@ import { adminRouter } from '../../core/admin/index';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { Dialect } from '../../core/db/index';
 import { parseInput } from '../../core/http/validate';
-import { rereadScopeOf, type RereadScope } from '../job-analysis/backlog';
+import { NOT_IMPORT_HELD_SQL, NOT_IMPORT_NOTE_HELD_SQL, rereadScopeOf, type RereadScope } from '../job-analysis/backlog'; // v35 INT-A: the import holds
 import { JOB_ANALYSIS_PROMPT_VERSION } from '../../ai/prompts/job-analysis/job-analysis';
 import { MIN_TEXT_FOR_AI } from '../job-analysis/service';
 import { AI_FAILURES_BEFORE_GIVING_UP, AI_SET_ASIDE_UNTIL } from '../job-analysis/store';
@@ -61,6 +61,8 @@ export function jobBacklogSql(savedOnly: boolean, reread: RereadScope, d: Dialec
     'FROM jobs j ' +
     'LEFT JOIN job_ai_attempts t ON t.content_hash = j.content_hash AND t.version = @version AND t.next_attempt_at > @now ' +
     `WHERE j.active = ${d.true} ` +
+    // v35 INT-A (H3): a job held from an admin's import waits for its approval, as the backlog's candidates do.
+    `AND ${NOT_IMPORT_HELD_SQL} AND ${NOT_IMPORT_NOTE_HELD_SQL} ` +
     (savedOnly ? `AND ${saved} ` : '') +
     "AND NOT EXISTS (SELECT 1 FROM job_analyses a WHERE a.content_hash = j.content_hash AND a.source = 'ai' AND a.version = @version) " +
     rereadRule +

@@ -102,3 +102,9 @@ export function RunErrorLine({ code }: { code: string | null }) {
     </span>
   );
 }
+
+/** v35 OPSWEB (PLAN H6, the owner's "No runs now"): Runs with no run at all, and with filters that match none. */
+export const RUNS_EMPTY = {
+  none: { title: 'No runs now', description: 'Runs appear when a source is read or links are imported.' },
+  filtered: { title: 'No run matches', description: 'Try other filters.' },
+} as const;

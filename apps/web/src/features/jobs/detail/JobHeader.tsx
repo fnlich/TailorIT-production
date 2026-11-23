@@ -1,7 +1,7 @@
 'use client';
 
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
-import { EMPLOYMENT_TYPE_LABEL, WORK_ARRANGEMENT_LABEL, categoryFact, salaryLabel, type JobDetail } from '@tailorit/shared';
+import { EMPLOYMENT_TYPE_LABEL, WORK_ARRANGEMENT_LABEL, categoryFact, repostedText, salaryLabel, type JobDetail } from '@tailorit/shared';
 import Link from 'next/link';
 import type { ReactNode, RefObject } from 'react';
 import { Badge } from '@/components/ui/Badge';
@@ -80,7 +80,7 @@ function FactPill({ icon, name, fact, children }: { icon: ReactNode; name: strin
 /**
  * v33 JOBDETAIL (F2): the job's header. The company (its name opens its page; its industry and size, else its line),
  * the title, then one line: the category · "Checked live today" (when TailorIT last found the posting live; hidden when
- * unknown or closed) · "Posted 3 days ago". Then the facts as pills (type, where, pay or "No salary listed", work mode)
+ * unknown or closed) · "Posted 3 days ago" · v35 OPSWEB "Reposted today". Then the facts as pills (type, where, pay or "No salary listed", work mode)
  * and the job's states (added from, held, only you, hidden with its way back) and its credit line.
  */
 export function JobHeader({
@@ -107,6 +107,7 @@ export function JobHeader({
   const category = categoryFact(job.categoryId, job.subcategoryIds);
   const checked = job.active ? checkedLiveWhen(job.lastVerifiedAt, now) : null;
   const posted = postedText(job.postedAt, now);
+  const reposted = repostedText(job, now); // v35 OPSWEB (PLAN H5): "Reposted today" beside "Posted 3 weeks ago"
   const { first, others } = placesOf(job.primaryLocation, job.locations);
 
   const meta: Array<{ key: string; node: ReactNode }> = [];
@@ -122,6 +123,7 @@ export function JobHeader({
   }
   if (checked) meta.push({ key: 'checked', node: <span data-checked-live="">{t('LABEL_JOB_CHECKED_LIVE', { when: checked })}</span> });
   if (posted) meta.push({ key: 'posted', node: <span data-posted="">{posted}</span> });
+  if (reposted) meta.push({ key: 'reposted', node: <span data-reposted="">{reposted}</span> });
 
   const states = Boolean(job.addedFrom || job.held || job.verification || hidden || companyHidden || savedOn.length > 0);
 

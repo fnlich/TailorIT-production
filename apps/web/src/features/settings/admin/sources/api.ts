@@ -2,9 +2,14 @@ import { z } from 'zod';
 import {
   AdminPurgesListSchema,
   AdminSourceRowSchema,
+  AdminSourcesAllCountSchema,
+  AdminSourcesAllResultSchema,
   AdminSourcesBulkResultSchema,
   AdminSourcesListSchema,
   JobSourcePurgeSchema,
+  type AdminSourceAllAction,
+  type AdminSourcesAllCount,
+  type AdminSourcesAllResult,
   type AdminSourceBulkAction,
   type AdminSourceRow,
   type AdminSourcesBulkResult,
@@ -15,7 +20,7 @@ import {
 } from '@tailorit/shared/sourcing';
 import { api } from '@/lib/api';
 import type { AddableKind, LakeTestResult, NewSourceBody, SourceTestResult } from '../types';
-import { sourcesQuery, type SourceFilters } from './filters';
+import { sourcesAllFilter, sourcesFilterQuery, sourcesQuery, type SourceFilters } from './filters';
 
 // v30 S1-WEB: Admin › Sources' calls at scale (docs/design/part2/12-job-sourcing.md §9.8). The bodies and answers are
 // CT's (@tailorit/shared/sourcing); S1-API names the routes (see SP\p2\build\S1-WEB.md, "Routes"). A list is a page of
@@ -29,6 +34,8 @@ export const sourceKeys = {
   page: (filters: SourceFilters) => ['admin', 'sources', 'page', filters] as const,
   detail: (id: number) => ['admin', 'sources', 'detail', id] as const,
   purges: (states: readonly JobSourcePurgeState[]) => ['admin', 'sources', 'purges', states] as const,
+  /** v35 OPSWEB: what Enable all / Disable all would change under a filter (read when the confirm opens). */
+  allCount: (filters: SourceFilters) => ['admin', 'sources', 'all-count', filters] as const,
 };
 
 /** GET /api/admin/sources?q&kind&tier&terms&robots&discoveredVia&enabled&failing&host&companyId&sort&cursor&limit. */
@@ -56,6 +63,20 @@ export function fetchSourceSettings(id: number, signal?: AbortSignal): Promise<S
 export function bulkSources(action: AdminSourceBulkAction, ids: readonly number[]): Promise<AdminSourcesBulkResult> {
   return api.post<AdminSourcesBulkResult>('/api/admin/sources/bulk', { action, ids }, { schema: AdminSourcesBulkResultSchema });
 }
+
+// v35 OPSWEB (PLAN H6, ADMIN's routes): Enable all / Disable all for everything the filter shows: the count first (the
+// confirm's "Enable 42 sources?"), then one request that the server works through in batches, answered once.
+
+/** GET /api/admin/sources/all/count?<filter>: every source the filter matches, and how many each action would change. */
+export function fetchSourcesAllCount(filters: SourceFilters, signal?: AbortSignal): Promise<AdminSourcesAllCount> {
+  return api.get<AdminSourcesAllCount>('/api/admin/sources/all/count', { signal, query: sourcesFilterQuery(filters), schema: AdminSourcesAllCountSchema });
+}
+
+/** POST /api/admin/sources/all {action, filter}: turns every source the filter matches on, or off. */
+export function changeAllSources(action: AdminSourceAllAction, filters: SourceFilters): Promise<AdminSourcesAllResult> {
+  return api.post<AdminSourcesAllResult>('/api/admin/sources/all', { action, filter: sourcesAllFilter(filters) }, { schema: AdminSourcesAllResultSchema });
+}
+// end v35 OPSWEB
 
 /** POST /api/admin/sources: a board, the lake or the demo jobs (v2.0's route). */
 export function createSource(body: NewSourceBody) {

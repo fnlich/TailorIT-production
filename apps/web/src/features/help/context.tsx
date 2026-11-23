@@ -14,8 +14,6 @@ export interface GuideValues {
   frame: GuideFrame;
   /** The public constants the guide quotes. */
   values: PublicConstants;
-  /** Whether the reader is an administrator (the app only). */
-  isAdmin: boolean;
 }
 
 export interface GuideApi extends GuideValues {
@@ -23,7 +21,7 @@ export interface GuideApi extends GuideValues {
   t: (key: PublicMessageKey, params?: MessageParams) => string;
 }
 
-const GuideContext = createContext<GuideValues>({ frame: 'public', values: PUBLIC_CONSTANT_DEFAULTS, isAdmin: false });
+const GuideContext = createContext<GuideValues>({ frame: 'public', values: PUBLIC_CONSTANT_DEFAULTS });
 
 export function GuideProvider({ value, children }: { value: GuideValues; children: ReactNode }) {
   return <GuideContext.Provider value={value}>{children}</GuideContext.Provider>;

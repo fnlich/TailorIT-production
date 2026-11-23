@@ -71,6 +71,39 @@ export const JOB_SOURCE_KIND_LABEL: Record<JobSourceKind, string> = {
  */
 export const JOB_SOURCE_KINDS_NOT_BUILT = ['jobtech', 'nav', 'tyomarkkinatori', 'vendor_feed'] as const satisfies readonly JobSourceKind[];
 
+// v35 ADMIN (PLAN H6): an import is not a source. Its records (the `csv` and `json` rows behind every admin import:
+// files, Google Sheets, pasted links) stay in job_sources for its runs, but Admin › Sources never lists, counts or acts
+// on them, and its Kind filter offers neither; Admin › Import's Recent imports and Admin › Runs show them.
+/** The kinds of an import's records. */
+export const JOB_SOURCE_IMPORT_KINDS = ['csv', 'json'] as const satisfies readonly JobSourceKind[];
+/** The kinds Admin › Sources lists (and filters by): every kind but an import's (sourcing.test.ts checks the list). */
+export const ADMIN_SOURCE_LIST_KINDS = [
+  'greenhouse',
+  'lever',
+  'ashby',
+  'workable',
+  'workday',
+  'workday_site',
+  'personio',
+  'recruitee',
+  'breezy',
+  'bamboohr',
+  'career_site',
+  'usajobs',
+  'jobtech',
+  'nav',
+  'tyomarkkinatori',
+  'himalayas',
+  'jobicy',
+  'vendor_feed',
+  'page',
+  'ft_lake',
+  'seed',
+  'ext_page',
+] as const satisfies readonly Exclude<JobSourceKind, (typeof JOB_SOURCE_IMPORT_KINDS)[number]>[];
+export type AdminSourceListKind = (typeof ADMIN_SOURCE_LIST_KINDS)[number];
+// end v35 ADMIN
+
 /** How a kind reads its postings (the table's check). */
 export const JOB_SOURCE_ACCESS = [
   'public_api',

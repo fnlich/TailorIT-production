@@ -1,10 +1,12 @@
 import { ADMIN_PAGE_DEFAULT } from '@tailorit/shared/reviews';
 import {
+  ADMIN_SOURCE_LIST_KINDS,
   ADMIN_SOURCE_SORTS,
-  JOB_SOURCE_KINDS,
   JOB_SOURCE_KINDS_NOT_BUILT,
+  type AdminSourceListKind,
+  type AdminSourcesFilter,
   type AdminSourceSort,
-  type JobSourceDiscoveredVia,
+  type JobSourceFoundVia,
   type JobSourceKind,
   type JobSourceRobotsStatus,
   type JobSourceTermsStatus,
@@ -19,11 +21,12 @@ export type SourceEnabledFilter = 'all' | 'enabled' | 'disabled';
 export interface SourceFilters {
   /** Name or host. */
   q: string;
-  kinds: readonly JobSourceKind[];
+  kinds: readonly AdminSourceListKind[];
   tiers: readonly JobSourceTier[];
   terms: readonly JobSourceTermsStatus[];
   robots: readonly JobSourceRobotsStatus[];
-  via: readonly JobSourceDiscoveredVia[];
+  /** v35 OPSWEB: how it was found, "Found by import" (`import`) among them. */
+  via: readonly JobSourceFoundVia[];
   enabled: SourceEnabledFilter;
   /** Only sources failing now. */
   failing: boolean;
@@ -48,8 +51,11 @@ export const EMPTY_SOURCE_FILTERS: SourceFilters = {
   sort: 'next_run',
 };
 
-/** The kinds the Kind filter offers: every kind v3.0 builds (the Nordic feeds and a licensed feed are not). */
-export const FILTER_KINDS: readonly JobSourceKind[] = JOB_SOURCE_KINDS.filter(
+/**
+ * The kinds the Kind filter offers: every kind v3.0 builds (the Nordic feeds and a licensed feed are not). v35 OPSWEB
+ * (PLAN H6): an import is not a source, so its records' kinds (csv, json) are not offered (ADMIN_SOURCE_LIST_KINDS).
+ */
+export const FILTER_KINDS: readonly AdminSourceListKind[] = ADMIN_SOURCE_LIST_KINDS.filter(
   (kind) => !(JOB_SOURCE_KINDS_NOT_BUILT as readonly JobSourceKind[]).includes(kind),
 );
 
@@ -70,8 +76,8 @@ export const SOURCE_ENABLED_LABEL: Record<SourceEnabledFilter, string> = {
   disabled: 'Disabled',
 };
 
-/** The query string of a page: the filters CT reads, the lists as repeated keys, empty ones left out. */
-export function sourcesQuery(filters: SourceFilters, cursor?: string, limit: number = ADMIN_PAGE_DEFAULT) {
+/** v35 OPSWEB: the filters' query string alone (no order or page): GET /api/admin/sources/all/count's. */
+export function sourcesFilterQuery(filters: SourceFilters) {
   return {
     q: filters.q.trim() || undefined,
     kind: filters.kinds.length ? [...filters.kinds] : undefined,
@@ -83,11 +89,46 @@ export function sourcesQuery(filters: SourceFilters, cursor?: string, limit: num
     failing: filters.failing ? 1 : undefined,
     host: filters.host ?? undefined,
     companyId: filters.companyId ?? undefined,
-    sort: filters.sort,
-    cursor,
-    limit,
   };
 }
+
+/** The query string of a page: the filters CT reads, the lists as repeated keys, empty ones left out. */
+export function sourcesQuery(filters: SourceFilters, cursor?: string, limit: number = ADMIN_PAGE_DEFAULT) {
+  return { ...sourcesFilterQuery(filters), sort: filters.sort, cursor, limit };
+}
+
+// v35 OPSWEB (PLAN H6): the "Found by import" chip, and Enable all / Disable all for everything the filter shows.
+
+/** Whether the list shows only the sources an admin's import found (the "Found by import" chip is on). */
+export function foundByImportOnly(filters: Pick<SourceFilters, 'via'>): boolean {
+  return filters.via.length === 1 && filters.via[0] === 'import';
+}
+
+/** The filters with "Found by import" turned on (the only way found) or off (any way). */
+export function withFoundByImport(filters: SourceFilters, on: boolean): SourceFilters {
+  return { ...filters, via: on ? ['import'] : filters.via.filter((via) => via !== 'import') };
+}
+
+/**
+ * The filter Enable all and Disable all act on (and count): the list's own filters, the order and page left out, as
+ * AdminSourcesFilterSchema reads them (lists [] when empty; `enabled` always named).
+ */
+export function sourcesAllFilter(filters: SourceFilters): AdminSourcesFilter {
+  const q = filters.q.trim();
+  return {
+    ...(q ? { q } : {}),
+    kind: [...filters.kinds],
+    tier: [...filters.tiers],
+    terms: [...filters.terms],
+    robots: [...filters.robots],
+    discoveredVia: [...filters.via],
+    enabled: filters.enabled,
+    ...(filters.failing ? { failing: true as const } : {}),
+    ...(filters.host ? { host: filters.host } : {}),
+    ...(filters.companyId ? { companyId: filters.companyId } : {}),
+  };
+}
+// end v35 OPSWEB
 
 /** How many filters narrow the list (the search and the order aside). */
 export function activeFilterCount(filters: SourceFilters): number {
@@ -114,11 +155,15 @@ export function clearedFilters(filters: SourceFilters): SourceFilters {
   return { ...EMPTY_SOURCE_FILTERS, sort: filters.sort };
 }
 
-/** The filters an address opens with: `host=` (Admin › Hosts' "See its sources") and `company=`. */
+/**
+ * The filters an address opens with: `host=` (Admin › Hosts' "See its sources"), `company=`, and v35 OPSWEB `found=import`
+ * (the "Found by import" chip on).
+ */
 export function filtersFromAddress(params: { get(name: string): string | null }): SourceFilters {
   const host = params.get('host')?.trim().toLowerCase() || null;
   const company = Number(params.get('company'));
-  return { ...EMPTY_SOURCE_FILTERS, host, companyId: Number.isInteger(company) && company > 0 ? company : null };
+  const via: JobSourceFoundVia[] = params.get('found') === 'import' ? ['import'] : []; // v35 OPSWEB
+  return { ...EMPTY_SOURCE_FILTERS, host, via, companyId: Number.isInteger(company) && company > 0 ? company : null };
 }
 
 /** `values` with `value` added (on) or removed (off), in `order`'s order. */

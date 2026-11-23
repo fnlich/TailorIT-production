@@ -25,7 +25,8 @@ export function aiBillingStartLine(ai: Pick<AppConfig['ai'], 'enabled' | 'billin
       (keyBudgetMicros === undefined
         ? ''
         : // v34 FIX-API (the final security review, F2): a soft cap, tight; the workspace's limit is the hard guard.
-          // v34 INT-2: the budget's one sentence, as Admin › AI, the guide and docs/directory/CHECKLIST.md say it.
+          // v34 INT-2: the budget's one sentence, as Admin › AI and docs/directory/CHECKLIST.md say it (v35: the guide has
+          // no admin pages any more).
           ` TailorIT stops starting AI calls when today's spend reaches ${formatUsd(keyBudgetMicros)}; calls already running ` +
           'finish. The budget is AI_KEY_DAILY_BUDGET_USD (Admin › Constants › Server AI), per UTC day. The Anthropic ' +
           "workspace's spend limit is the hard guard: set one there too.")

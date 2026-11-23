@@ -1,6 +1,7 @@
-import { SHEET_SOURCE_LABEL, SheetSourceConfigSchema, type SheetSourceConfig } from '@tailorit/shared/ingest';
+import { SheetSourceConfigSchema, type SheetSourceConfig } from '@tailorit/shared/ingest';
 import {
   JOB_SOURCE_ROBOTS_LABEL,
+  JOB_SOURCE_WAITING_LABEL,
   JOB_SOURCE_RUNNABLE_ROBOTS,
   JOB_SOURCE_RUNNABLE_TERMS,
   JOB_SOURCE_TERMS_LABEL,
@@ -9,6 +10,8 @@ import {
   type JobSourceRobotsStatus,
   type JobSourceTermsStatus,
   type JobSourceTier,
+  type JobSourceWaiting,
+  type JobSourceWaitingReason,
 } from '@tailorit/shared/sourcing';
 import type { MessageRenderer } from '../../../../components/limits/limits';
 import type { BadgeTone } from '../../../../components/ui/Badge';
@@ -30,6 +33,7 @@ const ADDABLE_KIND_ITEMS: ReadonlyArray<{ value: AddableKind; label: string }> =
   { value: 'himalayas', label: 'Himalayas' },
   { value: 'jobicy', label: 'Jobicy' },
   { value: 'career_site', label: 'Career site' }, // v30 FIX-WEB (REQ-5)
+  { value: 'workday_site', label: 'Workday career site' }, // v35 OPSWEB (PLAN H7)
   { value: 'ft_lake', label: 'free_tailor lake' },
   { value: 'seed', label: 'Demo jobs' },
 ];
@@ -49,21 +53,20 @@ interface SourceWithSettings {
   config: Record<string, unknown>;
 }
 
-/** Where a csv source's copy came from, when it is a Google Sheet import; null for every other source. */
+/**
+ * Where a csv source's copy came from, when it is a Google Sheet import; null for every other source. v35 OPSWEB: an
+ * import is no source any more (Sources lists none); Admin › Import's own reading of a sheet record still uses this.
+ */
 export function sheetOf(source: SourceWithSettings): SheetSourceConfig | null {
   if (source.kind !== 'csv') return null;
   const parsed = SheetSourceConfigSchema.safeParse(source.config.sheet);
   return parsed.success ? parsed.data : null;
 }
 
-/** Whether a row is a Google Sheet import (a csv source the server labels so): it can be imported again. */
-export function isSheetRow(row: Pick<AdminSourceRow, 'kind' | 'kindLabel'>): boolean {
-  return row.kind === 'csv' && row.kindLabel === SHEET_SOURCE_LABEL;
-}
-
 /**
- * What a source reads, in a few words, from its settings: "Board gitlab", "Site palantir (EU)", "Account huggingface",
- * "sheet.csv", "Job sheet, tab 10/22/2026". Null when its settings say nothing more than its row (a newer kind).
+ * What a source reads, in a few words, from its settings: "Board gitlab", "Site palantir (EU)", "Account huggingface".
+ * Null when its settings say nothing more than its row (a newer kind). v35 OPSWEB (PLAN H6): an import's records (csv,
+ * json) are no sources, so they have no words here; a Workday career site names its host and site.
  */
 export function sourceDetail(source: SourceWithSettings): string | null {
   const text = (key: string) => (typeof source.config[key] === 'string' ? (source.config[key] as string) : '');
@@ -78,17 +81,13 @@ export function sourceDetail(source: SourceWithSettings): string | null {
       return `Account ${text('account')}`;
     case 'workday':
       return `Tenant ${text('tenant')}`;
+    // v35 OPSWEB (PLAN H7)
+    case 'workday_site':
+      return text('host') && text('careerSite') ? `Career site ${text('host')}, site ${text('careerSite')}` : null;
     case 'page':
       return 'Jobs added from the pages people saw';
     case 'ft_lake':
       return text('path') || 'Default database path';
-    case 'csv': {
-      const sheet = sheetOf(source);
-      if (sheet) return `${sheet.spreadsheetTitle}, tab ${sheet.tabTitle}`;
-      return text('fileName') || 'Uploaded file';
-    }
-    case 'json':
-      return text('fileName') || 'Uploaded file';
     case 'seed':
       return text('anchor') ? `Dated from ${formatDate(text('anchor'))}` : 'Demo postings';
     // v30 S4: what each feed source searches.
@@ -183,14 +182,13 @@ export function isDeletable(source: { kind: JobSourceKind }): boolean {
 }
 
 /**
- * "Run now" of a sheet source imports its stored copy again; a Workday or job-page source is never run. This says so
- * (null for other sources, and while a sheet source's settings are not known).
+ * A Workday or job-page source is never run: this says why (null for other sources). v35 OPSWEB (PLAN H6): an import's
+ * sheet is read again from Admin › Import's Recent imports, not from Sources.
  */
-export function runNowHint(source: { kind: JobSourceKind; config?: Record<string, unknown> }): string | null {
+export function runNowHint(source: { kind: JobSourceKind }): string | null {
   if (source.kind === 'workday') return 'TailorIT reads Workday postings one at a time, when someone adds one; their re-checks keep them up to date.';
   if (source.kind === 'page' || source.kind === 'ext_page') return 'These jobs keep the text people saw on their pages: TailorIT never reads those pages.';
-  const sheet = source.config ? sheetOf({ kind: source.kind, config: source.config }) : null;
-  return sheet ? `Imports the copy read ${formatDate(sheet.readAt)} again. To read the sheet again, use Import the sheet again.` : null;
+  return null;
 }
 
 /** v31 RUNS: whether an admin paused it (no run of it starts until Continue). */
@@ -280,6 +278,78 @@ export function failureText(row: Pick<AdminSourceRow, 'consecutiveFailures'>): s
   const count = row.consecutiveFailures;
   return count > 0 ? `${count} ${count === 1 ? 'failure' : 'failures'} in a row` : null;
 }
+
+// v35 OPSWEB (PLAN H7): a switched-on source that cannot run says why, and what clears it; it starts by itself once it can.
+
+/**
+ * Why each wait holds a source and what clears it, in the admin's words: the Waiting badge's "?", one sentence of at most
+ * 140 characters (UXREQ-8). The reasons are ADMIN's waiting.ts; JOB_SOURCE_WAITING_LABEL's "Waiting: ..." names them in
+ * lists. A held host's tip names when the hold ends.
+ */
+const WAITING_TIP: Record<JobSourceWaitingReason, string> = {
+  ingest_off: 'This server reads no sources while INGEST_ENABLED is off; turn it on and the source starts by itself.',
+  runs_paused: 'Every run is paused; continue runs on Admin › Runs and the source starts by itself.',
+  paused: "An admin paused this source; continue it from its row's menu and it starts by itself.",
+  opted_out: 'Its company asked TailorIT not to read its jobs, so it stays off.',
+  not_built: 'TailorIT does not read this kind of source yet.',
+  identity: 'TailorIT reads this site only under a named bot; set BOT_USER_AGENT in the server settings and it starts by itself.',
+  outside_key: 'This feed needs its API key; add it to the server settings and the source starts by itself.',
+  career_pages_off: 'Career page reads are off; turn on Read career pages in Admin › Constants and it starts by itself.',
+  terms: "Its site's terms are not recorded as allowing automated reads; record them on its host in Admin › Hosts.",
+  robots_pending: "TailorIT reads its host's robots.txt first, then the source starts by itself.",
+  robots_disallowed: "The site's robots.txt asks automated readers not to read it; the source starts by itself if that changes.",
+  robots_unreadable: "Its host's robots.txt could not be read; TailorIT tries again daily and the source starts by itself.",
+  host_held: 'Its host is held (Admin › Hosts); the source starts by itself when the hold ends.',
+};
+
+/** The Waiting badge's "?": why the source waits and what clears it, in one sentence; null when it can run. */
+export function waitingTip(waiting: JobSourceWaiting | null | undefined): string | null {
+  if (!waiting) return null;
+  if (waiting.reason === 'host_held' && waiting.until) {
+    return `Its host is held until ${new Date(waiting.until).toLocaleString('en-US')}; the source starts by itself then.`;
+  }
+  return WAITING_TIP[waiting.reason];
+}
+
+/** The short words of a wait, for a list ("Waiting: set BOT_USER_AGENT"). */
+export function waitingLabel(waiting: JobSourceWaiting): string {
+  return JOB_SOURCE_WAITING_LABEL[waiting.reason];
+}
+
+/**
+ * v35 OPSWEB (PLAN H7): what is wrong with a pasted Workday career site address, part by part (null when its shape is
+ * right, or nothing is typed yet). The API reads the site from it and says so again when it cannot.
+ */
+export function workdayAddressProblem(input: string): string | null {
+  const text = input.trim();
+  if (!text) return null;
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return 'Paste the whole address of a page of the career site, such as https://acme.wd5.myworkdayjobs.com/en-US/careers.';
+  }
+  if (url.protocol !== 'https:') return 'The address must start with https://.';
+  const host = url.hostname.toLowerCase();
+  const segments = url.pathname.split('/').filter(Boolean);
+  const site = /^[A-Za-z0-9_-]{1,100}$/;
+  // A locale before the rest (en-US) is allowed.
+  const rest = /^[a-z]{2,3}(?:-[a-z0-9]{2,4})?$/i.test(segments[0] ?? '') ? segments.slice(1) : segments;
+  if (/^wd\d+\.myworkdaysite\.com$/.test(host)) {
+    if (rest[0]?.toLowerCase() !== 'recruiting') return `On ${host} the address needs /recruiting/<company>/<site> after the host.`;
+    if (!rest[1]) return 'Add the company after /recruiting/, then the site: /recruiting/<company>/<site>.';
+    if (!rest[2]) return 'Add the site after the company: /recruiting/<company>/<site>.';
+    if (!site.test(rest[2])) return "The site's name may use only letters, digits, - and _.";
+    return null;
+  }
+  if (!/^[a-z0-9-]+\.(?:wd\d+\.)?myworkdayjobs\.com$/.test(host)) {
+    return `The host must be <company>.wd<n>.myworkdayjobs.com or wd<n>.myworkdaysite.com, not ${host}.`;
+  }
+  if (!rest[0]) return "Add the site's name after the host, as in .../en-US/<site>.";
+  if (!site.test(rest[0])) return "The site's name may use only letters, digits, - and _.";
+  return null;
+}
+// end v35 OPSWEB
 
 /** "80,214". */
 export function formatCount(count: number): string {

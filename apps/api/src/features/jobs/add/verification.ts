@@ -4,6 +4,7 @@ import {
   type JobVerification,
   type JobVerifyReason,
   type UnverifiedLink,
+  type UnverifiedFrom,
   type UnverifiedLinksResponse,
 } from '@tailorit/shared';
 import { constantsOf } from '../../../core/constants/service';
@@ -262,11 +263,47 @@ export const LISTED = `((j.owner_user_id = v.user_id AND NOT ${LINK_APPROVED})
        AND j.superseded_by IS NULL AND j.active AND v.reason NOT IN ('unreadable_host', 'rejected')
        AND NOT EXISTS (SELECT 1 FROM job_link_rejections r WHERE r.url_key = v.url_key)`;
 
+/**
+ * v35 IMPORT (SP v35 PLAN.md H3): the From filter of the list, as an SQL condition on the note `v` and its values:
+ * Imports (an admin import's job: no adder, origin `import`), People's adds (an adder's own job), one import (its rows'
+ * jobs, by the import's id or its run's). All: no condition.
+ */
+export interface UnverifiedFilter {
+  from?: UnverifiedFrom;
+  importId?: number;
+  runId?: number;
+}
+
+/** v35 IMPORT: a note `v` of an admin import's job (made from its row: no adder, origin `import`). */
+export const FROM_IMPORT_SQL = "v.user_id IS NULL AND v.origin = 'import'";
+
+/** v35 IMPORT: the filter's condition (after the LISTED condition) and its values. */
+export function unverifiedFilterSql(filter: UnverifiedFilter): { sql: string; params: Array<string | number> } {
+  const parts: string[] = [];
+  const params: Array<string | number> = [];
+  if (filter.from === 'imports') parts.push(`(${FROM_IMPORT_SQL})`);
+  if (filter.from === 'adds') parts.push('v.user_id IS NOT NULL');
+  if (filter.importId !== undefined) {
+    parts.push('EXISTS (SELECT 1 FROM job_import_rows ir WHERE ir.job_id = v.job_id AND ir.import_id = ?)');
+    params.push(filter.importId);
+  }
+  if (filter.runId !== undefined) {
+    parts.push('EXISTS (SELECT 1 FROM job_import_rows ir JOIN job_imports ii ON ii.id = ir.import_id WHERE ir.job_id = v.job_id AND ii.run_id = ?)');
+    params.push(filter.runId);
+  }
+  return { sql: parts.length ? ` AND ${parts.join(' AND ')}` : '', params };
+}
+
 /** GET /api/admin/jobs/unverified/count: the links the list holds (0 while EXT_NEW_PAGE_JOBS_REVIEW is off). */
-export async function countUnverifiedLinks(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>): Promise<{ count: number }> {
+export async function countUnverifiedLinks(
+  deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
+  filter: UnverifiedFilter = {}, // v35 IMPORT: the From filter
+): Promise<{ count: number }> {
   if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { count: 0 };
+  const where = unverifiedFilterSql(filter);
   const row = await deps.db.one<{ n: number }>(
-    `SELECT count(DISTINCT v.url_key)::int AS n FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${LISTED}`,
+    `SELECT count(DISTINCT v.url_key)::int AS n FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${LISTED}${where.sql}`,
+    where.params,
   );
   return { count: Number(row?.n ?? 0) };
 }
@@ -305,6 +342,12 @@ interface ListRow {
   first_added_at: string;
   adders: number;
   attempts: number;
+  from_import: boolean; // v35 IMPORT
+  from_add: boolean; // v35 IMPORT
+  import_id: number | null; // v35 IMPORT
+  run_id: number | null; // v35 IMPORT
+  import_name: string | null; // v35 OPSWEB
+  import_row: number | null; // v35 OPSWEB
 }
 
 /** A page cursor of the list: the last row's check time and link key. */
@@ -330,27 +373,36 @@ function readCursor(cursor: string | undefined): [string, string] | null {
  */
 export async function listUnverifiedLinks(
   deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
-  query: { cursor?: string; limit?: number },
+  query: { cursor?: string; limit?: number } & UnverifiedFilter, // v35 IMPORT: the From filter
 ): Promise<UnverifiedLinksResponse> {
   if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { items: [], nextCursor: null };
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
   const after = readCursor(query.cursor);
+  const where = unverifiedFilterSql(query);
   // v32 ADMINAPP (E6): with the row's job as captured (its title and company), what Approve publishes. v32 FIX-API
   // (SB-1): its place, and how many versions the link's adders captured (read in full in the row's detail).
   const rows = await deps.db.all<ListRow>(
     `SELECT g.*, rj.title, rc.name AS company_name, rj.locations_text AS location,
-       EXISTS (SELECT 1 FROM job_admin_approvals ra WHERE ra.job_id = g.job_id) AS approved_before FROM (
+       EXISTS (SELECT 1 FROM job_admin_approvals ra WHERE ra.job_id = g.job_id) AS approved_before,
+       (SELECT ir.import_id FROM job_import_rows ir WHERE ir.job_id = g.job_id ORDER BY ir.import_id DESC LIMIT 1) AS import_id,
+       (SELECT ii.run_id FROM job_import_rows ir JOIN job_imports ii ON ii.id = ir.import_id WHERE ir.job_id = g.job_id
+         ORDER BY ir.import_id DESC LIMIT 1) AS run_id,
+       (SELECT ii.name FROM job_import_rows ir JOIN job_imports ii ON ii.id = ir.import_id WHERE ir.job_id = g.job_id
+         ORDER BY ir.import_id DESC LIMIT 1) AS import_name,
+       (SELECT ir.row_number FROM job_import_rows ir WHERE ir.job_id = g.job_id
+         ORDER BY ir.import_id DESC, ir.row_number LIMIT 1) AS import_row FROM (
        SELECT min(v.job_id) AS job_id, v.url_key, min(v.url) AS url, min(v.host) AS host,
          (array_agg(v.reason ORDER BY v.checked_at DESC))[1] AS reason, max(v.checked_at) AS checked_at,
-         min(v.created_at) AS first_added_at, count(*)::int AS adders, sum(v.attempts)::int AS attempts
+         min(v.created_at) AS first_added_at, count(*)::int AS adders, sum(v.attempts)::int AS attempts,
+         bool_or(${FROM_IMPORT_SQL}) AS from_import, bool_or(v.user_id IS NOT NULL) AS from_add
        FROM job_verifications v JOIN jobs j ON j.id = v.job_id
-       WHERE ${LISTED}
+       WHERE ${LISTED}${where.sql}
        GROUP BY v.url_key
        ${after ? 'HAVING (max(v.checked_at), v.url_key) < (CAST(? AS timestamptz), ?)' : ''}
        ORDER BY max(v.checked_at) DESC, v.url_key DESC LIMIT ?) g
      LEFT JOIN jobs rj ON rj.id = g.job_id LEFT JOIN companies rc ON rc.id = rj.company_id
      ORDER BY g.checked_at DESC, g.url_key DESC`,
-    after ? [after[0], after[1], limit + 1] : [limit + 1],
+    [...where.params, ...(after ? [after[0], after[1], limit + 1] : [limit + 1])],
   );
   const page = rows.slice(0, limit);
   const versions = await versionCounts(deps.db, page.map((row) => row.url_key));
@@ -368,6 +420,13 @@ export async function listUnverifiedLinks(
     ...(row.location?.trim() ? { location: row.location.trim() } : {}),
     versions: versions.get(row.url_key) ?? 1,
     ...(row.approved_before ? { approvedBefore: true } : {}),
+    // v35 IMPORT (H3): where it came from.
+    from: row.from_import ? ('import' as const) : row.from_add ? ('add' as const) : ('other' as const),
+    importId: row.import_id === null ? null : Number(row.import_id),
+    runId: row.run_id === null ? null : Number(row.run_id),
+    // v35 OPSWEB: "Import · jobs.csv, row 12".
+    importName: row.import_name ?? null,
+    importRow: row.import_row === null ? null : Number(row.import_row),
   }));
   return { items, nextCursor: rows.length > limit ? cursorOf(page[page.length - 1]!) : null };
 }

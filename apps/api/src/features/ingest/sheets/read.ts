@@ -41,6 +41,13 @@ export interface TabRequest {
   gid: number | null;
   /** The gid was chosen in the form (it must exist), not taken from the link (a missing one falls back). */
   strictGid: boolean;
+  /**
+   * v35 FIX-STORE (the final review's S3): a person's read: the spreadsheet's hidden tabs are not there for them (never
+   * listed, never read; a hidden tab's gid names no tab, as a deleted tab's does), and `tabNotFound` is the words for a
+   * gid chosen in the form that names no tab they may read. An administrator's read keeps every tab.
+   */
+  visibleOnly?: boolean;
+  tabNotFound?: string;
 }
 
 /** The newest tab named for a day (free_tailor adds one a day), else the first visible tab, else the first tab. */
@@ -57,7 +64,7 @@ function defaultTab(tabs: readonly SheetTab[]): { tab: SheetTab; dayTab: boolean
 }
 
 /** Which tab to read, and a note when it is not the one the link named. */
-export function chooseTab(spreadsheet: SpreadsheetInfo, request: Pick<TabRequest, 'gid' | 'strictGid'>): { tab: SheetTab; notes: string[] } {
+export function chooseTab(spreadsheet: SpreadsheetInfo, request: Pick<TabRequest, 'gid' | 'strictGid' | 'tabNotFound'>): { tab: SheetTab; notes: string[] } {
   const { tabs } = spreadsheet;
   if (tabs.length === 0) {
     const message = 'This spreadsheet has no tab with cells to import.';
@@ -67,7 +74,7 @@ export function chooseTab(spreadsheet: SpreadsheetInfo, request: Pick<TabRequest
     const named = tabs.find((tab) => tab.gid === request.gid);
     if (named) return { tab: named, notes: [] };
     if (request.strictGid) {
-      const message = `This spreadsheet has no tab with id ${request.gid}. Pick a tab from the list.`;
+      const message = request.tabNotFound ?? `This spreadsheet has no tab with id ${request.gid}. Pick a tab from the list.`;
       throw validationFailed(message, { gid: message });
     }
     const { tab } = defaultTab(tabs);
@@ -85,7 +92,9 @@ export async function readSheetTab(
   call: SheetCallOptions,
   readAt: () => string,
 ): Promise<SheetRead> {
-  const spreadsheet = await client.spreadsheet(request.spreadsheetId, call);
+  const info = await client.spreadsheet(request.spreadsheetId, call);
+  // v35 FIX-STORE (S3): a person's read has no hidden tab (TabRequest.visibleOnly).
+  const spreadsheet = request.visibleOnly ? { ...info, tabs: info.tabs.filter((tab) => !tab.hidden) } : info;
   const { tab, notes } = chooseTab(spreadsheet, request);
   // A grid always has a row; 0 means Google did not say, so the whole window is asked for.
   const lastRowRead = tab.rowCount > 0 ? Math.min(tab.rowCount, SHEET_READ_ROWS) : SHEET_READ_ROWS;

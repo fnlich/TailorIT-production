@@ -60,13 +60,21 @@ export function detectFormat(fileName: string, text: string): ImportFormat {
   return /^\s*[[{]/.test(text) ? 'json' : 'csv';
 }
 
+/** How many times `char` occurs in `text` (counted, not split: a long line makes no array). */
+export function countOf(text: string, char: string): number {
+  let count = 0;
+  for (let at = text.indexOf(char); at !== -1; at = text.indexOf(char, at + 1)) count += 1;
+  return count;
+}
+
 /** The delimiter of a CSV text: the one of , ; tab that splits its first line most. */
 function delimiterOf(text: string): string {
-  const firstLine = text.slice(0, text.search(/\r?\n/) === -1 ? text.length : text.search(/\r?\n/));
+  const end = text.search(/\r?\n/);
+  const firstLine = end === -1 ? text : text.slice(0, end);
   let best = ',';
   let bestCount = 0;
   for (const candidate of [',', ';', '\t']) {
-    const count = firstLine.split(candidate).length - 1;
+    const count = countOf(firstLine, candidate);
     if (count > bestCount) {
       best = candidate;
       bestCount = count;
@@ -82,49 +90,80 @@ export interface CsvRecord {
 }
 
 /**
- * RFC 4180 CSV: quoted fields with "" escapes and line breaks, CRLF or LF, a BOM ignored. Blank records are dropped
- * but counted, so `record` is the row a spreadsheet shows. `delimiter` overrides the guess from the first line.
+ * v35 FIX-PARSE (sec S1): the most cells a record keeps. Past `maxColumns` a blank cell is dropped and a filled one
+ * refuses the table with `tooWide` (its words name the file or the pasted rows).
  */
-export function parseCsvRecords(input: string, delimiter?: string): CsvRecord[] {
+export interface CsvWidth {
+  maxColumns: number;
+  tooWide: string;
+}
+
+/**
+ * RFC 4180 CSV: quoted fields with "" escapes and line breaks, CRLF or LF, a BOM ignored. Blank records are dropped
+ * but counted, so `record` is the row a spreadsheet shows. `delimiter` overrides the guess from the first line;
+ * `width` caps a record's cells (CsvWidth). v35 FIX-PARSE (sec S1): runs of plain or quoted text are taken as slices (a
+ * 5 MB cell was 5 million string appends).
+ */
+export function parseCsvRecords(input: string, delimiter?: string, width?: CsvWidth): CsvRecord[] {
   const text = input.replace(/^\ufeff/, '');
-  const separator = delimiter ?? delimiterOf(text);
+  const separator = (delimiter ?? delimiterOf(text)).charCodeAt(0);
   const records: CsvRecord[] = [];
   let row: string[] = [];
   let field = '';
   let quoted = false;
   let record = 1;
-  const endRecord = () => {
-    row.push(field);
+  const endField = () => {
+    if (!width || row.length < width.maxColumns) row.push(field);
+    else if (field.trim() !== '') throw new IngestError(width.tooWide);
     field = '';
+  };
+  const endRecord = () => {
+    endField();
     if (row.some((cell) => cell.trim() !== '')) records.push({ cells: row, record });
     row = [];
     record += 1;
   };
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index]!;
+  const QUOTE = 34;
+  const LF = 10;
+  const CR = 13;
+  let index = 0;
+  while (index < text.length) {
     if (quoted) {
-      if (char === '"') {
-        if (text[index + 1] === '"') {
-          field += '"';
-          index += 1;
-        } else {
-          quoted = false;
-        }
+      // Up to the next quote: a doubled one is a quote in the text, a single one ends the quoted part.
+      const close = text.indexOf('"', index);
+      if (close === -1) {
+        field += text.slice(index);
+        break;
+      }
+      field += text.slice(index, close);
+      if (text.charCodeAt(close + 1) === QUOTE) {
+        field += '"';
+        index = close + 2;
       } else {
-        field += char;
+        quoted = false;
+        index = close + 1;
       }
       continue;
     }
-    if (char === '"' && field === '') {
+    const code = text.charCodeAt(index);
+    if (code === QUOTE && field === '') {
       quoted = true;
-    } else if (char === separator) {
-      row.push(field);
-      field = '';
-    } else if (char === '\n' || char === '\r') {
-      if (char === '\r' && text[index + 1] === '\n') index += 1;
+      index += 1;
+    } else if (code === separator) {
+      endField();
+      index += 1;
+    } else if (code === LF || code === CR) {
+      index += code === CR && text.charCodeAt(index + 1) === LF ? 2 : 1;
       endRecord();
     } else {
-      field += char;
+      // A run of plain text (a quote inside a field is text), up to the next separator, line break or quote.
+      let end = index + 1;
+      for (; end < text.length; end += 1) {
+        const next = text.charCodeAt(end);
+        if (next === separator || next === LF || next === CR || next === QUOTE) break;
+      }
+      field += text.slice(index, end);
+      index = end;
     }
   }
   endRecord();
@@ -151,20 +190,46 @@ export interface CsvTableOptions {
   firstRow?: number;
 }
 
-function cellText(value: unknown): string {
+/** v35 FIX-PARSE (sec S7): how deep a cell's lists and objects may nest; a JSON file nested deeper is no list of jobs. */
+const JSON_CELL_MAX_DEPTH = 3;
+export const NOT_A_JOB_LIST = 'This file is not a list of jobs.';
+
+/**
+ * A JSON value as a cell's text: a list's items joined with "; ", an object's one text (name, text, title, ...) or the
+ * object as JSON. v35 FIX-PARSE (sec S7): lists nest at most JSON_CELL_MAX_DEPTH deep, and an object too deep to write
+ * as JSON (the stack's limit) is refused too, with words (400), never a 500.
+ */
+export function cellText(value: unknown, depth = 0): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (Array.isArray(value)) return value.map(cellText).filter(Boolean).join('; ');
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    // {"name": "Acme"} / {"location": "Paris"}: the one text a nested object usually carries.
-    for (const key of ['name', 'text', 'title', 'location', 'value', 'url']) {
-      if (typeof record[key] === 'string') return record[key];
-    }
-    return JSON.stringify(value);
+  if (typeof value !== 'object') return '';
+  if (depth >= JSON_CELL_MAX_DEPTH) throw new IngestError(NOT_A_JOB_LIST);
+  if (Array.isArray(value)) return value.map((item) => cellText(item, depth + 1)).filter(Boolean).join('; ');
+  const record = value as Record<string, unknown>;
+  // {"name": "Acme"} / {"location": "Paris"}: the one text a nested object usually carries.
+  for (const key of ['name', 'text', 'title', 'location', 'value', 'url']) {
+    if (typeof record[key] === 'string') return record[key];
   }
-  return '';
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    if (error instanceof RangeError) throw new IngestError(NOT_A_JOB_LIST);
+    throw error;
+  }
+}
+
+/**
+ * Column names made unique: a repeated name gets its column's number ("Title (4)"); the first keeps its own.
+ * v35 FIX-PARSE (sec S1): one pass with a Set (was an indexOf per column: a header of 60,000 columns took seconds).
+ */
+export function uniqueColumnNames(names: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return names.map((name, index) => {
+    if (seen.has(name)) return `${name} (${index + 1})`;
+    seen.add(name);
+    return name;
+  });
 }
 
 /** A CSV file as a table: the first record is the header; repeated or blank headers get a number. */
@@ -172,8 +237,7 @@ export function tableFromCsv(text: string, options: CsvTableOptions = {}): Table
   const records = parseCsvRecords(text, options.delimiter);
   if (records.length === 0) throw new IngestError('The file is empty.');
   const offset = (options.firstRow ?? 1) - 1;
-  const header = records[0]!.cells.map((cell, index) => tidyText(cell) || `Column ${index + 1}`);
-  const columns = header.map((name, index) => (header.indexOf(name) === index ? name : `${name} (${index + 1})`));
+  const columns = uniqueColumnNames(records[0]!.cells.map((cell, index) => tidyText(cell) || `Column ${index + 1}`));
   const body = records.slice(1);
   return {
     format: 'csv',
@@ -183,8 +247,8 @@ export function tableFromCsv(text: string, options: CsvTableOptions = {}): Table
   };
 }
 
-/** A JSON file as a table: an array of objects, or an object holding one under jobs / items / data / results. */
-export function tableFromJson(text: string): Table {
+/** A JSON file's job objects: an array of objects, or an object holding one under jobs / items / data / results / postings. */
+export function jsonObjectsOf(text: string): Array<Record<string, unknown>> {
   let data: unknown;
   try {
     data = JSON.parse(text.replace(/^\ufeff/, ''));
@@ -198,14 +262,28 @@ export function tableFromJson(text: string): Table {
   if (!Array.isArray(data)) throw new IngestError('The JSON file must hold a list of jobs (an array of objects).');
   const objects = data.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
   if (objects.length === 0) throw new IngestError('The JSON file holds no job objects.');
+  return objects;
+}
+
+/**
+ * A JSON file as a table: an array of objects, or an object holding one under jobs / items / data / results. v35
+ * FIX-PARSE (sec S1): the keys are collected in a Set (was an includes per key), and each row holds its own object's keys
+ * only (a column a row lacks reads as ''), so 5,000 objects with keys of their own make 5,000 cells, not 25 million.
+ */
+export function tableFromJson(text: string): Table {
+  const objects = jsonObjectsOf(text);
+  const seen = new Set<string>();
   const columns: string[] = [];
-  for (const object of objects) for (const key of Object.keys(object)) if (!columns.includes(key)) columns.push(key);
-  return {
-    format: 'json',
-    columns,
-    rows: objects.map((object) => Object.fromEntries(columns.map((column) => [column, cellText(object[column])]))),
-    rowNumbers: objects.map((_, index) => index + 1),
-  };
+  const rows = objects.map((object) => {
+    const keys = Object.keys(object);
+    for (const key of keys) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      columns.push(key);
+    }
+    return Object.fromEntries(keys.map((key) => [key, cellText(object[key])]));
+  });
+  return { format: 'json', columns, rows, rowNumbers: objects.map((_, index) => index + 1) };
 }
 
 /** A file as a table; `options` apply to CSV only. */

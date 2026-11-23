@@ -11,6 +11,19 @@ export type JobReviewKind = (typeof JOB_REVIEW_KINDS)[number];
 export const JOB_REVIEW_ORIGINS = ['ats', 'page'] as const;
 export type JobReviewOrigin = (typeof JOB_REVIEW_ORIGINS)[number];
 
+// v35 ADMIN (PLAN H3): where a held new job came from, for the New jobs lane's From filter: an admin's import
+// (job_reviews.imported, and the import's run: one import), or TailorIT's read of a link someone added (Add job, the
+// extension, an admin's link). Its origin stays `ats` either way (a held read).
+/** The New jobs lane's From filter: every held job, those an admin import read, or those read from people's links. */
+export const NEW_JOB_FROM_FILTERS = ['all', 'imports', 'reads'] as const;
+export type NewJobFromFilter = (typeof NEW_JOB_FROM_FILTERS)[number];
+export const NEW_JOB_FROM_LABEL: Record<NewJobFromFilter, string> = {
+  all: 'All',
+  imports: 'Imports',
+  reads: 'Link reads',
+};
+// end v35 ADMIN
+
 /** A review's state: one pending review per subject; a second report bumps it. */
 export const JOB_REVIEW_STATES = ['pending', 'approved', 'rejected', 'superseded', 'expired'] as const;
 export type JobReviewState = (typeof JOB_REVIEW_STATES)[number];

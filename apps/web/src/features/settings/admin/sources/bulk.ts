@@ -1,7 +1,10 @@
 import { ADMIN_BULK_MAX } from '@tailorit/shared/reviews';
 import {
   ADMIN_SOURCE_BULK_OUTCOMES,
+  type AdminSourceAllAction,
   type AdminSourceBulkAction,
+  type AdminSourcesAllCount,
+  type AdminSourcesAllResult,
   type AdminSourcesBulkResult,
 } from '@tailorit/shared/sourcing';
 import { countLabel } from '../../../../lib/format';
@@ -107,3 +110,43 @@ export function bulkSummary(
     tone: failed > 0 && done === 0 ? 'error' : rest ? 'warning' : 'success',
   };
 }
+
+// v35 OPSWEB (PLAN H6): Enable all / Disable all for everything the filter shows (the server's AdminSourcesAll*), and
+// the same for the sources one import found (Admin › Runs' Sources found).
+
+/** "1,240 sources" (with thousands marks, unlike countLabel). */
+export function counted(count: number, one: string, many: string): string {
+  return `${count.toLocaleString('en-US')} ${count === 1 ? one : many}`;
+}
+
+/** The confirm of Enable all / Disable all: "Enable 42 sources?" and what it does. */
+export function allConfirmText(
+  action: AdminSourceAllAction,
+  count: AdminSourcesAllCount,
+): { title: string; description: string; confirm: string; changes: number } {
+  const changes = action === 'enable' ? count.canEnable : count.canDisable;
+  const verb = action === 'enable' ? 'Enable' : 'Disable';
+  const rest = count.total - changes;
+  const be = rest === 1 ? 'is' : 'are';
+  const left = rest > 0 ? ` The other ${rest.toLocaleString('en-US')} shown ${be} ${action === 'enable' ? 'on already or cannot run' : 'off already'}.` : '';
+  return {
+    title: `${verb} ${counted(changes, 'source', 'sources')}?`,
+    description:
+      action === 'enable'
+        ? `They run on their schedule from now on.${left}`
+        : `They stop running until an admin turns them on again; their jobs stay listed until a run closes them.${left}`,
+    confirm: `${verb} ${counted(changes, 'source', 'sources')}`,
+    changes,
+  };
+}
+
+/** One line for what Enable all / Disable all did: "42 sources enabled", and the skipped and failed ones. */
+export function allResultLine(result: Pick<AdminSourcesAllResult, 'action' | 'counts'>): { text: string; tone: 'success' | 'warning' | 'error' } {
+  const done = result.counts.done ?? 0;
+  const skipped = result.counts.skipped ?? 0;
+  const failed = result.counts.failed ?? 0;
+  const head = done > 0 ? `${counted(done, 'source', 'sources')} ${DONE_WORDS[result.action]}` : `No source ${DONE_WORDS[result.action]}`;
+  const rest = [skipped ? `${skipped.toLocaleString('en-US')} skipped` : '', failed ? `${failed.toLocaleString('en-US')} failed` : ''].filter(Boolean).join(', ');
+  return { text: rest ? `${head}; ${rest}.` : `${head}.`, tone: failed > 0 && done === 0 ? 'error' : rest ? 'warning' : 'success' };
+}
+// end v35 OPSWEB

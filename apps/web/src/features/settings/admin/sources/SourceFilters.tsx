@@ -1,8 +1,8 @@
 'use client';
 
 import {
-  JOB_SOURCE_DISCOVERED_VIA,
   JOB_SOURCE_DISCOVERED_VIA_LABEL,
+  JOB_SOURCE_FOUND_VIA,
   JOB_SOURCE_KIND_LABEL,
   JOB_SOURCE_ROBOTS_LABEL,
   JOB_SOURCE_ROBOTS_STATUSES,
@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { FilterPill } from '@/components/ui/FilterPill';
-import { MagnifyingGlassIcon, WarningCircleIcon } from '@/components/ui/icons';
+import { MagnifyingGlassIcon, UploadSimpleIcon, WarningCircleIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import { Select } from '@/components/ui/Select';
@@ -23,6 +23,7 @@ import {
   SOURCE_ENABLED_LABEL,
   SOURCE_SORT_OPTIONS,
   activeFilterCount,
+  foundByImportOnly,
   toggledIn,
   type SourceEnabledFilter,
   type SourceFilters,
@@ -112,7 +113,7 @@ export function SourceFiltersBar({
         />
         <ChoiceMenu
           label="Found by"
-          values={JOB_SOURCE_DISCOVERED_VIA}
+          values={JOB_SOURCE_FOUND_VIA}
           labels={JOB_SOURCE_DISCOVERED_VIA_LABEL}
           chosen={filters.via}
           onChange={(via) => onChange({ via })}
@@ -139,6 +140,15 @@ export function SourceFiltersBar({
         </Menu>
         <Chip icon={<WarningCircleIcon size={16} />} selected={filters.failing} onClick={() => onChange({ failing: !filters.failing })} className="h-9">
           Failing only
+        </Chip>
+        {/* v35 OPSWEB (PLAN H6): the sources admins' imports found (made switched off), one click. */}
+        <Chip
+          icon={<UploadSimpleIcon size={16} />}
+          selected={foundByImportOnly(filters)}
+          onClick={() => onChange({ via: foundByImportOnly(filters) ? [] : ['import'] })}
+          className="h-9"
+        >
+          Found by import
         </Chip>
         {filters.host && (
           <Chip tone="tint" onRemove={() => onChange({ host: null })} removeLabel={`Show every host, not only ${filters.host}`}>

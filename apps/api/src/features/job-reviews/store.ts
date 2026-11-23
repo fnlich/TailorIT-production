@@ -45,12 +45,15 @@ export interface ReviewRow {
   first_reported_at: string;
   last_reported_at: string;
   reopened_at: string | null;
+  /** v35 ADMIN (migration 0058): a held new job an admin's import read, and that import's run (null once gone). */
+  imported: boolean;
+  import_run_id: number | null;
 }
 
 export const REVIEW_COLUMNS =
   'id, kind, subject_key, job_id, origin, page_host, link_source_id, link_source_job_id, state, reporters, ' +
   'trusted_reporters, strongest, check_state, checked_at, decided_by, decided_by_user, decided_at, note, ' +
-  'first_reported_at, last_reported_at, reopened_at';
+  'first_reported_at, last_reported_at, reopened_at, imported, import_run_id';
 
 /** The review, or undefined; with `lock`, its row locked for the rest of the transaction. */
 export async function reviewById(db: DbQueries, id: number, lock = false): Promise<ReviewRow | undefined> {

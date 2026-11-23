@@ -20,6 +20,7 @@ import {
   JOB_REVIEW_STATES,
   JOB_REVIEW_STRENGTHS,
   JOB_REVIEW_VIA,
+  NEW_JOB_FROM_FILTERS,
   REVIEW_GROUPS,
   REVIEW_STATE_FILTERS,
 } from './enums';
@@ -47,11 +48,23 @@ export type ReviewJobRef = z.infer<typeof ReviewJobRefSchema>;
 
 // The lists ----------------------------------------------------------------------------------------------------------
 
-/** The Closed links and New jobs lanes' query string: the lane, the state filter, a search (title or company), a page. */
-export const AdminReviewsQuerySchema = z.object({
+/**
+ * A lane's filters: the lane, the state filter, a search (title or company). v35 ADMIN (PLAN H3): on the New jobs lane,
+ * where its jobs came from (`from`: all, an admin's imports, people's link reads) and one import (`importRunId`, the
+ * import's run; it implies `imports`). The Closed links lane reads neither.
+ */
+export const AdminReviewsFilterSchema = z.object({
   lane: z.enum(JOB_REVIEW_KINDS),
   state: z.enum(REVIEW_STATE_FILTERS).default('needs_review'),
   q: z.string().trim().max(200, messageError('MSG_TEXT_TOO_LONG', { max: 200 })).optional(),
+  /** Absent: all. */
+  from: z.enum(NEW_JOB_FROM_FILTERS).optional(),
+  importRunId: z.coerce.number().int().positive().optional(),
+});
+export type AdminReviewsFilter = z.infer<typeof AdminReviewsFilterSchema>;
+
+/** The Closed links and New jobs lanes' query string: the lane's filters (AdminReviewsFilterSchema) and a page. */
+export const AdminReviewsQuerySchema = AdminReviewsFilterSchema.extend({
   cursor: AdminCursorSchema.optional(),
   limit: AdminPageSizeSchema,
 });
@@ -96,6 +109,13 @@ export const AdminReviewRowSchema = z.object({
    * the reporters' trust rule: "Reopened by its source"). Absent or null: never.
    */
   reopenedAt: IsoDateTime.nullable().optional(),
+  // v35 ADMIN (PLAN H3)
+  /** A new job an admin's import read (held for review); absent or false otherwise. */
+  imported: z.boolean().optional(),
+  /** That import's run (Admin › Runs), and its name ("jobs.csv", a sheet's, "24 pasted links"); null once it is gone. */
+  importRunId: z.number().int().nullable().optional(),
+  importName: z.string().nullable().optional(),
+  // end v35 ADMIN
 });
 export type AdminReviewRow = z.infer<typeof AdminReviewRowSchema>;
 
@@ -250,6 +270,47 @@ export type AdminReviewBulkBody = z.infer<typeof AdminReviewBulkBodySchema>;
 export const REVIEW_BULK_OUTCOMES = ['approved', 'rejected', 'skipped', 'failed'] as const;
 export const AdminReviewBulkResultSchema = adminBulkResultSchema(REVIEW_BULK_OUTCOMES);
 export type AdminReviewBulkResult = z.infer<typeof AdminReviewBulkResultSchema>;
+
+// v35 ADMIN (PLAN H3): Approve all / Reject all on the New jobs lane, for every pending review its filter matches. The
+// count comes first (GET /api/admin/reviews/all/count?<filter>: the confirm's "Approve 1,240 jobs?"); the decisions run
+// on the server in batches of ADMIN_BULK_MAX, each review in its own transaction as a bulk's are, oldest first, for at
+// most ADMIN_BULK_ALL_SECONDS a request. An answer with `done: false` was cut at that time: the same request with
+// `after` = its `after` goes on past the reviews it decided or skipped (one that failed is never tried twice), and the
+// web sums the answers into one result line.
+/** Reviews the "all" decisions apply to: the New jobs lane's (Closed links keeps its selection bulk). */
+export const ADMIN_REVIEW_ALL_LANES = ['new_job'] as const;
+export const AdminReviewsAllFilterSchema = AdminReviewsFilterSchema.extend({ lane: z.enum(ADMIN_REVIEW_ALL_LANES) });
+export type AdminReviewsAllFilter = z.infer<typeof AdminReviewsAllFilterSchema>;
+/** The pending reviews the filter matches now: what Approve all or Reject all would decide. */
+export const AdminReviewsAllCountSchema = z.object({
+  pending: z.number().int().nonnegative(),
+  /** v35 FIX-STORE (S6): what was counted, opaque; Approve all / Reject all send it back and decide nothing beyond it. */
+  upTo: z.string().max(40),
+});
+export type AdminReviewsAllCount = z.infer<typeof AdminReviewsAllCountSchema>;
+export const AdminReviewsAllBodySchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  filter: AdminReviewsAllFilterSchema,
+  note: NoteSchema.optional(),
+  /** Go on after this review (the last answer's `after`). */
+  after: z.number().int().nonnegative().optional(),
+  /** v35 FIX-STORE (S6): the count's `upTo` (absent: every pending review the filter matches, as before). */
+  upTo: z.string().max(40).optional(),
+});
+export type AdminReviewsAllBody = z.infer<typeof AdminReviewsAllBodySchema>;
+/** One result: the pending reviews it took, each outcome's count, a few failures' words, and whether it is done. */
+export const AdminReviewsAllResultSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  matched: z.number().int().nonnegative(),
+  counts: z.partialRecord(z.enum(REVIEW_BULK_OUTCOMES), z.number().int().nonnegative()),
+  /** The first failures (at most 20), each with its review and words. */
+  failures: z.array(z.object({ id: z.number().int(), message: z.string().max(400) })).max(20),
+  done: z.boolean(),
+  /** The last review this answer took (its id): the next request's `after` while `done` is false. */
+  after: z.number().int().nonnegative(),
+});
+export type AdminReviewsAllResult = z.infer<typeof AdminReviewsAllResultSchema>;
+// end v35 ADMIN
 
 // The Flags lane -----------------------------------------------------------------------------------------------------
 

@@ -1,12 +1,16 @@
 import { z } from 'zod';
 import {
+  AdminRunSourcesSchema,
   AdminRunsListSchema,
+  AdminSourcesAllResultSchema,
   JobSourceRunSchema,
   RunContinueResultSchema,
   RunsContinueResultSchema,
   RunsPauseResultSchema,
   SourcingDailyReportSchema,
-  type JobSourceKind,
+  type AdminRunSources,
+  type AdminSourceAllAction,
+  type AdminSourcesAllResult,
   type JobSourceRun,
   type JobSourceRunStatus,
   type RunContinueResult,
@@ -16,6 +20,7 @@ import {
   type SourcingDailyReport,
 } from '@tailorit/shared/sourcing';
 import { api } from '@/lib/api';
+import { runKindsQuery, type RunKindFilter } from './imports'; // v35 OPSWEB
 
 // v30 S1-WEB: Admin › Runs' calls (12 §9.8): the run history at scale (a page behind an opaque cursor, by source, kind
 // and status) and the daily report. Answers are CT's (@tailorit/shared/sourcing); S1-API names the routes.
@@ -31,12 +36,23 @@ const RunsPageSchema = AdminRunsListSchema.extend({ items: z.array(AdminRunRowSc
 export type AdminRunsPage = z.infer<typeof RunsPageSchema>;
 
 /** What a run's opened row reads: its error and its log lines (v2.0's route; only these fields are read). */
-export const RunLogSchema = z.object({ id: z.number().int(), error: z.string().nullable().default(null), log: z.array(z.string()).default([]) });
+// v35 INT-B: and its record (`sourceId`): Runs opened on one run (?run=) lists the runs of that record.
+export const RunLogSchema = z.object({
+  id: z.number().int(),
+  sourceId: z.number().int().optional(),
+  error: z.string().nullable().default(null),
+  log: z.array(z.string()).default([]),
+});
 export type RunLog = z.infer<typeof RunLogSchema>;
+
+/** v35 FIX-WEB (L7): GET /api/admin/runs/:id read as a history row (CT's run, its log beside it). */
+export const RunRowDetailSchema = AdminRunRowSchema.extend({ log: z.array(z.string()).default([]) });
+export type RunRowDetail = z.infer<typeof RunRowDetailSchema>;
 
 export interface RunFilters {
   sourceId: number | null;
-  kinds: readonly JobSourceKind[];
+  /** v35 OPSWEB: a source's kind, or "import" (every import's run). */
+  kinds: readonly RunKindFilter[];
   statuses: readonly JobSourceRunStatus[];
 }
 
@@ -45,16 +61,20 @@ export const runKeys = {
   all: ['admin', 'runs'] as const,
   page: (filters: RunFilters) => ['admin', 'runs', 'page', filters] as const,
   log: (id: number) => ['admin', 'runs', 'log', id] as const,
+  /** v35 FIX-WEB (L7): one run as a history row (Runs opened on it). */
+  row: (id: number) => ['admin', 'runs', 'row', id] as const,
   report: (day: string | null) => ['admin', 'sourcing-report', day ?? 'today'] as const,
   /** v31 RUNS: whether every run is paused (the Sources tab's notice). */
   paused: ['admin', 'runs', 'paused'] as const,
+  /** v35 OPSWEB (PLAN H6): an import run's Sources found. */
+  sources: (id: number) => ['admin', 'runs', 'sources', id] as const,
 };
 
 /** The history's query string: the source, the kinds and statuses as repeated keys, the cursor. */
 export function runsQuery(filters: RunFilters, cursor?: string) {
   return {
     sourceId: filters.sourceId ?? undefined,
-    kind: filters.kinds.length ? [...filters.kinds] : undefined,
+    kind: filters.kinds.length ? runKindsQuery(filters.kinds) : undefined, // v35 OPSWEB: "import" is csv and json
     status: filters.statuses.length ? [...filters.statuses] : undefined,
     cursor,
   };
@@ -63,6 +83,11 @@ export function runsQuery(filters: RunFilters, cursor?: string) {
 /** GET /api/admin/runs?sourceId&kind&status&cursor&limit: newest first. */
 export function fetchRunsPage(filters: RunFilters, cursor?: string, signal?: AbortSignal): Promise<AdminRunsPage> {
   return api.get<AdminRunsPage>('/api/admin/runs', { signal, query: runsQuery(filters, cursor), schema: RunsPageSchema });
+}
+
+/** v35 FIX-WEB (L7): GET /api/admin/runs/:id as a history row (Runs opened on one import's run lists it alone). */
+export function fetchRunRow(id: number, signal?: AbortSignal): Promise<RunRowDetail> {
+  return api.get<RunRowDetail>(`/api/admin/runs/${id}`, { signal, schema: RunRowDetailSchema });
 }
 
 /** GET /api/admin/runs/:id: its error and log. */
@@ -97,6 +122,19 @@ export function continueRun(id: number): Promise<RunContinueResult> {
   return api.post<RunContinueResult>(`/api/admin/runs/${id}/continue`, undefined, { schema: RunContinueResultSchema });
 }
 // end v31 RUNS
+
+// v35 OPSWEB (PLAN H6, ADMIN's routes): an import run's Sources found, and Enable all / Disable all of the ones it made.
+
+/** GET /api/admin/runs/:id/sources: the board sources the import's links named (made by it first, then by name). */
+export function fetchRunSources(id: number, signal?: AbortSignal): Promise<AdminRunSources> {
+  return api.get<AdminRunSources>(`/api/admin/runs/${id}/sources`, { signal, schema: AdminRunSourcesSchema });
+}
+
+/** POST /api/admin/runs/:id/sources {action}: turns every source this import made on, or off (the others stay). */
+export function changeRunSources(id: number, action: AdminSourceAllAction): Promise<AdminSourcesAllResult> {
+  return api.post<AdminSourcesAllResult>(`/api/admin/runs/${id}/sources`, { action }, { schema: AdminSourcesAllResultSchema });
+}
+// end v35 OPSWEB
 
 /** GET /api/admin/sourcing/report?day=YYYY-MM-DD: one day's sourcing (no day: today, as the server counts days). */
 export function fetchSourcingReport(day: string | null, signal?: AbortSignal): Promise<SourcingDailyReport> {

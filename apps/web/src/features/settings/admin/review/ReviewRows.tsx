@@ -136,7 +136,8 @@ export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, 
           <p className="text-[13px] leading-5 text-foreground" data-review-evidence="">
             {evidenceLine(row)}{' '}
             <time className="text-muted-foreground" dateTime={row.lastReportedAt} title={new Date(row.lastReportedAt).toLocaleString('en-US')}>
-              · {relativeTime(row.lastReportedAt, now)}
+              {/* v35 FIX-WEB (L4): "Imported 13 minutes ago", as Couldn't verify says it. */}
+              {row.imported && row.kind === 'new_job' ? relativeTime(row.lastReportedAt, now) : `· ${relativeTime(row.lastReportedAt, now)}`}
             </time>
           </p>
           {line && <StateLine icon={line.icon} text={line.text} detail={line.detail} tone={line.tone} />}

@@ -29,7 +29,8 @@ import { noteHeldAdd } from '../../job-reviews/new-jobs'; // v31 FIX-LINK (D12)
 import { sharedAddress } from './address';
 import { legacyHeld } from './held';
 import { settleLegacyJob } from './legacy';
-import { readPageToSharedJob } from './page';
+import { readPageToSharedJob, type ImportRead } from './page'; // v35 INT-A: ImportRead
+import { fillPayFromRate } from './import-jobs'; // v35 IMPORT
 import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
 import { linkRejected, noteUnverified, ownJobsOfLink } from './verification';
 
@@ -108,6 +109,8 @@ export interface ReadLinkOptions {
   fresh?: boolean;
   /** v31 FIX-LINK (D12): an admin approves the posting at this link: a page's new job is published, never held. */
   approved?: boolean;
+  /** v35 INT-A: an admin import's read: its row fills what the read lacks; a new job it holds is the import's (page.ts). */
+  importRead?: ImportRead;
 }
 
 /** What TailorIT's own read of a link came to. */
@@ -171,13 +174,19 @@ export async function readLink(
   const posting = addablePosting(reading.ats);
   if (posting) {
     try {
-      const stored = await readShared(deps, posting, inFlight ?? newInFlight(), { fresh: options.fresh === true });
+      const stored = await readShared(deps, posting, inFlight ?? newInFlight(), {
+        fresh: options.fresh === true,
+        ...(options.importRead ? { importRead: options.importRead } : {}),
+      });
       return { kind: 'shared', jobId: stored.jobId, created: stored.created, held: await isHeld(deps, stored.jobId) };
     } catch (error) {
       return atsFailure(error);
     }
   }
-  return readPageToSharedJob(deps, options.readAt ?? url, { approved: options.approved === true });
+  return readPageToSharedJob(deps, options.readAt ?? url, {
+    approved: options.approved === true,
+    ...(options.importRead ? { importRead: options.importRead } : {}),
+  });
 }
 
 /** The state of a shared job: waiting for an admin while held, else published. */
@@ -262,6 +271,9 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
   }
   if (input.details && input.privateJob !== false) {
     const made = await storeOwnJobFromDetails(deps, userId, url, input.details);
+    // v35 IMPORT (SP v35 PLAN.md H4): the Rate the person gave is the job's pay when its description states none.
+    const rate = input.details.rate;
+    if (rate) await deps.db.tx((t) => fillPayFromRate(t, made.jobId, rate, nowIso(deps)), { label: 'add job: pay from rate' });
     await note(made.jobId);
     await save(made.jobId);
     return outcome('private_unverified', made.jobId, reason, made.created);

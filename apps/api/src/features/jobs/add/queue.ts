@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   DAY_MS,
+  JOB_VERIFY_REASONS,
   linkKey,
   MINUTE_MS,
   type JobAddState,
@@ -17,6 +18,9 @@ import { settleLegacyJob, TRANSIENT_REASONS } from './legacy';
 import { outsideWorkPaused } from './pause';
 import { settleRecheck } from './recheck';
 import { addJobByLink, isAddableLink } from './pipeline';
+import { settleImportLink } from './import-pipeline'; // v35 IMPORT
+import { recordQueueOutcome, repairImportRows, type QueueOutcome } from './import-store'; // v35 IMPORT; v35 FIX-STORE: repairImportRows
+import type { DbQueries } from '../../../core/db/types'; // v35 FIX-STORE
 
 // v31 LINK (docs/design/v3.1/21-jobs-from-links.md §5): the links an import (a CSV or JSON file, a Google Sheet's tab,
 // the free_tailor lake) or an admin's add (POST /api/admin/jobs/add) queues for TailorIT's own read. Only the link is
@@ -56,8 +60,11 @@ export const LEGACY_ATTEMPTS_FACTOR = 3;
 export const LINK_QUEUE_RETRY_MAX_MS = DAY_MS;
 /** The origins whose rows wait behind an admin's and an import's (BEH-6: the legacy pass's and the weekly reads). */
 const BACKGROUND_ORIGINS = ['legacy', 'recheck'] as const;
-/** v31 FIX-LINK (BEH-5): the origins of an import's run, which queue only a link with no read lately. */
-const RUN_ORIGINS: ReadonlySet<LinkQueueOrigin> = new Set(['import', 'sheets', 'ft_lake']);
+/**
+ * v31 FIX-LINK (BEH-5): the origins of an import's run, which queue only a link with no read lately. v35 IMPORT (H5): the
+ * free_tailor lake's only: an admin's file or sheet import queues every row (import-store.ts), so a known job is reposted.
+ */
+const RUN_ORIGINS: ReadonlySet<LinkQueueOrigin> = new Set(['ft_lake']);
 /** Rows one insert writes. */
 const INSERT_CHUNK = 500;
 /** The refused links an answer names (the rest are counted only). */
@@ -144,7 +151,7 @@ export async function queueLinks(
     const inserted = await deps.db.all<{ id: number }>(
       `INSERT INTO job_link_queue(url, url_key, host, origin, batch_id, source_id, added_by, next_at, created_at)
        VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
-       ON CONFLICT (url_key, (COALESCE(for_job_id, 0))) WHERE state <> 'done' DO NOTHING RETURNING id`,
+       ON CONFLICT (url_key, (COALESCE(for_job_id, 0)), (COALESCE(user_id, ''))) WHERE state <> 'done' DO NOTHING RETURNING id`,
       chunk.flatMap(([key, link]) => [link.url, key, link.host, input.origin, batchId, input.sourceId ?? null, input.addedBy, at, at]),
     );
     queued += inserted.length;
@@ -172,7 +179,7 @@ export async function queueJobLinks(
     const inserted = await deps.db.all<{ id: number }>(
       `INSERT INTO job_link_queue(url, url_key, host, origin, for_job_id, next_at, created_at)
        VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ')}
-       ON CONFLICT (url_key, (COALESCE(for_job_id, 0))) WHERE state <> 'done' DO NOTHING RETURNING id`,
+       ON CONFLICT (url_key, (COALESCE(for_job_id, 0)), (COALESCE(user_id, ''))) WHERE state <> 'done' DO NOTHING RETURNING id`,
       chunk.flatMap((row) => [row.url, row.key, row.host, origin, row.jobId, at, at]),
     );
     queued += inserted.length;
@@ -188,6 +195,13 @@ interface DueRow {
   attempts: number;
   /** v31 LINK2: the job a `legacy` or `recheck` read is for. */
   for_job_id: number | null;
+  // v35 IMPORT (migration 0057): an import's row: its fields, the person's profile and grant, who queued it, its import.
+  details: unknown;
+  user_id: string | null;
+  grant_id: string | null;
+  added_by: string | null;
+  source_id: number | null;
+  import_id: number | null;
 }
 
 /**
@@ -213,6 +227,7 @@ export const DUE_BY_HOST_SQL = `WITH due AS (
 export async function workLinkQueue(deps: AppDeps, max?: number): Promise<number> {
   // v31 RUNS' Pause all holds the worker's outside work (pause.ts).
   if (await outsideWorkPaused(deps)) return 0;
+  await repairNow(deps); // v35 FIX-STORE (D2, D3)
   const constants = constantsOf(deps);
   const hosts = max ?? constants.get('LINK_QUEUE_PER_PASS');
   const now = deps.now();
@@ -225,7 +240,7 @@ export async function workLinkQueue(deps: AppDeps, max?: number): Promise<number
     `UPDATE job_link_queue SET state = 'working', lease_until = ?, attempts = attempts + 1
      WHERE id IN (SELECT CAST(value AS bigint) FROM ${deps.db.dialect.jsonEach('?')})
        AND state <> 'done' AND (state = 'queued' OR lease_until < ?)
-     RETURNING id, url, host, origin, attempts, for_job_id`,
+     RETURNING id, url, host, origin, attempts, for_job_id, details, user_id, grant_id, added_by, source_id, import_id`,
     [lease, JSON.stringify(ids), at],
   );
   // The hosts at once; one host's links one after the other, in the order taken.
@@ -273,11 +288,27 @@ export function attemptsOf(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' |
   return origin === 'legacy' ? attempts * LEGACY_ATTEMPTS_FACTOR : attempts;
 }
 
+/**
+ * v35 FIX-STORE (the final review's D2): a lake's link as it is now: an admin's import may have taken it over since the
+ * pass claimed it (import-store.ts queueRows: the import's origin, source, fields and who queued it), so it is read as
+ * the import's. Any other row as claimed.
+ */
+async function currentOf(deps: AppDeps, row: DueRow): Promise<DueRow> {
+  if (row.origin !== 'ft_lake') return row;
+  const now = await deps.db.one<Pick<DueRow, 'origin' | 'details' | 'source_id' | 'added_by' | 'import_id'>>(
+    'SELECT origin, details, source_id, added_by, import_id FROM job_link_queue WHERE id = ?',
+    [row.id],
+  );
+  return now && now.origin !== row.origin ? { ...row, ...now } : row;
+}
+
 /** Reads one claimed link and writes its result (or puts it back for a later try). */
-async function settle(deps: AppDeps, row: DueRow): Promise<void> {
+async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
+  const row = await currentOf(deps, claimed); // v35 FIX-STORE (D2)
   let state: JobAddState;
   let reason: JobVerifyReason | null;
   let jobId: number | null;
+  let imported: QueueOutcome | null = null; // v35 IMPORT
   const lastTry = row.attempts >= attemptsOf(deps, row.origin);
   try {
     if (row.origin === 'legacy' && row.for_job_id !== null) {
@@ -295,11 +326,30 @@ async function settle(deps: AppDeps, row: DueRow): Promise<void> {
       jobId = Number(row.for_job_id);
       // An unreadable page is read again at the next interval, not retried now (the check time moved).
       if (checked === 'unreadable') reason = null;
-    } else {
-      const outcome = await addJobByLink(deps, { url: row.url, userId: null, origin: row.origin as 'admin' | 'import' | 'sheets' | 'ft_lake' });
+    } else if (row.origin === 'ft_lake') {
+      const outcome = await addJobByLink(deps, { url: row.url, userId: null, origin: 'ft_lake' });
       state = outcome.state;
       reason = outcome.reason;
       jobId = outcome.jobId;
+    } else {
+      // v35 IMPORT (SP v35 PLAN.md H2, H5): an admin's links and every import's rows (import-pipeline.ts): the row's
+      // fields and profile decide what an unreadable link and a job TailorIT has come to; each import row waiting on this
+      // link gets its result (import-store.ts recordQueueOutcome). The queue row keeps v3.1's state for the old view.
+      const settled = await settleImportLink(deps, row, lastTry);
+      if (settled.retry) {
+        state = 'private_unverified';
+        reason = settled.reason;
+        jobId = null;
+      } else {
+        imported = settled;
+        state = legacyStateOf(settled);
+        // A result reached is final: never tried again for a reason it carries (an unreadable link vouched for).
+        reason =
+          settled.reason !== null && isVerifyReason(settled.reason) && !TRANSIENT_REASONS.has(settled.reason as JobVerifyReason)
+            ? (settled.reason as JobVerifyReason)
+            : null;
+        jobId = settled.jobId;
+      }
     }
   } catch (error) {
     // Never the error's own text (it can hold the link).
@@ -307,6 +357,7 @@ async function settle(deps: AppDeps, row: DueRow): Promise<void> {
     state = 'refused';
     reason = 'unavailable';
     jobId = null;
+    if (lastTry && isImportOrigin(row.origin)) imported = { result: 'failed', reason: 'unavailable', jobId: null };
   }
   const now = deps.now();
   // v31 LINK2: a legacy job's read waits while page reads are not set up here (legacy.ts): asked again a day later.
@@ -327,10 +378,66 @@ async function settle(deps: AppDeps, row: DueRow): Promise<void> {
     ]);
     return;
   }
-  await deps.db.run(
-    "UPDATE job_link_queue SET state = 'done', result = ?, reason = ?, job_id = ?, lease_until = NULL, done_at = ? WHERE id = ?",
-    [state, reason, jobId, now.toISOString(), row.id],
-  );
+  const markDone = (t: DbQueries) =>
+    t.run("UPDATE job_link_queue SET state = 'done', result = ?, reason = ?, job_id = ?, lease_until = NULL, done_at = ? WHERE id = ?", [
+      state,
+      reason,
+      jobId,
+      now.toISOString(),
+      row.id,
+    ]);
+  // v35 IMPORT: each import row waiting on this link gets its result. v35 FIX-STORE (the final review's D3): in the
+  // queue row's own transaction (import-store.ts recordQueueOutcome).
+  if (imported) await recordQueueOutcome(deps, Number(row.id), imported, markDone);
+  else await markDone(deps.db);
+}
+
+/** v35 FIX-STORE (D3): the repair of import rows left waiting runs at most this often (each process). */
+export const IMPORT_REPAIR_EVERY_MS = MINUTE_MS;
+/** The last repair of each app (deps), by its clock. */
+const REPAIRED_AT = new WeakMap<object, number>();
+
+/**
+ * v35 FIX-STORE (the final review's D2, D3): the queue pass's repair (import-store.ts repairImportRows), at most once
+ * every IMPORT_REPAIR_EVERY_MS; a failure is logged, never the pass's.
+ */
+async function repairNow(deps: AppDeps): Promise<void> {
+  const now = deps.now().getTime();
+  const last = REPAIRED_AT.get(deps);
+  if (last !== undefined && now >= last && now - last < IMPORT_REPAIR_EVERY_MS) return;
+  REPAIRED_AT.set(deps, now);
+  try {
+    await repairImportRows(deps);
+  } catch (error) {
+    deps.log.warn('[job-links] the repair of import rows failed; the next pass tries again', error instanceof Error ? error.name : 'unknown');
+  }
+}
+
+/** v35 IMPORT: the origins whose rows an import (or an admin's add) queued. */
+function isImportOrigin(origin: LinkQueueOrigin): boolean {
+  return origin === 'admin' || origin === 'import' || origin === 'sheets';
+}
+
+/** v35 IMPORT: whether a row's reason is one of the read's (JOB_VERIFY_REASONS), kept on the queue row. */
+function isVerifyReason(reason: string): boolean {
+  return (JOB_VERIFY_REASONS as readonly string[]).includes(reason);
+}
+
+/** v35 IMPORT: an import row's result as v3.1's queue states (the old progress view's words). */
+function legacyStateOf(outcome: QueueOutcome): JobAddState {
+  switch (outcome.result) {
+    case 'added':
+    case 'reposted':
+    case 'known':
+      return outcome.held || outcome.reason === 'waiting_review' ? 'waiting_admin' : 'published';
+    case 'review':
+      return 'waiting_admin';
+    case 'added_private':
+      return 'private_unverified';
+    default:
+      // needs_details, closed, failed: nothing was added (v3.1's refused, with its reason).
+      return 'refused';
+  }
 }
 
 /** The worker hook: a pass every LINK_QUEUE_TICK_MS (read at start), never two at once. */

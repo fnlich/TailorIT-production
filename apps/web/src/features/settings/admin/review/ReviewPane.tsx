@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'; // v32 ADMINAPP (E6)
 import { EmptyState } from '@/components/ui/EmptyState';
+import { HelpTip } from '@/components/ui/HelpTip'; // v35 OPSWEB
 import { CheckIcon, ShieldCheckIcon, XIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { SearchPill } from '@/components/ui/SearchPill';
@@ -69,7 +70,22 @@ import {
 import { FlagRowView, ReviewRowView, type FlagChange } from './ReviewRows';
 import { ReviewSheet } from './ReviewSheet';
 import { UnverifiedLane } from './UnverifiedLane'; // v31 ADMINWEB
-import { ADMIN_REVIEW_LANE_LABEL, ADMIN_REVIEW_LANES, fetchUnverifiedCount, isQueueLane, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
+import { ADMIN_REVIEW_LANE_LABEL, ADMIN_REVIEW_LANES, fetchUnverifiedCount, filteredHeadCount, isQueueLane, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
+import {
+  NEW_JOB_WAYS,
+  decideNewJobsAll,
+  fetchNewJobsAllCount,
+  fetchRecentImports,
+  fromOptions,
+  newJobAllFilter,
+  newJobFilterFromAddress,
+  newJobFilterOf,
+  newJobFilterQuery,
+  newJobFromValue,
+  newJobsAllLine,
+  runNewJobsAll,
+  type NewJobFilter,
+} from './from'; // v35 OPSWEB
 
 // v30 X1-WEB: Admin › Review's queue (docs/design/part2/14-extension-reports.md §6.2), on components/queue like the
 // Auto-apply page's Queue pane: the lane tabs (a select at phone width) with their counts, the state filter, a search,
@@ -135,15 +151,23 @@ export function ReviewPane({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [capturing, setCapturing] = useState<{ row: AdminReviewRow; note: string } | null>(null); // v32 ADMINAPP (E6)
   const [live, setLive] = useState('');
-  const inFlight = busy.size > 0 || bulkBusy;
+  // v35 OPSWEB (PLAN H3): New jobs' From filter (`run=` in the address: one import), and its Approve all / Reject all.
+  const [newJobFilter, setNewJobFilter] = useState<NewJobFilter>(() => newJobFilterFromAddress(searchParams));
+  const [allAsk, setAllAsk] = useState<'approve' | 'reject' | null>(null);
+  const [allProgress, setAllProgress] = useState<string | null>(null);
+  // v35 FIX-WEB (L5): Couldn't verify's From filter's count, while one is on (the header reads "2 of 7").
+  const [unverifiedFiltered, setUnverifiedFiltered] = useState<number | null>(null);
+  const inFlight = busy.size > 0 || bulkBusy || allAsk !== null;
 
-  const list: ReviewListQuery = { state, q };
+  const newJobs = lane === 'new_job';
+  const fromKey = newJobs ? newJobFromValue(newJobFilter) : 'all';
+  const list: ReviewListQuery = { state, q, ...(newJobs ? newJobFilterQuery(newJobFilter) : {}) };
   const poll = inFlight ? false : REVIEW_POLL_MS;
   const reviewLane: JobReviewKind = lane === 'new_job' ? 'new_job' : 'closed';
   const reviewing = lane === 'closed' || lane === 'new_job';
   const unverifiedLane = lane === 'unverified';
   const reviews = useInfiniteQuery({
-    queryKey: reviewKeys.lane(reviewLane, state, q),
+    queryKey: reviewKeys.lane(reviewLane, state, q, fromKey),
     queryFn: ({ pageParam, signal }) => fetchReviews(reviewLane, { ...list, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor,
@@ -162,6 +186,17 @@ export function ReviewPane({
   const countsRoute = useQuery({ queryKey: reviewKeys.counts, queryFn: ({ signal }) => fetchReviewCounts(signal), enabled: unverifiedLane, refetchInterval: REVIEW_POLL_MS });
   const unverifiedCount = useQuery({ queryKey: reviewKeys.unverifiedCount, queryFn: ({ signal }) => fetchUnverifiedCount(signal), refetchInterval: REVIEW_POLL_MS });
   const unverified = unverifiedCount.data ?? null;
+  // v35 OPSWEB: the recent imports New jobs' From filter offers; the filter's count, read when Approve all asks.
+  const imports = useQuery({ queryKey: ['admin', 'imports', 'recent'], queryFn: ({ signal }) => fetchRecentImports(signal), enabled: newJobs, staleTime: 60_000 });
+  const allFilter = newJobAllFilter(newJobFilter, state, q);
+  const allCount = useQuery({
+    queryKey: ['admin', 'review', 'all-count', allFilter],
+    queryFn: ({ signal }) => fetchNewJobsAllCount(allFilter, signal),
+    enabled: allAsk !== null,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const allPending = allCount.data?.pending; // v35 FIX-WEB (S6): the count; its `upTo` goes with the requests
   const active = lane === 'flags' ? flags : reviews;
   const counts = unverifiedLane
     ? (countsRoute.data ?? reviews.data?.pages[0]?.counts ?? flags.data?.pages[0]?.counts)
@@ -216,6 +251,30 @@ export function ReviewPane({
     params.set('tab', 'review');
     params.set('lane', next);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  // v35 OPSWEB: Approve all / Reject all of New jobs: requests continued with `after` until done, one result line.
+  const runAll = async (decision: 'approve' | 'reject') => {
+    const verb = decision === 'approve' ? 'Approved' : 'Rejected';
+    try {
+      // v35 FIX-WEB (S6): the count's `upTo` goes back with every request: nothing past what the confirm counted.
+      const upTo = allCount.data?.upTo;
+      const outcome = await runNewJobsAll({ decision, filter: allFilter, ...(upTo ? { upTo } : {}) }, decideNewJobsAll, (sofar) => {
+        const decided = (decision === 'approve' ? sofar.counts.approved : sofar.counts.rejected) ?? 0;
+        setAllProgress(`${verb} ${decided.toLocaleString('en-US')} so far...`);
+      });
+      const line = newJobsAllLine(outcome);
+      setLive(line);
+      if ((outcome.counts.failed ?? 0) > 0) toast.error(line, outcome.failures[0]?.message);
+      else toast.success(line);
+      setAllAsk(null);
+      focusSoon(AFTER_SELECT_MODE);
+    } catch (error) {
+      throw new Error(userMessage(error));
+    } finally {
+      setAllProgress(null);
+      refresh();
+    }
   };
 
   const changeState = (next: ReviewStateFilter) => {
@@ -375,6 +434,40 @@ export function ReviewPane({
             placeholder="Search title or company"
             className="w-full sm:ml-auto sm:w-64 max-sm:h-11"
           />
+          {/* v35 OPSWEB (PLAN H3): New jobs' From filter, and Approve all / Reject all for it. */}
+          {newJobs && (
+            <div className="flex w-full flex-wrap items-center gap-2" data-new-jobs-tools="">
+              {/* v35 FIX-WEB (L6): a visible "From" beside the select (two "All"s read apart). */}
+              <span className="flex w-full min-w-0 items-center gap-2 sm:w-auto" data-new-jobs-from="">
+                <span aria-hidden="true" className="shrink-0 text-[13px] leading-5 font-medium text-muted-foreground">
+                  From
+                </span>
+                <Select
+                  aria-label="New jobs: from"
+                  size="sm"
+                  className="min-w-0 flex-1 sm:w-64 sm:flex-none max-sm:h-11"
+                  value={newJobFromValue(newJobFilter)}
+                  onValueChange={(value) => {
+                    setNewJobFilter(newJobFilterOf(value));
+                    setSelected(new Set());
+                    setOutcomes(new Map());
+                  }}
+                  options={fromOptions(NEW_JOB_WAYS, imports.data?.items ?? [], newJobFilter.runId)}
+                />
+              </span>
+              {decidable.length > 0 && state !== 'decided' && (
+                <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                  <Button variant="outline" size="sm" className="max-sm:h-11" icon={<CheckIcon size={14} weight="bold" aria-hidden="true" />} aria-haspopup="dialog" onClick={() => setAllAsk('approve')}>
+                    Approve all
+                  </Button>
+                  <Button variant="outline" size="sm" className="max-sm:h-11" icon={<XIcon size={14} weight="bold" aria-hidden="true" />} aria-haspopup="dialog" onClick={() => setAllAsk('reject')}>
+                    Reject all
+                  </Button>
+                  <HelpTip label="Approve all and Reject all">Every new job the From filter, the search and the view match, shown or not.</HelpTip>
+                </span>
+              )}
+            </div>
+          )}
           {!selectMode && (
             <Button
               variant="ghost"
@@ -395,6 +488,9 @@ export function ReviewPane({
       )}
     </div>
   );
+
+  // v35 FIX-WEB (L5): "2 of 7" beside the title while Couldn't verify's From filter is on.
+  const filteredHead = unverifiedLane ? filteredHeadCount(unverifiedFiltered, unverified) : null;
 
   const footer = selectMode && !unverifiedLane ? (
     <SelectBar
@@ -591,7 +687,14 @@ export function ReviewPane({
         <Pane
           id={PANE_TITLE_ID}
           title={ADMIN_REVIEW_LANE_LABEL[lane]}
-          count={unverifiedLane ? unverified : loaded ? laneCount(counts, lane) : null}
+          count={filteredHead !== null ? null : unverifiedLane ? unverified : loaded ? laneCount(counts, lane) : null}
+          status={
+            filteredHead !== null ? (
+              <span className="num text-sm text-muted-foreground" data-pane-count="" data-pane-count-filtered="">
+                {filteredHead}
+              </span>
+            ) : undefined
+          }
           controls={controls}
           scroll={false}
           footer={footer}
@@ -602,7 +705,7 @@ export function ReviewPane({
               {body}
             </>
           ) : (
-            <UnverifiedLane onLive={setLive} />
+            <UnverifiedLane onLive={setLive} onFilterCount={setUnverifiedFiltered} />
           )}
           <p className="sr-only" role="status" aria-live="polite" data-review-live="">
             {live}
@@ -633,6 +736,47 @@ export function ReviewPane({
           if (asked) void decide(asked.row, 'approve', asked.note, true);
         }}
       />
+      {/* v35 OPSWEB: "Approve 1,240 jobs?" with the server's count; the requests' progress while it works. */}
+      <ConfirmDialog
+        open={allAsk !== null}
+        onOpenChange={(open) => {
+          if (open || allProgress !== null) return;
+          setAllAsk(null);
+        }}
+        tone={allAsk === 'reject' ? 'destructive' : 'primary'}
+        title={
+          allPending !== undefined
+            ? `${allAsk === 'reject' ? 'Reject' : 'Approve'} ${allPending.toLocaleString('en-US')} ${allPending === 1 ? 'job' : 'jobs'}?`
+            : `${allAsk === 'reject' ? 'Reject' : 'Approve'} every new job shown?`
+        }
+        description={
+          allCount.isError
+            ? `The jobs could not be counted. ${userMessage(allCount.error)}`
+            : allPending === undefined
+              ? 'Counting the jobs...'
+              : allPending === 0
+                ? 'Nothing to decide: no new job matches now.'
+                : allAsk === 'reject'
+                  ? 'None of them is published; their links are remembered as rejected.'
+                  : 'Each is published for everyone to find. TailorIT works through them in turns and says when it is done.'
+        }
+        confirmLabel={
+          allPending ? `${allAsk === 'reject' ? 'Reject' : 'Approve'} ${allPending.toLocaleString('en-US')} ${allPending === 1 ? 'job' : 'jobs'}` : allAsk === 'reject' ? 'Reject all' : 'Approve all'
+        }
+        busyLabel={allAsk === 'reject' ? 'Rejecting...' : 'Approving...'}
+        confirmDisabled={!allPending}
+        focusCancel
+        finalFocus={() => false}
+        onConfirm={async () => {
+          if (allAsk) await runAll(allAsk);
+        }}
+      >
+        {allProgress && (
+          <p className="text-[13px] text-muted-foreground" role="status" data-new-jobs-progress="">
+            {allProgress}
+          </p>
+        )}
+      </ConfirmDialog>
       <BulkDialog
         action={bulkAction}
         count={chosen.length}

@@ -2,12 +2,7 @@
 
 import { PauseIcon } from '@phosphor-icons/react/Pause';
 import { PlayIcon } from '@phosphor-icons/react/Play';
-import {
-  JOB_SOURCE_KIND_LABEL,
-  JOB_SOURCE_RUN_STATUSES,
-  type JobSourceKind,
-  type JobSourceRunStatus,
-} from '@tailorit/shared/sourcing';
+import { JOB_SOURCE_KIND_LABEL, JOB_SOURCE_RUN_STATUSES, type JobSourceRunStatus } from '@tailorit/shared/sourcing';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useSearchParams } from 'next/navigation';
@@ -28,13 +23,30 @@ import { userMessage } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { fetchSourceSettings, sourceKeys } from '../sources/api';
-import { FILTER_KINDS } from '../sources/filters';
 import { useAdminLink } from '../sources/links';
 import { ChoiceMenu } from '../sources/SourceFilters';
 import { formatCount } from '../sources/sources';
-import { continueRun, fetchRunLog, fetchRunsPage, pauseRun, runKeys, type AdminRunRow, type RunFilters } from './api';
+import { continueRun, fetchRunLog, fetchRunRow, fetchRunsPage, pauseRun, runKeys, type AdminRunRow, type RunFilters } from './api';
 import { DailyReport } from './DailyReport';
-import { RunErrorLine, RunStatusBadge, runCounts, runDuration, runTriggerLabel } from './parts';
+import { ImportRunDetail } from './ImportRunDetail'; // v35 OPSWEB
+import { runOfSearch } from '../import/address'; // v35 INT-B
+import {
+  IMPORT_READING_LABEL, // v35 FIX-WEB
+  RUN_KIND_FILTERS,
+  importRunCounts,
+  importRunLabel,
+  importRunReading,
+  isImportRun,
+  namedRunChip, // v35 FIX-WEB
+  onlyNamedRun, // v35 FIX-WEB
+  recordRunsLabel, // v35 FIX-WEB
+  runsListSource, // v35 INT-B
+  runsSourceChip, // v35 INT-B
+  startedByText,
+  type RunKindFilter,
+} from './imports'; // v35 OPSWEB
+import { RUNS_EMPTY, RunErrorLine, RunStatusBadge, runCounts, runDuration, runTriggerLabel } from './parts';
+import { Badge } from '@/components/ui/Badge'; // v35 FIX-WEB (L3)
 import { PAUSE_ALL_CONFIRM, continuedRunToast, pausingRunToast, runRowAction, runsBarText } from './pause';
 import { useRunsPause } from './useRunsPause';
 
@@ -51,6 +63,9 @@ const STATUS_LABEL: Record<JobSourceRunStatus, string> = {
   not_modified: 'Not modified (304)',
   paused: 'Paused', // v31 RUNS
 };
+/** v35 OPSWEB: the Kind filter's words: the source kinds', and "Imports". */
+const RUN_KIND_LABEL: Record<RunKindFilter, string> = { ...JOB_SOURCE_KIND_LABEL, import: 'Imports' };
+
 /** While a run shown is going, its row is asked again this often (the first page only). */
 const FOLLOW_MS = 3000;
 /** v31 RUNS: where focus goes once the bar's Pause all closes its confirm (the bar's Continue). */
@@ -121,11 +136,27 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
   const link = useAdminLink();
   const toast = useToast();
   const pause = useRunsPause(); // v31 RUNS
-  const view: RunsView = useSearchParams().get('view') === 'report' ? 'report' : 'history';
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [kinds, setKinds] = useState<JobSourceKind[]>([]);
+  const address = useSearchParams();
+  const view: RunsView = address.get('view') === 'report' ? 'report' : 'history';
+  // v35 INT-B (SP v35 build/WAVE2-LINKS.md): `?run=<runId>` (Import results' "See it on Runs") opens that run among the
+  // runs of its record, read from the run (GET /api/admin/runs/:id) when the address names no source.
+  const namedRun = runOfSearch(address.get('run'));
+  const [kinds, setKinds] = useState<RunKindFilter[]>([]);
   const [statuses, setStatuses] = useState<JobSourceRunStatus[]>([]);
-  const filters: RunFilters = { sourceId, kinds, statuses };
+  // v35 FIX-WEB (the ux review's L7): the named run as a history row; an import's is listed alone (its own chip), with
+  // "Every run of …" for the runs of its record. It is read again while it runs or its rows are read.
+  const named = useQuery({
+    queryKey: runKeys.row(namedRun ?? 0),
+    queryFn: ({ signal }) => fetchRunRow(namedRun!, signal),
+    enabled: namedRun !== null && sourceId === null,
+    retry: false,
+    refetchInterval: (query) => (query.state.data && (query.state.data.status === 'running' || importRunReading(query.state.data)) ? FOLLOW_MS : false),
+  });
+  const alone = onlyNamedRun(sourceId, namedRun, named.data) && kinds.length === 0 && statuses.length === 0;
+  const listSourceId = alone ? null : runsListSource(sourceId, namedRun, named.data?.sourceId);
+  const waitingForNamed = namedRun !== null && sourceId === null && named.isPending;
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set(namedRun !== null ? [namedRun] : []));
+  const filters: RunFilters = { sourceId: listSourceId, kinds, statuses };
 
   const runs = useInfiniteQuery({
     queryKey: runKeys.page(filters),
@@ -133,21 +164,22 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor,
     placeholderData: keepPreviousData,
-    enabled: view === 'history',
+    enabled: view === 'history' && !waitingForNamed && !alone, // v35 INT-B: the named run's record first; v35 FIX-WEB: or it alone
     // Follow a running run while only the first page is shown (a long history is refreshed by hand).
     refetchInterval: (query) => {
       const pages = query.state.data?.pages ?? [];
-      return pages.length === 1 && pages[0]!.items.some((run) => run.status === 'running') ? FOLLOW_MS : false;
+      // v35 OPSWEB: an import whose rows TailorIT still reads (no counts yet) is followed too.
+      return pages.length === 1 && pages[0]!.items.some((run) => run.status === 'running' || importRunReading(run)) ? FOLLOW_MS : false;
     },
   });
   const source = useQuery({
-    queryKey: sourceKeys.detail(sourceId ?? 0),
-    queryFn: ({ signal }) => fetchSourceSettings(sourceId!, signal),
-    enabled: sourceId !== null,
+    queryKey: sourceKeys.detail(listSourceId ?? 0),
+    queryFn: ({ signal }) => fetchSourceSettings(listSourceId!, signal),
+    enabled: listSourceId !== null,
     retry: false,
   });
 
-  const items = runs.data?.pages.flatMap((page) => page.items) ?? [];
+  const items = alone && named.data ? [named.data] : (runs.data?.pages.flatMap((page) => page.items) ?? []);
 
   // v31 RUNS: a run's Pause (it stops at its next safe point) and a paused run's Continue (its source runs again now).
   const pauseOne = useMutation({
@@ -168,7 +200,9 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
     },
     onError: (error) => toast.error('The run did not continue', userMessage(error)),
   });
-  const sourceName = source.data?.name ?? items.find((run) => run.sourceId === sourceId)?.sourceName ?? (sourceId ? `Source #${sourceId}` : null);
+  const sourceName = source.data?.name ?? items.find((run) => run.sourceId === listSourceId)?.sourceName ?? (listSourceId ? `Source #${listSourceId}` : null);
+  // v35 INT-B: the run that names the chip (an import's record reads "Import: <name>").
+  const chipRun = items.find((run) => run.id === namedRun) ?? items.find((run) => run.sourceId === listSourceId);
   const toggle = (id: number) =>
     setExpanded((previous) => {
       const next = new Set(previous);
@@ -184,7 +218,13 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
       className: 'w-12 pr-0',
       cell: (run) => (
         <IconButton
-          label={expanded.has(run.id) ? `Hide the log of run ${run.id}` : `Show the log of run ${run.id}`}
+          label={
+            isImportRun(run) // v35 OPSWEB: an import opens to its results and Sources found
+              ? `${expanded.has(run.id) ? 'Hide' : 'Show'} the import of run ${run.id}`
+              : expanded.has(run.id)
+                ? `Hide the log of run ${run.id}`
+                : `Show the log of run ${run.id}`
+          }
           icon={expanded.has(run.id) ? <CaretDownIcon size={16} /> : <CaretRightIcon size={16} />}
           size="sm"
           tooltip={false}
@@ -197,16 +237,25 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
       key: 'source',
       header: 'Source',
       className: 'min-w-52',
-      cell: (run) => (
-        <div className="min-w-0">
-          <p className="truncate font-semibold">{run.sourceName}</p>
-          <p className="text-[13px] text-muted-foreground">
-            {run.sourceKindLabel || JOB_SOURCE_KIND_LABEL[run.sourceKind]} · Run {run.id}
-          </p>
-        </div>
-      ),
+      cell: (run) =>
+        // v35 OPSWEB (PLAN H6): an import is named "Import · <name>", with who started it.
+        isImportRun(run) ? (
+          <div className="min-w-0 max-w-80" data-run-import={run.importOf?.import?.id ?? ''}>
+            <p className="truncate font-semibold" title={importRunLabel(run)}>
+              {importRunLabel(run)}
+            </p>
+            <p className="truncate text-[13px] text-muted-foreground">{[startedByText(run), `Run ${run.id}`].filter(Boolean).join(' · ')}</p>
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <p className="truncate font-semibold">{run.sourceName}</p>
+            <p className="text-[13px] text-muted-foreground">
+              {run.sourceKindLabel || JOB_SOURCE_KIND_LABEL[run.sourceKind]} · Run {run.id}
+            </p>
+          </div>
+        ),
     },
-    { key: 'trigger', header: 'Trigger', className: 'w-32', cell: (run) => runTriggerLabel(run) },
+    { key: 'trigger', header: 'Trigger', className: 'w-32', cell: (run) => (isImportRun(run) ? 'Import' : runTriggerLabel(run)) }, // v35 OPSWEB
     {
       key: 'started',
       header: 'Started',
@@ -217,14 +266,22 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
         </Tooltip>
       ),
     },
-    { key: 'took', header: 'Took', className: 'w-20 text-muted-foreground', cell: (run) => runDuration(run) },
+    // v35 FIX-WEB (L3): an import's Took means nothing (its rows are read by the queue afterwards): "-".
+    { key: 'took', header: 'Took', className: 'w-20 text-muted-foreground', cell: (run) => (isImportRun(run) ? '-' : runDuration(run)) },
     {
       key: 'status',
       header: 'Status',
       className: 'w-40',
       cell: (run) => (
         <div className="flex flex-col items-start gap-1">
-          <RunStatusBadge status={run.status} />
+          {/* v35 FIX-WEB (L3): an import whose rows TailorIT still reads says so, not its record run's "Succeeded". */}
+          {isImportRun(run) && importRunReading(run) ? (
+            <Badge tone="sky" data-run-import-reading="">
+              {IMPORT_READING_LABEL}
+            </Badge>
+          ) : (
+            <RunStatusBadge status={run.status} />
+          )}
           <RunErrorLine code={run.errorCode} />
         </div>
       ),
@@ -233,25 +290,43 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
       key: 'requests',
       header: 'Requests',
       className: 'w-28',
-      cell: (run) => (
-        <div className="text-[13px] leading-5">
-          <span className="num block">{formatCount(run.requests)}</span>
-          {run.httpStatus !== null && <span className="block text-muted-foreground">HTTP {run.httpStatus}</span>}
-        </div>
-      ),
+      cell: (run) =>
+        // v35 FIX-WEB (L3): an import makes no requests of its own (the queue reads its links): "-".
+        isImportRun(run) ? (
+          <span className="text-[13px] leading-5 text-muted-foreground">-</span>
+        ) : (
+          <div className="text-[13px] leading-5">
+            <span className="num block">{formatCount(run.requests)}</span>
+            {run.httpStatus !== null && <span className="block text-muted-foreground">HTTP {run.httpStatus}</span>}
+          </div>
+        ),
     },
     {
       key: 'counts',
       header: 'Postings',
       className: 'w-72',
-      cell: (run) => (
-        <div>
-          <p>
-            <span className="num">{formatCount(run.fetched)}</span> <span className="text-muted-foreground">fetched</span>
-          </p>
-          <p className="text-[13px] text-muted-foreground">{runCounts(run)}</p>
-        </div>
-      ),
+      cell: (run) => {
+        // v35 OPSWEB (PLAN H6): an import's rows and what came of them ("12 added · 3 reposted · 2 to review").
+        if (isImportRun(run)) {
+          const counts = importRunCounts(run);
+          return (
+            <div data-run-import-counts="">
+              <p>
+                <span className="num">{formatCount(counts.rowCount)}</span> <span className="text-muted-foreground">{counts.rowCount === 1 ? 'row' : 'rows'}</span>
+              </p>
+              <p className="text-[13px] text-muted-foreground">{counts.line}</p>
+            </div>
+          );
+        }
+        return (
+          <div>
+            <p>
+              <span className="num">{formatCount(run.fetched)}</span> <span className="text-muted-foreground">fetched</span>
+            </p>
+            <p className="text-[13px] text-muted-foreground">{runCounts(run)}</p>
+          </div>
+        );
+      },
     },
     // v31 RUNS: Pause while it runs ("Pausing" once asked), Continue once paused.
     {
@@ -304,7 +379,7 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
       size="sm"
       items={VIEWS}
       value={view}
-      onValueChange={(next) => link({ tab: 'runs', source: sourceId, view: next === 'report' ? 'report' : null })}
+      onValueChange={(next) => link({ tab: 'runs', source: listSourceId, view: next === 'report' ? 'report' : null })}
     />
   );
   const description =
@@ -333,25 +408,36 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
       actions={
         <>
           {viewSwitch}
-          <IconButton label="Refresh the runs" icon={<ArrowsClockwiseIcon size={16} />} variant="outline" onClick={() => void runs.refetch()} />
+          <IconButton label="Refresh the runs" icon={<ArrowsClockwiseIcon size={16} />} variant="outline" onClick={() => void (alone ? named.refetch() : runs.refetch())} />
         </>
       }
       lead={
         <>
           <RunsBar now={now} state={pause} />
           <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
-            {sourceId !== null && (
+            {/* v35 FIX-WEB (L7): one import's run alone, its chip naming the import, and the way to its record's runs. */}
+            {alone && named.data && (
+              <>
+                <Chip tone="tint" onRemove={() => onSourceChange(null)} removeLabel="Show the runs of every source">
+                  {namedRunChip(named.data)}
+                </Chip>
+                <Button variant="ghost" size="sm" onClick={() => link({ tab: 'runs', source: named.data!.sourceId })} data-runs-record="">
+                  {recordRunsLabel(named.data)}
+                </Button>
+              </>
+            )}
+            {listSourceId !== null && (
               <Chip tone="tint" onRemove={() => onSourceChange(null)} removeLabel="Show the runs of every source">
-                Source: {sourceName}
+                {runsSourceChip(sourceName ?? '', chipRun)}
               </Chip>
             )}
-            <ChoiceMenu label="Kind" values={FILTER_KINDS} labels={JOB_SOURCE_KIND_LABEL} chosen={kinds} onChange={setKinds} />
+            <ChoiceMenu label="Kind" values={RUN_KIND_FILTERS} labels={RUN_KIND_LABEL} chosen={kinds} onChange={setKinds} />
             <ChoiceMenu label="Status" values={JOB_SOURCE_RUN_STATUSES} labels={STATUS_LABEL} chosen={statuses} onChange={setStatuses} />
           </div>
         </>
       }
-      items={runs.data ? items : undefined}
-      error={runs.error}
+      items={alone ? items : runs.data ? items : undefined}
+      error={alone ? null : runs.error}
       errorTitle="Runs didn't load."
       errorAction={
         <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
@@ -359,15 +445,27 @@ export function RunsTab({ sourceId, onSourceChange }: { sourceId: number | null;
         </Button>
       }
       empty={
-        sourceId !== null || kinds.length > 0 || statuses.length > 0
-          ? { size: 'sm', title: 'No run matches', description: 'Try other filters.' }
-          : { size: 'sm', title: 'No runs yet', description: 'Run a source from Sources, or import links.' }
+        alone || listSourceId !== null || kinds.length > 0 || statuses.length > 0
+          ? { size: 'sm', ...RUNS_EMPTY.filtered }
+          : { size: 'sm', ...RUNS_EMPTY.none } // v35 OPSWEB (PLAN H6): "No runs now"
       }
       tableLabel="Ingest runs"
       columns={columns}
       getKey={(run) => run.id}
       expanded={expanded}
-      renderExpanded={(run) => <RunLog runId={run.id} running={run.status === 'running'} />}
+      renderExpanded={(run) =>
+        // v35 OPSWEB (PLAN H6): an import opens to its counts, Open results and Sources found, its log below.
+        // At a phone's width the table scrolls sideways in its box: the import's part keeps to the box's visible width
+        // and stays in view (the box is the `@container/table` the width is read from).
+        isImportRun(run) ? (
+          <div className="sticky left-4 flex w-[calc(100cqw-2rem)] max-w-full flex-col gap-3">
+            <ImportRunDetail run={run} />
+            <RunLog runId={run.id} running={run.status === 'running'} />
+          </div>
+        ) : (
+          <RunLog runId={run.id} running={run.status === 'running'} />
+        )
+      }
       tableClassName={clsx(runs.isPlaceholderData && 'opacity-70')}
       footer={
         runs.hasNextPage && (

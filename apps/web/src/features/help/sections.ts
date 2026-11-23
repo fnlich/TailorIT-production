@@ -1,4 +1,3 @@
-import { ADMIN_SECTION } from './content/admin';
 import { AUTO_APPLY_SECTION } from './content/auto-apply';
 import { AUTOFILL_SECTION } from './content/autofill';
 import { CONTACT_SECTION } from './content/contact';
@@ -13,7 +12,8 @@ import { START_SECTION } from './content/start';
 import { TRACKER_SECTION } from './content/tracker';
 import type { GuideSection } from './model';
 
-// v34 HELP (PLAN G6): the guide's sections in reading order. Admin is drawn in the app for administrators only.
+// v34 HELP (PLAN G6): the guide's sections in reading order. v35 OPSWEB (PLAN H8, the owner's "you don't need to add it
+// to help or guide page"): no Admin section; the admin's pages keep their own "?" tips.
 export const GUIDE_SECTIONS: readonly GuideSection[] = [
   START_SECTION,
   JOBS_SECTION,
@@ -26,6 +26,5 @@ export const GUIDE_SECTIONS: readonly GuideSection[] = [
   SETTINGS_SECTION,
   SHARING_SECTION,
   PLANS_SECTION,
-  ADMIN_SECTION,
   CONTACT_SECTION,
 ];

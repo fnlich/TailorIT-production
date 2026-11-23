@@ -9,11 +9,14 @@ import {
   AdminQueryFlagSchema,
   adminQueryList,
 } from '../reviews/bulk';
-import { JOB_SOURCE_KINDS } from './kinds';
+import { JOB_IMPORT_WAYS, JobImportCountsSchema } from '../ingest/rows'; // v35 INT-A
+import { ADMIN_SOURCE_LIST_KINDS, JOB_SOURCE_KINDS } from './kinds';
 import {
   CRAWL_HOST_HOLD_REASONS,
   JOB_SOURCE_CANDIDATE_STATUSES,
   JOB_SOURCE_DISCOVERED_VIA,
+  JOB_SOURCE_FOUND_VIA,
+  JOB_SOURCE_WAITING_REASONS,
   JOB_SOURCE_PURGE_REASONS,
   JOB_SOURCE_PURGE_STATES,
   JOB_SOURCE_ROBOTS_STATUSES,
@@ -43,24 +46,45 @@ const SearchText = z.string().trim().max(200, messageError('MSG_TEXT_TOO_LONG', 
 export const ADMIN_SOURCE_SORTS = ['next_run', 'last_run', 'name', 'open_jobs', 'failures'] as const;
 export type AdminSourceSort = (typeof ADMIN_SOURCE_SORTS)[number];
 
-/** Admin › Sources' query string: search (name or host), filters (each a list; [] is any), order and page. */
-export const AdminSourcesQuerySchema = z.object({
+/**
+ * Admin › Sources' filters (a query string, or the body of Enable all / Disable all): search (name or host) and lists
+ * ([] is any). v35 ADMIN (PLAN H6): an import's records are no source (ADMIN_SOURCE_LIST_KINDS: no csv or json kind),
+ * and "Found by import" is a way a source was found (`discoveredVia` import).
+ */
+export const AdminSourcesFilterSchema = z.object({
   q: SearchText.optional(),
-  kind: adminQueryList(z.enum(JOB_SOURCE_KINDS), JOB_SOURCE_KINDS.length),
+  kind: adminQueryList(z.enum(ADMIN_SOURCE_LIST_KINDS), ADMIN_SOURCE_LIST_KINDS.length),
   tier: adminQueryList(z.enum(JOB_SOURCE_TIERS), JOB_SOURCE_TIERS.length),
   terms: adminQueryList(z.enum(JOB_SOURCE_TERMS_STATUSES), JOB_SOURCE_TERMS_STATUSES.length),
   robots: adminQueryList(z.enum(JOB_SOURCE_ROBOTS_STATUSES), JOB_SOURCE_ROBOTS_STATUSES.length),
-  discoveredVia: adminQueryList(z.enum(JOB_SOURCE_DISCOVERED_VIA), JOB_SOURCE_DISCOVERED_VIA.length),
+  discoveredVia: adminQueryList(z.enum(JOB_SOURCE_FOUND_VIA), JOB_SOURCE_FOUND_VIA.length),
   enabled: z.enum(['all', 'enabled', 'disabled']).default('all'),
   /** Only sources failing now (a failure in their last run, or the failing tier). */
   failing: AdminQueryFlagSchema,
   host: HostSchema.optional(),
   companyId: z.coerce.number().int().positive().optional(),
+});
+export type AdminSourcesFilter = z.infer<typeof AdminSourcesFilterSchema>;
+
+/** Admin › Sources' query string: its filters (AdminSourcesFilterSchema), order and page. */
+export const AdminSourcesQuerySchema = AdminSourcesFilterSchema.extend({
   sort: z.enum(ADMIN_SOURCE_SORTS).default('next_run'),
   cursor: AdminCursorSchema.optional(),
   limit: AdminPageSizeSchema,
 });
 export type AdminSourcesQuery = z.infer<typeof AdminSourcesQuerySchema>;
+
+// v35 ADMIN (PLAN H7)
+/**
+ * Why a switched-on source does not run now (JOB_SOURCE_WAITING_LABEL words it), and until when, when that is known (a
+ * held host). It starts by itself once it can.
+ */
+export const JobSourceWaitingSchema = z.object({
+  reason: z.enum(JOB_SOURCE_WAITING_REASONS),
+  until: IsoDateTime.nullable().optional(),
+});
+export type JobSourceWaiting = z.infer<typeof JobSourceWaitingSchema>;
+// end v35 ADMIN
 
 /** One row of Admin › Sources (job_sources with 12 §12.1's columns). */
 export const AdminSourceRowSchema = z.object({
@@ -75,7 +99,8 @@ export const AdminSourceRowSchema = z.object({
   tier: z.enum(JOB_SOURCE_TIERS),
   termsStatus: z.enum(JOB_SOURCE_TERMS_STATUSES),
   robotsStatus: z.enum(JOB_SOURCE_ROBOTS_STATUSES),
-  discoveredVia: z.enum(JOB_SOURCE_DISCOVERED_VIA).nullable(),
+  /** How it was found (v35 ADMIN: `import`, "Found by import": made switched off by an admin's import). */
+  discoveredVia: z.enum(JOB_SOURCE_FOUND_VIA).nullable(),
   nextRunAt: IsoDateTime.nullable(),
   lastRunAt: IsoDateTime.nullable(),
   lastSuccessAt: IsoDateTime.nullable(),
@@ -96,6 +121,8 @@ export const AdminSourceRowSchema = z.object({
   /** Who paused it (the admin's email; null once that account is gone). */
   pausedBy: z.string().nullable().optional(),
   // end v31 RUNS
+  /** v35 ADMIN (PLAN H7): switched on, but it cannot run now, and why; null (or absent) when it is off or can run. */
+  waiting: JobSourceWaitingSchema.nullable().optional(),
 });
 export type AdminSourceRow = z.infer<typeof AdminSourceRowSchema>;
 
@@ -116,6 +143,36 @@ export type AdminSourcesBulkBody = z.infer<typeof AdminSourcesBulkBodySchema>;
 export const ADMIN_SOURCE_BULK_OUTCOMES = ['done', 'skipped', 'failed'] as const;
 export const AdminSourcesBulkResultSchema = adminBulkResultSchema(ADMIN_SOURCE_BULK_OUTCOMES);
 export type AdminSourcesBulkResult = z.infer<typeof AdminSourcesBulkResultSchema>;
+
+// v35 ADMIN (PLAN H6): Enable all / Disable all for every source the filter matches, beside the selection's bulk. The
+// count comes first (GET /api/admin/sources/all/count?<filter>: the confirm's "Enable 1,240 sources?"); the change runs
+// on the server in batches of ADMIN_BULK_MAX (POST /api/admin/sources/all) and answers one result.
+/** Turn every matching source on, or off. */
+export const ADMIN_SOURCE_ALL_ACTIONS = ['enable', 'disable'] as const;
+export type AdminSourceAllAction = (typeof ADMIN_SOURCE_ALL_ACTIONS)[number];
+/** What the filter matches now: every source, and how many each action would change. */
+export const AdminSourcesAllCountSchema = z.object({
+  total: z.number().int().nonnegative(),
+  /** Off now and able to run (not a kind that never runs, not of a company that opted out): Enable all turns these on. */
+  canEnable: z.number().int().nonnegative(),
+  /** On now: Disable all turns these off. */
+  canDisable: z.number().int().nonnegative(),
+});
+export type AdminSourcesAllCount = z.infer<typeof AdminSourcesAllCountSchema>;
+export const AdminSourcesAllBodySchema = z.object({
+  action: z.enum(ADMIN_SOURCE_ALL_ACTIONS),
+  /** The filter shown (Admin › Sources' own, its order and page left out); absent: every source. */
+  filter: AdminSourcesFilterSchema.optional(),
+});
+export type AdminSourcesAllBody = z.infer<typeof AdminSourcesAllBodySchema>;
+/** One result for the whole change: the sources it matched and each outcome's count (done, skipped, failed). */
+export const AdminSourcesAllResultSchema = z.object({
+  action: z.enum(ADMIN_SOURCE_ALL_ACTIONS),
+  matched: z.number().int().nonnegative(),
+  counts: z.partialRecord(z.enum(ADMIN_SOURCE_BULK_OUTCOMES), z.number().int().nonnegative()),
+});
+export type AdminSourcesAllResult = z.infer<typeof AdminSourcesAllResultSchema>;
+// end v35 ADMIN
 
 // Runs ---------------------------------------------------------------------------------------------------------------
 
@@ -152,6 +209,37 @@ export const JobSourceRunSchema = z.object({
    * it is stopping at its next safe point (within about RUN_STOP_POLL_MS). Null or absent: never asked.
    */
   stopRequestedAt: IsoDateTime.nullable().optional(),
+  /**
+   * v35 ADMIN (PLAN H6): an import's run (its source a `csv` or `json` record): how it came (a file, a Google Sheet, or
+   * pasted links: one link or many), the file's name and the sheet's titles, for its label on Admin › Runs ("jobs.csv",
+   * "Job sheet, tab Open roles", "24 pasted links"). Null or absent for a source's run.
+   */
+  importOf: z
+    .object({
+      way: z.enum(['file', 'sheet', 'pasted']),
+      fileName: z.string().nullable(),
+      sheet: z.object({ spreadsheetTitle: z.string(), tabTitle: z.string() }).nullable(),
+      /**
+       * v35 INT-A: the import of this run (IMPORT's job_imports; GET /api/admin/imports/:runId has its rows), for "Import
+       * · <name> · <counts>": how it came (one link, pasted links, a file, a sheet), its name ("1 link", "24 pasted
+       * links", the file, the tab), who started it (their name or address; null when unknown: a v3.4 route's import), its
+       * rows, and its counts once every row is read (null while TailorIT reads them). Null or absent: no import record.
+       */
+      import: z
+        .object({
+          id: z.number().int(),
+          way: z.enum(JOB_IMPORT_WAYS),
+          name: z.string(),
+          startedBy: z.string().nullable(),
+          rows: z.number().int().nonnegative(),
+          finishedAt: IsoDateTime.nullable(),
+          counts: JobImportCountsSchema.nullable(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
 });
 export type JobSourceRun = z.infer<typeof JobSourceRunSchema>;
 
@@ -180,6 +268,41 @@ export type RunsContinueResult = z.infer<typeof RunsContinueResultSchema>;
 export const RunContinueResultSchema = z.object({ runId: z.number().int().positive(), sourceId: z.number().int().positive() });
 export type RunContinueResult = z.infer<typeof RunContinueResultSchema>;
 // end v31 RUNS
+
+// v35 ADMIN (PLAN H6): an import run's Sources found (GET /api/admin/runs/:id/sources): each board source the import
+// named (job_source_import_finds), made by it (`created`: switched off, Found by import) or there already, as it is now;
+// Enable all / Disable all of the ones it made (POST /api/admin/runs/:id/sources); one at a time through
+// PATCH /api/admin/sources/:id.
+/** One source an import found. */
+export const AdminRunSourceSchema = z.object({
+  id: z.number().int(),
+  kind: z.enum(JOB_SOURCE_KINDS),
+  kindLabel: z.string(),
+  name: z.string(),
+  host: z.string().nullable(),
+  companyName: z.string().nullable(),
+  enabled: z.boolean(),
+  /** This import made it (switched off, Found by import); false: a source that was there already, left as it was. */
+  created: z.boolean(),
+  discoveredVia: z.enum(JOB_SOURCE_FOUND_VIA).nullable(),
+  openJobs: z.number().int().nonnegative(),
+  lastRunAt: IsoDateTime.nullable(),
+  pausedAt: IsoDateTime.nullable().optional(),
+  waiting: JobSourceWaitingSchema.nullable().optional(),
+});
+export type AdminRunSource = z.infer<typeof AdminRunSourceSchema>;
+export const AdminRunSourcesSchema = z.object({
+  items: z.array(AdminRunSourceSchema),
+  /** Every source the run found, the ones it made, and how many of those are on now. */
+  total: z.number().int().nonnegative(),
+  created: z.number().int().nonnegative(),
+  createdEnabled: z.number().int().nonnegative(),
+});
+export type AdminRunSources = z.infer<typeof AdminRunSourcesSchema>;
+/** Enable all / Disable all of the sources an import made. */
+export const AdminRunSourcesBodySchema = z.object({ action: z.enum(ADMIN_SOURCE_ALL_ACTIONS) });
+export type AdminRunSourcesBody = z.infer<typeof AdminRunSourcesBodySchema>;
+// end v35 ADMIN
 
 export const AdminRunsListSchema = z.object({
   items: z.array(JobSourceRunSchema),

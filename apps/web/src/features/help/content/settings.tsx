@@ -5,7 +5,6 @@ import { DELETE_COPY } from '../../account-deletion/copy';
 import { ACCOUNT_COPY } from '../../settings/account';
 import { GROUP_SETTINGS } from '../../notifications/copy';
 import { useBoxName } from '../boxes';
-import { useGuide } from '../context';
 import type { GuideSection } from '../model';
 import { AppPage, Bullets, P, PublicLink, See, Ui } from '../parts';
 
@@ -13,10 +12,10 @@ import { AppPage, Bullets, P, PublicLink, See, Ui } from '../parts';
 // the Integrations page's two tabs.
 
 function SettingsPage() {
-  const { frame, isAdmin } = useGuide();
   const boxName = useBoxName();
+  // v35 OPSWEB (PLAN H8): the guide has no admin docs, so the admins' own notification group is not listed.
   const groups = Object.entries(GROUP_SETTINGS)
-    .filter(([group]) => group !== 'admin' || (frame === 'app' && isAdmin))
+    .filter(([group]) => group !== 'admin')
     .map(([, group]) => group.title);
   return (
     <>

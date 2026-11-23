@@ -35,7 +35,7 @@ export const SUMMARY_COLUMNS = `
   j.id, j.title, j.company_id, c.name AS company_name, ${COMPANY_LOGO_SQL('c')} AS company_logo_path,
   j.primary_location, j.location_count, j.work_arrangement, j.employment_type, j.experience_levels,
   j.salary_min, j.salary_max, j.salary_currency, j.salary_period,
-  j.posted_at, j.first_seen_at, j.source_updated_at, j.active, j.apply_url, j.held_since,
+  j.posted_at, j.first_seen_at, j.source_updated_at, j.reposted_at, j.active, j.apply_url, j.held_since,
   a.id AS application_id, a.current_status AS application_status, a.archived_at AS application_archived_at,
   ${appliedOnSql('a')} AS applied_on,
   ${jobCreditSql('j')} AS credit_json,
@@ -74,6 +74,8 @@ export interface SummaryRow {
   salary_period: string | null;
   posted_at: string | null;
   first_seen_at: string;
+  /** v35 IMPORT (H5): when an admin's import last reposted the job. */
+  reposted_at?: string | null;
   source_updated_at: string | null;
   /** A flag: true/false on PostgreSQL (1 is read as true too). */
   active: boolean | number;
@@ -239,6 +241,7 @@ export function toListItem(row: SummaryRow): JobListItem {
     salary: salaryOf(row),
     postedAt: isoTimestamp(row.posted_at) ?? isoTimestamp(row.first_seen_at),
     updatedAt: isoTimestamp(row.source_updated_at),
+    ...(row.reposted_at ? { repostedAt: isoTimestamp(row.reposted_at) } : {}), // v35 IMPORT (H5)
     active: isFlag(row.active),
     saved: applicationId !== null && onlySaved,
     appliedOn: isoDay(row.applied_on),

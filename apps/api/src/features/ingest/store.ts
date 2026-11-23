@@ -8,6 +8,7 @@ import { jobReviews, resolveCompany } from '../../core/seams';
 import { DETERMINISTIC_VERSION } from '../job-analysis/deterministic';
 import { applyAiFacts, fillFacets, refreshAnalysisLinks, saveAnalysis } from '../job-analysis/store';
 import { writeJobText } from '../jobs/text';
+import { RESTORE_AI_INPUT_SQL } from '../jobs/add/held'; // v35 FIX-PIPE (data D10)
 // v30 E0-API: the company through companies/resolve.ts (companies' v2.0 columns are gone: migrations-pg/0014).
 import { boardAliasOfSource, companyOfAlias } from '../companies/aliases';
 import { minConfidenceOf } from '../companies/profile';
@@ -101,6 +102,12 @@ export const SEEN_TOUCH_MS = 24 * 3_600_000;
 export interface BatchItem {
   raw: RawPosting;
   sourceHash: string;
+  /**
+   * v35 FIX-PIPE (data D6, the coordinator's decision 5): an admin import's row TailorIT could not read (jobs/add/
+   * import-jobs.ts jobFromRow): it joins a job only by an exact match (the steps 2 and 3 of the matching order: its keys,
+   * or the company's open job of the same title and text), never by the fuzzy fingerprint.
+   */
+  importRow?: boolean;
 }
 
 export interface UpsertCounts {
@@ -529,6 +536,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
     keys: readonly JobKey[],
     companyId: number,
     now: string,
+    importRow = false, // v35 FIX-PIPE (data D6): BatchItem.importRow
   ): Promise<JobRow | null> {
     const byKey = await jobOfKeys(db, keys);
     if (byKey !== null) return (await job(byKey)) ?? null;
@@ -543,7 +551,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
       [companyId, posting.titleKey, posting.contentHash, ...notSameBoardParams(source.id, board)],
     );
     if (sameText) return (await job(sameText.id)) ?? null;
-    if (posting.textSimhash === null) return null;
+    if (posting.textSimhash === null || importRow) return null;
     const threshold = constant('JOB_FUZZY_SIMHASH_BITS');
     const fuzzy = await findFuzzyMatch(db, {
       companyId,
@@ -589,7 +597,9 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
 
   /**
    * A source TailorIT runs (enabled, of a kind the schedule runs) listed the job: a hold on it clears (14 §5.2 step 5),
-   * its pending reviews are superseded, and it is projected (it enters search) with the batch.
+   * its pending reviews are superseded, and it is projected (it enters search) with the batch. v35 FIX-PIPE (data D10):
+   * a job an admin import held (made from its row, or reopened held for Couldn't verify: jobs/add/import-jobs.ts, kept
+   * out of the AI job analysis while held) goes back into the analysis as its sources say, as an approval puts it back.
    */
   async function clearHoldIfListed(t: DbTx, source: SourceRecord, jobId: number, now: string, effects: Effects): Promise<void> {
     if (!source.enabled || !SCHEDULED_KINDS.includes(source.kind)) return;
@@ -597,6 +607,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
     if (!(await db.one<{ found: number }>('SELECT 1 AS found FROM jobs WHERE id = ? AND held_since IS NOT NULL', [jobId]))) return;
     const cleared = await db.one<{ id: number }>('UPDATE jobs SET held_since = NULL WHERE id = ? AND held_since IS NOT NULL RETURNING id', [jobId]);
     if (!cleared) return;
+    await db.run(RESTORE_AI_INPUT_SQL, [jobId]); // v35 FIX-PIPE (data D10)
     if (deps) await jobReviews.supersede(deps, t, { jobIds: [jobId], reason: 'listed', at: now });
     effects.touched.add(jobId);
   }
@@ -719,7 +730,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
     }
 
     // Steps 2-4, then 5: a new job. A job made from a page is never merged with another: it is its account's alone.
-    let duplicate = owner ? null : await findDuplicate(source, posting, keys, companyId, now);
+    let duplicate = owner ? null : await findDuplicate(source, posting, keys, companyId, now, item.importRow === true);
     let created: number | null = null;
     if (!duplicate) {
       const inserted = await insertJob(posting, companyId, now, owner, keys, source.aiInput !== false);

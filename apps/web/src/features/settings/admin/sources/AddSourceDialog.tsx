@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Select } from '@/components/ui/Select';
-import { userMessage } from '@/lib/api';
+import { ApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import type { AddableKind, NewSourceBody } from '../types';
 import { createSource, testLake, testSource } from './api';
-import { addableKindItems, careerSiteHost, feedNote } from './sources';
+import { addableKindItems, careerSiteHost, feedNote, workdayAddressProblem } from './sources';
 
 // "Add source" (v2.0, moved out of SourcesTab by v30 S1-WEB unchanged): a Greenhouse, Lever, Ashby or Workable board,
 // free_tailor's lake or the demo jobs, tested before it is saved. Discovery (12 §4) adds most boards from v3.0 on.
@@ -35,6 +35,8 @@ interface Draft {
   geo: string;
   /** v30 FIX-WEB (REQ-5): a career site's address. */
   siteUrl: string;
+  /** v35 OPSWEB (PLAN H7): any page of a Workday career site. */
+  workdayUrl: string;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -49,6 +51,7 @@ const EMPTY_DRAFT: Draft = {
   country: '', // v30 S4
   geo: '', // v30 S4
   siteUrl: '', // v30 FIX-WEB
+  workdayUrl: '', // v35 OPSWEB
 };
 
 /**
@@ -56,7 +59,7 @@ const EMPTY_DRAFT: Draft = {
  * (sources.ts feedNote, its numbers from the constants: v30 FIX-WEB, REQ-7). v30 FIX-WEB (REQ-5): a career site added
  * by hand is the same: no Test (the site reader waits for its switch and the identity).
  */
-const FEED_KINDS: readonly AddableKind[] = ['usajobs', 'himalayas', 'jobicy', 'career_site'];
+const FEED_KINDS: readonly AddableKind[] = ['usajobs', 'himalayas', 'jobicy', 'career_site', 'workday_site']; // v35 OPSWEB: Workday too
 
 function bodyOf(kind: AddableKind, draft: Draft): NewSourceBody {
   const company: Record<string, string> = draft.companyName.trim() ? { companyName: draft.companyName.trim() } : {};
@@ -84,6 +87,9 @@ function bodyOf(kind: AddableKind, draft: Draft): NewSourceBody {
     // v30 FIX-WEB (REQ-5): the host (FIX-A's hand add), and the employer's name when given.
     case 'career_site':
       return { kind, name, config: { host: careerSiteHost(draft.siteUrl) ?? draft.siteUrl.trim(), ...company } };
+    // v35 OPSWEB (PLAN H7): the page pasted; the API reads the host, tenant and site from it.
+    case 'workday_site':
+      return { kind, name, config: { url: draft.workdayUrl.trim(), ...company } };
   }
 }
 
@@ -107,6 +113,8 @@ export function AddSourceDialog({
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [outcome, setOutcome] = useState<TestOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** v35 OPSWEB: the API's words about the Workday address (its `config.url` field), shown under the field. */
+  const [urlError, setUrlError] = useState<string | null>(null);
   const constants = usePublicConstants();
   const note = feedNote(
     kind,
@@ -117,6 +125,7 @@ export function AddSourceDialog({
   const set = (key: keyof Draft) => (event: { target: { value: string } }) => {
     setDraft((previous) => ({ ...previous, [key]: event.target.value }));
     setOutcome(null);
+    if (key === 'workdayUrl') setUrlError(null);
   };
 
   const reset = () => {
@@ -124,6 +133,7 @@ export function AddSourceDialog({
     setDraft(EMPTY_DRAFT);
     setOutcome(null);
     setError(null);
+    setUrlError(null);
   };
 
   const test = useMutation({
@@ -151,7 +161,15 @@ export function AddSourceDialog({
       reset();
       onOpenChange(false);
     },
-    onError: (failure) => setError(userMessage(failure)),
+    onError: (failure) => {
+      // v35 OPSWEB: a Workday address the API cannot read a site from: its words under the field, not twice.
+      const field = failure instanceof ApiError ? failure.fields?.['config.url'] : undefined;
+      if (kind === 'workday_site' && field) {
+        setUrlError(userMessage(failure));
+        return;
+      }
+      setError(userMessage(failure));
+    },
   });
 
   const submit = (event: FormEvent) => {
@@ -166,8 +184,10 @@ export function AddSourceDialog({
     (kind === 'lever' && !draft.site.trim()) ||
     (kind === 'ashby' && !draft.board.trim()) ||
     (kind === 'workable' && !draft.account.trim()) ||
-    (kind === 'career_site' && careerSiteHost(draft.siteUrl) === null); // v30 FIX-WEB
+    (kind === 'career_site' && careerSiteHost(draft.siteUrl) === null) || // v30 FIX-WEB
+    (kind === 'workday_site' && (!draft.workdayUrl.trim() || workdayAddressProblem(draft.workdayUrl) !== null)); // v35 OPSWEB
   const siteUrlError = kind === 'career_site' && draft.siteUrl.trim() !== '' && careerSiteHost(draft.siteUrl) === null;
+  const workdayError = kind === 'workday_site' ? (workdayAddressProblem(draft.workdayUrl) ?? urlError) : null; // v35 OPSWEB
 
   return (
     <Dialog
@@ -182,7 +202,11 @@ export function AddSourceDialog({
         title="Add source"
         help={
           note ??
-          (kind === 'seed' ? 'About 120 fictional postings from 15 made-up companies, dated from today.' : 'Where TailorIT should read jobs from.')
+          (kind === 'seed'
+            ? 'About 120 fictional postings from 15 made-up companies, dated from today.'
+            : kind === 'workday_site' // v35 OPSWEB (PLAN H7)
+              ? "Reads the site's postings on its schedule, one request at a time, once BOT_USER_AGENT is set and its robots.txt allows it."
+              : 'Where TailorIT should read jobs from.')
         }
         size="lg"
       >
@@ -196,6 +220,7 @@ export function AddSourceDialog({
               setKind(next);
               setOutcome(null);
               setError(null);
+              setUrlError(null);
             }}
             className="max-w-full overflow-x-auto"
           />
@@ -261,7 +286,24 @@ export function AddSourceDialog({
               <Input value={draft.siteUrl} onChange={set('siteUrl')} placeholder="careers.acme.com" autoComplete="off" spellCheck={false} />
             </Field>
           )}
-          {(kind === 'greenhouse' || kind === 'lever' || kind === 'ashby' || kind === 'workable' || kind === 'career_site') && (
+          {/* v35 OPSWEB (PLAN H7): a Workday career site, from any page of it; it runs by itself once switched on and able. */}
+          {kind === 'workday_site' && (
+            <Field
+              label="A page of the career site"
+              hint="Any page: the site's home, a search or a posting, such as https://acme.wd5.myworkdayjobs.com/en-US/careers."
+              error={workdayError ?? undefined}
+            >
+              <Input
+                value={draft.workdayUrl}
+                onChange={set('workdayUrl')}
+                placeholder="https://acme.wd5.myworkdayjobs.com/en-US/careers"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="url"
+              />
+            </Field>
+          )}
+          {(kind === 'greenhouse' || kind === 'lever' || kind === 'ashby' || kind === 'workable' || kind === 'career_site' || kind === 'workday_site') && (
             <Field label="Company name" optional hint="Shown when the board doesn't name the company.">
               <Input value={draft.companyName} onChange={set('companyName')} autoComplete="off" />
             </Field>

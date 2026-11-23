@@ -14,7 +14,8 @@ import { usePublicConstants } from '@/lib/constants';
 import type { JobListItem } from '../api';
 import { CompanyLogo } from '../CompanyLogo';
 import { CardCredit } from '../credits/JobCredit'; // v30 S4
-import { cardAge, cardLocationLine, cardSalary } from '../format';
+import { cardLocationLine, cardSalary } from '../format';
+import { rowAge } from './age'; // v35 OPSWEB
 import { VerificationBadge } from '../verification/VerificationBadge'; // v31 JOBSWEB
 import { verificationMark } from '../verification/copy';
 import { saveBlockReason } from './useSaveSelected';
@@ -160,7 +161,8 @@ export const JobCard = memo(function JobCard({
   const { t } = usePublicConstants();
   const place = cardLocationLine(job);
   const salary = cardSalary(job);
-  const age = cardAge(job, sort, now);
+  // v35 OPSWEB (PLAN H5): "Reposted 1 hour ago" in place of its posted time.
+  const { text: age, reposted } = rowAge(job, sort, now);
   // Full time is what a job is unless it says otherwise: the row names the other kinds (Contract, Part-Time, ...).
   const kind = job.employmentType && job.employmentType !== 'full_time' ? EMPLOYMENT_TYPE_LABEL[job.employmentType] : '';
   const saveLabel = job.saved ? `Remove ${job.title} from saved jobs` : `Save ${job.title}`;
@@ -328,7 +330,7 @@ export const JobCard = memo(function JobCard({
                   </span>
                 )}
                 {age && (
-                  <span>
+                  <span {...(reposted ? { 'data-row-reposted': '' } : {})}>
                     <span className={clsx(!salary && !kind && '@max-[30rem]/job-list:hidden')}>{SEP}</span>
                     {age}
                   </span>

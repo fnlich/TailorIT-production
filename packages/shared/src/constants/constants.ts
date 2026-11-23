@@ -2335,7 +2335,8 @@ export const CONSTANTS = {
   ADMIN_ADD_LINKS_MAX: {
     kind: 'int', default: 1000, adminEditable: true, public: true, group: 'jobs', min: 1, max: 20_000,
     label: 'Links an admin adds at once',
-    help: 'Links one Admin add or one import may queue for reading at a time.',
+    // v35 ADMIN (PLAN H9): pasted links only; files and Google Sheets use SHEET_MAX_ROWS.
+    help: 'Pasted links one Admin add may queue for reading at once; files and Google Sheets use their own row limit.',
   },
   JOB_LINK_QUEUE_KEEP_DAYS: {
     kind: 'int', default: 30, adminEditable: true, public: false, group: 'jobs', min: 1, max: 365,
@@ -2366,8 +2367,9 @@ export const CONSTANTS = {
     ['limit', 'minutes'] as const,
   ),
   MSG_JOB_ADD_IMPORT_LINKS: message(
-    'Import: only links are read',
-    '{queued} {queued|link is|links are} queued for reading; other columns are ignored.',
+    'Import: links queued for reading',
+    // v35 IMPORT (H2): the rows' other columns give each job's details when TailorIT cannot read its link.
+    '{queued} {queued|link is|links are} queued for reading.',
     ['queued'] as const,
   ),
   MSG_JOB_ADD_TOO_MANY_LINKS: message('Admin add: too many links', 'Add at most {max} links at a time.', ['max'] as const),
@@ -2404,8 +2406,9 @@ export const CONSTANTS = {
     help: 'A job TailorIT read from its own page is read again after this many days; a page that is gone or expired closes it.',
   },
   MSG_JOB_IMPORT_ONLY_LINKS: message(
-    'Import: only the link column',
-    'Only the {column} column is read; {ignored} other {ignored|column is|columns are} ignored.',
+    'Import: the link column',
+    // v35 IMPORT (H2): the other columns are read for each row's details.
+    'Links are read from the {column} column; {ignored} other {ignored|column gives|columns give} the details TailorIT cannot read.',
     ['column', 'ignored'] as const,
   ),
   // end v31 LINK2
@@ -2479,7 +2482,9 @@ export const CONSTANTS = {
   // end v31 HEADER
   // v31 JOBSWEB: the mark of a job only its adder sees, whose words came from their side (their browser captured or
   // typed them), never TailorIT's read (21-jobs-from-links.md §1.4): on its card, its detail and its tracker row.
-  LABEL_JOB_FROM_BROWSER: message('Job: from the browser', 'From your browser, not verified', [] as const, LABEL_MAX),
+  // v35 FIX-WEB (the ux review's L10): a person's own job is made from a link TailorIT could not read, whether a browser
+  // captured it, they typed its details or a row of their import gave them: "Added by you", not "From your browser".
+  LABEL_JOB_FROM_BROWSER: message('Job: added by you, not verified', 'Added by you, not verified', [] as const, LABEL_MAX),
   // end v31 JOBSWEB
   // v31 FIX-JOBS: the Jobs page in TailorIT's own words (REV-UX UX-1, REV-REQ REQ-3): a feed of jobs measured against
   // the person's resume, each opening in a drawer with Your match, Tailor for this job, About the role and the company.
@@ -2766,6 +2771,140 @@ export const CONSTANTS = {
     help: "Whether a report from a person's AI keeps what they asked; off: only what TailorIT lacks and the tools tried.",
   },
   // end v34 DIRKIT
+  // v35 IMPORT (SP v35 PLAN.md H1-H2): a person's imports of job links (Jobs › Add job › File, Google Sheet). Counted per
+  // person, as v3.3 counts limits: acting on a shared profile counts toward the person acting. An admin's imports take
+  // ADMIN_ADD_LINKS_MAX (pasted links) and SHEET_MAX_ROWS (a file or a sheet).
+  JOB_IMPORT_ROWS_MAX: {
+    kind: 'int', default: 200, adminEditable: true, public: true /* the guide says it */, group: 'jobs', min: 1, max: 10_000,
+    label: 'Rows a person imports at once',
+    help: 'The most rows one file or Google Sheet a person imports in Jobs › Add job may hold.',
+  },
+  FREE_JOB_IMPORT_ROWS_PER_DAY: {
+    kind: 'limit', default: 100, adminEditable: true, public: true /* the guide says it */, group: 'accounts', min: 0, max: 100_000,
+    label: 'Free imported rows per day',
+    help: 'Rows a Free account may import from files and Google Sheets in 24 hours; rows over it are refused until then.',
+  },
+  PAID_JOB_IMPORT_ROWS_PER_DAY: {
+    kind: 'limit', default: 1000, adminEditable: true, public: true /* the guide says it */, group: 'accounts', min: 0, max: 100_000,
+    label: 'Paid imported rows per day',
+    help: 'Rows a Paid account may import from files and Google Sheets in 24 hours; rows over it are refused until then.',
+  },
+  JOB_IMPORTS_PER_MINUTE: {
+    kind: 'int', default: 20, adminEditable: true, public: false, group: 'jobs', min: 1, max: 1000,
+    label: 'Import requests per minute',
+    help: 'Previews and imports of files and Google Sheets one person may send in a minute.',
+  },
+  MSG_JOB_IMPORT_TOO_MANY_ROWS: message(
+    'Import: too many rows',
+    'Import at most {max} rows at a time; this one has {rows}. Split it and import each part.',
+    ['max', 'rows'] as const,
+  ),
+  MSG_JOB_IMPORT_DAY_LIMIT: message(
+    'Import: rows per day used',
+    'You imported {limit} rows in the last 24 hours: try again in {hours} {hours|hour|hours}.',
+    ['limit', 'hours'] as const,
+  ),
+  MSG_JOB_IMPORT_ROW_OVER_DAY: message(
+    'Import row: over the day',
+    "Over today's rows: import it again in {hours} {hours|hour|hours}.",
+    ['hours'] as const,
+  ),
+  MSG_JOB_IMPORT_NO_LINK_COLUMN: message('Import: no link column', 'Choose the column that holds the job links.'),
+  MSG_JOB_IMPORT_EMPTY: message('Import: no rows', 'There are no rows to import: check the file or the tab.'),
+  MSG_JOB_IMPORT_BUSY: message('Import: too many requests', 'You sent many imports at once: try again in a minute.'),
+  MSG_JOB_IMPORT_FILE_UNREADABLE: message(
+    'Import: file unreadable',
+    'TailorIT cannot read this file: save it as .xlsx, .csv, .tsv, .txt or .json and try again.',
+  ),
+  MSG_JOB_IMPORT_FILE_TOO_BIG: message(
+    'Import: file too big once opened',
+    'This spreadsheet is too large once opened: save fewer rows or columns and try again.',
+  ),
+  MSG_JOB_IMPORT_ROW_NO_LINK: message('Import row: no link', 'This row has no job link.'),
+  MSG_JOB_IMPORT_ROW_REPEATS: message('Import row: repeats', 'Repeats row {row}.', ['row'] as const),
+  MSG_JOB_IMPORT_ROW_HOST: message('Import row: a site TailorIT never reads', "Can't import from {host}.", ['host'] as const),
+  MSG_JOB_IMPORT_ROW_WAITING: message('Import row: waiting for review', 'Already waiting for review.'),
+  MSG_NOTIFY_JOB_IMPORT_TITLE: message(
+    'Notification: your import finished',
+    'Your import of {rows} {rows|row|rows} finished',
+    ['rows'] as const,
+  ),
+  // v35 FIX-STORE (ux M2, M3): the notice's body is its parts (MSG_NOTIFY_JOB_IMPORT_PART_*, below), zero ones left out.
+  // end v35 IMPORT
+  // v35 ADMIN (PLAN H3, H6): an admin's Approve all / Reject all (Admin › Review › New jobs) runs on the server in
+  // batches for at most this long a request; a longer one answers where it stopped and the page asks again from there.
+  ADMIN_BULK_ALL_SECONDS: {
+    kind: 'int', default: 20, adminEditable: true, public: false, group: 'jobs', min: 1, max: 120,
+    label: 'Seconds one "all" decision request runs',
+    help: 'How long one Approve all or Reject all request decides reviews before it answers and the page asks again.',
+  },
+  // end v35 ADMIN
+  // v35 FIX-STORE (the final review's S3, S4, S7): a Google Sheet belongs to the first account that reads it; "Download
+  // these rows" is a file of its own (never in a results page); a person's reads of their imports are rate-limited.
+  JOB_IMPORT_READS_PER_MINUTE: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'jobs', min: 1, max: 10_000,
+    label: 'Import result reads per minute',
+    help: "Times one person may open or refresh their imports' results, list and downloads in a minute.",
+  },
+  JOB_IMPORT_DOWNLOAD_MAX_MB: {
+    kind: 'int', default: 10, adminEditable: true, public: false, group: 'jobs', min: 1, max: 200,
+    label: 'Download these rows (MB)',
+    help: 'The largest file of the rows that need a title and company one import gives to download.',
+  },
+  MSG_JOB_IMPORT_SHEET_CLAIMED: message(
+    'Import: a sheet linked to another account',
+    "This sheet is linked to another TailorIT account. Make a copy of it, share the copy with TailorIT's address (Viewer), and import the copy.",
+  ),
+  MSG_JOB_IMPORT_SHEET_TAB_NOT_FOUND: message('Import: a tab that cannot be found', "This tab can't be found: choose a tab from the list."),
+  MSG_JOB_IMPORT_READS_BUSY: message(
+    'Import: results opened too often',
+    'You opened import results many times in a minute: wait a minute and open them again.',
+  ),
+  MSG_JOB_IMPORT_DOWNLOAD_TOO_BIG: message(
+    'Import: rows to download too large',
+    'These rows make a file over {max} MB. Fill in Company and Title in your own file or sheet and import it again.',
+    ['max'] as const,
+  ),
+  // The ux review's M2, M3: the "import finished" notice says what the results say, each count a part (the parts with a
+  // count above 0, joined: "8 jobs waiting for review, 4 need a title and company."); placeholders in snake_case.
+  MSG_NOTIFY_JOB_IMPORT_PART_ADDED: message('Notification: your import finished (added)', '{added} added', ['added'] as const),
+  MSG_NOTIFY_JOB_IMPORT_PART_KNOWN: message('Notification: your import finished (already there)', '{known} already in TailorIT', ['known'] as const),
+  MSG_NOTIFY_JOB_IMPORT_PART_REVIEW: message('Notification: your import finished (to review)', '{review} {review|job|jobs} waiting for review', ['review'] as const),
+  MSG_NOTIFY_JOB_IMPORT_PART_NEEDS_DETAILS: message(
+    'Notification: your import finished (needs details)',
+    '{needs_details} {needs_details|needs|need} a title and company',
+    ['needs_details'] as const,
+  ),
+  MSG_NOTIFY_JOB_IMPORT_PART_CLOSED: message('Notification: your import finished (closed)', '{closed} closed', ['closed'] as const),
+  MSG_NOTIFY_JOB_IMPORT_PART_FAILED: message('Notification: your import finished (not imported)', '{failed} not imported', ['failed'] as const),
+  // Decision 8: an admin import's Added row whose read waits in Review › New jobs.
+  MSG_JOB_IMPORT_ROW_ADDED_HELD: message('Import row: added, waiting in New jobs', 'Added; waiting for approval in New jobs'),
+  // end v35 FIX-STORE
+  // v35 IMPORTWEB (SP v35 SPECS-W2.md IMPORTWEB §2-§3): the limits line under an import (Admin › Import, Jobs › Add job).
+  MSG_JOB_IMPORT_ROWS_UP_TO: message('Import: rows a file or sheet takes', 'Up to {max} rows a file or sheet.', ['max'] as const),
+  MSG_JOB_IMPORT_ROWS_LEFT_TODAY: message(
+    "Import: a person's rows left today",
+    'You can import {rows} more {rows|row|rows} today.',
+    ['rows'] as const,
+  ),
+  MSG_ADMIN_IMPORT_PASTE_UP_TO: message(
+    'Import: pasted links an admin may import',
+    'Up to {max} pasted links or rows; a file or a Google Sheet takes up to {file_max} rows.',
+    ['max', 'file_max'] as const,
+  ),
+  // end v35 IMPORTWEB
+  // v35 FIX-WEB (the final ux review's M1, the coordinator's decision 11): a person's rows past the day's room are not
+  // imported (the server's rule); Add job says so before Import, in the words the results then use ("in 24 hours").
+  MSG_JOB_IMPORT_OVER_TODAY: message(
+    "Import: some rows don't fit today",
+    "Only the first {fit} {fit|row fits|rows fit} today; the other {over} won't be imported. Import the file again in 24 hours for the rest: rows already added are skipped.",
+    ['fit', 'over'] as const,
+  ),
+  MSG_JOB_IMPORT_NONE_LEFT_TODAY: message(
+    'Import: no rows left today',
+    'You have no rows left to import today: import again in 24 hours.',
+  ),
+  // end v35 FIX-WEB
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

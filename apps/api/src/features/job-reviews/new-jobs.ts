@@ -31,10 +31,20 @@ import { REVIEW_HELD_SQL } from '../jobs/add/review-held'; // v31 FIX-LINK
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 
 /**
- * Holds a job the store made now from an ATS posting no enabled source runs, and opens its review, in the store's
- * transaction (so a held job always has its review). A job with an owner, or held already, changes nothing.
+ * v35 ADMIN (PLAN H3): who held a new job, for the New jobs lane's From filter: TailorIT's read of a link someone added
+ * from an ATS (`ats`, the default) or from a page (`page`: jobs/add/page.ts), or an admin's import (`import`). Every held
+ * read's review keeps origin `ats` (job_reviews.origin, which REVIEW_HELD_SQL and the decisions read: a held read is
+ * approved by clearing its hold); an import's is also marked imported, with its run when the caller knows it. v3.0's
+ * page reviews (origin `page`, subject 'page:<linkKey>') are never opened by a hold.
  */
-export async function holdNewJob(t: DbTx, jobId: number, at: string): Promise<void> {
+export type HeldOrigin = 'ats' | 'page' | 'import';
+
+/**
+ * Holds a job the store made now from an ATS posting no enabled source runs, and opens its review, in the store's
+ * transaction (so a held job always has its review). A job with an owner, or held already, changes nothing. v35 ADMIN:
+ * `origin` `import` (an admin's import read it) marks the review imported, with the import's run (`importRunId`).
+ */
+export async function holdNewJob(t: DbTx, jobId: number, at: string, origin: HeldOrigin = 'ats', importRunId: number | null = null): Promise<void> {
   const { changes } = await t.run('UPDATE jobs SET held_since = ?, updated_at = ? WHERE id = ? AND held_since IS NULL AND owner_user_id IS NULL', [
     at,
     at,
@@ -42,7 +52,29 @@ export async function holdNewJob(t: DbTx, jobId: number, at: string): Promise<vo
   ]);
   if (changes === 0) return;
   await projectJob(t, jobId);
-  await openReview(t, { kind: 'new_job', subjectKey: jobReviewSubject(jobId), jobId, origin: 'ats', at });
+  const reviewId = await openReview(t, { kind: 'new_job', subjectKey: jobReviewSubject(jobId), jobId, origin: 'ats', at });
+  if (origin === 'import') await markImported(t, reviewId, importRunId);
+}
+
+/** v35 ADMIN: marks a new job's review as an admin import's (and its run, when given; a run named before is kept). */
+async function markImported(t: DbQueries, reviewId: number, importRunId: number | null): Promise<void> {
+  await t.run('UPDATE job_reviews SET imported = true, import_run_id = COALESCE(?, import_run_id) WHERE id = ?', [importRunId, reviewId]);
+}
+
+/**
+ * v35 ADMIN (PLAN H3, the seam for IMPORT): an admin import's read made this job and held it (its read's `created`, and
+ * held: the job waits for review): its pending new job review is marked imported, with the import's run, so the New jobs
+ * lane lists it under Imports and that import. For a caller whose read went through holdNewJob without `origin`
+ * (Add job's reader): call it right after the read, in its own transaction or none. Answers whether a pending review was
+ * marked (none: the job is not held, or no review holds it).
+ */
+export async function noteImportedHold(db: DbQueries, jobId: number, importRunId: number | null): Promise<boolean> {
+  const row = await db.one<{ id: number }>(
+    `UPDATE job_reviews SET imported = true, import_run_id = COALESCE(?, import_run_id)
+     WHERE kind = 'new_job' AND subject_key = ? AND state = 'pending' AND origin = 'ats' RETURNING id`,
+    [importRunId, jobReviewSubject(jobId)],
+  );
+  return row !== undefined;
 }
 
 /**

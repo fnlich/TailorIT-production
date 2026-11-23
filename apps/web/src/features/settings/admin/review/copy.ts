@@ -136,8 +136,12 @@ function hostOf(url: string | undefined): string | null {
  * a platform name that is not one.
  */
 export function originLine(
-  row: Pick<AdminReviewRow, 'origin' | 'platform' | 'pageHost'> & { job?: Pick<AdminReviewRow['job'], 'applyUrl'> },
+  row: Pick<AdminReviewRow, 'origin' | 'platform' | 'pageHost'> &
+    Partial<Pick<AdminReviewRow, 'imported' | 'importName'>> & { job?: Pick<AdminReviewRow['job'], 'applyUrl'> },
 ): string | null {
+  // v35 OPSWEB (PLAN H3): a job an admin's import read and held: which import. v35 FIX-WEB (L4): named as Couldn't
+  // verify names an import's row ("Import · jobs.csv", rowOriginText).
+  if (row.imported) return row.importName ? `Import · ${row.importName}` : 'Import';
   if (row.origin === 'ats') {
     if (!row.platform) return 'Read from an ATS board';
     if (!PAGE_PLATFORMS.has(row.platform)) return `Read from ${platformName(row.platform)}`;
@@ -148,9 +152,12 @@ export function originLine(
   return null;
 }
 
-/** Who and what: "3 people · The page says it expired" (closed), "Added by 2 people" (new job). */
-export function evidenceLine(row: Pick<AdminReviewRow, 'kind' | 'reporters' | 'strongestSignal'>): string {
-  if (row.kind === 'new_job') return `Added by ${peopleText(row.reporters)}`;
+/**
+ * Who and what: "3 people · The page says it expired" (closed), "Added by 2 people" (new job). v35 FIX-WEB (L4): a new
+ * job an admin's import read says "Imported" (no one added it), as Couldn't verify's row does.
+ */
+export function evidenceLine(row: Pick<AdminReviewRow, 'kind' | 'reporters' | 'strongestSignal'> & Partial<Pick<AdminReviewRow, 'imported'>>): string {
+  if (row.kind === 'new_job') return row.imported ? 'Imported' : `Added by ${peopleText(row.reporters)}`;
   const signal = row.strongestSignal ? REVIEW_SIGNAL_LABEL[row.strongestSignal] : null;
   return signal ? `${peopleText(row.reporters)} · ${signal}` : peopleText(row.reporters);
 }

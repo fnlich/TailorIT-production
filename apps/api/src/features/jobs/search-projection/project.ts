@@ -70,11 +70,16 @@ interface SourceRow {
   certs: string | null;
 }
 
+// v35 IMPORT (SP v35 PLAN.md H5): a job an admin's import reposted (jobs.reposted_at) sorts and filters from its repost:
+// posted_sort and updated_sort are the later of the job's own date and reposted_at (GREATEST skips a NULL), so "Recently
+// posted", "Most relevant" without words, the "Last updated" filter and MCP's postedSince all count it as new; the
+// job's own posted date (jobs.posted_at, jobs.posted_sort) is kept. A repost re-projects the job (jobs/add/import-jobs.ts).
 // One read of everything a row holds. The job's own columns win; job_facts fill what the job leaves empty (Part 1's
 // buildJobFacts merges them so); the company gives its industry when the job has none, its size, its sponsorship
 // (v30 E0-API: from its profile, company_profiles: the values in use, 13 §6).
 const SOURCE_SQL = `SELECT j.id, ${searchableSql('j')} AS searchable, j.owner_user_id, j.company_id, j.title,
-    j.posted_sort, COALESCE(j.source_updated_at, j.posted_at, j.first_seen_at) AS updated_sort,
+    GREATEST(j.posted_sort, j.reposted_at) AS posted_sort,
+    GREATEST(COALESCE(j.source_updated_at, j.posted_at, j.first_seen_at), j.reposted_at) AS updated_sort,
     COALESCE(j.employment_type, f.employment_type) AS employment_type,
     COALESCE(j.work_arrangement, f.work_arrangement) AS work_arrangement,
     j.experience_levels::text AS experience_levels, j.leadership, j.category_id, j.subcategory_ids::text AS subcategory_ids,

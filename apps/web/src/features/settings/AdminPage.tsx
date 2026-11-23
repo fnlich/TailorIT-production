@@ -15,14 +15,18 @@ import { TabPanel } from '@/components/ui/SegmentedControl';
 import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { useAuth } from '@/lib/auth';
 import { usePublicConstants } from '@/lib/constants';
-import { AddLinksButton } from './admin/links/AddLinksDialog';
+import { LinkSimpleIcon } from '@phosphor-icons/react/LinkSimple';
+import { buttonClasses } from '@/components/ui/Button';
 import { ADMIN_TABS, readAdminTab } from './admin/registry';
+import { ADD_LINKS_HREF } from './admin/sources/links'; // v35 FIX-WEB (decision 7)
 
 /**
  * Admin (/settings/admin?tab=sources|runs|import|reports|ai|ai-usage|users|constants|announcements): job sources and
  * their runs, imports of job links, reports on postings, AI health and usage, accounts and their plans, the constants,
  * and the announcements. Administrators only; the API refuses everyone else as well. v31 ADMINWEB: the page header
- * (PageHeader) carries Add links (job links queued for TailorIT's own read) on every tab.
+ * (PageHeader) carries Add links (job links queued for TailorIT's own read) on every tab. v35 FIX-WEB (the coordinator's
+ * decision 7): Add links opens Admin › Import on Many links, the one place to import (results, Reposted, To review,
+ * Download these rows); the v3.1 dialog and its progress are gone.
  */
 export function AdminPage() {
   const { isAdmin, status } = useAuth();
@@ -35,7 +39,11 @@ export function AdminPage() {
           isAdmin ? (
             <div className="flex flex-wrap items-center justify-end gap-3">
               <ContactEmailReminder />
-              <AddLinksButton />
+              {/* Outline: each tab has its own main (primary) action below the page header. */}
+              <Link href={ADD_LINKS_HREF} className={buttonClasses({ variant: 'outline' })} data-admin-add-links="">
+                <LinkSimpleIcon size={16} aria-hidden="true" />
+                Add links
+              </Link>
             </div>
           ) : undefined
         }

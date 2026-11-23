@@ -340,6 +340,19 @@ export function normalizeSalary(raw: RawSalary | null | undefined, countryCode: 
   return { min, max, currency, period, raw: rawText, annualUsdMin: annual?.min ?? null, annualUsdMax: annual?.max ?? null };
 }
 
+/**
+ * v35 IMPORT (SP v35 PLAN.md H4 "Pay: the description first, then Rate"): an import row's (or Add job's) Rate as a
+ * salary, the last fallback of a job's pay: parsed as any salary text is (parseSalary: a Rate without a period follows
+ * its own inference), its words kept as written; null for an empty Rate. The callers use it only when the job's own pay
+ * (a read's pay field, then its description) is none.
+ */
+export function payFromRate(rate: string | null | undefined, countryCode: string | null): NormalizedSalary | null {
+  const text = typeof rate === 'string' ? rate.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  if (!text) return null;
+  const parsed = parseSalary(text);
+  return normalizeSalary(parsed ? { ...parsed, raw: text } : { min: null, max: null, currency: null, period: null, raw: text }, countryCode);
+}
+
 const CLEARANCE_REQUIRED =
   /\b(?:active|current|existing)\s+(?:(?:dod|us|u\.s\.)\s+)?(?:secret|top\s+secret|ts\/sci|ts|security)\s+clearance\b|\bmust\s+(?:hold|have|possess|maintain|be\s+able\s+to\s+(?:obtain|get))\s+(?:an?\s+)?(?:active\s+)?(?:(?:secret|top\s+secret|ts\/sci|security|government)\s+)?clearance\b|\bclearance\s+(?:is\s+)?required\b|\brequires?\s+(?:an?\s+)?(?:active\s+)?(?:secret|top\s+secret|ts\/sci|security)\s+clearance\b|\bts\/sci\b|\bpolygraph\b/i;
 const NO_CLEARANCE = /\bno\s+(?:security\s+)?clearance\s+(?:is\s+)?(?:required|needed)\b|\bclearance\s+(?:is\s+)?not\s+required\b/i;

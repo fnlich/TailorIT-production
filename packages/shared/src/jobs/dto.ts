@@ -126,6 +126,12 @@ export const JobSummarySchema = z.object({
   salary: SalarySchema.nullable(),
   postedAt: IsoDateTime.nullable(),
   updatedAt: IsoDateTime.nullable(),
+  /**
+   * v35 IMPORT (SP v35 PLAN.md H5): when an admin's import last reposted the job (absent: never). The list shows
+   * "Reposted 1 hour ago" in place of its posted time; the header adds "Reposted today" beside the posted date. Search's
+   * "Last updated" filter and "Recently posted" sort count from the later of the two.
+   */
+  repostedAt: IsoDateTime.nullable().optional(),
   active: z.boolean(),
   /** The viewer's state, from the tracker. */
   saved: z.boolean(),

@@ -3,8 +3,11 @@ import { dirname } from 'node:path';
 import { type Request, type RequestHandler, type Router } from 'express';
 import { z } from 'zod';
 import {
+  AdminRunSourcesBodySchema,
   AdminRunsQuerySchema,
+  AdminSourcesAllBodySchema,
   AdminSourcesBulkBodySchema,
+  AdminSourcesFilterSchema,
   AdminSourcesQuerySchema,
   IsoDate,
   ImportMappingInputSchema,
@@ -22,6 +25,10 @@ import { ADAPTERS } from './adapters/index';
 import { leverSite } from './adapters/lever';
 import { importFilePath, tablePostings } from './adapters/tabular';
 import { workableAccount } from './adapters/workable';
+import { workdaySiteOfPage } from './adapters/workdaySite'; // v35 ADMIN
+import { boardNameOf } from './discovery/boards'; // v35 ADMIN
+import { isLinkKeeper, sourcesOfBoard } from './discovery/offer'; // v35 ADMIN
+import { waitingOfSources } from './waiting'; // v35 ADMIN
 import { HimalayasConfigSchema, himalayasCountry } from './adapters/himalayas'; // v30 S4
 import { JobicyConfigSchema } from './adapters/jobicy'; // v30 S4
 import { UsajobsConfigSchema } from './adapters/usajobs'; // v30 S4
@@ -42,13 +49,19 @@ import {
   adminRuns,
   adminSource,
   bulkSources,
+  countSourcesAll,
   findSourceRecord,
   getSourceRecord,
   hostOf,
   insertSource,
   kindLabelOf,
   listAdminSources,
+  runSources,
+  runSourcesAll,
   runsOptionsOf,
+  sourcesAll,
+  type BulkWords,
+  type SourcesWaiting,
 } from './sources';
 import {
   IMPORT_FIELD_LABEL,
@@ -75,6 +88,14 @@ import { importLinksNote } from '../jobs/add/imports'; // v31 LINK2
 // v31 RUNS (docs/design/v3.1/22-runs-pause.md): Pause and Continue, of every run (POST /api/admin/runs/pause,
 // /continue), one run (/api/admin/runs/:id/pause, /continue) and one source (/api/admin/sources/:id/pause, /continue),
 // each audited; the run history says whether every run is paused (GET /api/admin/runs: `paused`). pause.ts holds them.
+//
+// v35 ADMIN (PLAN H6, H7): an import is no source: Sources never lists, counts or acts on an import's csv or json record
+// (sources.ts sourcesWhere, bulkSources); "Found by import" is a filter (`discoveredVia` import). Enable all / Disable all
+// act on every source the filter matches (GET /api/admin/sources/all/count?<filter>, then POST /api/admin/sources/all
+// {action, filter}: one result). An import's run lists the board sources it found (GET /api/admin/runs/:id/sources) and
+// switches the ones it made on or off (POST /api/admin/runs/:id/sources {action}). Add source takes a Workday career
+// site from any page of it (`workday_site`, config {url}); a switched-on source that cannot run says why (`waiting`,
+// ingest/waiting.ts).
 
 const Id = z.coerce.number().int().positive();
 
@@ -99,6 +120,14 @@ const WorkableConfig = z.object({
 const noWorkableAccount = () =>
   validationFailed('Enter the Workable account name.', { 'config.account': 'Enter the account name.' });
 const LakeConfig = z.object({ path: z.string().trim().max(1000).optional() });
+/** v35 ADMIN (PLAN H7): a Workday career site from any page of it (its host, tenant and site are read from the address). */
+const WorkdaySiteConfig = z.object({
+  url: z.string().trim().min(1, 'Paste a page of the Workday career site.').max(2048, 'Paste a shorter address of the career site.'),
+  companyName,
+});
+/** The words of a Workday address TailorIT cannot read a career site from. */
+const NO_WORKDAY_SITE =
+  'Paste a page of a Workday career site: an address on <company>.myworkdayjobs.com that names the site, or on wd<n>.myworkdaysite.com/recruiting/<company>/<site>.';
 /**
  * v30 FIX-A (REV-REQ REQ-5, S5 open item 5): an admin's career site by hand (career/config.ts): its host, and optionally
  * its sitemaps (paths, or https addresses on its domain), its posting pages' path prefixes and the employer's name.
@@ -141,6 +170,8 @@ const CreateSourceBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('jobicy'), name, enabled, config: JobicyConfigSchema.default({}) }),
   // v30 FIX-A (REQ-5): a career site by hand; it runs only while "Read career pages" is on.
   z.object({ kind: z.literal('career_site'), name, enabled, config: CareerSiteConfig }),
+  // v35 ADMIN (PLAN H7): a Workday career site; it runs by itself once BOT_USER_AGENT is set and robots.txt allows it.
+  z.object({ kind: z.literal('workday_site'), name, enabled, config: WorkdaySiteConfig }),
 ]);
 
 /** v30 S4: a feed source's settings as stored (only the keys given), and the name it gets when none is typed. */
@@ -285,14 +316,39 @@ async function createSource(deps: AppDeps, input: unknown) {
       config = careerSiteConfig(body.config);
       label = body.name || String(config.host);
       break;
+    // v35 ADMIN (PLAN H7): named by its site (<host>/<site>, or <host>/recruiting/<tenant>/<site>) unless the admin names
+    // it; one source per career site (a Found-by-import one is switched on in Sources instead).
+    case 'workday_site': {
+      const site = workdaySiteOfPage(body.config.url);
+      if (!site) throw validationFailed(NO_WORKDAY_SITE, { 'config.url': 'Paste a page of the career site.' });
+      config = { ...site, ...(body.config.companyName ? { companyName: body.config.companyName } : {}) };
+      const board = boardNameOf('workday_site', config)!;
+      const existing = (await sourcesOfBoard(db, 'workday_site', board)).find((source) => !isLinkKeeper(source));
+      if (existing) {
+        throw conflict(
+          `TailorIT has a source of this career site already ("${existing.name}")${existing.enabled ? '' : ': switch it on in Sources'}.`,
+        );
+      }
+      label = body.name || board;
+      break;
+    }
   }
   const taken = () => conflict(`A ${SOURCE_KIND_LABEL[body.kind]} source named "${label}" already exists.`);
   if (await findSourceRecord(db, body.kind, label)) throw taken();
   // Null: the name was taken after the look (UNIQUE(kind, name)).
   const created = await insertSource(db, { kind: body.kind, name: label, config, enabled: body.enabled }, nowIso(deps));
   if (!created) throw taken();
-  return { body, source: (await adminSource(db, created.id, false))! };
+  return { body, source: (await adminSource(db, created.id, false, nowIso(deps), waitingIn(deps)))! }; // v35 ADMIN: why it waits
 }
+
+/** v35 ADMIN (PLAN H7): why each listed switched-on source waits (ingest/waiting.ts). */
+const waitingIn = (deps: AppDeps): SourcesWaiting => (sources) => waitingOfSources(deps, sources);
+
+/** v35 ADMIN: the words a bulk change gives a skipped row, from the constants. */
+const bulkWords = (deps: AppDeps): BulkWords => ({
+  optedOut: constantsOf(deps).message('MSG_INGEST_SOURCE_OPTED_OUT'),
+  paused: constantsOf(deps).message('MSG_INGEST_SOURCE_PAUSED'),
+});
 
 /** PATCH /api/admin/sources/:id: its name, whether it runs daily, whether it closes missing postings, its settings. */
 async function patchSource(deps: AppDeps, id: number, patch: z.infer<typeof PatchSourceBody>, running: (id: number) => boolean) {
@@ -376,7 +432,7 @@ async function patchSource(deps: AppDeps, id: number, patch: z.infer<typeof Patc
       priority: patch.priority ?? null,
     },
   );
-  return adminSource(db, id, running(id), now);
+  return adminSource(db, id, running(id), now, waitingIn(deps)); // v35 ADMIN: with why it waits
 }
 
 /** Deletes the source and its run history; jobs only it listed are closed (they stay for applications that link them). */
@@ -455,23 +511,34 @@ export function createSourcesRouter(deps: AppDeps): Router {
   return adminRouter(deps, {
     resource: 'job source',
     id: Id,
-    list: { query: AdminSourcesQuerySchema, run: (_deps, query) => listAdminSources(db, query, nowIso(deps), running) },
+    // v35 ADMIN: each row with why it waits (a switched-on source that cannot run now).
+    list: { query: AdminSourcesQuerySchema, run: (_deps, query) => listAdminSources(db, query, nowIso(deps), running, waitingIn(deps)) },
     bulk: {
       body: AdminSourcesBulkBodySchema,
       // v30 FIX-A: a source of a company that opted out is skipped with MSG_INGEST_SOURCE_OPTED_OUT's words. v31 RUNS: run
       // now skips a paused source with MSG_INGEST_SOURCE_PAUSED's.
-      run: (_deps, body) =>
-        bulkSources(
-          db,
-          body,
-          nowIso(deps),
-          constantsOf(deps).message('MSG_INGEST_SOURCE_OPTED_OUT'),
-          constantsOf(deps).message('MSG_INGEST_SOURCE_PAUSED'),
-        ),
+      run: (_deps, body) => bulkSources(db, body, nowIso(deps), bulkWords(deps).optedOut, bulkWords(deps).paused),
     },
-    get: (_deps, id) => adminSource(db, id, running(id), nowIso(deps)),
+    get: (_deps, id) => adminSource(db, id, running(id), nowIso(deps), waitingIn(deps)),
     patch: { body: PatchSourceBody, run: (_deps, id, patch) => patchSource(deps, id, patch, running) },
     routes(router, { handle, audit }) {
+      // v35 ADMIN (PLAN H6): Enable all / Disable all for the filter shown: its count for the confirm, then the change
+      // (every match, in pages of ADMIN_BULK_MAX), audited once with its filter and counts.
+      router.get(
+        '/all/count',
+        handle((req) => countSourcesAll(db, parseInput(AdminSourcesFilterSchema, req.query, 'query'))),
+      );
+      router.post(
+        '/all',
+        handle(async (req, actor) => {
+          const body = parseInput(AdminSourcesAllBodySchema, req.body ?? {}, 'change');
+          const filter = body.filter ?? AdminSourcesFilterSchema.parse({});
+          const { result, changed } = await sourcesAll(db, body.action, filter, nowIso(deps), bulkWords(deps));
+          await audit({ action: `${body.action}_all`, ids: ['all'], actor, change: { filter, matched: result.matched, changed } });
+          return result;
+        }),
+      );
+
       // A route answering with its own status sets it on req.res; handle sends the JSON (or nothing once ended).
       router.post(
         '/',
@@ -563,6 +630,27 @@ export function createRunsRouter(deps: AppDeps): Router {
     get: (_deps, id) => adminRun(deps.db, id),
     // v31 RUNS: Pause and Continue, of every run and of one run (pause.ts), each audited.
     routes(router, { handle, audit }) {
+      // v35 ADMIN (PLAN H6): an import run's Sources found, and Enable all / Disable all of the ones it made.
+      router.get(
+        '/:id/sources',
+        handle(async (req) => {
+          const id = parseInput(Id, req.params.id, 'run id');
+          const found = await runSources(deps.db, id, waitingIn(deps));
+          if (!found) throw notFound('That run');
+          return found;
+        }),
+      );
+      router.post(
+        '/:id/sources',
+        handle(async (req, actor) => {
+          const id = parseInput(Id, req.params.id, 'run id');
+          const body = parseInput(AdminRunSourcesBodySchema, req.body ?? {}, 'change');
+          const done = await runSourcesAll(deps.db, id, body.action, nowIso(deps), bulkWords(deps));
+          if (!done) throw notFound('That run');
+          await audit({ action: `${body.action}_found_sources`, ids: [id], actor, change: { matched: done.result.matched, changed: done.changed } });
+          return done.result;
+        }),
+      );
       router.post(
         '/pause',
         handle(async (_req, actor) => {

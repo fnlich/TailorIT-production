@@ -22,7 +22,7 @@ export function PublicGuide() {
           and every tool your AI can use.
         </p>
       </header>
-      <Guide frame="public" values={values} isAdmin={false} />
+      <Guide frame="public" values={values} />
     </div>
   );
 }

@@ -15,7 +15,6 @@ import {
   searchScroll,
   searchWords,
   sectionOf,
-  sectionsFor,
   type GuideFrame,
   type GuideSection,
   type GuideTopic,
@@ -49,14 +48,14 @@ const READING_LINE_PX = { wide: 140, narrow: 200 } as const;
 export interface GuideProps {
   frame: GuideFrame;
   values: PublicConstants;
-  isAdmin: boolean;
   /** The sections to draw (GUIDE_SECTIONS); a test may pass others. */
   sections?: readonly GuideSection[];
   className?: string;
 }
 
-export function Guide({ frame, values, isAdmin, sections = GUIDE_SECTIONS, className }: GuideProps) {
-  const visible = useMemo(() => sectionsFor(sections, frame, isAdmin), [sections, frame, isAdmin]);
+export function Guide({ frame, values, sections = GUIDE_SECTIONS, className }: GuideProps) {
+  // v35 OPSWEB (PLAN H8): every reader, in either frame, reads every section (no admin docs).
+  const visible = sections;
   const [query, setQuery] = useState('');
   const [texts, setTexts] = useState<TopicTexts | undefined>(undefined);
   const [contentsOpen, setContentsOpen] = useState(false);
@@ -64,7 +63,7 @@ export function Guide({ frame, values, isAdmin, sections = GUIDE_SECTIONS, class
   const inView = useInView(shown);
   const contentsId = useId();
   const contentsButton = useRef<HTMLButtonElement>(null);
-  const context = useMemo<GuideValues>(() => ({ frame, values, isAdmin }), [frame, values, isAdmin]);
+  const context = useMemo<GuideValues>(() => ({ frame, values }), [frame, values]);
 
   // A deep link: scroll to its section or topic once it is drawn (AuthGate draws the page after sign-in, so the
   // browser's own jump has nothing to land on); one the search hides clears the search, then scrolls once drawn.

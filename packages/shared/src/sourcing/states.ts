@@ -51,7 +51,16 @@ export const JOB_SOURCE_DISCOVERED_VIA = [
   'admin',
 ] as const;
 export type JobSourceDiscoveredVia = (typeof JOB_SOURCE_DISCOVERED_VIA)[number];
-export const JOB_SOURCE_DISCOVERED_VIA_LABEL: Record<JobSourceDiscoveredVia, string> = {
+
+// v35 ADMIN (PLAN H6): a source may also be found by an admin's import (job_sources.discovered_via `import`, migration
+// 0058): the board of a link an import read, made a source switched off ("Found by import"). A candidate never is one
+// (job_source_candidates keeps JOB_SOURCE_DISCOVERED_VIA).
+/** How a source was found: discovery's ways, or an admin's import. */
+export const JOB_SOURCE_FOUND_VIA = [...JOB_SOURCE_DISCOVERED_VIA, 'import'] as const;
+export type JobSourceFoundVia = (typeof JOB_SOURCE_FOUND_VIA)[number];
+
+/** How a board or source was found, in words (v35 ADMIN: a source's `import` too, JOB_SOURCE_FOUND_VIA). */
+export const JOB_SOURCE_DISCOVERED_VIA_LABEL: Record<JobSourceFoundVia, string> = {
   extension: 'Added from the extension',
   application_link: 'A link in applications',
   common_crawl: 'Common Crawl',
@@ -60,6 +69,7 @@ export const JOB_SOURCE_DISCOVERED_VIA_LABEL: Record<JobSourceDiscoveredVia, str
   probe: 'A name probe',
   vendor: 'A licensed feed',
   admin: 'An admin',
+  import: 'Found by import', // v35 ADMIN
 };
 
 /** What started a run (job_source_runs, today's ingest_runs renamed; `liveness` is a per-posting read). */
@@ -151,3 +161,40 @@ export function runErrorLabel(code: string): string {
   if (http) return `HTTP ${http[1]}`;
   return (JOB_SOURCE_RUN_ERROR_LABEL as Record<string, string>)[code] ?? code;
 }
+
+// v35 ADMIN (PLAN H7): why a switched-on source does not run now. Each one clears by itself (the worker looks at every
+// tick: a robots.txt verdict is read again each day, a held host's sources wait for its hold's end) or by an admin's
+// own change (the terms, a pause, a switch); the source then runs at once, on its schedule, with no Run now.
+/** Why a switched-on source is waiting, most fundamental first (Admin › Sources' row and sheet). */
+export const JOB_SOURCE_WAITING_REASONS = [
+  'ingest_off',
+  'runs_paused',
+  'paused',
+  'opted_out',
+  'not_built',
+  'identity',
+  'outside_key',
+  'career_pages_off',
+  'terms',
+  'robots_pending',
+  'robots_disallowed',
+  'robots_unreadable',
+  'host_held',
+] as const;
+export type JobSourceWaitingReason = (typeof JOB_SOURCE_WAITING_REASONS)[number];
+export const JOB_SOURCE_WAITING_LABEL: Record<JobSourceWaitingReason, string> = {
+  ingest_off: 'Waiting: INGEST_ENABLED is off on this server',
+  runs_paused: 'Waiting: every run is paused',
+  paused: 'Waiting: paused by an admin',
+  opted_out: 'Waiting: its company asked TailorIT not to read its jobs',
+  not_built: 'Waiting: TailorIT does not read this kind of source yet',
+  identity: 'Waiting: set BOT_USER_AGENT',
+  outside_key: "Waiting: set this feed's API key",
+  career_pages_off: 'Waiting: turn on Read career pages',
+  terms: 'Waiting: its terms are not recorded as allowing automated access',
+  robots_pending: "Waiting: reading its host's robots.txt",
+  robots_disallowed: 'Waiting: robots.txt disallows this site',
+  robots_unreadable: "Waiting: its host's robots.txt could not be read (tried again daily)",
+  host_held: 'Waiting: its host is held',
+};
+// end v35 ADMIN

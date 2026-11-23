@@ -5,6 +5,8 @@ import {
   AdminFlagsQuerySchema,
   AdminReviewBulkBodySchema,
   AdminReviewDecisionBodySchema,
+  AdminReviewsAllBodySchema,
+  AdminReviewsAllFilterSchema,
   AdminReviewsQuerySchema,
 } from '@tailorit/shared';
 import { adminRouter, PositiveId } from '../../core/admin/index';
@@ -13,7 +15,8 @@ import { notFound } from '../../core/http/errors';
 import { listReviews, reviewCounts, reviewDetail, reviewReporters } from './admin';
 import { decideFlag, decideFlags, listFlags } from './flags';
 import { retryReviewRead } from './page-read'; // v32 ADMINAPP (E6)
-import { decideReview, decideReviews } from './service';
+import { countAllReviews, decideAllReviews, decideReview, decideReviews } from './service';
+import { parseInput } from '../../core/http/validate'; // v35 ADMIN
 
 // v30 X1-API: Admin › Review's API (docs/design/part2/14-extension-reports.md §6; administrators only, on adminRouter;
 // the shapes are CT's @tailorit/shared/reviews). It replaces Admin › Reports' API (/api/admin/reports, which INT-3
@@ -25,6 +28,10 @@ import { decideReview, decideReviews } from './service';
 //   PATCH /api/admin/reviews/:id {decision: approve|reject|reopen, note?}   one decision; the sheet after it
 //   POST  /api/admin/reviews/bulk {ids, decision: approve|reject, note?}    up to 100; a result per row
 //   POST  /api/admin/reviews/:id/retry                                      v32 ADMINAPP (E6): a waiting new job read again
+//   GET   /api/admin/reviews/all/count?lane=new_job&state=&q=&from=&importRunId=   v35 ADMIN: the pending ones the filter matches
+//                                                                          (v35 FIX-STORE: and `upTo`, what was counted)
+//   POST  /api/admin/reviews/all {decision, filter, note?, after?, upTo?}  v35 ADMIN: Approve all / Reject all (New jobs);
+//                                                                          v35 FIX-STORE: nothing beyond the count's upTo
 //   GET   /api/admin/flags?state=&q=&cursor=&limit=                         the Flags lane (job_reports)
 //   PATCH /api/admin/flags/:id {status, closeJob?}                          a flag's decision
 //   POST  /api/admin/flags/bulk {ids, status: resolved|dismissed}           up to 100
@@ -54,6 +61,26 @@ export function createReviewRouter(deps: AppDeps): Router {
       router.get(
         '/counts',
         helpers.handle(() => reviewCounts(deps.db)),
+      );
+      // v35 ADMIN (PLAN H3): Approve all / Reject all of the New jobs lane's filter: the count for the confirm, then the
+      // decisions on the server (service.ts decideAllReviews), audited once with the filter and the reviews decided.
+      router.get(
+        '/all/count',
+        helpers.handle((req) => countAllReviews(deps, parseInput(AdminReviewsAllFilterSchema, req.query, 'query'))),
+      );
+      router.post(
+        '/all',
+        helpers.handle(async (req, admin) => {
+          const body = parseInput(AdminReviewsAllBodySchema, req.body ?? {}, 'change');
+          const decided = await decideAllReviews(deps, body, admin);
+          await helpers.audit({
+            action: `${body.decision}_all`,
+            ids: ['all'],
+            actor: admin,
+            change: { filter: body.filter, after: body.after ?? 0, upTo: body.upTo ?? null, matched: decided.body.matched, decided: decided.ids.length },
+          });
+          return decided.body;
+        }),
       );
       // v32 ADMINAPP (E6): Retry read of a new job waiting for approval (page-read.ts retryReviewRead).
       router.post(

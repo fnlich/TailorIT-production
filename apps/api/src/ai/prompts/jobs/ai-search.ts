@@ -9,7 +9,7 @@ import {
   JOB_SORTS,
   LEADERSHIP,
   SALARY_PERIODS,
-  UPDATED_WITHIN_DAYS,
+  AI_SEARCH_UPDATED_WITHIN_DAYS, // v35 IMPORT: the pinned words' list (the query takes Past 3 days too)
   WORK_ARRANGEMENTS,
 } from '@tailorit/shared';
 import { definePrompt } from '../types';
@@ -54,7 +54,7 @@ The filters (each is optional):
 - "payPeriod": one of ${list(SALARY_PERIODS)}, only with "minSalary".
 - "h1b": true when the person needs a company that sponsors H-1B visas.
 - "clearance": ${list(CLEARANCE_FILTERS.map((value) => `"${value}"`))}, only when the words name a security clearance.
-- "updatedWithin": ${list(UPDATED_WITHIN_DAYS)}: jobs posted or updated within that many days.
+- "updatedWithin": ${list(AI_SEARCH_UPDATED_WITHIN_DAYS)}: jobs posted or updated within that many days.
 - "hideApplied": true when the person wants to leave out jobs they applied to.
 - "sort": one of ${list(JOB_SORTS)} (posted is the newest first, salary the highest pay first), only when asked.
 

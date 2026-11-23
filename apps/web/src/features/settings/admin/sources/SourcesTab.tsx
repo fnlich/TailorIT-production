@@ -7,6 +7,7 @@ import {
   JOB_SOURCE_ROBOTS_LABEL,
   JOB_SOURCE_TERMS_LABEL,
   JOB_SOURCE_TIER_LABEL,
+  type AdminSourceAllAction,
   type AdminSourceBulkAction,
   type AdminSourceRow,
   type AdminSourcesList,
@@ -40,8 +41,19 @@ import { runsBarText, sourcePausedText, sourcePauseToast } from '../runs/pause';
 import { alarmCount, alarmText } from '../runs/report';
 import { useRunsPause } from '../runs/useRunsPause'; // v31 RUNS
 import { AddSourceDialog } from './AddSourceDialog';
-import { bulkSources, continueSource, deleteSource, fetchSourcesPage, pauseSource, runSource, setSourceEnabled, sourceKeys } from './api';
-import { BULK_ACTION_LABEL, bulkProblems, bulkSummary, runBulk, type BulkProblem } from './bulk';
+import {
+  bulkSources,
+  changeAllSources,
+  continueSource,
+  deleteSource,
+  fetchSourcesAllCount,
+  fetchSourcesPage,
+  pauseSource,
+  runSource,
+  setSourceEnabled,
+  sourceKeys,
+} from './api';
+import { BULK_ACTION_LABEL, allConfirmText, allResultLine, bulkProblems, bulkSummary, runBulk, type BulkProblem } from './bulk';
 import { clearedFilters, filtersFromAddress, isFiltered, type SourceFilters } from './filters';
 import { useAdminLink } from './links';
 import { PurgeDialog } from './PurgeDialog';
@@ -54,7 +66,6 @@ import {
   formatCount,
   isDeletable,
   isPaused,
-  isSheetRow,
   isUnrun,
   pausedRunNowHint,
   robotsTone,
@@ -62,6 +73,7 @@ import {
   scheduleText,
   sourceLine,
   termsTone,
+  waitingTip,
 } from './sources';
 
 /** How long the search box rests before the list is asked again. */
@@ -79,6 +91,18 @@ const SOURCES_WIDE = { show: 'hidden @min-[70rem]/table:table-cell', hide: '@min
 /** v30 FIX-WEB (REV-UX UX-4): where focus goes when Clear filters goes (with the filters it cleared). */
 const SOURCES_SEARCH = 'input[aria-label="Search sources by name or host"]';
 
+/** v35 OPSWEB (PLAN H7): a switched-on source that cannot run: a small "Waiting" badge, its "?" saying why and what clears it. */
+export function WaitingBadge({ waiting, name }: { waiting: AdminSourceRow['waiting']; name: string }) {
+  const tip = waitingTip(waiting);
+  if (!waiting || !tip) return null;
+  return (
+    <span className="flex items-center gap-1" data-source-waiting={waiting.reason}>
+      <Badge tone="warning">Waiting</Badge>
+      <HelpTip label={`Waiting: ${name}`}>{tip}</HelpTip>
+    </span>
+  );
+}
+
 /**
  * Admin › Sources (v30 S1-WEB, 12 §9.8): every job source, at 80,000 rows. The server pages, searches (name or host),
  * filters (kind, tier, terms, robots, how it was found, enabled, failing, one host or company) and orders them; rows
@@ -87,14 +111,7 @@ const SOURCES_SEARCH = 'input[aria-label="Search sources by name or host"]';
  * v31 RUNS: a source is paused and continued from its row's menu and its sheet (apart from Enabled); while every run is
  * paused a notice says so, with Continue; Run now waits for a pause to end.
  */
-export function SourcesTab({
-  onShowRuns,
-  onImportAgain,
-}: {
-  onShowRuns: (sourceId: number) => void;
-  /** Opens Import jobs > Google Sheet with a sheet source's tab and settings. */
-  onImportAgain?: (sourceId: number) => void;
-}) {
+export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => void }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const now = useNow();
@@ -117,6 +134,8 @@ export function SourcesTab({
   const [deleting, setDeleting] = useState<AdminSourceRow | null>(null);
   const [purging, setPurging] = useState<AdminSourceRow | null>(null);
   const [purgesOpen, setPurgesOpen] = useState(false);
+  // v35 OPSWEB (PLAN H6): Enable all / Disable all for everything the filter shows (count, confirm, one request).
+  const [allAction, setAllAction] = useState<AdminSourceAllAction | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -229,6 +248,27 @@ export function SourcesTab({
     onError: (error) => toast.error('The sources were not changed', userMessage(error)),
   });
 
+  // v35 OPSWEB: the count of what the action would change, read when its confirm opens (never an old count).
+  const allCount = useQuery({
+    queryKey: sourceKeys.allCount(filters),
+    queryFn: ({ signal }) => fetchSourcesAllCount(filters, signal),
+    enabled: allAction !== null,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const allWords = allAction && allCount.data ? allConfirmText(allAction, allCount.data) : null;
+  const changeAll = async (action: AdminSourceAllAction) => {
+    try {
+      const result = await changeAllSources(action, filters);
+      const line = allResultLine(result);
+      setOutcome({ summary: { title: line.text, description: null, tone: line.tone }, problems: [] });
+      setAllAction(null);
+      void queryClient.invalidateQueries({ queryKey: sourceKeys.pages });
+    } catch (error) {
+      throw new Error(userMessage(error));
+    }
+  };
+
   const openSheet = (source: AdminSourceRow) => {
     setOpened(source);
     setOpenId(source.id);
@@ -322,6 +362,8 @@ export function SourcesTab({
           {/* v31 RUNS: a paused source reads Paused, by whom and since when. */}
           <RunStatusBadge status={source.running ? 'running' : isPaused(source) ? 'paused' : source.lastStatus} />
           {isPaused(source) && <span className="text-[13px] text-muted-foreground">{sourcePausedText(source, now)}</span>}
+          {/* v35 OPSWEB (PLAN H7): switched on, but it cannot run now: why, in its "?". */}
+          {source.enabled && <WaitingBadge waiting={source.waiting} name={source.name} />}
           {failureText(source) && <span className="text-[13px] text-danger">{failureText(source)}</span>}
         </div>
       ),
@@ -388,11 +430,6 @@ export function SourcesTab({
                 </MenuItem>
               )}
               {source.host && <MenuItem onClick={() => link({ tab: 'hosts', host: source.host })}>Open its host</MenuItem>}
-              {isSheetRow(source) && onImportAgain && (
-                <MenuItem icon={<ArrowsClockwiseIcon size={16} />} disabled={source.running} onClick={() => onImportAgain(source.id)}>
-                  Import the sheet again
-                </MenuItem>
-              )}
               <MenuSeparator />
               <MenuItem tone="danger" onClick={() => setPurging(source)}>
                 Purge source
@@ -416,7 +453,7 @@ export function SourcesTab({
     <AdminResourceTab
       sectionProps={{ 'aria-labelledby': 'admin-sources-title' }}
       title="Job sources"
-      description="Every board, feed and import TailorIT reads; due sources run on their own."
+      description="Every board and feed TailorIT reads; due sources run on their own."
       actions={
         <>
           <Button variant="outline" icon={<TrashIcon size={16} />} onClick={() => setPurgesOpen(true)}>
@@ -517,7 +554,7 @@ export function SourcesTab({
           : {
               icon: <BriefcaseIcon size={22} />,
               title: 'No job sources yet',
-              description: 'Add a board, the free_tailor lake or the demo jobs, or import links.',
+              description: 'Add a board, the free_tailor lake or the demo jobs.', // v35 OPSWEB: an import is not a source
               action: <Button onClick={() => setAdding(true)}>Add source</Button>,
             }
       }
@@ -550,10 +587,24 @@ export function SourcesTab({
               </Notice>
             )}
           </div>
-          <p className="mb-3 text-sm text-muted-foreground" aria-live="polite" data-sources-total={total}>
-            {formatCount(total)} {total === 1 ? 'source' : 'sources'}
-            {items.length < total ? `, ${formatCount(items.length)} shown` : ''}
-          </p>
+          {/* v35 OPSWEB (PLAN H6): Enable all / Disable all act on every source the filter shows, not only the loaded rows. */}
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="text-sm text-muted-foreground" aria-live="polite" data-sources-total={total}>
+              {formatCount(total)} {total === 1 ? 'source' : 'sources'}
+              {items.length < total ? `, ${formatCount(items.length)} shown` : ''}
+            </p>
+            {total > 0 && (
+              <span className="flex items-center gap-1.5 sm:ml-auto" data-sources-all="">
+                <Button variant="outline" size="sm" className="max-sm:h-11" aria-haspopup="dialog" onClick={() => setAllAction('enable')}>
+                  Enable all
+                </Button>
+                <Button variant="outline" size="sm" className="max-sm:h-11" aria-haspopup="dialog" onClick={() => setAllAction('disable')}>
+                  Disable all
+                </Button>
+                <HelpTip label="Enable all and Disable all">Every source the search and filters show, loaded or not.</HelpTip>
+              </span>
+            )}
+          </div>
         </>
       }
       footer={
@@ -625,13 +676,36 @@ export function SourcesTab({
           refresh();
         }}
       />
+      {/* v35 OPSWEB (PLAN H6): "Enable 42 sources?" with the server's count, then one request and one result line. */}
+      <ConfirmDialog
+        open={allAction !== null}
+        onOpenChange={(open) => !open && setAllAction(null)}
+        tone={allAction === 'disable' ? 'destructive' : 'primary'}
+        title={allWords?.title ?? (allAction === 'disable' ? 'Disable every source shown?' : 'Enable every source shown?')}
+        description={
+          allCount.isError
+            ? `The sources could not be counted. ${userMessage(allCount.error)}`
+            : allWords
+              ? allWords.changes === 0
+                ? `Nothing to change: every source shown is ${allAction === 'enable' ? 'on already or cannot run' : 'off already'}.`
+                : allWords.description
+              : 'Counting the sources...'
+        }
+        confirmLabel={allWords && allWords.changes > 0 ? allWords.confirm : allAction === 'disable' ? 'Disable all' : 'Enable all'}
+        busyLabel={allAction === 'disable' ? 'Disabling...' : 'Enabling...'}
+        confirmDisabled={!allWords || allWords.changes === 0}
+        focusCancel
+        onConfirm={async () => {
+          if (allAction) await changeAll(allAction);
+        }}
+      />
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Delete source"
         description={
           deleting
-            ? `Delete ${deleting.name}? Jobs only this source lists are closed, and its run history is deleted. There is no undo.${isSheetRow(deleting) ? ' The Google Sheet itself is not changed.' : ''}`
+            ? `Delete ${deleting.name}? Jobs only this source lists are closed, and its run history is deleted. There is no undo.`
             : undefined
         }
         confirmLabel="Delete"

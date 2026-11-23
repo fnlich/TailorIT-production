@@ -2,8 +2,10 @@ import type { ComponentType } from 'react';
 import type { Icon } from '@/components/ui/icons';
 
 // v34 HELP (PLAN G6): the User Guide's shape. One content module (sections.ts and content/) drawn in two frames: /help
-// in the app (the shell; Admin for administrators) and /guide, public without sign-in (the documentation address of
-// Claude's directory; no user data, no Admin). A section is a card of topics; every section and topic has an id that is
+// in the app (the shell) and /guide, public without sign-in (the documentation address of Claude's directory; no user
+// data). v35 OPSWEB (PLAN H8): no admin docs: an administrator reads the same guide as everyone (the admin's pages keep
+// their own "?" tips), so a section has no "admin only" mark any more. A section is a card of topics; every section and
+// topic has an id that is
 // its deep link (/help#mcp-prompts). The search box filters sections and topics by their titles (and a few words each
 // section lists), and (review #44) by each topic's text once the page has drawn it.
 
@@ -26,8 +28,6 @@ export interface GuideSection {
   icon: Icon;
   /** More words the search finds the whole section by ("MCP", "connector"). */
   keywords?: readonly string[];
-  /** Shown only in the app, to administrators. */
-  adminOnly?: boolean;
   topics: readonly GuideTopic[];
 }
 
@@ -52,11 +52,6 @@ export function searchWords(text: string): string[] {
 /** Whether every word of the query starts some word of `haystack` ("conn" finds "Connect"). */
 function matches(query: readonly string[], haystack: readonly string[]): boolean {
   return query.every((word) => haystack.some((candidate) => candidate.startsWith(word)));
-}
-
-/** The sections `frame` and the person's role show: Admin only in the app, for administrators. */
-export function sectionsFor(sections: readonly GuideSection[], frame: GuideFrame, isAdmin: boolean): GuideSection[] {
-  return sections.filter((section) => !section.adminOnly || (frame === 'app' && isAdmin));
 }
 
 /** Each topic's words as the page draws them (by topic id), for the search to look in a topic's text too. */

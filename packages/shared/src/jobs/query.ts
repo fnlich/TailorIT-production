@@ -38,14 +38,23 @@ export const JOB_SORT_LABEL: Record<JobSort, string> = {
   salary: 'Highest salary',
 };
 
-/** "Last updated" filter, in days. */
-export const UPDATED_WITHIN_DAYS = [1, 7, 30] as const;
+/**
+ * "Last updated" filter, in days. v35 IMPORT (SP v35 PLAN.md H5): Past 3 days added; a job an admin's import reposted
+ * counts from its repost (the search projection's updated_sort is the later of its dates and jobs.reposted_at).
+ */
+export const UPDATED_WITHIN_DAYS = [1, 3, 7, 30] as const;
 export type UpdatedWithin = (typeof UPDATED_WITHIN_DAYS)[number];
 export const UPDATED_WITHIN_LABEL: Record<UpdatedWithin, string> = {
   1: 'Past 24 hours',
+  3: 'Past 3 days',
   7: 'Past week',
   30: 'Past month',
 };
+/**
+ * v35 IMPORT: the days AI job search's prompt lists (apps/api/src/ai/prompts/jobs/ai-search.ts), kept as v2.0 wrote
+ * them: the prompt's words are pinned (test/fixtures/v20-prompts/jobs.json). The query takes every UPDATED_WITHIN_DAYS.
+ */
+export const AI_SEARCH_UPDATED_WITHIN_DAYS = [1, 7, 30] as const;
 
 /** Jobs per page of GET /api/jobs. */
 export const JOBS_PAGE_SIZE = 21;
@@ -120,7 +129,7 @@ export const JobsQuerySchema = z.object({
    * value but true reads as off.
    */
   canApply: z.literal(true).optional().catch(undefined),
-  updatedWithin: z.union([z.literal(1), z.literal(7), z.literal(30)]).optional(),
+  updatedWithin: z.union([z.literal(1), z.literal(3), z.literal(7), z.literal(30)]).optional(), // v35 IMPORT: 3
   sort: z.enum(JOB_SORTS).default('relevant'),
   cursor: z.string().transform(wellFormed).pipe(z.string().trim().max(500)).optional().transform(unset),
 });
@@ -231,7 +240,7 @@ function readJobsQuery(values: (key: keyof JobsQuery) => string[]): JobsQuery {
   const clearance = first(values('clearance'));
   if (clearance && (CLEARANCE_FILTERS as readonly string[]).includes(clearance)) raw.clearance = clearance;
   const updated = Number(first(values('updatedWithin')));
-  if (updated === 1 || updated === 7 || updated === 30) raw.updatedWithin = updated;
+  if ((UPDATED_WITHIN_DAYS as readonly number[]).includes(updated)) raw.updatedWithin = updated as UpdatedWithin; // v35 IMPORT
   const sort = first(values('sort'));
   if (sort && (JOB_SORTS as readonly string[]).includes(sort)) raw.sort = sort;
   const cursor = first(values('cursor'));

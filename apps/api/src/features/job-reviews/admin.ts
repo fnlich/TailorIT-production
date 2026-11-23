@@ -9,6 +9,7 @@ import {
   type AdminReviewList,
   type AdminReviewReporters,
   type AdminReviewRow,
+  type AdminReviewsFilter,
   type AdminReviewsQuery,
   type JobReviewSignal,
   type JobReviewStrength,
@@ -39,6 +40,11 @@ const STALE = 'This list changed since it was opened. Load it again.';
 
 /** A review row joined with its job and company, as the lanes read it. */
 interface LaneRow extends ReviewRow {
+  /**
+   * v35 ADMIN: the import's name (its csv or json record's), when its run is still there. v35 INT-A: the import's own
+   * name first (IMPORT's job_imports: "24 pasted links", the file, the tab), then its record's.
+   */
+  import_name: string | null;
   title: string;
   company_id: number;
   company_name: string;
@@ -58,8 +64,10 @@ const LANE_SELECT = (sort: string) =>
      (SELECT p.signal FROM job_review_reports p WHERE p.review_id = r.id AND p.signal IS NOT NULL
       ORDER BY CASE p.strength WHEN 'strong' THEN 3 WHEN 'person' THEN 2 WHEN 'weak' THEN 1 ELSE 0 END DESC, p.seen_at DESC
       LIMIT 1) AS strongest_signal,
-     ${sort} AS sort_at
-   FROM job_reviews r JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id`;
+     ${sort} AS sort_at, COALESCE(ji.name, iso.name) AS import_name
+   FROM job_reviews r JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id
+     LEFT JOIN job_source_runs ir ON ir.id = r.import_run_id LEFT JOIN job_sources iso ON iso.id = ir.source_id
+     LEFT JOIN job_imports ji ON ji.run_id = r.import_run_id`;
 
 /** The sort key of a state filter's list (newest first). */
 function sortOf(state: AdminReviewsQuery['state']): string {
@@ -104,6 +112,8 @@ function toRow(deps: Deps, row: LaneRow, today: string): AdminReviewRow {
     note: row.note,
     // v30 INT-3 (decision 3): "Reopened by its source", when a listing reopened the job after an approval.
     ...(row.reopened_at ? { reopenedAt: row.reopened_at } : {}),
+    // v35 ADMIN (PLAN H3): a new job an admin's import read, and that import.
+    ...(row.imported === true ? { imported: true, importRunId: row.import_run_id ?? null, importName: row.import_name ?? null } : {}),
   };
 }
 
@@ -117,15 +127,29 @@ export async function reviewCounts(db: DbQueries): Promise<AdminReviewCounts> {
   return { closed: row?.closed ?? 0, newJob: row?.new_job ?? 0, flags: row?.flags ?? 0 };
 }
 
+/**
+ * A lane's filters on the review `r` (its job `j`, company `c`): the lane, the state filter, the search, and (v35 ADMIN,
+ * PLAN H3) on the New jobs lane where its jobs came from (an admin's imports, people's link reads) and one import.
+ */
+export function reviewsWhere(deps: Pick<Deps, 'db'>, filter: AdminReviewsFilter): Where {
+  const where = new Where().add('r.kind = @lane', { lane: filter.lane });
+  if (filter.state === 'needs_review') where.add("r.state = 'pending' AND r.check_state <> 'queued'");
+  else if (filter.state === 'checking') where.add("r.state = 'pending' AND r.check_state = 'queued'");
+  else if (filter.state === 'decided') where.add("r.state <> 'pending'");
+  const d = deps.db.dialect;
+  if (filter.q) where.add(`(${d.like('j.title', '@q')} OR ${d.like('c.name', '@q')})`, { q: likeText(filter.q) });
+  if (filter.lane === 'new_job') {
+    if (filter.importRunId !== undefined) where.add('r.imported AND r.import_run_id = @importRunId', { importRunId: filter.importRunId });
+    else if (filter.from === 'imports') where.add('r.imported');
+    else if (filter.from === 'reads') where.add('NOT r.imported');
+  }
+  return where;
+}
+
 /** GET /api/admin/reviews: one lane's page (see above). */
 export async function listReviews(deps: Deps, query: AdminReviewsQuery): Promise<AdminReviewList> {
   const sort = sortOf(query.state);
-  const where = new Where().add('r.kind = @lane', { lane: query.lane });
-  if (query.state === 'needs_review') where.add("r.state = 'pending' AND r.check_state <> 'queued'");
-  else if (query.state === 'checking') where.add("r.state = 'pending' AND r.check_state = 'queued'");
-  else if (query.state === 'decided') where.add("r.state <> 'pending'");
-  const d = deps.db.dialect;
-  if (query.q) where.add(`(${d.like('j.title', '@q')} OR ${d.like('c.name', '@q')})`, { q: likeText(query.q) });
+  const where = reviewsWhere(deps, query);
   const counted = await deps.db.one<{ n: number }>(
     `SELECT count(*) AS n FROM job_reviews r JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id ${where.sql()}`,
     where.params as Record<string, SqlParam>,

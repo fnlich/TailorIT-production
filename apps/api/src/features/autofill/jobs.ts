@@ -21,7 +21,7 @@ import { requireIngest } from '../ingest/service';
 import { IngestError, type SourceRecord } from '../ingest/types';
 import { holdNewJob, noteHeldAdd, type HeldAdder } from '../job-reviews/new-jobs'; // v30 X1-API; v33 SHARE-6: HeldAdder
 import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
-import { readPageToSharedJob } from '../jobs/add/page'; // v31 LINK
+import { readPageToSharedJob, type ImportRead } from '../jobs/add/page'; // v31 LINK; v35 INT-A: ImportRead
 import { readWaitsForAdmin, settleHeldAfterRead } from '../jobs/add/held'; // v31 FIX-LINK
 import { REVIEW_HELD_SQL } from '../jobs/add/review-held'; // v31 FIX-LINK (a leaf: the SQL below is built at load)
 import { aliasValueHash } from './alias-key';
@@ -183,12 +183,14 @@ function boardFailure(error: unknown, kind: AddablePosting['kind'], signal: Abor
 /**
  * Reads the posting from its board and stores it (see above), answering its job and whether it is new to TailorIT
  * (dedupe may find it under another source's job). 404 `not_found` when the board no longer has it; 502 or 503 when the
- * board fails. Nothing is written until the posting has been read.
+ * board fails. Nothing is written until the posting has been read. v35 INT-A: `importRead`, an admin import's read: its
+ * row fills what the posting lacks, and a new job it holds is the import's (jobs/add/page.ts ImportRead).
  */
 async function readAndStore(
   deps: AppDeps,
   posting: AddablePosting,
   boards: AshbyBoardReads,
+  importRead?: ImportRead,
 ): Promise<{ jobId: number; created: boolean }> {
   const ingest = requireIngest(deps);
   const signal = AbortSignal.timeout(ADD_JOB_FETCH_TIMEOUT_MS);
@@ -207,7 +209,7 @@ async function readAndStore(
     if (answer.unlisted) throw new AppError('unsupported', UNLISTED);
     throw new AppError('not_found', `${ATS_NAMES[posting.kind]} no longer has this posting: it has closed.`);
   }
-  const raw = answer.raw;
+  const raw = importRead ? importRead.fill(answer.raw) : answer.raw; // v35 INT-A: the row fills what the read lacks
   const listedCompany = answer.listedCompany;
   return deps.db.tx(async (t) => {
     const now = nowIso(deps);
@@ -227,7 +229,10 @@ async function readAndStore(
     // jobs by hand (NEW_JOBS_ADMIN_APPROVAL) is a posting new to TailorIT from a board no enabled source runs held for
     // review (out of every search, its review opened), in this transaction; an enabled source's posting is public at
     // once (its next run lists it anyway). v3.0 held every such posting.
-    if (created && readWaitsForAdmin(deps, { page: false, sourceEnabled: source.enabled })) await holdNewJob(t, link.job_id, now);
+    // v35 INT-A: held by an admin import's read: the import's (its run), in this transaction.
+    if (created && readWaitsForAdmin(deps, { page: false, sourceEnabled: source.enabled })) {
+      await holdNewJob(t, link.job_id, now, importRead ? 'import' : 'ats', importRead?.runId ?? null);
+    }
     // v31 FIX-LINK (BEH-4): a read that landed on a job the legacy pass holds settles it (jobs/add/held.ts).
     else if (!created) await settleHeldAfterRead(deps, t, link.job_id, { page: false, sourceEnabled: source.enabled, at: now });
     return { jobId: link.job_id, created };
@@ -613,19 +618,22 @@ async function openHeldJobOf(deps: Pick<AppDeps, 'db'>, posting: AddablePosting)
 /**
  * The read of `posting`, shared with an add of the same posting already under way (an open held job is not read again).
  * v31 FIX-LINK (BEH-2): `fresh` reads the board whatever job holds the posting (the legacy pass's reads, Retry read).
+ * v35 INT-A: `importRead`, an admin import's read (jobs/add/page.ts ImportRead), never shared with another read.
  */
 export function readShared(
   deps: AppDeps,
   posting: AddablePosting,
   inFlight: InFlight,
-  options: { fresh?: boolean } = {},
+  options: { fresh?: boolean; importRead?: ImportRead } = {},
 ): Promise<{ jobId: number; created: boolean }> {
-  const key = `${posting.kind}:${posting.region}:${posting.board.toLowerCase()}:${posting.externalId.toLowerCase()}${options.fresh ? ':fresh' : ''}`;
+  const key =
+    `${posting.kind}:${posting.region}:${posting.board.toLowerCase()}:${posting.externalId.toLowerCase()}` +
+    `${options.fresh ? ':fresh' : ''}${options.importRead ? ':import' : ''}`;
   let reading = inFlight.postings.get(key);
   if (!reading) {
     const held = options.fresh ? Promise.resolve(null) : openHeldJobOf(deps, posting);
     reading = held
-      .then((found) => (found !== null ? { jobId: found, created: false } : readAndStore(deps, posting, inFlight.boards)))
+      .then((found) => (found !== null ? { jobId: found, created: false } : readAndStore(deps, posting, inFlight.boards, options.importRead)))
       .finally(() => inFlight.postings.delete(key));
     inFlight.postings.set(key, reading);
   }

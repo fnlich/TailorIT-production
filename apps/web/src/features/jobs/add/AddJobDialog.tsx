@@ -1,23 +1,30 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { JOB_LINK_MAX_CHARS, type AddJobBody, type JobAddDetails } from '@tailorit/shared';
 import type { ProfileChoice } from '@tailorit/shared/sharing';
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useDocumentProfile, useProfile } from '@/components/shell/profile';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { HelpTip } from '@/components/ui/HelpTip';
 import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
-import { Input, Textarea } from '@/components/ui/Input';
+import { CaretDownIcon, PlusIcon } from '@/components/ui/icons';
+import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
-import { PlusIcon } from '@/components/ui/icons';
-import { userMessage } from '@/lib/api';
+import { SegmentedControl, TabPanel } from '@/components/ui/SegmentedControl';
+import { isProfileRefusal, userMessage } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { usePublicConstants } from '@/lib/constants';
+import { EMPTY_LINK_DETAILS, OneLinkFields, filledDetails, type LinkDetailLimits, type LinkDetails } from '../../imports/OneLinkFields';
 import { jobsKeys } from '../api';
 import { LinkSimpleIcon } from '../icons';
 import { addJobOnProfiles, type AddOnProfiles } from './api';
-import { ADD_JOB_COPY, addOutcomeView, alsoSavedLine, linkInput, refusedHereView, type AddOutcomeView } from './outcome';
+import { ImportPanel } from './ImportPanel';
+import { fetchLatestImport, importKeys } from '../../imports/api'; // v35 FIX-WEB
+import { latestImportKey, latestOfSummary, latestShown, openingTab, readLatestImport, writeLatestImport, type LatestImport } from './latest';
+import { ADD_JOB_COPY, addOutcomeView, alsoSavedLine, linkInput, refusedHereView, savedToLine, type AddOutcomeView } from './outcome';
 import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
 import { refusalText } from '../../sharing/fanout/results';
 import { missingReason } from '../../sharing/fanout/targets';
@@ -34,6 +41,11 @@ import { refreshAfterFanoutSave, useFanoutChoices } from '../../sharing/fanout/u
 //                        - their own job                             Open the job | Add another
 //   refused              closed, not a job link, rejected            Try another link | Close
 // The job is saved to the person's Job Tracker by the server.
+// v35 IMPORTWEB (SP v35 SPECS-W2.md IMPORTWEB §3; PLAN H1, H2): three tabs, One link | File | Google Sheet. One link keeps
+// the flow above and offers "Add details (optional)" up front (Company, Job title, Description, Rate, Location): used
+// only if TailorIT cannot read the link (a title and company make the person's own job at once; fewer are kept for the
+// details step); Rate is the pay when the posting states none. File and Google Sheet import many rows (ImportPanel). On
+// a shared profile the dialog names the profile the jobs are saved to. "Also save to…" stays on One link.
 
 /** The tracker's React Query keys all start with 'tracker'. */
 const TRACKER_KEY = ['tracker'] as const;
@@ -41,14 +53,29 @@ const TRACKER_KEY = ['tracker'] as const;
 const FORM_ID = 'add-job-form';
 const DETAILS_FORM_ID = 'add-job-details-form';
 
+/** Add job's own details' limits (JobAddDetailsSchema: a person's job of their own). */
+const DETAIL_LIMITS: LinkDetailLimits = { company: 200, title: 300, description: 20_000, rate: 120, location: 300 };
+
+type AddTab = 'link' | 'file' | 'sheet';
+
 type Step =
   | { kind: 'link' }
   | { kind: 'details'; url: string; view: AddOutcomeView }
   | { kind: 'outcome'; view: AddOutcomeView; also: string | null };
 
-interface DetailErrors {
-  title?: string;
-  company?: string;
+type DetailErrors = Partial<Record<keyof LinkDetails, string>>;
+
+/** The details as POST /api/jobs/add takes them: only with a title and a company; the rest when given. */
+export function addDetailsOf(details: LinkDetails): JobAddDetails | null {
+  const given = filledDetails(details);
+  if (!given.title || !given.company) return null;
+  return {
+    title: given.title,
+    company: given.company,
+    ...(given.location ? { location: given.location } : {}),
+    ...(given.description ? { description: given.description } : {}),
+    ...(given.rate ? { rate: given.rate } : {}),
+  };
 }
 
 export interface AddJobDialogProps {
@@ -63,20 +90,105 @@ export interface AddJobDialogProps {
 export function AddJobDialog({ open, onOpenChange, onOpenJob, finalFocus }: AddJobDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={ADD_JOB_COPY.title} size="lg" finalFocus={finalFocus}>
-        {open && <AddJobFlow onClose={() => onOpenChange(false)} onOpenJob={onOpenJob} />}
+      <DialogContent title={ADD_JOB_COPY.title} size="xl" finalFocus={finalFocus}>
+        {open && <AddJobTabs onClose={() => onOpenChange(false)} onOpenJob={onOpenJob} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (jobId: number) => void }) {
+const TABS: ReadonlyArray<{ value: AddTab; label: string }> = [
+  { value: 'link', label: ADD_JOB_COPY.oneLink },
+  { value: 'file', label: ADD_JOB_COPY.file },
+  { value: 'sheet', label: ADD_JOB_COPY.sheet },
+];
+
+/**
+ * v35 FIX-WEB (the fix list's item 9): the profile's latest import, from the API (every device). The Jobs page's Add job
+ * reads it before the dialog opens, so the dialog opens on it at once.
+ */
+export function useLatestImport() {
+  const profileKey = useDocumentProfile();
+  return useQuery({
+    queryKey: importKeys.latest(profileKey),
+    queryFn: ({ signal }) => fetchLatestImport(signal),
+    staleTime: 15_000,
+    retry: false,
+  });
+}
+
+/** v35 IMPORTWEB: the dialog's tabs, the profile line on a shared profile, and the latest import remembered. */
+function AddJobTabs({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (jobId: number) => void }) {
+  const { account } = useAuth();
+  const profileKey = useDocumentProfile();
+  const { acting, label } = useProfile();
+  const client = useQueryClient();
+  const storeKey = account ? latestImportKey(account.id, profileKey) : null;
+  // v35 FIX-WEB: the API's latest import; this browser's hint only while that request runs (or if it fails).
+  const server = useLatestImport();
+  const [hint] = useState<LatestImport | null>(() => readLatestImport(storeKey));
+  const serverLatest = server.isSuccess ? latestOfSummary(server.data) : undefined;
+  const [latest, setLatest] = useState<LatestImport | null>(() => latestShown(serverLatest, hint));
+  const [tab, setTab] = useState<AddTab>(() => openingTab(latest, Date.now()));
+  // A tab's import is drawn once it was opened, then kept (switching tabs keeps a chosen file and its preview).
+  const [opened, setOpened] = useState<ReadonlySet<AddTab>>(() => new Set([tab]));
+  // The person's own choice (a tab, an import started or put aside) wins over an answer that comes later.
+  const chosen = useRef(false);
+  const serverId = serverLatest === undefined ? 'pending' : (serverLatest?.id ?? 'none');
+  useEffect(() => {
+    if (serverLatest === undefined || chosen.current) return;
+    const next = latestShown(serverLatest, hint);
+    setLatest(next);
+    const nextTab = openingTab(next, Date.now());
+    setTab(nextTab);
+    setOpened((current) => (current.has(nextTab) ? current : new Set([...current, nextTab])));
+    if (next) writeLatestImport(storeKey, next);
+    // Only when the API's answer names another import (a refetch of the same one changes nothing).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverId]);
+  const remember = (next: LatestImport | null) => {
+    chosen.current = true;
+    // New import puts the shown one aside in this browser (the API still lists it as the latest).
+    writeLatestImport(storeKey, next ?? (latest ? { ...latest, dismissed: true } : null));
+    setLatest(next);
+    if (next) void client.invalidateQueries({ queryKey: importKeys.latest(profileKey) });
+  };
+  const choose = (next: AddTab) => {
+    chosen.current = true;
+    setTab(next);
+    setOpened((current) => (current.has(next) ? current : new Set([...current, next])));
+  };
+  return (
+    <div className="flex min-w-0 flex-col" data-add-job-tabs="">
+      {acting && label && (
+        <p className="mt-1 text-[13px] leading-5 font-medium text-foreground" data-add-job-profile="">
+          {savedToLine(label)}
+        </p>
+      )}
+      <SegmentedControl aria-label={ADD_JOB_COPY.tabs} items={TABS} value={tab} onValueChange={choose} className="mt-4" listClassName="max-sm:h-11">
+        <TabPanel value="link" keepMounted className="mt-1">
+          <AddJobFlow onClose={onClose} onOpenJob={onOpenJob} focusOnStart={tab === 'link'} />
+        </TabPanel>
+        <TabPanel value="file" keepMounted className="mt-5">
+          {opened.has('file') && <ImportPanel way="file" latest={latest} onLatest={remember} onOpenJob={onOpenJob} onClose={onClose} />}
+        </TabPanel>
+        <TabPanel value="sheet" keepMounted className="mt-5">
+          {opened.has('sheet') && <ImportPanel way="sheet" latest={latest} onLatest={remember} onOpenJob={onOpenJob} onClose={onClose} />}
+        </TabPanel>
+      </SegmentedControl>
+    </div>
+  );
+}
+
+function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void; onOpenJob: (jobId: number) => void; focusOnStart: boolean }) {
   const client = useQueryClient();
   const { t } = usePublicConstants();
+  const detailsId = useId();
   const [step, setStep] = useState<Step>({ kind: 'link' });
   const [link, setLink] = useState('');
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [details, setDetails] = useState<JobAddDetails>({ title: '', company: '', location: '', description: '' });
+  const [details, setDetails] = useState<LinkDetails>(EMPTY_LINK_DETAILS);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailErrors, setDetailErrors] = useState<DetailErrors>({});
   const linkRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -110,10 +222,14 @@ function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (j
     },
   });
 
-  // Each step puts focus where the person goes next: the link, the title, or the outcome's main button.
+  // Each step puts focus where the person goes next: the link, the title, or the outcome's main button. The link at
+  // the start only while its tab is the one shown (Add job opens on an import's results for an hour after it started).
+  const focusLink = useRef(focusOnStart);
   useEffect(() => {
-    if (step.kind === 'link') linkRef.current?.focus();
-    else if (step.kind === 'details') titleRef.current?.focus();
+    if (step.kind === 'link') {
+      if (focusLink.current) linkRef.current?.focus();
+      focusLink.current = true;
+    } else if (step.kind === 'details') titleRef.current?.focus();
     else nextRef.current?.focus();
   }, [step]);
 
@@ -125,7 +241,10 @@ function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (j
       return;
     }
     setLinkError(null);
-    add.mutate({ url });
+    // v35 IMPORTWEB: details given up front go with the link when they hold a title and a company (used only if
+    // TailorIT cannot read it); fewer wait for the details step, filled in there.
+    const given = detailsOpen ? addDetailsOf(details) : null;
+    add.mutate(given ? { url, details: given } : { url });
   };
 
   const submitDetails = (event: FormEvent) => {
@@ -135,27 +254,23 @@ function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (j
     if (!details.title.trim()) errors.title = 'Required';
     if (!details.company.trim()) errors.company = 'Required';
     setDetailErrors(errors);
-    if (errors.title || errors.company) return;
-    add.mutate({
-      url: step.url,
-      details: {
-        title: details.title.trim(),
-        company: details.company.trim(),
-        ...(details.location?.trim() ? { location: details.location.trim() } : {}),
-        ...(details.description?.trim() ? { description: details.description.trim() } : {}),
-      },
-    });
+    const given = addDetailsOf(details);
+    if (!given) return;
+    add.mutate({ url: step.url, details: given });
   };
 
   const restart = (keepLink: boolean) => {
     add.reset();
-    if (!keepLink) setLink('');
-    setDetails({ title: '', company: '', location: '', description: '' });
+    if (!keepLink) {
+      setLink('');
+      setDetails(EMPTY_LINK_DETAILS);
+      setDetailsOpen(false);
+    }
     setDetailErrors({});
     setStep({ kind: 'link' });
   };
 
-  const failure = add.isError ? userMessage(add.error, ADD_JOB_COPY.failed) : null;
+  const failure = add.isError && !isProfileRefusal(add.error) ? userMessage(add.error, ADD_JOB_COPY.failed) : null;
 
   if (step.kind === 'outcome') {
     const { view } = step;
@@ -200,45 +315,22 @@ function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (j
       <form id={DETAILS_FORM_ID} onSubmit={submitDetails} noValidate className="mt-5 flex flex-col gap-4" data-add-job-details="">
         <OutcomeNotice view={step.view} />
         <p className="text-[13px] leading-5 text-muted-foreground">{ADD_JOB_COPY.detailsLead}</p>
-        <Field label="Job title" required error={detailErrors.title}>
-          <Input
-            ref={titleRef}
-            value={details.title}
-            maxLength={300}
-            autoComplete="off"
-            onChange={(event) => {
-              setDetails((current) => ({ ...current, title: event.target.value }));
-              setDetailErrors((current) => ({ ...current, title: undefined }));
-            }}
-          />
-        </Field>
-        <Field label="Company" required error={detailErrors.company}>
-          <Input
-            value={details.company}
-            maxLength={200}
-            autoComplete="organization"
-            onChange={(event) => {
-              setDetails((current) => ({ ...current, company: event.target.value }));
-              setDetailErrors((current) => ({ ...current, company: undefined }));
-            }}
-          />
-        </Field>
-        <Field label="Location" optional>
-          <Input
-            value={details.location ?? ''}
-            maxLength={300}
-            autoComplete="off"
-            onChange={(event) => setDetails((current) => ({ ...current, location: event.target.value }))}
-          />
-        </Field>
-        <Field label="Description" optional hint="Paste the posting's text to tailor to it.">
-          <Textarea
-            value={details.description ?? ''}
-            rows={4}
-            maxLength={20_000}
-            onChange={(event) => setDetails((current) => ({ ...current, description: event.target.value }))}
-          />
-        </Field>
+        <OneLinkFields
+          details={details}
+          onChange={(next) => {
+            setDetails(next);
+            setDetailErrors((current) => ({
+              ...current,
+              ...(next.title !== details.title ? { title: undefined } : {}),
+              ...(next.company !== details.company ? { company: undefined } : {}),
+            }));
+          }}
+          limits={DETAIL_LIMITS}
+          required={['title', 'company']}
+          errors={detailErrors}
+          titleRef={titleRef}
+          disabled={add.isPending}
+        />
         {failure && <Notice tone="error">{failure}</Notice>}
         <DialogFooter flush className="mt-2">
           <Button variant="outline" onClick={() => restart(true)} disabled={add.isPending}>
@@ -254,8 +346,8 @@ function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (j
 
   return (
     <form id={FORM_ID} onSubmit={submitLink} noValidate className="flex flex-col" data-add-job-link="">
-      <DialogDescription className="mt-1.5">{ADD_JOB_COPY.description}</DialogDescription>
-      <Field label={ADD_JOB_COPY.linkLabel} required error={linkError} hint={ADD_JOB_COPY.linkHint} className="mt-5">
+      <DialogDescription className="mt-4">{ADD_JOB_COPY.description}</DialogDescription>
+      <Field label={ADD_JOB_COPY.linkLabel} required error={linkError} hint={ADD_JOB_COPY.linkHint} className="mt-4">
         <Input
           ref={linkRef}
           type="url"
@@ -274,6 +366,26 @@ function AddJobFlow({ onClose, onOpenJob }: { onClose: () => void; onOpenJob: (j
           }}
         />
       </Field>
+      {/* v35 IMPORTWEB: the details up front, behind a disclosure (each field shown directly once it is open). */}
+      <div className="mt-3 flex flex-col gap-3" data-add-job-details-up-front="">
+        <span className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2"
+            aria-expanded={detailsOpen}
+            aria-controls={detailsId}
+            trailingIcon={<CaretDownIcon size={14} className={detailsOpen ? 'rotate-180' : undefined} aria-hidden="true" />}
+            onClick={() => setDetailsOpen((current) => !current)}
+          >
+            {ADD_JOB_COPY.addDetails}
+          </Button>
+          <HelpTip label={ADD_JOB_COPY.addDetails}>{ADD_JOB_COPY.detailsUpFront}</HelpTip>
+        </span>
+        <div id={detailsId} hidden={!detailsOpen}>
+          {detailsOpen && <OneLinkFields details={details} onChange={setDetails} limits={DETAIL_LIMITS} disabled={add.isPending} />}
+        </div>
+      </div>
       {choices.available && otherProfiles.length > 0 && (
         // v34 FANWEB: the job added on other profiles too, in the same request.
         <fieldset className="mt-4 flex min-w-0 flex-col gap-2 border-0 p-0" data-add-job-also="">
@@ -354,6 +466,8 @@ function OutcomeNotice({ view, also = null }: { view: AddOutcomeView; also?: str
 /** The page's "Add job" button and its dialog. */
 export function AddJobButton({ onOpenJob, className }: { onOpenJob: (jobId: number) => void; className?: string }) {
   const [open, setOpen] = useState(false);
+  // v35 FIX-WEB: the latest import read before the dialog opens (the dialog opens on its results at once).
+  useLatestImport();
   // v31 FIX-JOBS (REV-UX UX-3): the dialog has no trigger of its own (it is controlled), so Cancel, Escape and ×
   // give focus back to this button by name, never to the page's body.
   const button = useRef<HTMLButtonElement>(null);

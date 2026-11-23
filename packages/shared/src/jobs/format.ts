@@ -1,5 +1,5 @@
 import { sharedMessage } from '../constants/public/defaults';
-import { formatMDYY, formatMediumDate, toDate, type DateInput } from '../format/dates';
+import { daysBetween, formatMDYY, formatMediumDate, relativeTime, toDate, type DateInput } from '../format/dates';
 import { SALARY_PERIOD_SUFFIX, WORK_ARRANGEMENT_LABEL, type SalaryPeriod, type WorkArrangement } from './enums';
 import { CURRENCY_SYMBOL } from './salary';
 
@@ -113,4 +113,31 @@ export function liveChip(
 export function appliedChipLabel(date: DateInput): string {
   const text = formatMDYY(date);
   return text ? `Applied ${text}` : 'Applied';
+}
+
+// v35 OPSWEB (PLAN H5): an admin's import reposted the job. The list shows "Reposted 1 hour ago" in place of its posted
+// time; the job's header adds "Reposted today" (or "Reposted 3 days ago") beside "Posted 3 weeks ago".
+
+/** Whether the job was reposted after it was posted (a repost with no posted date counts). */
+export function isReposted(job: { postedAt?: DateInput | null; repostedAt?: DateInput | null }): boolean {
+  const reposted = toDate(job.repostedAt ?? null);
+  if (!reposted) return false;
+  const posted = toDate(job.postedAt ?? null);
+  return !posted || reposted.getTime() > posted.getTime();
+}
+
+/** A list row's time once reposted: "Reposted 1 hour ago"; null when it was not reposted after it was posted. */
+export function repostedAgo(job: { postedAt?: DateInput | null; repostedAt?: DateInput | null }, now: DateInput): string | null {
+  if (!isReposted(job)) return null;
+  const when = relativeTime(job.repostedAt ?? null, now);
+  return when ? `Reposted ${when}` : null;
+}
+
+/** The header's words: "Reposted today" on the day, else "Reposted 3 days ago"; null when it was not reposted after it was posted. */
+export function repostedText(job: { postedAt?: DateInput | null; repostedAt?: DateInput | null }, now: DateInput): string | null {
+  if (!isReposted(job)) return null;
+  const days = daysBetween(job.repostedAt ?? null, now);
+  if (days !== null && days <= 0) return 'Reposted today';
+  const when = relativeTime(job.repostedAt ?? null, now);
+  return when ? `Reposted ${when}` : null;
 }

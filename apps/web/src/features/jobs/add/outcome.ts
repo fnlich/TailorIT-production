@@ -12,7 +12,8 @@ import type { PublicMessageKey } from '@/lib/constants';
 
 /** The link field's words, kept beside the dialog's other copy. */
 export const ADD_JOB_COPY = {
-  title: 'Add a job by its link',
+  // v35 IMPORTWEB: one link, a file or a Google Sheet (was "Add a job by its link").
+  title: 'Add jobs',
   // v32 JOBS2 (E5): one short sentence each.
   description: "Paste the posting's link; TailorIT reads the job from it.",
   linkLabel: 'Job posting link',
@@ -29,7 +30,36 @@ export const ADD_JOB_COPY = {
   saveForMe: 'Save for me only',
   detailsLead: 'Only you will see what you type here.',
   failed: "We couldn't add the job. Please try again.",
+  // v35 IMPORTWEB (SPECS-W2 §3): the tabs, the details given up front, a file's or a sheet's import.
+  tabs: 'Add from',
+  oneLink: 'One link',
+  file: 'File',
+  sheet: 'Google Sheet',
+  addDetails: 'Add details (optional)',
+  detailsUpFront: "Used only if TailorIT can't read the link; then only you see them.",
+  newImport: 'New import',
+  done: 'Done',
+  sheetsOff: "Google Sheet import isn't available on this server. Import the sheet as a file instead: in Google Sheets, File › Download › CSV.",
 } as const;
+
+/**
+ * v35 IMPORTWEB: the limits under a person's import ("Up to 200 rows a file or sheet. You can import 80 more rows
+ * today."), in MSG_JOB_IMPORT_ROWS_UP_TO's and MSG_JOB_IMPORT_ROWS_LEFT_TODAY's words.
+ */
+export function importLimitsText(maxRows: number, rowsLeftToday: number | null, t: MessageRenderer): string {
+  const parts = [t('MSG_JOB_IMPORT_ROWS_UP_TO', { max: maxRows.toLocaleString('en-US') })];
+  if (rowsLeftToday !== null) parts.push(t('MSG_JOB_IMPORT_ROWS_LEFT_TODAY', { rows: rowsLeftToday.toLocaleString('en-US') }));
+  return parts.join(' ');
+}
+
+/**
+ * v35 IMPORTWEB: on a shared profile, where the jobs go ("Saved to Ana Lopez's Job Tracker"); a profile named by its
+ * owner's email ("Shared: ana@example.com") says so.
+ */
+export function savedToLine(profileLabel: string): string {
+  if (profileLabel.startsWith('Shared: ')) return `Saved to the shared Job Tracker (${profileLabel.slice('Shared: '.length)})`;
+  return `Saved to ${profileLabel}'s Job Tracker`;
+}
 
 export type AddOutcomeTone = 'success' | 'info' | 'warning' | 'error';
 

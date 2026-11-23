@@ -20,6 +20,15 @@ import { REVIEW_HELD_SQL } from './review-held';
 // The SQL condition of a job `j` a review holds: review-held.ts (a leaf module), re-exported.
 export { REVIEW_HELD_SQL };
 
+/**
+ * v35 IMPORT: a held import job's AI input back as its sources say (bool_and of their ai_input) once it is published (an
+ * approval, or a read that settled it): import-jobs.ts kept it out of the AI job analysis while held. Binds the job id.
+ */
+export const RESTORE_AI_INPUT_SQL = `UPDATE jobs j SET ai_input = COALESCE((SELECT bool_and(s.ai_input) FROM job_source_links l
+    JOIN job_sources s ON s.id = l.source_id WHERE l.job_id = j.id), true)
+  WHERE j.id = ? AND NOT j.ai_input
+    AND EXISTS (SELECT 1 FROM job_verifications v WHERE v.job_id = j.id AND v.origin = 'import' AND v.user_id IS NULL)`;
+
 /** Whether a shared job is held by the legacy pass (held, and no review holds it). */
 export async function legacyHeld(db: DbQueries, jobId: number): Promise<boolean> {
   const row = await db.one<{ found: number }>(
@@ -63,6 +72,9 @@ export async function settleHeldAfterRead(
     await projectJob(t, jobId);
     state = 'published';
   }
+  // v35 IMPORT: a job an admin import's row made was kept out of the AI job analysis while held (import-jobs.ts): read
+  // now (TailorIT's own words), it goes back in as its sources say, before its note goes.
+  await t.run(RESTORE_AI_INPUT_SQL, [jobId]);
   // Its legacy read is done: the "Couldn't verify" note with no adder, and its queued row (one being read now ends
   // as it ends: legacy.ts finds the job settled).
   await t.run('DELETE FROM job_verifications WHERE job_id = ? AND user_id IS NULL', [jobId]);

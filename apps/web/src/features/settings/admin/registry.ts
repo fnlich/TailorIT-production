@@ -52,7 +52,8 @@ export const ADMIN_TAB_ENTRIES: readonly AdminTabEntry[] = [
   {
     value: 'sources',
     label: 'Sources',
-    render: ({ go }) => createElement(SourcesTab, { onShowRuns: (source) => go('runs', source), onImportAgain: (id) => go('import', id) }),
+    // v35 OPSWEB (PLAN H6): an import is not a source: its "Import the sheet again" is Admin › Import's Recent imports.
+    render: ({ go }) => createElement(SourcesTab, { onShowRuns: (source) => go('runs', source) }),
   },
   // v30 SCH: S1-WEB's hosts (12 §9.4) and S2's discovery candidates (12 §4), beside the sources they feed.
   { value: 'hosts', label: 'Hosts', render: () => createElement(HostsTab), ready: HOSTS_TAB_READY },
@@ -65,9 +66,11 @@ export const ADMIN_TAB_ENTRIES: readonly AdminTabEntry[] = [
   },
   {
     value: 'import',
-    label: 'Import links', // v31 ADMINWEB: an import is a list of links (21-jobs-from-links.md §5)
-    render: ({ go, tab, sourceId }) =>
-      createElement(ImportTab, { sourceId: tab === 'import' ? sourceId : null, onShowRuns: (source) => go('runs', source) }),
+    // v35 IMPORTWEB: Import (was "Import links"): one link, many links, a file or a Google Sheet, and Recent imports; one
+    // import's results are ?tab=import&run=<runId> (the tab reads `run` itself).
+    label: 'Import',
+    render: () => createElement(ImportTab), // v35 INT-B: "See it on Runs" links to ?tab=runs&run=<runId> itself
+    // end v35 IMPORTWEB
   },
   // v30 INT-3: Reports is retired (its tab and /api/admin/reports are gone; Review's Flags lane holds the flags). The
   // entry stays, never drawn, so `?tab=reports` (Review's `replaces`) still opens Review.

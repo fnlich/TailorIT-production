@@ -1,211 +1,164 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { clsx } from 'clsx';
-import { useMemo, useRef, useState } from 'react';
-import { AdminResourceTab } from '@/components/admin';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { HelpTip } from '@/components/ui/HelpTip';
-import { FileTextIcon, UploadSimpleIcon } from '@/components/ui/icons';
-import { Notice } from '@/components/ui/Notice';
-import { SegmentedControl, TabPanel } from '@/components/ui/SegmentedControl';
-import { userMessage } from '@/lib/api';
+import { SHEET_MAX_ROWS, type JobImportDetail, type JobImportRowOutcome } from '@tailorit/shared';
 import { usePublicConstants } from '@/lib/constants';
-import { adminKeys, importJobs, previewImport } from '../api';
-import { AddLinksForm } from '../links/AddLinksForm';
-import { fetchSourceSettings, sourceKeys, type SourceSettings } from '../sources/api';
-import { sheetOf } from '../sources/sources';
-import type { ImportField, ImportMapping, ImportPreview, ImportResult } from '../types';
-import { ImportColumns, ImportResultNotice } from './ImportColumns';
-import { SheetImport, type SheetPrefill } from './SheetImport';
+import { useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { AdminResourceTab } from '@/components/admin';
+import { Button, buttonClasses } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { PlusIcon } from '@/components/ui/icons';
+import { SegmentedControl, TabPanel } from '@/components/ui/SegmentedControl';
+import type { StartedImport } from '../../../imports/api';
+import { FileImport } from '../../../imports/FileImport';
+import { ImportResults } from '../../../imports/ImportResults';
+import { importReviewLanes } from '../../../imports/results';
+import { SheetImport } from '../../../imports/SheetImport';
+import { reviewKeys } from '../review/api';
+import { importModeSearch, importSearch, modeOfSearch, runOfSearch, runsImportSearch, type ImportMode } from './address';
+import { adminSearch } from '../sources/links';
+import { adminImportKeys } from './api';
+import { ManyLinks } from './ManyLinks';
+import { OneLinkImport } from './OneLinkImport';
+import { RecentImports } from './RecentImports';
 
-// v31 ADMINWEB: Admin › Import links (was Import jobs; docs/design/v3.1/21-jobs-from-links.md §5). Every import is a
-// list of links: TailorIT reads each posting from its link and keeps nothing else a list says. Three ways in: pasted
-// links (POST /api/admin/jobs/add), a CSV or JSON file, and a tab of a Google Sheet (the import routes, which say which
-// column they read and which they ignore). Each shows how far TailorIT got reading the links.
+// v35 IMPORTWEB (SP v35 SPECS-W2.md IMPORTWEB §2; PLAN H1, H2, H6): Admin › Import (the tab once called "Import
+// links"). Four ways: One link (its details shown directly), Many links (pasted; rows copied from a spreadsheet show
+// the mapping preview), a File (.csv .tsv .txt .json .xlsx) and a Google Sheet tab. Each import is one run on Runs.
+// After Import, its results (features/imports/ImportResults: counts as chips, rows, Download these rows) with "See it
+// on Runs" and, while rows wait for a review, Review › Couldn't verify filtered to it. Recent imports lists every
+// import (Open, and a sheet's Import again). One import's results are the address ?tab=import&run=<runId> (Runs' "Open
+// results" opens it too). v35 INT-B: "See it on Runs" is ?tab=runs&run=<runId> (Runs opens that run).
+// v35 FIX-WEB (the final review): the rows' reasons are the API's words (an admin's import: Review's wording, item 10);
+// "Review in Couldn't verify" names no number that goes stale once rows are decided (L9); an import that is not there
+// says so with New import and Recent imports (L11); the way in is the address's `mode=` (decision 7: the Admin header's
+// Add links opens ?tab=import&mode=many, focus in its box).
 
-type ImportMode = 'links' | 'file' | 'sheet';
+/** v35 FIX-WEB (L9): the words of the import's ways to Review. */
+export const IMPORT_REVIEW_LINK = { unverified: "Review in Couldn't verify", new_job: 'Review in New jobs' } as const;
 
 const MODES: ReadonlyArray<{ value: ImportMode; label: string }> = [
-  { value: 'links', label: 'Paste links' },
+  { value: 'link', label: 'One link' },
+  { value: 'many', label: 'Many links' },
   { value: 'file', label: 'File' },
   { value: 'sheet', label: 'Google Sheet' },
 ];
 
-/** The settings of a Google Sheet source to read again, or null (not a sheet source, or not loaded yet). */
-function prefillOf(source: SourceSettings | undefined): SheetPrefill | null {
-  const sheet = source ? sheetOf({ kind: 'csv', config: source.config }) : null;
-  if (!source || !sheet) return null;
-  return { sourceId: source.id, url: sheet.url, gid: sheet.gid, headerRow: sheet.headerRow, postedAtFromTab: sheet.postedAt !== null, name: source.name };
-}
+export function ImportTab() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const runId = runOfSearch(searchParams.get('run'));
+  // v35 FIX-WEB (decision 7): the way in is the address's (`mode=`), so the Admin header's Add links opens Many links
+  // from any tab, an import's results included.
+  const mode = modeOfSearch(searchParams.get('mode'));
+  const setMode = (next: ImportMode) => router.replace(`${pathname}${importModeSearch(next)}`, { scroll: false });
+  const { t } = usePublicConstants();
+  // The limits of a file or a sheet (an admin's: SHEET_MAX_ROWS).
+  const fileLimits = () => t('MSG_JOB_IMPORT_ROWS_UP_TO', { max: SHEET_MAX_ROWS.toLocaleString('en-US') });
 
-/**
- * Admin › Import links: job links pasted, from a CSV or JSON file, or from one tab of a Google Sheet (read once, never
- * written). `sourceId` (Sources › Import the sheet again) opens the Google Sheet mode with that source's tab and
- * settings.
- */
-export function ImportTab({ sourceId = null, onShowRuns }: { sourceId?: number | null; onShowRuns: (sourceId: number) => void }) {
-  const [chosenMode, setChosenMode] = useState<ImportMode | null>(null);
-  // v30 S1-WEB: the one source asked for (Sources holds 80,000 rows, so its list is never read here).
-  const source = useQuery({
-    queryKey: sourceKeys.detail(sourceId ?? 0),
-    queryFn: ({ signal }) => fetchSourceSettings(sourceId!, signal),
-    enabled: sourceId !== null,
-  });
-  const prefill = useMemo(() => (sourceId === null ? null : prefillOf(source.data)), [sourceId, source.data]);
-  const waiting = sourceId !== null && source.isPending;
-  const mode = chosenMode ?? (prefill || waiting ? 'sheet' : 'links');
+  const open = (run: number | null) => {
+    router.replace(`${pathname}${importSearch(run, mode)}`, { scroll: false });
+  };
+  const started = (startedImport: StartedImport) => {
+    void queryClient.invalidateQueries({ queryKey: adminImportKeys.recent });
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'runs'] });
+    open(startedImport.id);
+  };
+  const finished = () => {
+    void queryClient.invalidateQueries({ queryKey: adminImportKeys.recent });
+    // Rows that wait for a review land in Review's lanes: their counts are read again.
+    void queryClient.invalidateQueries({ queryKey: reviewKeys.all });
+  };
+
+  const resultActions = (detail: JobImportDetail, rows: readonly JobImportRowOutcome[]) => (
+    <>
+      {runId !== null && (
+        <Link href={`${pathname}${runsImportSearch(runId)}`} className={buttonClasses({ variant: 'outline', size: 'sm' })} data-import-runs="">
+          See it on Runs
+        </Link>
+      )}
+      {/* v35 FIX-WEB (L9): no number (the import's count stays as it was once rows are decided; the lanes count), and
+          New jobs too when rows wait there (FIX-PIPE's D4: a reopened New jobs review is To review as well). */}
+      {runId !== null &&
+        importReviewLanes(detail.counts, rows).map((lane) => (
+          <Link
+            key={lane}
+            href={`${pathname}${adminSearch({ tab: 'review', lane, run: runId })}`}
+            className={buttonClasses({ variant: 'outline', size: 'sm' })}
+            data-import-review={lane}
+          >
+            {IMPORT_REVIEW_LINK[lane]}
+          </Link>
+        ))}
+      <Button size="sm" icon={<PlusIcon size={14} />} onClick={() => open(null)} data-import-new="">
+        New import
+      </Button>
+    </>
+  );
 
   return (
     <AdminResourceTab
-      title="Import links"
-      description="Paste job links, or import the link column of a file or a Google Sheet tab."
+      title="Import"
+      description="Import job links one at a time, pasted, from a file or from a Google Sheet; TailorIT reads each posting from its link."
       sectionProps={{ 'data-import-links': '' }}
       body={
-        <SegmentedControl aria-label="Import from" items={MODES} value={mode} onValueChange={setChosenMode}>
-          <TabPanel value="links" keepMounted className="mt-5">
-            <Card padding="lg">
-              <AddLinksForm actions={(submit) => <div className="flex justify-end">{submit}</div>} />
+        <div className="flex flex-col gap-8">
+          {runId !== null ? (
+            <Card padding="lg" data-import-open-run={runId}>
+              <ImportResults
+                key={runId}
+                audience="admin"
+                id={runId}
+                actions={resultActions}
+                onFinished={finished}
+                goneActions={
+                  <>
+                    <Button size="sm" icon={<PlusIcon size={14} />} onClick={() => open(null)} data-import-new="">
+                      New import
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => document.getElementById('recent-imports-heading')?.focus()}>
+                      Recent imports
+                    </Button>
+                  </>
+                }
+                focusHeading
+              />
             </Card>
-          </TabPanel>
-          <TabPanel value="file" keepMounted className="mt-5">
-            <FileImport onShowRuns={onShowRuns} />
-          </TabPanel>
-          <TabPanel value="sheet" keepMounted className="mt-5">
-            <SheetImport key={prefill ? `source-${prefill.sourceId}` : 'sheet'} prefill={prefill} onShowRuns={onShowRuns} />
-          </TabPanel>
-        </SegmentedControl>
+          ) : (
+            <SegmentedControl aria-label="Import from" items={MODES} value={mode} onValueChange={setMode} listClassName="max-sm:h-11">
+              <TabPanel value="link" className="mt-5">
+                <Card padding="lg">
+                  <OneLinkImport onStarted={started} />
+                </Card>
+              </TabPanel>
+              <TabPanel value="many" className="mt-5">
+                <Card padding="lg">
+                  <ManyLinks onStarted={started} focusOnShow={searchParams.get('mode') === 'many'} />
+                </Card>
+              </TabPanel>
+              <TabPanel value="file" className="mt-5">
+                <Card padding="lg">
+                  <FileImport audience="admin" limits={fileLimits} onStarted={started} />
+                </Card>
+              </TabPanel>
+              <TabPanel value="sheet" className="mt-5">
+                <Card padding="lg">
+                  <SheetImport
+                    audience="admin"
+                    offLine="Google Sheet import is off: this server has no Google service account key (SETUP.md says how to add one)."
+                    limits={fileLimits}
+                    onStarted={started}
+                  />
+                </Card>
+              </TabPanel>
+            </SegmentedControl>
+          )}
+          <RecentImports onOpen={open} onStarted={started} openRunId={runId} />
+        </div>
       }
     />
-  );
-}
-
-/**
- * A CSV or JSON file with a column of job links (free_tailor's job sheet columns are recognised: Job Link). Choose or
- * drop the file, check which column holds the links, then import it as a source: its run queues each row's link.
- */
-function FileImport({ onShowRuns }: { onShowRuns: (sourceId: number) => void }) {
-  const queryClient = useQueryClient();
-  const { t, get } = usePublicConstants();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [name, setName] = useState('');
-  const [over, setOver] = useState(false);
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [mapping, setMapping] = useState<ImportMapping | null>(null);
-  const [result, setResult] = useState<ImportResult | null>(null);
-
-  const read = useMutation({
-    mutationFn: ({ chosen, map }: { chosen: File; map?: ImportMapping }) => previewImport(chosen, map),
-    onSuccess: (answer) => {
-      setPreview(answer);
-      setMapping(answer.mapping);
-    },
-  });
-
-  const save = useMutation({
-    mutationFn: () => importJobs(file!, mapping!, name),
-    onSuccess: (answer) => {
-      setResult(answer);
-      void queryClient.invalidateQueries({ queryKey: adminKeys.sources });
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'runs'] });
-    },
-  });
-
-  const choose = (chosen: File | null) => {
-    setResult(null);
-    setPreview(null);
-    setMapping(null);
-    save.reset();
-    setFile(chosen);
-    if (chosen) read.mutate({ chosen });
-  };
-
-  const remap = (field: ImportField, column: string | null) => {
-    if (!mapping || !file) return;
-    const next = { ...mapping, [field]: column };
-    setMapping(next);
-    read.mutate({ chosen: file, map: next });
-  };
-
-  return (
-    <div>
-      {/* A drop zone (the stitch over white): drop a file on it, or choose one with the button. */}
-      <div
-        className={clsx('stitch rounded-card p-6 transition-colors', over ? 'border-primary bg-primary-50' : 'bg-surface')}
-        data-import-drop=""
-        onDragOver={(event) => {
-          if (![...event.dataTransfer.types].includes('Files')) return;
-          event.preventDefault();
-          setOver(true);
-        }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setOver(false);
-          const dropped = event.dataTransfer.files[0];
-          if (dropped) choose(dropped);
-        }}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".csv,.tsv,.txt,.json,text/csv,application/json"
-          className="sr-only"
-          aria-label="Job file"
-          data-testid="import-file"
-          onChange={(event) => {
-            choose(event.target.files?.[0] ?? null);
-            event.target.value = '';
-          }}
-        />
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-card bg-primary-soft text-primary-ink">
-            {file ? <FileTextIcon size={22} /> : <UploadSimpleIcon size={22} />}
-          </span>
-          <div className="min-w-0 flex-1 basis-56">
-            <p className="flex items-center gap-1.5 text-[15px] leading-5 font-semibold break-words text-foreground">
-              {file ? file.name : 'Drop a CSV or JSON file here, or choose a file'}
-              {/* v32 COPY (E5): what the file holds is the "?"; a chosen file's size stays visible. */}
-              {!file && (
-                <HelpTip label="The file">{`A column of job links. ${t('MSG_UPLOAD_SIZE_HINT', { max_mb: get('UPLOAD_MAX_MB') })}`}</HelpTip>
-              )}
-            </p>
-            {file && <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{`${Math.max(1, Math.round(file.size / 1024))} KB`}</p>}
-          </div>
-          <Button variant={file ? 'outline' : 'primary'} icon={<UploadSimpleIcon size={16} />} onClick={() => inputRef.current?.click()}>
-            {file ? 'Choose another file' : 'Choose file'}
-          </Button>
-        </div>
-        {read.isError && (
-          <Notice tone="error" className="mt-5">
-            {userMessage(read.error)}
-          </Notice>
-        )}
-      </div>
-
-      {preview && mapping && (
-        <div className="mt-6">
-          <ImportColumns
-            preview={preview}
-            mapping={mapping}
-            onRemap={remap}
-            countLabel={preview.format.toUpperCase()}
-            sampleLabel="First rows of the file"
-            noneLabel="Not in this file"
-            name={name}
-            onNameChange={setName}
-            namePlaceholder={preview.fileName}
-            nameHint={`Defaults to ${preview.fileName}.`}
-            importing={save.isPending}
-            importDisabled={read.isPending}
-            onImport={() => save.mutate()}
-          />
-        </div>
-      )}
-
-      <ImportResultNotice result={result} error={save.error} noun="file" onShowRuns={onShowRuns} />
-    </div>
   );
 }

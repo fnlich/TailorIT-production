@@ -3,7 +3,8 @@ import { canonicalLinksStep } from './canonical-pass';
 import { legacyLinksStep } from './legacy'; // v31 LINK2
 import { linkQueuePruneStep, startLinkQueueWorker } from './queue';
 import { pageRecheckStep } from './recheck'; // v31 LINK2
-import { ADMIN_JOB_LINKS_ACTING, JOB_LINKS_ACTING } from './acting'; // v33 SHARE-6
+import { ADMIN_IMPORTS_ACTING, ADMIN_JOB_LINKS_ACTING, JOB_LINKS_ACTING } from './acting'; // v33 SHARE-6; v35 IMPORT: imports
+import { createAdminImportsRouter } from './import-router'; // v35 IMPORT
 import { createAdminJobLinksRouter, createJobLinksRouter } from './router';
 
 // v31 LINK: every job comes from its link (docs/design/v3.1/21-jobs-from-links.md; the build plan's D1-D3). The module
@@ -28,6 +29,8 @@ export const jobLinksFeature: Feature = {
   routes: [
     { path: '/api/jobs', router: createJobLinksRouter, acting: JOB_LINKS_ACTING /* v33 SHARE-6 */ },
     { path: '/api/admin/jobs', router: createAdminJobLinksRouter, acting: ADMIN_JOB_LINKS_ACTING /* v33 SHARE-6 */ },
+    // v35 IMPORT (SP v35 PLAN.md H1, H6): Admin › Import's four ways, Recent imports and an import's results.
+    { path: '/api/admin/imports', router: createAdminImportsRouter, acting: ADMIN_IMPORTS_ACTING },
   ],
   // v31 LINK2: the legacy jobs held and read once (legacy.ts), the weekly re-read of jobs read from their page (recheck.ts).
   daily: [canonicalLinksStep, legacyLinksStep, pageRecheckStep, linkQueuePruneStep],

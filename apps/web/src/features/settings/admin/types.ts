@@ -36,7 +36,7 @@ export const SOURCE_KINDS = [
 ] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
-/** Kinds an admin adds from the "Add source" dialog (uploads come from Import links). */
+/** Kinds an admin adds from the "Add source" dialog (files and sheets are imports: Admin › Import, v3.5). */
 export const ADDABLE_KINDS = [
   'greenhouse',
   'lever',
@@ -46,6 +46,7 @@ export const ADDABLE_KINDS = [
   'himalayas', // v30 S4
   'jobicy', // v30 S4
   'career_site', // v30 FIX-WEB (REQ-5): an employer's own career site, added by hand
+  'workday_site', // v35 OPSWEB (PLAN H7): a Workday career site, from any page of it
   'ft_lake',
   'seed',
 ] as const;

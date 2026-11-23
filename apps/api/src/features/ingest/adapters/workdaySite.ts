@@ -11,6 +11,7 @@ import { readSitemap } from '../sitemap';
 import { IngestError, SourceNotFoundError, type AdapterContext, type FetchFailure, type RawPosting, type SourceRecord } from '../types';
 import { str } from './common';
 import { defineAdapter } from './define';
+import { BOARD_KINDS, boardOfUrl } from '../discovery/boards'; // v35 ADMIN
 import { isWorkdayHost, readWorkdayPosting, workdayTenant, type WorkdayRef } from './workday';
 
 // v30 S3: a Workday career site, listed by its own sitemap (docs/design/part2/12-job-sourcing.md §3.2, §8.1, §8.3, §11
@@ -75,6 +76,31 @@ export function workdaySiteOf(config: Record<string, unknown>): WorkdaySite {
     throw new IngestError("This source has no Workday tenant, or not its host's. Edit the source and add it.");
   }
   return { host, tenant, careerSite, prefix: shared ? `/recruiting/${tenant}` : '', companyName: str(config.companyName) };
+}
+
+/**
+ * v35 ADMIN (PLAN H7): the career site any page of it names (Admin › Sources › Add source, "Workday career site"): its
+ * host, tenant (lower case) and site (as written), or null. A posting's page (and its apply pages) is read by the shared
+ * Workday parser (@tailorit/shared/autofill addablePosting, as Add job and the extension read it); any other page of the
+ * site (its home, a search, a /details or /login page, with or without a locale) by discovery's reading of a Workday
+ * address (discovery/boards.ts boardOfUrl). Checked as a source's config is (workdaySiteOf).
+ */
+export function workdaySiteOfPage(address: string): { host: string; tenant: string; careerSite: string } | null {
+  const posting = addablePosting(parseAtsUrl(address));
+  let config: Record<string, unknown> | null = null;
+  if (posting?.kind === 'workday' && posting.workday) {
+    config = { host: posting.workday.host, tenant: posting.board, careerSite: posting.workday.site };
+  } else {
+    const board = boardOfUrl(address);
+    if (board?.kind === 'workday_site') config = BOARD_KINDS.workday_site!.configOf(board.name);
+  }
+  if (!config) return null;
+  try {
+    const site = workdaySiteOf(config);
+    return { host: site.host, tenant: site.tenant, careerSite: site.careerSite };
+  } catch {
+    return null;
+  }
 }
 
 /** The career site's own sitemap path: <prefix>/<site>/siteMap.xml (Workday's spelling). */

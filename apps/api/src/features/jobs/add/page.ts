@@ -145,9 +145,27 @@ async function optedOutCompany(t: DbQueries, jobId: number): Promise<boolean> {
   return row !== undefined;
 }
 
+/**
+ * v35 INT-A (SP v35 PLAN.md H2, H3): TailorIT's read of an admin import's link (import-pipeline.ts). Its row fills what
+ * the read lacks (`fill`, on the read's raw posting before the store; a page whose JobPosting names no employer takes the
+ * row's `company`), and a job the read makes and holds for Admin › Review › New jobs is the import's from the start
+ * (holdNewJob origin `import`, with the import's run, in the store's transaction): the New jobs From filter lists it,
+ * and the AI job analysis leaves it until it is approved (job-analysis/backlog.ts).
+ */
+export interface ImportRead {
+  /** The import's run (Admin › Runs), or null. */
+  runId: number | null;
+  /** The row's company, or null. */
+  company: string | null;
+  /** The read's raw posting with the row's fields where it has none. */
+  fill: (raw: RawPosting) => RawPosting;
+}
+
 export interface PageReadOptions {
   /** The read is an admin's approval of the posting at this link (job-reviews/page-read.ts): published, never held (D12). */
   approved?: boolean;
+  /** v35 INT-A: an admin import's read (ImportRead). */
+  importRead?: ImportRead;
 }
 
 /**
@@ -176,10 +194,12 @@ export async function readPageToSharedJob(deps: AppDeps, url: string, options: P
         const untrusted = isAddedPageSource(source);
         const { keys } = await careerKeysOf(t, address, read.posting, { ownSiteOnly: untrusted });
         const allKeys = added && added !== linkKey(address) ? [...keys, { kind: 'link' as const, key: added }] : keys;
-        const made = rawPostingOf(read.posting, { address, sourceJobId }, { companyName: null }, allKeys);
+        // v35 INT-A: an admin import's row names the employer of a page that names none.
+        const made = rawPostingOf(read.posting, { address, sourceJobId }, { companyName: options.importRead?.company ?? null }, allKeys);
         // A JobPosting that names no employer is no posting TailorIT can list.
         if (!made) throw new PageRefusal('no_posting');
-        const raw = untrusted ? pageOwnOrganization(made, address) : made;
+        const filled = options.importRead ? options.importRead.fill(made) : made; // v35 INT-A: the row fills what the page lacks
+        const raw = untrusted ? pageOwnOrganization(filled, address) : filled;
         const outcome = await ingest.store.upsertBatch(source, [{ raw, sourceHash: sourceHashOf(raw) }], now);
         const link = await t.one<{ job_id: number }>('SELECT job_id FROM job_source_links WHERE source_id = ? AND source_job_id = ?', [
           source.id,
@@ -192,7 +212,10 @@ export async function readPageToSharedJob(deps: AppDeps, url: string, options: P
         const created = outcome.counts.created > 0;
         const why = { page: true, sourceEnabled: source.enabled, approved: options.approved === true };
         // D1 + D12: a page's new job waits for an admin unless PAGE_JOBS_AUTO_PUBLISH is on.
-        if (created && readWaitsForAdmin(deps, why)) await holdNewJob(t, link.job_id, now);
+        // v35 INT-A: held by an admin import's read: the import's (its run), in this transaction.
+        if (created && readWaitsForAdmin(deps, why)) {
+          await holdNewJob(t, link.job_id, now, options.importRead ? 'import' : 'ats', options.importRead?.runId ?? null);
+        }
         else if (!created) await settleHeldAfterRead(deps, t, link.job_id, { ...why, at: now });
         const job = await t.one<{ held: boolean }>('SELECT held_since IS NOT NULL AS held FROM jobs WHERE id = ?', [link.job_id]);
         return { kind: 'shared', jobId: link.job_id, created, held: job?.held === true };

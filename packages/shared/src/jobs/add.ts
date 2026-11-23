@@ -79,6 +79,26 @@ export const JOB_VERIFY_REASON_MESSAGE: Record<JobVerifyReason, MessageKey> = {
   invalid_link: 'MSG_JOB_ADD_REFUSED_LINK',
 };
 
+/**
+ * v35 FIX-STORE (the fix list's item 10): each reason in an admin's words (Admin › Review, Admin › Import's results):
+ * what to do about a link TailorIT could not read, where JOB_VERIFY_REASON_MESSAGE speaks to the person who added it.
+ * Admin › Review's REASON_ADMIN_TEXT (apps/web .../review/unverified.ts) is this map.
+ */
+export const JOB_VERIFY_REASON_ADMIN_TEXT: Record<JobVerifyReason, string> = {
+  unreadable_host: 'A site TailorIT never reads (a job board or a sign-in page).',
+  no_posting: "The page doesn't describe its job as a schema.org JobPosting.",
+  robots: "The site's robots.txt asks automated readers not to read it.",
+  blocked: 'The site asked for a sign-in or a bot check.',
+  unavailable: 'No answer from the site this time. Retry read later.',
+  not_set_up: 'Page reads are off here: set BOT_USER_AGENT in .env, and keep "Read job pages on add" on in Constants.',
+  unlisted: "The posting is not on its board's public list.",
+  // v32 FIX-API (SB-6): such a link is never published, so its row has no Approve.
+  opted_out: 'The company asked TailorIT not to list its jobs: this link is never published.',
+  rejected: 'An admin rejected this link.',
+  closed: 'The posting has closed.',
+  invalid_link: 'Not an https job link TailorIT may read.',
+};
+
 /** Each state's words (constants, public): what the Add job dialog says. */
 export const JOB_ADD_STATE_MESSAGE: Record<JobAddState, MessageKey> = {
   published: 'MSG_JOB_ADD_PUBLISHED',
@@ -99,6 +119,11 @@ export const JobAddDetailsSchema = z.object({
   company: z.string().trim().min(1).max(200),
   location: z.string().trim().max(300).optional(),
   description: z.string().trim().max(20_000).optional(),
+  /**
+   * v35 IMPORT (SP v35 PLAN.md H4): the pay as the person wrote it ("$40/hr", "90k-110k"): the job's pay when its
+   * description states none (the description's pay first). Kept on their own job only, as the rest.
+   */
+  rate: z.string().trim().max(120).optional(),
 });
 export type JobAddDetails = z.infer<typeof JobAddDetailsSchema>;
 
@@ -217,6 +242,19 @@ export const UnverifiedLinkSchema = z.object({
    * search, and waits to be approved again, read again or rejected.
    */
   approvedBefore: z.boolean().optional(),
+  /**
+   * v35 IMPORT (H3): where the row came from: `import`, an admin's import (its job made from the row, no adder; the
+   * import's id and run); `add`, a person's add; `other` (a v3.0 job). Absent from v3.4 answers.
+   */
+  from: z.enum(['import', 'add', 'other']).optional(),
+  importId: z.number().int().nullable().optional(),
+  runId: z.number().int().nullable().optional(),
+  /**
+   * v35 OPSWEB (SPECS-W2 OPSWEB §3): the import's name and the row the link came from, for the row's "Import · jobs.csv,
+   * row 12" (null or absent: no import's row).
+   */
+  importName: z.string().nullable().optional(),
+  importRow: z.number().int().positive().nullable().optional(),
 });
 export type UnverifiedLink = z.infer<typeof UnverifiedLinkSchema>;
 
@@ -267,6 +305,77 @@ export const UnverifiedApproveBodySchema = z.object({
   version: z.string().regex(/^[0-9a-f]{64}$/, 'Open the job again to approve it.'),
 });
 export type UnverifiedApproveBody = z.infer<typeof UnverifiedApproveBodySchema>;
+
+// v35 IMPORT (SP v35 PLAN.md H3): "Couldn't verify" for imports. The list's From filter (All, Imports, People's adds,
+// one import), its rows' origin, and its bulk actions: Approve or Reject a selection (at most UNVERIFIED_BULK_MAX), or
+// every row the filter matches ("all": in batches on the server, after a confirm that shows the count).
+
+/** Where a "Couldn't verify" row came from: an admin's import, a person's add (their own job), or other (a v3.0 job). */
+export const UNVERIFIED_FROM = ['all', 'imports', 'adds'] as const;
+export type UnverifiedFrom = (typeof UNVERIFIED_FROM)[number];
+
+/** GET /api/admin/jobs/unverified(/count): the page and the filter (one import: its id, or its run's). */
+export const UnverifiedListQuerySchema = z.object({
+  cursor: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  from: z.enum(UNVERIFIED_FROM).optional(),
+  importId: z.coerce.number().int().positive().optional(),
+  runId: z.coerce.number().int().positive().optional(),
+});
+export type UnverifiedListQuery = z.infer<typeof UnverifiedListQuerySchema>;
+
+/** The most rows one selection's bulk action takes. */
+export const UNVERIFIED_BULK_MAX = 100;
+
+/** POST /api/admin/jobs/unverified/bulk: Approve or Reject the rows chosen (their jobIds, as the list gives them). */
+export const UnverifiedBulkBodySchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  jobIds: z
+    .array(z.number().int().positive())
+    .min(1, 'Choose at least one row.')
+    .max(UNVERIFIED_BULK_MAX)
+    .refine((ids) => new Set(ids).size === ids.length, 'Each row once.'),
+});
+export type UnverifiedBulkBody = z.infer<typeof UnverifiedBulkBodySchema>;
+
+/** POST /api/admin/jobs/unverified/all: Approve all or Reject all for every row the filter matches. */
+export const UnverifiedAllBodySchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  from: z.enum(UNVERIFIED_FROM).optional(),
+  importId: z.number().int().positive().optional(),
+  runId: z.number().int().positive().optional(),
+  /** v35 FIX-STORE (S6): the count's `upTo` (absent: every row the filter matches, as before). */
+  upTo: z.string().max(40).optional(),
+});
+export type UnverifiedAllBody = z.infer<typeof UnverifiedAllBodySchema>;
+
+/**
+ * v35 FIX-STORE (S6): GET /api/admin/jobs/unverified/count: the links the list holds for the filter, and `upTo`, what was
+ * counted (opaque): Approve all / Reject all send it back and decide nothing beyond it (rows that arrive later stay).
+ */
+export const UnverifiedCountSchema = z.object({ count: z.number().int().nonnegative(), upTo: z.string().max(40) });
+export type UnverifiedCount = z.infer<typeof UnverifiedCountSchema>;
+
+/** What a row of a bulk action came to. */
+export const UnverifiedBulkItemSchema = z.object({
+  jobId: z.number().int(),
+  outcome: z.enum(['approved', 'rejected', 'skipped']),
+  /** Why it was skipped (the refusal's words), or null. */
+  message: z.string().nullable(),
+});
+
+/** A bulk action's answer (selection or all): its counts, one line in words, and (selection) each row's outcome. */
+export const UnverifiedBulkResultSchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  done: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  /** Rows the filter still matches that this call left (the hour's approvals used, or the time ran out): call again. */
+  left: z.number().int().nonnegative(),
+  /** The result in one line ("Approved 1,240 jobs."). */
+  message: z.string(),
+  items: z.array(UnverifiedBulkItemSchema),
+});
+export type UnverifiedBulkResult = z.infer<typeof UnverifiedBulkResultSchema>;
 
 export const UnverifiedLinksResponseSchema = z.object({
   items: z.array(UnverifiedLinkSchema),

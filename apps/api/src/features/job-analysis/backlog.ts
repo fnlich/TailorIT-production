@@ -112,6 +112,34 @@ export interface JobAnalysisBacklog {
 }
 
 /**
+ * v35 INT-A (SP v35 PLAN.md H3 "a held imported job is not sent to the AI job analysis before it is approved", binding):
+ * a job held from an admin's import waits for its approval, in both of IMPORT's and ADMIN's markings:
+ *   - a read an import held for New jobs: its new_job review marked imported (job-reviews/new-jobs.ts holdNewJob origin
+ *     `import`, noteImportedHold): NOT_IMPORT_HELD_SQL, in the candidates and in the admin's count;
+ *   - a job made from an import's row, or reopened held for Couldn't verify: its note with no adder, origin `import`. The
+ *     candidates leave it out already (jobs.ai_input false while held: jobs/add/import-jobs.ts); the admin's count, which
+ *     reads no ai_input, adds NOT_IMPORT_NOTE_HELD_SQL.
+ * A pending review holds its job (holdNewJob opens it with the hold; an approval ends both). v35 FIX-PIPE (data D5): a
+ * rejected one holds it too: a New jobs rejection changes nothing on the job (job-reviews/decide.ts rejectReview; it
+ * stays open and held, review-held.ts REVIEW_HELD_SQL), so a held job whose imported review is pending OR rejected waits
+ * (H3: "nothing is spent on rejects"). Only a source TailorIT runs that lists the job ends that hold (ingest/store.ts
+ * clearHoldIfListed, which supersedes pending reviews only): published so, its rejected review no longer keeps it out
+ * (the held check, read for the few rejected imported reviews alone). Approval decides the review and clears the hold (a
+ * write on `jobs`: migrations-pg 0007's mark moves), so the job is a candidate again. Held reads no import made keep
+ * their behaviour (a candidate, as before v3.5).
+ * The candidates' condition reads no column of the walked `jobs` row but its id, so the walk of idx_jobs_ai_backlog
+ * stays an index-only scan (its INCLUDE has content_hash, not held_since: a heap read a job tips the saved mode to a scan
+ * of jobs), and the waiting imported reviews are read once a query (a hashed subplan over idx_job_reviews_queue's kind
+ * and state): job-analysis-backlog-perf.test.ts checks the plan.
+ */
+export const NOT_IMPORT_HELD_SQL =
+  "j.id NOT IN (SELECT hr.job_id FROM job_reviews hr WHERE hr.kind = 'new_job' AND hr.state IN ('pending', 'rejected') AND hr.imported " +
+  "AND (hr.state = 'pending' OR EXISTS (SELECT 1 FROM jobs hj WHERE hj.id = hr.job_id AND hj.held_since IS NOT NULL)))";
+/** v35 INT-A: a job made from an admin import's row, held for Couldn't verify (see NOT_IMPORT_HELD_SQL). */
+export const NOT_IMPORT_NOTE_HELD_SQL =
+  "NOT (j.held_since IS NOT NULL AND j.id IN (SELECT hv.job_id FROM job_verifications hv WHERE hv.user_id IS NULL AND hv.origin = 'import'))";
+
+/**
  * The candidates first seen since the release (`newer`) or before it (`older`), in the backlog's order: newest
  * first_seen_at first, the highest id first among jobs seen at the same time, each with its text's hash. Live jobs with
  * at least MIN_TEXT_FOR_AI characters of text (job_texts.text_chars) whose text has no Claude analysis of the current
@@ -132,6 +160,8 @@ export function backlogCandidatesSql(
     `SELECT j.id, j.content_hash FROM jobs j ${jobTextJoin('j', 'jt')} ` +
     // v30 INT-3 (S1-API edit C, 12 §9.7): never a job whose host's robots.txt says ai-input=no.
     `WHERE j.active AND j.ai_input AND j.first_seen_at ${part === 'newer' ? '>=' : '<'} @since ` +
+    // v35 INT-A (H3): never a job held from an admin's import before its approval.
+    `AND ${NOT_IMPORT_HELD_SQL} ` +
     (savedOnly ? 'AND EXISTS (SELECT 1 FROM applications p WHERE p.job_id = j.id AND p.current_status = 1 AND p.archived_at IS NULL) ' : '') +
     "AND NOT EXISTS (SELECT 1 FROM job_analyses a WHERE a.content_hash = j.content_hash AND a.source = 'ai' AND a.version = @version) " +
     // v2.0: a text Claude read at an older version is read again only as JOB_ANALYSIS_V2_REREAD says (backlogRereadSql).

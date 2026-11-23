@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { userMessage } from '@/lib/api';
 import { reviewKeys } from './api';
 import { POSTING_HTML } from './ReviewSheet';
-import { fetchUnverifiedDetail, linkName, versionLabel } from './unverified';
+import { descriptionParagraphs, fetchUnverifiedDetail, linkName, versionLabel } from './unverified';
 
 // v32 FIX-API (REV-SECBEH SB-1, the coordinator's decision): Admin › Review › Couldn't verify shows the admin the job an
 // approval publishes, in full, before they approve it: the row's "Show the job" (every version its adders captured)
@@ -32,9 +32,13 @@ export function useUnverifiedDetail(jobId: number, enabled: boolean) {
   });
 }
 
-/** One version as an approval would publish it. */
-export function VersionView({ version, heading }: { version: UnverifiedVersion; heading?: string }) {
+/**
+ * One version as an approval would publish it. v35 OPSWEB: an import's job (`asText`) shows the given company, title,
+ * pay and place, and its description as text paragraphs (imported text is never drawn as HTML).
+ */
+export function VersionView({ version, heading, asText = false }: { version: UnverifiedVersion; heading?: string; asText?: boolean }) {
   const facts = [version.companyName, ...version.locations, version.pay].filter((part): part is string => !!part && part.trim() !== '');
+  const paragraphs = asText && version.descriptionHtml ? descriptionParagraphs(version.descriptionHtml) : [];
   return (
     <div className="flex flex-col gap-2" data-unverified-version={version.jobId}>
       {heading && <p className="text-xs leading-4 font-semibold tracking-[0.04em] text-muted-foreground uppercase">{heading}</p>}
@@ -42,7 +46,19 @@ export function VersionView({ version, heading }: { version: UnverifiedVersion; 
         <p className="font-semibold break-words text-foreground">{version.title}</p>
         {facts.length > 0 && <p className="break-words text-muted-foreground">{facts.join(' · ')}</p>}
       </div>
-      {version.descriptionHtml ? (
+      {asText && paragraphs.length > 0 ? (
+        <div
+          className="flex max-h-64 flex-col gap-2 overflow-y-auto rounded-control border border-border bg-surface p-3 text-[13px] leading-5 whitespace-pre-line text-foreground"
+          data-unverified-description="text"
+          tabIndex={0}
+          role="region"
+          aria-label={`The description of ${version.title}`}
+        >
+          {paragraphs.map((paragraph, index) => (
+            <p key={index}>{paragraph}</p>
+          ))}
+        </div>
+      ) : !asText && version.descriptionHtml ? (
         <div
           className={clsx(POSTING_HTML, 'max-h-64 overflow-y-auto rounded-control border border-border bg-surface p-3')}
           // The API's sanitised HTML, as the Jobs page would draw the published job.
@@ -96,11 +112,11 @@ function DetailState({ detail, retry }: { detail: ReturnType<typeof useUnverifie
 }
 
 /** Every version in full, one under the other (the row's "Show the job"). */
-function AllVersions({ detail }: { detail: UnverifiedLinkDetail }) {
+function AllVersions({ detail, asText }: { detail: UnverifiedLinkDetail; asText: boolean }) {
   return (
     <div className="flex flex-col gap-4">
       {detail.versions.map((version, index) => (
-        <VersionView key={version.version} version={version} heading={detail.versions.length > 1 ? versionLabel(version, index) : undefined} />
+        <VersionView key={version.version} version={version} heading={detail.versions.length > 1 ? versionLabel(version, index) : undefined} asText={asText} />
       ))}
       {detail.moreVersions > 0 && (
         <p className="text-[13px] text-muted-foreground">{detail.moreVersions} more versions are not shown.</p>
@@ -129,7 +145,7 @@ export function VersionsDisclosure({ row, name }: { row: UnverifiedLink; name: s
         Show the job
       </Button>
       <div id={panelId} hidden={!open} className="mt-2 rounded-control border border-divider-soft bg-surface-low p-3">
-        {open && (detail.data ? <AllVersions detail={detail.data} /> : <DetailState detail={detail} retry={() => void detail.refetch()} />)}
+        {open && (detail.data ? <AllVersions detail={detail.data} asText={row.from === 'import'} /> : <DetailState detail={detail} retry={() => void detail.refetch()} />)}
       </div>
     </div>
   );
@@ -158,7 +174,7 @@ export function ApproveVersions({ row, onPick }: { row: UnverifiedLink; onPick: 
         <Badge tone="warning" wrap>
           You added this job, so another admin approves it.
         </Badge>
-        {versions[0] && <VersionView version={versions[0]} />}
+        {versions[0] && <VersionView version={versions[0]} asText={row.from === 'import'} />}
       </div>
     );
   }
@@ -172,7 +188,7 @@ export function ApproveVersions({ row, onPick }: { row: UnverifiedLink; onPick: 
           options={versions.map((version, index) => ({ value: version.version, label: versionLabel(version, index), disabled: version.yours }))}
         />
       )}
-      {picked && <VersionView version={picked} heading={versions.length > 1 ? 'What is published' : undefined} />}
+      {picked && <VersionView version={picked} heading={versions.length > 1 ? 'What is published' : undefined} asText={row.from === 'import'} />}
     </div>
   );
 }

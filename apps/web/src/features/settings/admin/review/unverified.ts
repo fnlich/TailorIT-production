@@ -1,11 +1,18 @@
 import {
   AddJobResultSchema,
+  JOB_VERIFY_REASON_ADMIN_TEXT,
+  UNVERIFIED_BULK_MAX,
   UnverifiedApprovalSchema,
+  UnverifiedBulkResultSchema,
+  UnverifiedCountSchema,
   UnverifiedLinkDetailSchema,
   UnverifiedLinksResponseSchema,
   type AddJobResult,
+  type UnverifiedBulkResult,
+  type UnverifiedFrom,
   type JobVerifyReason,
   type UnverifiedApproval,
+  type UnverifiedCount,
   type UnverifiedLink,
   type UnverifiedLinkDetail,
   type UnverifiedLinksResponse,
@@ -36,27 +43,86 @@ export const UNVERIFIED_ROUTES = {
   reject: (jobId: number) => `/api/admin/jobs/unverified/${jobId}/reject`,
   approve: (jobId: number) => `/api/admin/jobs/unverified/${jobId}/approve`, // v32 ADMINAPP (E6)
   detail: (jobId: number) => `/api/admin/jobs/unverified/${jobId}`, // v32 FIX-API (SB-1)
+  bulk: '/api/admin/jobs/unverified/bulk', // v35 OPSWEB (IMPORT's route)
+  all: '/api/admin/jobs/unverified/all', // v35 OPSWEB (IMPORT's route)
 } as const;
+
+// v35 OPSWEB (PLAN H3, IMPORT's routes): the From filter (All, Imports, People's adds, one import by its run), and the
+// selection's and the filter's Approve and Reject.
+
+/** The lane's From filter: where its rows came from, or one import (its run: Runs' and Import's id of it). */
+export interface UnverifiedFilter {
+  from: UnverifiedFrom;
+  runId: number | null;
+}
+export const ALL_UNVERIFIED: UnverifiedFilter = { from: 'all', runId: null };
+
+/** The From filter's words. */
+export const UNVERIFIED_FROM_LABEL: Record<UnverifiedFrom, string> = { all: 'All', imports: 'Imports', adds: "People's adds" };
+
+/** The filter as the list, its count and "all" read it (one import implies its rows only). */
+export function unverifiedFilterQuery(filter: UnverifiedFilter): { from?: UnverifiedFrom; runId?: number } {
+  if (filter.runId) return { from: 'imports', runId: filter.runId };
+  return filter.from === 'all' ? {} : { from: filter.from };
+}
+
+/** The filter an address opens the lane with: `run=<runId>` (Import's "To review" link), else All. */
+export function unverifiedFilterFromAddress(params: { get(name: string): string | null }): UnverifiedFilter {
+  const run = Number(params.get('run'));
+  return Number.isInteger(run) && run > 0 ? { from: 'imports', runId: run } : ALL_UNVERIFIED;
+}
 
 /** A page of the list (the server's cap is 100). */
 export const UNVERIFIED_PAGE_SIZE = 50;
 
-const CountSchema = z.object({ count: z.number().int().nonnegative() });
+// v35 FIX-WEB (the final review's S6): the lane's count (the header's) reads `count`; Approve all / Reject all read the
+// whole answer (UnverifiedCountSchema: `upTo`, what was counted) and send `upTo` back, so they decide nothing beyond it.
+const CountSchema = UnverifiedCountSchema.pick({ count: true });
 const RejectSchema = z.object({ rejected: z.boolean(), jobs: z.number().int().nonnegative() });
 export type RejectLinkResult = z.infer<typeof RejectSchema>;
 
-/** GET /api/admin/jobs/unverified: one page, newest check first. */
-export function fetchUnverified(cursor: string | undefined, signal?: AbortSignal): Promise<UnverifiedLinksResponse> {
+/** GET /api/admin/jobs/unverified: one page, newest check first (v35 OPSWEB: of the From filter). */
+export function fetchUnverified(cursor: string | undefined, signal?: AbortSignal, filter: UnverifiedFilter = ALL_UNVERIFIED): Promise<UnverifiedLinksResponse> {
   return api.get<UnverifiedLinksResponse>(UNVERIFIED_ROUTES.list, {
     signal,
-    query: { cursor, limit: UNVERIFIED_PAGE_SIZE },
+    query: { cursor, limit: UNVERIFIED_PAGE_SIZE, ...unverifiedFilterQuery(filter) },
     schema: UnverifiedLinksResponseSchema,
   });
 }
 
-/** GET /api/admin/jobs/unverified/count: how many links the list holds (0 while the list is off). */
-export function fetchUnverifiedCount(signal?: AbortSignal): Promise<number> {
-  return api.get<{ count: number }>(UNVERIFIED_ROUTES.count, { signal, schema: CountSchema }).then((answer) => answer.count);
+/** GET /api/admin/jobs/unverified/count: how many links the list holds (0 while the list is off); v35: of a filter. */
+export function fetchUnverifiedCount(signal?: AbortSignal, filter: UnverifiedFilter = ALL_UNVERIFIED): Promise<number> {
+  return api
+    .get<{ count: number }>(UNVERIFIED_ROUTES.count, { signal, query: unverifiedFilterQuery(filter), schema: CountSchema })
+    .then((answer) => answer.count);
+}
+
+/** v35 FIX-WEB (S6): the filter's count for Approve all / Reject all, and `upTo` (what was counted, opaque). */
+export function fetchUnverifiedAllCount(filter: UnverifiedFilter, signal?: AbortSignal): Promise<UnverifiedCount> {
+  return api.get<UnverifiedCount>(UNVERIFIED_ROUTES.count, { signal, query: unverifiedFilterQuery(filter), schema: UnverifiedCountSchema });
+}
+
+/** v35 FIX-WEB (L5): the lane's header while a From filter is on: "2 of 7" (the filter's count of the lane's), else null. */
+export function filteredHeadCount(filtered: number | null, total: number | null): string | null {
+  if (filtered === null || total === null) return null;
+  return `${filtered.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}`;
+}
+
+/** v35 OPSWEB: POST …/unverified/bulk: Approve or Reject the rows chosen (at most UNVERIFIED_BULK_MAX a request). */
+export function bulkUnverified(action: 'approve' | 'reject', jobIds: readonly number[]): Promise<UnverifiedBulkResult> {
+  return api.post<UnverifiedBulkResult>(UNVERIFIED_ROUTES.bulk, { action, jobIds }, { schema: UnverifiedBulkResultSchema });
+}
+
+/**
+ * v35 OPSWEB: POST …/unverified/all: Approve all or Reject all for the filter (call again while `left` > 0). v35 FIX-WEB
+ * (S6): with the count's `upTo`, so a row that arrives after the confirm counted waits for the next decision.
+ */
+export function allUnverified(action: 'approve' | 'reject', filter: UnverifiedFilter, upTo?: string): Promise<UnverifiedBulkResult> {
+  return api.post<UnverifiedBulkResult>(
+    UNVERIFIED_ROUTES.all,
+    { action, ...unverifiedFilterQuery(filter), ...(upTo ? { upTo } : {}) },
+    { schema: UnverifiedBulkResultSchema },
+  );
 }
 
 /** POST …/:jobId/retry: TailorIT reads the link again now. */
@@ -98,22 +164,10 @@ export function isQueueLane(lane: AdminReviewLane): lane is ReviewLane {
 
 /**
  * Why TailorIT could not read a link, in an admin's words (the constants' MSG_JOB_VERIFY_* speak to the person who
- * added the job: "the job stays yours"), each saying what an admin may do about it.
+ * added the job: "the job stays yours"), each saying what an admin may do about it. v35 FIX-WEB: the shared map
+ * (JOB_VERIFY_REASON_ADMIN_TEXT, FIX-STORE's), the words Admin › Import's results get from the API too.
  */
-export const REASON_ADMIN_TEXT: Record<JobVerifyReason, string> = {
-  unreadable_host: 'A site TailorIT never reads (a job board or a sign-in page).',
-  no_posting: "The page doesn't describe its job as a schema.org JobPosting.",
-  robots: "The site's robots.txt asks automated readers not to read it.",
-  blocked: 'The site asked for a sign-in or a bot check.',
-  unavailable: 'No answer from the site this time. Retry read later.',
-  not_set_up: 'Page reads are off here: set BOT_USER_AGENT in .env, and keep "Read job pages on add" on in Constants.',
-  unlisted: "The posting is not on its board's public list.",
-  // v32 FIX-API (SB-6): such a link is never published, so its row has no Approve.
-  opted_out: 'The company asked TailorIT not to list its jobs: this link is never published.',
-  rejected: 'An admin rejected this link.',
-  closed: 'The posting has closed.',
-  invalid_link: 'Not an https job link TailorIT may read.',
-};
+export const REASON_ADMIN_TEXT: Record<JobVerifyReason, string> = JOB_VERIFY_REASON_ADMIN_TEXT;
 
 /** A link's short name for buttons and messages: its host and path, without https:// ("careers.acme.com/jobs/7"). */
 export function linkName(url: string): string {
@@ -130,13 +184,15 @@ export function linkName(url: string): string {
 /** "1 person", "3 people". */
 const people = (count: number) => `${count} ${count === 1 ? 'person' : 'people'}`;
 
-/** "Added by 2 people · first 3 days ago · checked 1 hour ago · 3 tries". */
-export function unverifiedMetaLine(row: Pick<UnverifiedLink, 'adders' | 'firstAddedAt' | 'checkedAt' | 'attempts'>, now: number): string {
-  const parts = [
-    `Added by ${people(row.adders)}`,
-    `first ${relativeTime(row.firstAddedAt, now)}`,
-    `checked ${relativeTime(row.checkedAt, now)}`,
-  ];
+/**
+ * "Added by 2 people · first 3 days ago · checked 1 hour ago · 3 tries". v35 OPSWEB: an admin import's row has no adder:
+ * "Imported 1 hour ago · checked … · 1 try".
+ */
+export function unverifiedMetaLine(row: Pick<UnverifiedLink, 'adders' | 'firstAddedAt' | 'checkedAt' | 'attempts' | 'from'>, now: number): string {
+  const parts =
+    row.from === 'import'
+      ? [`Imported ${relativeTime(row.firstAddedAt, now)}`, `checked ${relativeTime(row.checkedAt, now)}`]
+      : [`Added by ${people(row.adders)}`, `first ${relativeTime(row.firstAddedAt, now)}`, `checked ${relativeTime(row.checkedAt, now)}`];
   if (row.attempts > 0) parts.push(`${row.attempts} ${row.attempts === 1 ? 'try' : 'tries'}`);
   return parts.join(' · ');
 }
@@ -238,6 +294,139 @@ export function approveOutcomeText(result: Pick<UnverifiedApproval, 'already'>):
   return result.already
     ? { title: 'Already approved', body: 'Another approval published it first.' }
     : { title: 'Approved and published', body: 'Everyone can find it now.' };
+}
+
+// v35 OPSWEB: where a row came from, and the words of the selection's and the filter's Approve and Reject.
+
+/**
+ * Where an import's row came from: "Import · jobs.csv, row 12"; null for a person's add (its line says "Added by 2
+ * people") and an older job.
+ */
+export function rowOriginText(row: Pick<UnverifiedLink, 'from' | 'importName' | 'importRow'>): string | null {
+  if (row.from !== 'import') return null;
+  const where = [row.importName, row.importRow ? `row ${row.importRow}` : null].filter(Boolean).join(', ');
+  return where ? `Import · ${where}` : 'Import';
+}
+
+/** "1,240 jobs". */
+const jobsText = (count: number) => `${count.toLocaleString('en-US')} ${count === 1 ? 'job' : 'jobs'}`;
+
+/** The confirm of Approve selected / Reject selected, and of Approve all / Reject all (with the filter's count). */
+export function unverifiedBulkConfirm(action: 'approve' | 'reject', count: number, all: boolean): { title: string; description: string; confirm: string } {
+  const verb = action === 'approve' ? 'Approve' : 'Reject';
+  return {
+    title: `${verb} ${jobsText(count)}?`,
+    description:
+      action === 'approve'
+        ? `Each is published as it was given, marked "Approved by an admin".${all ? ' TailorIT works through them in turns and says when it is done.' : ''} A job TailorIT may not publish is skipped with why.`
+        : `TailorIT never publishes a job from these links, whoever adds them. People who added one keep their own copy.${all ? ' TailorIT works through them in turns.' : ''}`,
+    confirm: `${verb} ${jobsText(count)}`,
+  };
+}
+
+/** The selection in turns of UNVERIFIED_BULK_MAX. */
+export function unverifiedTurns(jobIds: readonly number[]): number[][] {
+  const turns: number[][] = [];
+  for (let start = 0; start < jobIds.length; start += UNVERIFIED_BULK_MAX) turns.push(jobIds.slice(start, start + UNVERIFIED_BULK_MAX));
+  return turns;
+}
+
+/** What a bulk or "all" action came to, added up over its requests. */
+export interface UnverifiedOutcome {
+  action: 'approve' | 'reject';
+  done: number;
+  skipped: number;
+  left: number;
+  /** The last answer's words ("Approved 1,240 jobs. 3 could not be approved."), or a request's failure. */
+  message: string;
+  items: UnverifiedBulkResult['items'];
+}
+
+/**
+ * Approve all / Reject all: the request again while rows are `left` and the last request did something (the hour's
+ * approvals of people's adds can stop it: the rest wait for later), up to `maxTurns`; `onTurn` hears the running total.
+ */
+export async function runUnverifiedAll(
+  send: () => Promise<UnverifiedBulkResult>,
+  onTurn: (sofar: UnverifiedOutcome) => void = () => undefined,
+  maxTurns = 40,
+): Promise<UnverifiedOutcome> {
+  let done = 0;
+  let last: UnverifiedBulkResult | null = null;
+  for (let turn = 0; turn < maxTurns; turn += 1) {
+    last = await send();
+    done += last.done;
+    onTurn({ action: last.action, done, skipped: last.skipped, left: last.left, message: last.message, items: [] });
+    if (last.left === 0 || last.done === 0) break;
+  }
+  return { action: last!.action, done, skipped: last!.skipped, left: last!.left, message: allLine(last!.action, done, last!.skipped, last!.left, last!), items: [] };
+}
+
+/** One line for an "all" that took several requests (the server's own words when it took one). */
+function allLine(action: 'approve' | 'reject', done: number, skipped: number, left: number, last: UnverifiedBulkResult): string {
+  if (done === last.done) return last.message;
+  const verb = action === 'approve' ? 'Approved' : 'Rejected';
+  const parts = [`${verb} ${jobsText(done)}.`];
+  if (skipped > 0) parts.push(`${skipped.toLocaleString('en-US')} could not be ${action === 'approve' ? 'approved' : 'rejected'}.`);
+  if (left > 0) parts.push(`${left.toLocaleString('en-US')} left: run it again later to go on.`);
+  return parts.join(' ');
+}
+
+/**
+ * The selection's Approve or Reject: one request per turn of UNVERIFIED_BULK_MAX, a turn that fails counting its rows
+ * skipped with the failure's words.
+ */
+export async function runUnverifiedBulk(
+  action: 'approve' | 'reject',
+  jobIds: readonly number[],
+  send: (jobIds: readonly number[]) => Promise<UnverifiedBulkResult>,
+  failure: (error: unknown) => string,
+): Promise<UnverifiedOutcome> {
+  let done = 0;
+  let skipped = 0;
+  const items: UnverifiedBulkResult['items'] = [];
+  for (const turn of unverifiedTurns(jobIds)) {
+    try {
+      const answer = await send(turn);
+      done += answer.done;
+      skipped += answer.skipped;
+      items.push(...answer.items);
+    } catch (error) {
+      const words = failure(error);
+      skipped += turn.length;
+      items.push(...turn.map((jobId) => ({ jobId, outcome: 'skipped' as const, message: words })));
+    }
+  }
+  const verb = action === 'approve' ? 'Approved' : 'Rejected';
+  const line = [`${verb} ${jobsText(done)}.`, skipped > 0 ? `${skipped.toLocaleString('en-US')} could not be ${action === 'approve' ? 'approved' : 'rejected'}.` : '']
+    .filter(Boolean)
+    .join(' ');
+  return { action, done, skipped, left: 0, message: line, items };
+}
+
+/** The few character references a stored description holds (the API escapes captured text). */
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'", '#x27': "'" };
+
+/**
+ * v35 OPSWEB (SPECS-W2 "Imported text is shown as text"): an imported job's stored description (the API's sanitised HTML
+ * of the row's text) as plain paragraphs for React text nodes: block ends and line breaks become paragraph breaks, every
+ * tag goes, the character references are read. Never drawn as HTML.
+ */
+export function descriptionParagraphs(html: string): string[] {
+  const text = html
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(p|div|li|h[1-6]|ul|ol|blockquote|tr)\s*>/gi, '\n\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (whole, name: string) => {
+      const known = ENTITIES[name.toLowerCase()];
+      if (known !== undefined) return known;
+      const code = /^#x/i.test(name) ? Number.parseInt(name.slice(2), 16) : /^#/.test(name) ? Number.parseInt(name.slice(1), 10) : Number.NaN;
+      return Number.isFinite(code) && code > 0 && code < 0x110000 ? String.fromCodePoint(code) : whole;
+    });
+  return text
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').trim())
+    .filter(Boolean);
 }
 
 /** The Reject confirm's sentence. */

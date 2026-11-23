@@ -229,11 +229,17 @@ export const SERVICE_SQL = {
   // v31 FIX-LINK (REV-SEC SEC-7): or that a page an add read holds (Add job's career-site source: disabled, marked
   // `addedBy: autofill`; the page's JSON-LD is whatever its owner wrote), or v3.0's published page copies (`ext_page`:
   // a browser's text). Its two parameters: the text's hash, Add job's marker (ingest/types.ts ADDED_BY_AUTOFILL).
+  // v35 FIX-PIPE (sec S2, the coordinator's decision 3: imported row text is untrusted page text): or a job a row's words
+  // made (an import's record, `csv`/`json`: a file or a sheet anyone may have written; v3.5's jobs from an admin import's
+  // rows, jobs/add/import-jobs.ts jobFromRow), or a job an admin import's row with a description landed on (a read whose
+  // text the row filled: import-jobs.ts fillReadPosting; job_import_rows by idx_job_import_rows_job).
   fromPage: `SELECT 1 AS found FROM jobs WHERE content_hash = ? AND owner_user_id IS NOT NULL
        UNION ALL
        SELECT 1 FROM jobs j JOIN job_source_links l ON l.job_id = j.id JOIN job_sources s ON s.id = l.source_id
-       WHERE j.content_hash = ? AND (s.kind IN ('page', 'ext_page')
-         OR (s.kind = 'career_site' AND NOT s.enabled AND s.config ->> 'addedBy' = ?)) LIMIT 1`,
+       WHERE j.content_hash = ? AND (s.kind IN ('page', 'ext_page', 'csv', 'json')
+         OR (s.kind = 'career_site' AND NOT s.enabled AND s.config ->> 'addedBy' = ?)
+         OR EXISTS (SELECT 1 FROM job_import_rows ir JOIN job_imports ii ON ii.id = ir.import_id
+                    WHERE ir.job_id = j.id AND ii.kind = 'admin' AND ir.details ->> 'description' IS NOT NULL)) LIMIT 1`,
 } as const;
 
 /** A job row as the service reads it. */

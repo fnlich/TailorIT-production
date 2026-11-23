@@ -219,7 +219,8 @@ These features are built and **off**. Each stays off until its setting is given;
 
 - **The free_tailor job lake** (a read-only SQLite file of another tool): `FT_LAKE_DB_PATH` has no default; set it, or
   give a lake source its own path in Admin › Sources.
-- **Google Sheet import** (Admin › Import jobs, read once): a Google Cloud service account's JSON key with the Google
+- **Google Sheet import** (Admin › Import, and Jobs › Add job for everyone; read once): a Google Cloud service
+  account's JSON key with the Google
   Sheets API on, at `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` (default `service-account-key.json` in this folder, git-ignored).
   Share each sheet with the key's address as a Viewer. Never commit a key.
 - **Company open data**: download a month's Wikidata, SEC and GLEIF dumps by hand into a folder, then

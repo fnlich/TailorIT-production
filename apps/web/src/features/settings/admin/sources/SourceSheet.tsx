@@ -14,7 +14,7 @@ import type { ReactNode } from 'react';
 import { RowDetailSheet } from '@/components/queue';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { ArrowSquareOutIcon, ArrowsClockwiseIcon } from '@/components/ui/icons';
+import { ArrowsClockwiseIcon } from '@/components/ui/icons';
 import { relativeTime } from '@/lib/format';
 import { RunStatusBadge } from '../runs/parts';
 import { sourcePausedText } from '../runs/pause'; // v31 RUNS
@@ -28,10 +28,10 @@ import {
   robotsTone,
   runNowHint,
   scheduleText,
-  sheetOf,
   sourceDetail,
   sourceLine,
   termsTone,
+  waitingTip,
 } from './sources';
 
 // v30 S1-WEB: one source's sheet (12 §9.8): its schedule (tier, next run, the last complete listing that verified its
@@ -70,7 +70,6 @@ export function SourceDetails({
   onShowHost?: (host: string) => void;
 }) {
   const detail = settings ? sourceDetail({ kind: source.kind, config: settings.config }) : null;
-  const sheet = settings ? sheetOf({ kind: source.kind, config: settings.config }) : null;
   return (
     <div className="flex flex-col gap-6" data-source-details={source.id}>
       <section aria-labelledby={`source-${source.id}-schedule`}>
@@ -79,6 +78,12 @@ export function SourceDetails({
         </h3>
         <dl className="mt-1 divide-y divide-divider-soft">
           <Fact label="State">{source.enabled ? 'Enabled' : 'Disabled'}</Fact>
+          {/* v35 OPSWEB (PLAN H7): switched on, but it cannot run now: why, and what clears it. */}
+          {source.enabled && waitingTip(source.waiting) && (
+            <Fact label="Waiting">
+              <span data-source-waiting={source.waiting!.reason}>{waitingTip(source.waiting)}</span>
+            </Fact>
+          )}
           {isPaused(source) && <Fact label="Paused">{sourcePausedText(source, now)}</Fact>}
           <Fact label="Tier">
             <Badge tone={TIER_TONE[source.tier]}>{JOB_SOURCE_TIER_LABEL[source.tier]}</Badge>
@@ -136,13 +141,6 @@ export function SourceDetails({
             )}
           </Fact>
           {source.companyName && <Fact label="Company">{source.companyName}</Fact>}
-          {sheet && (
-            <Fact label="Google Sheet">
-              <a href={sheet.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary-ink underline-offset-2 hover:underline">
-                Open in Google Sheets <ArrowSquareOutIcon size={14} />
-              </a>
-            </Fact>
-          )}
         </dl>
       </section>
     </div>
@@ -193,7 +191,7 @@ export function SourceSheet({
       title={(item) => item.name}
       description={source ? sourceLine(source) : undefined}
       footer={(item) => {
-        const hint = pausedHint ?? runNowHint({ kind: item.kind, config: settings.data?.config });
+        const hint = pausedHint ?? runNowHint({ kind: item.kind });
         return (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {hint && <p className="mr-auto max-w-sm text-[13px] text-muted-foreground">{hint}</p>}

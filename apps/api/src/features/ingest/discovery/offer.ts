@@ -68,6 +68,8 @@ export interface BoardSourceRow {
   enabled: boolean;
   name: string;
   config: Record<string, unknown>;
+  /** v35 ADMIN: how it was found (`import`: Found by import, switched on only by an admin). */
+  discoveredVia?: string | null;
 }
 
 /** A board to look up: its kind and its name as candidateName keeps it. */
@@ -102,8 +104,8 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
   const found = new Map<string, BoardSourceRow[]>();
   if (boards.length === 0) return found;
   const keyed = boards.map((board, i) => ({ i, kind: board.kind, name: board.name, ...lookupKeyOf(board.kind, board.name) }));
-  const rows = await t.all<{ i: number; id: number; enabled: boolean; name: string; config: string }>(
-    `SELECT b.i, s.id, s.enabled, s.name, s.config::text AS config
+  const rows = await t.all<{ i: number; id: number; enabled: boolean; name: string; config: string; discovered_via: string | null }>(
+    `SELECT b.i, s.id, s.enabled, s.name, s.config::text AS config, s.discovered_via
      FROM json_to_recordset(CAST(? AS json)) AS b(i integer, kind text, name text, board text, tenant text, site text)
      CROSS JOIN LATERAL (
        SELECT n.id FROM job_sources n WHERE n.kind = b.kind AND lower(n.name) = lower(b.name)
@@ -133,7 +135,7 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
     if ((named ?? row.name).toLowerCase() !== board.name.toLowerCase()) continue;
     const key = refKey(board.kind, board.name);
     const list = found.get(key) ?? [];
-    list.push({ id: row.id, enabled: row.enabled === true, name: row.name, config });
+    list.push({ id: row.id, enabled: row.enabled === true, name: row.name, config, discoveredVia: row.discovered_via ?? null });
     found.set(key, list);
   }
   return found;
@@ -144,8 +146,13 @@ export async function sourcesOfBoard(t: DbQueries, kind: JobSourceKind, name: st
   return (await sourcesOfBoards(t, [{ kind, name }])).get(refKey(kind, name)) ?? [];
 }
 
-/** Whether a source is only Add job's keeper of a board's links (disabled, marked addedBy 'autofill'): it reads nothing. */
-export const isLinkKeeper = (source: BoardSourceRow) => !source.enabled && source.config.addedBy === ADDED_BY_ADD_JOB;
+/**
+ * Whether a source is only Add job's keeper of a board's links (disabled, marked addedBy 'autofill'): it reads nothing.
+ * v35 ADMIN (PLAN H6): a source Found by import never is one, whatever its config says: it is the admin's to switch on,
+ * so discovery neither offers its board again nor adopts (switches on) the source (validate.ts sourceForCandidate).
+ */
+export const isLinkKeeper = (source: BoardSourceRow) =>
+  !source.enabled && source.config.addedBy === ADDED_BY_ADD_JOB && source.discoveredVia !== 'import';
 
 /** The source that already reads the board (any but Add job's link keepers), or undefined. */
 export async function knownSource(t: DbQueries, kind: JobSourceKind, name: string): Promise<number | undefined> {

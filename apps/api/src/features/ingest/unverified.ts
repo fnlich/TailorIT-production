@@ -30,6 +30,10 @@ import { ROW_SOURCE_KINDS } from './types';
 // out of search (still open, in its trackers), and the first pass never brings it back, while no link of a source
 // TailorIT reads is live on it. Approved again (Admin › Review › Couldn't verify lists it again), it comes back; read
 // by TailorIT (the weekly re-read, jobs/add/approved.ts), it becomes a job like any other and its approval goes.
+// v35 FIX-PIPE (data D1, the coordinator's decision 4): an admin's import vouches for an open job TailorIT could not
+// read now with an approval of kind `import` (jobs/add/import-jobs.ts repostJob), on a job whose links are a board's
+// that no run verifies: the second pass leaves a job alone while its approval is newer than ADMIN_APPROVED_JOB_DAYS,
+// so the vouch keeps it in search that long, unless a source lists it (then its own reads keep it).
 
 /** Kinds whose links verify their jobs for good: imports, the demo seed, a person's own page job. */
 export const UNVERIFIED_EXEMPT_KINDS: readonly string[] = ['csv', 'json', 'seed', 'page'];
@@ -162,8 +166,9 @@ export async function sweepUnverified(deps: Pick<AppDeps, 'db' | 'config' | 'log
            AND j.active AND j.held_since IS NULL AND j.owner_user_id IS NULL AND j.unverified_since IS NULL
            AND j.first_seen_at < CAST(@cutoff AS timestamptz)
            AND COALESCE(${VERIFIED_AT}, CAST('-infinity' AS timestamptz)) < CAST(@cutoff AS timestamptz)
+           AND NOT EXISTS (SELECT 1 FROM job_admin_approvals va WHERE va.job_id = j.id AND va.approved_at >= CAST(@approvedCutoff AS timestamptz))
          RETURNING j.id`,
-        { ids: ids.join(','), now, cutoff, exempt },
+        { ids: ids.join(','), now, cutoff, exempt, approvedCutoff }, // v35 FIX-PIPE (data D1): an approval still on keeps it
       );
       // Out of search in the same transaction (the 0004 trigger also deletes the row; projectJob says so).
       await projectJobs(

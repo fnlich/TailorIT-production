@@ -8,7 +8,6 @@ import {
   defaultSheetSourceName,
   importFieldInfo,
   isDayTabTitle,
-  parseSpreadsheetRef,
   sheetTabDate,
   spreadsheetUrl,
   type ImportMapping,
@@ -18,8 +17,8 @@ import {
 } from '@tailorit/shared';
 import { adminRouter } from '../../../core/admin/index';
 import { constantsOf } from '../../../core/constants/index';
-import { nowIso, todayIso, type AppDeps } from '../../../core/context';
-import { AppError, conflict, validationFailed } from '../../../core/http/errors';
+import { todayIso, type AppDeps } from '../../../core/context';
+import { validationFailed } from '../../../core/http/errors';
 import { refuse } from '../../../core/http/refuse';
 import { parseInput } from '../../../core/http/validate';
 import { postingsFromTable } from '../adapters/tabular';
@@ -27,9 +26,10 @@ import { storeAndRunImport } from '../imports';
 import { requireIngest } from '../service';
 import { findSheetSource, findSourceRecord } from '../sources';
 import { cleanMapping, guessMapping } from '../tabular';
-import { requireSheets, type SheetsClient } from './client';
-import { SHEETS_MESSAGES, sheetsUnavailable } from './errors';
-import { SHEET_IMPORT_TIMING, createSheetReadCache, readSheetTab, type CachedSheetRead, type SheetRead, type TabRequest } from './read';
+import { requireSheets } from './client';
+import { SHEET_IMPORT_TIMING, type CachedSheetRead, type SheetRead } from './read';
+import { createSheetTabReader, type SheetTarget } from './reader'; // v35 IMPORT
+import { ADMIN_SHEET_READER, claimSheet } from './claims'; // v35 FIX-STORE (S3)
 import { parseSheetTab, sheetFileName, type ParsedSheetTab } from './table';
 import { importLinksNote } from '../../jobs/add/imports'; // v31 LINK2
 
@@ -41,53 +41,14 @@ import { importLinksNote } from '../../jobs/add/imports'; // v31 LINK2
 /** Built tables kept per read (a header row tried and the one before). */
 const PARSED_PER_READ = 2;
 
-/** POST bodies' common reading: the link, the account, and the tab asked for. */
-interface SheetTarget {
-  client: SheetsClient;
-  request: TabRequest;
-}
-
 export function createSheetImportRouter(deps: AppDeps): Router {
   const db = deps.db;
   const timing = () => ({ ...SHEET_IMPORT_TIMING, ...deps.services.sheetsTiming });
-  const cache = createSheetReadCache(
-    () => deps.now().getTime(),
-    () => timing().cacheTtlMs,
-  );
-  /** One read of Google in flight per admin: a new one replaces (aborts) the last. */
-  const reads = new Map<string, AbortController>();
-
-  function targetOf(url: string, gid: number | undefined): SheetTarget {
-    const ref = parseSpreadsheetRef(url);
-    if (!ref.ok) throw validationFailed(ref.message, { url: ref.message });
-    const client = requireSheets(deps);
-    const account = client.account();
-    if (!account.configured) throw sheetsUnavailable(account.problem ?? 'Google Sheet import is not set up on this server.');
-    return { client, request: { spreadsheetId: ref.spreadsheetId, gid: gid ?? ref.gid, strictGid: gid !== undefined } };
-  }
-
-  /** Reads the tab from Google within the time budget, stopped early when the browser goes away or a newer read starts. */
-  async function freshRead(userId: string, res: Response, { client, request }: SheetTarget): Promise<SheetRead> {
-    const { readBudgetMs } = timing();
-    reads.get(userId)?.abort(conflict('A newer read of a Google Sheet replaced this one.'));
-    const controller = new AbortController();
-    reads.set(userId, controller);
-    const onClose = () => {
-      if (!res.writableEnded) controller.abort(new AppError('validation_failed', 'The read of the sheet was cancelled.'));
-    };
-    res.on('close', onClose);
-    const timer = setTimeout(
-      () => controller.abort(sheetsUnavailable(SHEETS_MESSAGES.timeout(readBudgetMs))),
-      readBudgetMs,
-    );
-    try {
-      return await readSheetTab(client, request, { signal: controller.signal, deadline: Date.now() + readBudgetMs }, () => nowIso(deps));
-    } finally {
-      clearTimeout(timer);
-      res.off('close', onClose);
-      if (reads.get(userId) === controller) reads.delete(userId);
-    }
-  }
+  // v35 IMPORT: the link, the account, the read and its cache are the shared reader's (reader.ts).
+  const reader = createSheetTabReader(deps);
+  const targetOf = (url: string, gid: number | undefined): SheetTarget => reader.targetOf(url, gid);
+  const freshRead = (userId: string, res: Response, target: SheetTarget): Promise<SheetRead> => reader.freshRead(userId, res, target);
+  const cache = { clear: (userId: string) => reader.clear(userId) };
 
   /** The tab's copy and table for a header row (the CSV is written and read back once per read and header row). */
   function parse(read: SheetRead, headerRow: number): ParsedSheetTab {
@@ -152,9 +113,9 @@ export function createSheetImportRouter(deps: AppDeps): Router {
           const res = req.res!;
           const body = parseInput(SheetPreviewBodySchema, req.body ?? {}, 'sheet');
           const target = targetOf(body.url, body.gid);
-          const { spreadsheetId, gid } = target.request;
-          let entry = body.refresh === false ? cache.get(admin.id, spreadsheetId, gid) : null;
-          entry ??= cache.set(admin.id, await freshRead(admin.id, res, target));
+          const { spreadsheetId } = target.request;
+          const entry = await reader.read(admin.id, res, target, body.refresh === false);
+          await claimSheet(deps, spreadsheetId, ADMIN_SHEET_READER); // v35 FIX-STORE (S3): an admin's read claims an unclaimed sheet
           const { read } = entry;
           const headerRow = body.headerRow ?? 1;
           const { snapshot, table } = parsedOf(entry, headerRow);
@@ -213,6 +174,7 @@ export function createSheetImportRouter(deps: AppDeps): Router {
           if (known.some((source) => source && service.isRunning(source.id))) throw refuse(deps, 'conflict', 'MSG_INGEST_IMPORT_RUNNING');
 
           const read = await freshRead(admin.id, res, target);
+          await claimSheet(deps, spreadsheetId, ADMIN_SHEET_READER); // v35 FIX-STORE (S3)
           cache.clear(admin.id);
           const { snapshot, table } = parse(read, body.headerRow ?? 1);
           const { mapping, tabDate, fromTab } = mappingOf(read, table.columns, body.mapping, body.postedAtFromTab);

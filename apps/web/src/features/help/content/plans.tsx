@@ -15,6 +15,8 @@ type Row = { label: string; free: PublicConstantKey; paid: PublicConstantKey; ki
 const ROWS: readonly Row[] = [
   { label: 'Auto-applies by the extension, a day', free: 'FREE_AUTO_APPLY_PER_DAY', paid: 'PAID_AUTO_APPLY_PER_DAY', kind: 'count' },
   { label: 'Resumes of every kind', free: 'FREE_RESUME_LIMIT', paid: 'PAID_RESUME_LIMIT', kind: 'count' },
+  // v35 OPSWEB: rows imported from files and Google Sheets (Add job).
+  { label: 'Job rows imported from files and sheets, a day', free: 'FREE_JOB_IMPORT_ROWS_PER_DAY', paid: 'PAID_JOB_IMPORT_ROWS_PER_DAY', kind: 'count' },
   { label: 'AI job search (Ask AI)', free: 'FREE_AI_JOB_SEARCH', paid: 'PAID_AI_JOB_SEARCH', kind: 'switch' },
   { label: 'Several resumes in one download, Build resumes (zip)', free: 'FREE_BATCH_DOWNLOAD', paid: 'PAID_BATCH_DOWNLOAD', kind: 'switch' },
   { label: 'Your own AI (MCP)', free: 'FREE_MCP', paid: 'PAID_MCP', kind: 'switch' },

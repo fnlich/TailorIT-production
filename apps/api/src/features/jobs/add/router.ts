@@ -6,7 +6,10 @@ import {
   JobIdParam,
   JOB_ADD_STATE_MESSAGE,
   JOB_VERIFY_REASON_MESSAGE,
+  UnverifiedAllBodySchema,
   UnverifiedApproveBodySchema,
+  UnverifiedBulkBodySchema,
+  UnverifiedListQuerySchema,
   type AddJobResult,
   type UnverifiedApproval,
   type UnverifiedLinkDetail,
@@ -16,15 +19,21 @@ import { actorOf, requireUser, userOf } from '../../../core/auth/guards'; // v33
 import { constantsOf } from '../../../core/constants/service';
 import type { AppDeps } from '../../../core/context';
 import { notFound } from '../../../core/http/errors';
-import { closeLink } from '../../../core/seams'; // v32 FIX-API (SB-4)
 import { refuse } from '../../../core/http/refuse';
 import { parseInput } from '../../../core/http/validate';
 import { newInFlight, type InFlight } from '../../autofill/jobs'; // v34 FANOUT: InFlight
 import { takeAddSlot } from './limits';
 import { approveUnverifiedJob } from './approve'; // v32 ADMINAPP (E6)
 import { addJobByLink, verifyJob, type AddJobByLinkOutcome } from './pipeline';
-import { batchProgress, queueLinks } from './queue';
-import { countUnverifiedLinks, listUnverifiedLinks, rejectLink } from './verification';
+import { batchProgress } from './queue';
+import { listUnverifiedLinks } from './verification';
+import { addJobImportRoutes } from './import-router'; // v35 IMPORT
+import { importLinkOf } from './import-rows'; // v35 IMPORT
+import { pastedLinksSource, startImport } from './import-store'; // v35 IMPORT
+import { allUnverified, bulkUnverified, countUnverifiedUpTo, rejectUnverifiedLink } from './unverified-bulk'; // v35 IMPORT; v35 FIX-STORE: countUnverifiedUpTo
+import { rowTableOf } from '../../ingest/row-table'; // v35 IMPORT
+import { parseImportRows, mappingOf } from './import-rows'; // v35 IMPORT
+import { nowIso } from '../../../core/context'; // v35 IMPORT
 import { unverifiedLinkDetail } from './versions'; // v32 FIX-API (SB-1)
 
 // v31 LINK: the add-by-link routes (docs/design/v3.1/21-jobs-from-links.md §7).
@@ -114,11 +123,13 @@ export function createJobLinksRouter(deps: AppDeps): Router {
     res.json(addJobResultOf(deps, outcome, true));
   });
 
+  // v35 IMPORT (SP v35 PLAN.md H1): a person's imports (a file, a Google Sheet): import-router.ts.
+  addJobImportRoutes(deps, router);
+
   return router;
 }
 
 const BatchId = z.string().trim().min(1).max(64);
-const UnverifiedQuery = z.object({ cursor: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(100).optional() });
 
 /** Mounted at /api/admin/jobs. */
 export function createAdminJobLinksRouter(deps: AppDeps): Router {
@@ -131,7 +142,33 @@ export function createAdminJobLinksRouter(deps: AppDeps): Router {
           const body = parseInput(AdminAddLinksBodySchema, req.body ?? {}, 'links');
           const max = constantsOf(deps).get('ADMIN_ADD_LINKS_MAX');
           if (body.urls.length > max) throw refuse(deps, 'validation_failed', 'MSG_JOB_ADD_TOO_MANY_LINKS', { max });
-          const queued = await queueLinks(deps, { urls: body.urls, origin: 'admin', addedBy: admin.id });
+          // v35 IMPORT (H6): an admin's links are an import with a run on Runs (Pasted links), each link one row; the
+          // answer keeps v3.1's shape (QueuedLinks), its batch the import's queued rows.
+          const table = rowTableOf('paste', body.urls.map((url, index) => ({ row: index + 1, cells: [url] })), false);
+          const rows = parseImportRows(table, mappingOf(table));
+          const source = await deps.db.tx((t) => pastedLinksSource(t, nowIso(deps)), { label: 'import source' });
+          const made = await startImport(deps, {
+            kind: 'admin',
+            way: 'paste',
+            name: rows.length === 1 ? '1 pasted link' : `${rows.length.toLocaleString('en-US')} pasted links`,
+            rows,
+            actorId: admin.id,
+            origin: 'admin',
+            source,
+          });
+          const queued = {
+            batchId: made.runId !== null ? `run:${made.runId}` : `import:${made.importId}`,
+            queued: made.queued,
+            alreadyQueued: 0,
+            repeated: rows.filter((row) => row.result === 'repeated').length,
+            refused: rows
+              .filter((row) => row.result === 'failed')
+              .slice(0, 100)
+              .map((row) => {
+                const link = importLinkOf(row.linkCell);
+                return { url: (row.url ?? row.linkCell.split(/[?#]/)[0] ?? '').slice(0, 300), reason: 'reason' in link ? ('invalid_link' as const) : ('unreadable_host' as const) };
+              }),
+          };
           await audit({ action: 'add', ids: [queued.batchId], actor: admin, change: { links: body.urls.length, queued: queued.queued } });
           req.res!.status(202);
           return queued;
@@ -146,13 +183,35 @@ export function createAdminJobLinksRouter(deps: AppDeps): Router {
           return progress;
         }),
       );
+      // v35 IMPORT (H3): the From filter (from, importId, runId) on the list and its count.
       router.get(
         '/unverified',
-        handle((req) => listUnverifiedLinks(deps, parseInput(UnverifiedQuery, req.query, 'query'))),
+        handle((req) => listUnverifiedLinks(deps, parseInput(UnverifiedListQuerySchema, req.query, 'query'))),
       );
+      // v35 FIX-STORE (S6): with `upTo`, what was counted (unverified-bulk.ts).
       router.get(
         '/unverified/count',
-        handle(() => countUnverifiedLinks(deps)),
+        handle((req) => countUnverifiedUpTo(deps, parseInput(UnverifiedListQuerySchema, req.query, 'query'))),
+      );
+      // v35 IMPORT (H3): Approve or Reject a selection, or every row the filter matches (unverified-bulk.ts).
+      router.post(
+        '/unverified/bulk',
+        handle(async (req, admin) => {
+          const body = parseInput(UnverifiedBulkBodySchema, req.body ?? {}, 'selection');
+          const result = await bulkUnverified(deps, admin, body.action, body.jobIds);
+          await audit({ action: `bulk_${body.action}`, ids: body.jobIds, actor: admin, change: { done: result.done, skipped: result.skipped } });
+          return result;
+        }),
+      );
+      router.post(
+        '/unverified/all',
+        handle(async (req, admin) => {
+          const body = parseInput(UnverifiedAllBodySchema, req.body ?? {}, 'filter');
+          const filter = { ...(body.from ? { from: body.from } : {}), ...(body.importId ? { importId: body.importId } : {}), ...(body.runId ? { runId: body.runId } : {}) };
+          const result = await allUnverified(deps, admin, body.action, filter, body.upTo); // v35 FIX-STORE (S6): body.upTo
+          await audit({ action: `all_${body.action}`, ids: [], actor: admin, change: { ...filter, upTo: body.upTo ?? null, done: result.done, skipped: result.skipped, left: result.left } });
+          return result;
+        }),
       );
       // v32 FIX-API (SB-1): what an approval of the row publishes, every version in full.
       router.get(
@@ -182,9 +241,9 @@ export function createAdminJobLinksRouter(deps: AppDeps): Router {
             ? await deps.db.one<{ url: string }>('SELECT url FROM job_verifications WHERE job_id = ?', [id.data])
             : undefined;
           if (!id.success || !row) throw notFound('That job');
-          const at = deps.now().toISOString();
-          // v32 FIX-API (SB-4): a job an admin published of the link (its approval ran out) closes with the Reject.
-          const noted = await rejectLink(deps, row.url, admin.id, at, (t, jobId) => closeLink(deps, t, { jobId, reason: 'admin', at }));
+          // v32 FIX-API (SB-4): a job an admin published of the link (its approval ran out) closes with the Reject. v35 IMPORT:
+          // and a held job an admin import made of it (unverified-bulk.ts rejectUnverifiedLink).
+          const noted = await rejectUnverifiedLink(deps, row.url, admin.id);
           await audit({ action: 'reject', ids: [id.data], actor: admin, change: { jobs: noted } });
           return { rejected: true, jobs: noted };
         }),

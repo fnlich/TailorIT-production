@@ -21,6 +21,7 @@ import {
   type AdminReviewReporters,
   type AdminReviewRow,
   type JobReviewKind,
+  type NewJobFromFilter,
   type ReviewStateFilter,
 } from '@tailorit/shared/reviews';
 import { ReviewRetryReadSchema, type ReviewRetryRead } from '@tailorit/shared/jobs'; // v32 ADMINAPP (E6)
@@ -48,13 +49,17 @@ export interface ReviewListQuery {
   state: ReviewStateFilter;
   q: string;
   cursor?: string;
+  /** v35 OPSWEB (PLAN H3): New jobs' From filter (absent: all) and one import (its run). */
+  from?: NewJobFromFilter;
+  importRunId?: number;
 }
 
 /** React Query keys (under the admin console's own `['admin', …]`). */
 export const reviewKeys = {
   all: ['admin', 'review'] as const,
   counts: ['admin', 'review', 'counts'] as const, // v30 FIX-WEB (REQ-8)
-  lane: (lane: JobReviewKind | 'flags', state: ReviewStateFilter, q: string) => ['admin', 'review', 'list', lane, state, q] as const,
+  // v35 OPSWEB: and New jobs' From filter ('all' elsewhere).
+  lane: (lane: JobReviewKind | 'flags', state: ReviewStateFilter, q: string, from = 'all') => ['admin', 'review', 'list', lane, state, q, from] as const,
   detail: (id: number) => ['admin', 'review', 'detail', id] as const,
   reporters: (id: number) => ['admin', 'review', 'reporters', id] as const,
   // v31 ADMINWEB: "Couldn't verify" (LINK's routes, review/unverified.ts), under `all` so a refresh reads it again too.
@@ -64,7 +69,7 @@ export const reviewKeys = {
   unverifiedDetail: (jobId: number) => ['admin', 'review', 'unverified', 'detail', jobId] as const,
 };
 
-const query = ({ state, q, cursor }: ReviewListQuery) => ({ state, q: q.trim() || undefined, cursor });
+const query = ({ state, q, cursor, from, importRunId }: ReviewListQuery) => ({ state, q: q.trim() || undefined, cursor, from, importRunId });
 
 /** GET /api/admin/reviews: one page of the Closed links or New jobs lane, and every lane's count. */
 export function fetchReviews(lane: JobReviewKind, list: ReviewListQuery, signal?: AbortSignal): Promise<AdminReviewList> {

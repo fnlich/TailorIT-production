@@ -1,13 +1,22 @@
 'use client';
 
-import { JOB_REPORT_REASON_LABEL, JOB_REPORT_REASONS, JOB_SORTS, JOB_SORT_LABEL } from '@tailorit/shared';
+import { JOB_REPORT_REASON_LABEL, JOB_REPORT_REASONS, JOB_SORTS, JOB_SORT_LABEL, UPDATED_WITHIN_DAYS, UPDATED_WITHIN_LABEL } from '@tailorit/shared';
+import {
+  JOB_IMPORT_DOWNLOAD_COLUMNS,
+  JOB_IMPORT_MAX_COLUMNS,
+  JOB_IMPORT_NOTICE_MIN_ROWS,
+  JOB_IMPORT_ROW_RESULT_LABEL,
+  SHEET_SOURCE_LABEL,
+} from '@tailorit/shared/ingest';
 import { BriefcaseIcon } from '@/components/ui/icons';
 import { useGuide } from '../context';
 import type { GuideSection } from '../model';
 import { AppPage, Bullets, P, See, Steps, Ui } from '../parts';
 import { FANOUT_COPY } from '../../sharing/fanout/copy';
 
-// v34 HELP: Find jobs: the search, a job's details, and saving, applying and adding a job.
+// v34 HELP: Find jobs: the search, a job's details, and saving, applying and adding a job. v35 OPSWEB (PLAN H5, H8): the
+// date filter's Past 3 days and reposted jobs; adding jobs by one link with details, a file or a Google Sheet, what each
+// row's result means, Download these rows, and the limits (public constants).
 
 function Search() {
   const { t, get } = useGuide();
@@ -28,6 +37,11 @@ function Search() {
           salary, visa sponsorship, industry, company size, company, clearance, last updated and hide applied. The filters in
           use show as chips you can remove; on a phone they are behind <Ui>All filters</Ui>. The category picker has a{' '}
           <Ui>{t('LABEL_JOBS_MY_FIELD')}</Ui> chip: your field&apos;s categories in one click.
+        </li>
+        <li>
+          <Ui>Last updated</Ui>: {UPDATED_WITHIN_DAYS.map((days) => UPDATED_WITHIN_LABEL[days]).join(', ')}. A job TailorIT&apos;s
+          admin imported again (a repost) counts as new from that day: it shows under these filters and near the top of{' '}
+          <Ui>{JOB_SORT_LABEL.posted}</Ui>, and its row and its header say when it was reposted.
         </li>
         <li>
           <Ui>Jobs I can apply to</Ui> (off by default) hides jobs whose location rules leave out where you live, as
@@ -56,7 +70,7 @@ function Details() {
       <Bullets>
         <li>
           <Ui>The header</Ui>: the company and the title, the category, when TailorIT last found the posting live, when it
-          was posted, and pills for the job type, the place, the pay and the work mode.
+          was posted (and reposted, when it was), and pills for the job type, the place, the pay and the work mode.
         </li>
         <li>
           <Ui>{t('LABEL_JOB_ABOUT_ROLE')}</Ui>: a <Ui>{t('LABEL_JOB_SUMMARY')}</Ui> or the <Ui>{t('LABEL_JOB_FULL_POSTING')}</Ui>, then the
@@ -102,14 +116,76 @@ function SaveAndApply() {
           applied, so the Job Tracker moves the job to Applied.
         </li>
       </Bullets>
-      <P>
-        <Ui>Add job</Ui> takes a posting&apos;s link: TailorIT reads the posting itself and tells you what came of it. A
-        link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read. You can
-        add {get('JOB_ADDS_PER_HOUR')} links an hour.
-      </P>
+      <AddJob />
       <P>
         Working on several profiles? Save&apos;s arrow, <Ui>{FANOUT_COPY.saveTo}</Ui>, saves the job on other profiles too,
         and a job shows which other profiles have it saved: see <See to="sharing-all">Every profile at once</See>.
+      </P>
+    </>
+  );
+}
+
+/** "100" or "no limit" (a limit constant of null). */
+const perDay = (value: number | null) => (value === null ? 'no limit' : value.toLocaleString('en-US'));
+
+/** v35 OPSWEB: Add job's three ways, what each row comes to, and the limits. */
+function AddJob() {
+  const { t, get } = useGuide();
+  // The tab's name as Add job shows it (SHEET_SOURCE_LABEL), and the columns of a file to fill in (Download these rows').
+  const sheet = SHEET_SOURCE_LABEL;
+  const columns = JOB_IMPORT_DOWNLOAD_COLUMNS;
+  return (
+    <>
+      <P>
+        <Ui>Add job</Ui> adds jobs three ways: <Ui>One link</Ui>, a <Ui>File</Ui> or a <Ui>{sheet}</Ui>. TailorIT reads
+        each posting itself and tells you what came of it.
+      </P>
+      <Bullets>
+        <li>
+          <Ui>One link</Ui>: paste a posting&apos;s link. <Ui>Add details</Ui> (optional) takes its company, title, description,
+          rate and location: TailorIT uses them only when it cannot read the link, and the rate only when the posting names no
+          pay. A link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read.
+          You can add {get('JOB_ADDS_PER_HOUR')} links an hour.
+        </li>
+        <li>
+          <Ui>File</Ui> (.csv, .tsv, .txt, .json or .xlsx) or <Ui>{sheet}</Ui> (share it with TailorIT&apos;s reader address
+          as a Viewer): one job a row, in the columns {columns.join(', ')}. Only the link is needed. TailorIT guesses each
+          column from the header and shows the first rows, so you can change any before you import. With no header row, a
+          column of pay is read as the Rate.
+        </li>
+        <li>
+          <Ui>Limits</Ui>: up to {get('JOB_IMPORT_ROWS_MAX').toLocaleString('en-US')} rows and {JOB_IMPORT_MAX_COLUMNS} columns a
+          file or sheet, and{' '}
+          {perDay(get('FREE_JOB_IMPORT_ROWS_PER_DAY'))} rows a day on Free ({perDay(get('PAID_JOB_IMPORT_ROWS_PER_DAY'))} on
+          Paid). Add job says how many more you can import today, and before you import, how many of a file&apos;s rows
+          fit. Rows past that are not imported: import the same file again a day later, and the rows already added are
+          skipped (they come back <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.known}</Ui>).
+        </li>
+      </Bullets>
+      <P>What each row of a file or sheet comes to:</P>
+      <Bullets>
+        <li>
+          <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.added}</Ui>: TailorIT read the posting, and the job is in your Job Tracker as Saved.{' '}
+          <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.known}</Ui>: the job was there already; it is saved to your Job Tracker too.
+        </li>
+        <li>
+          <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.added_private}</Ui>: TailorIT could not read the link, so your own job was made from
+          the row&apos;s title and company; an admin reviews it before others can find it.
+        </li>
+        <li>
+          <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.needs_details}</Ui>: TailorIT could not read the link and the row has no title or
+          company, so nothing was kept. <Ui>Download these rows</Ui> saves them as a CSV file: fill them in and import it again.
+        </li>
+        <li>
+          <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.closed}</Ui>: the posting has closed. <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.failed}</Ui>: not a
+          job link TailorIT may read (a site it never reads, a row over the day&apos;s limit), with why.{' '}
+          <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.repeated}</Ui>: the same link as a row above it.
+        </li>
+      </Bullets>
+      <P>
+        Closing Add job does not stop an import: the bell says when one of more than {JOB_IMPORT_NOTICE_MIN_ROWS} rows
+        finishes, and Add job shows your latest import&apos;s results again. On a profile someone shared with you, the jobs
+        are saved to that profile.
       </P>
     </>
   );
@@ -137,9 +213,15 @@ export const JOBS_SECTION: GuideSection = {
   icon: BriefcaseIcon,
   keywords: ['search', 'filter', 'jobs', 'posting'],
   topics: [
-    { id: 'jobs-search', title: 'Search and filters', keywords: ['ask ai', 'sort', 'saved search', 'my field'], Body: Search },
+    { id: 'jobs-search', title: 'Search and filters', keywords: ['ask ai', 'sort', 'saved search', 'my field', 'past 3 days', 'reposted'], Body: Search },
     { id: 'jobs-details', title: "A job's details", keywords: ['requirements', 'skills', 'match', 'benefits'], Body: Details },
-    { id: 'jobs-save', title: 'Save, apply and add a job', keywords: ['save all', 'mark as applied', 'add job', 'link'], Body: SaveAndApply },
+    {
+      id: 'jobs-save',
+      title: 'Save, apply and add a job',
+      // v35 OPSWEB: importing a file or a sheet.
+      keywords: ['save all', 'mark as applied', 'add job', 'link', 'import', 'csv', 'xlsx', 'google sheet', 'download these rows'],
+      Body: SaveAndApply,
+    },
     { id: 'jobs-report', title: 'Report a job', keywords: ['closed', 'scam', 'wrong'], Body: Report },
   ],
 };

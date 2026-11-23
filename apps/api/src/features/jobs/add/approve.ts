@@ -12,7 +12,7 @@ import { addJobKeys, keyHolders, keysOfAddress } from '../../ingest/keys';
 import { normalizeCompany } from '../../ingest/normalize';
 import { isRefusedPageHost, isSiteHost } from '../../job-reviews/hosts';
 import { sharedAddress } from './address';
-import { legacyHeld } from './held';
+import { legacyHeld, RESTORE_AI_INPUT_SQL } from './held'; // v35 IMPORT: RESTORE_AI_INPUT_SQL
 import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
 import { APPROVAL_LOCK, linkRejected, noteUnverified, ownJobsOfLink, type LinkAdder } from './verification'; // v33 SHARE-6: LinkAdder
 import { versionOf } from './versions';
@@ -389,10 +389,12 @@ export async function approveUnverifiedJob(
     reason: string;
     added_by: string | null; // v33 SHARE-6
     grant_id: string | null; // v33 SHARE-6
+    origin: string; // v35 IMPORT
+    seen_before_hold: boolean; // v35 IMPORT
   }>(
     `SELECT j.owner_user_id, j.active, j.held_since IS NOT NULL AS held, j.unverified_since IS NOT NULL AS out,
        EXISTS (SELECT 1 FROM job_admin_approvals a WHERE a.job_id = j.id) AS approved, j.superseded_by, v.url, v.url_key, v.user_id, v.reason,
-       v.added_by, v.grant_id
+       v.added_by, v.grant_id, v.origin, (j.held_since IS NOT NULL AND j.first_seen_at < j.held_since - interval '1 minute') AS seen_before_hold
      FROM jobs j JOIN job_verifications v ON v.job_id = j.id WHERE j.id = ?`,
     [jobId],
   );
@@ -400,6 +402,11 @@ export async function approveUnverifiedJob(
   const own = row !== undefined && row.user_id !== null && row.owner_user_id === row.user_id && row.superseded_by === null;
   const legacy = free && row.held && !row.approved;
   const again = free && !row.held && row.approved && row.out; // SB-4: an approval that ran out
+  // v35 IMPORT (SP v35 PLAN.md H3): a job an admin's import made from its row (held, its note with no adder, origin
+  // `import`): any admin approves it, the importing one included (the import is an admin action), and its approvals
+  // take nothing from ADMIN_APPROVALS_PER_HOUR (people's adds still do). Approved, it is published as the row gave it,
+  // back in the AI job analysis, and a job TailorIT had before the import held it (a closed one, H5) is reposted.
+  const fromImport = free && row.origin === 'import';
   if (!row || (!own && !legacy && !again)) {
     // An adder's job that gave way to the link's public job meanwhile (an approval that joined it, a Retry read): that
     // job is the answer again.
@@ -423,7 +430,8 @@ export async function approveUnverifiedJob(
   await assertPublishable(deps.db, url);
   const at = nowIso(deps);
 
-  return withApprovalSlot(deps, admin.id, async () => {
+  const slot = <T>(work: () => Promise<T>): Promise<T> => (fromImport ? work() : withApprovalSlot(deps, admin.id, work)); // v35 IMPORT
+  return slot(async () => {
     if (legacy || again) {
       await deps.db.tx(
         async (t) => {
@@ -447,6 +455,11 @@ export async function approveUnverifiedJob(
           }
           if (!(await legacyHeld(t, jobId))) throw conflict(REFUSED.changed);
           await t.run('UPDATE jobs SET held_since = NULL, updated_at = ? WHERE id = ? AND held_since IS NOT NULL', [at, jobId]);
+          if (fromImport) {
+            // v35 IMPORT: back in the AI job analysis; a job reopened for this review is reposted (H5).
+            await t.run(RESTORE_AI_INPUT_SQL, [jobId]);
+            if (row.seen_before_hold) await t.run('UPDATE jobs SET reposted_at = ? WHERE id = ?', [at, jobId]);
+          }
           await projectJob(t, jobId);
           // Its legacy read is done (held.ts settleHeldAfterRead's rule): published. Its note stays (SB-4).
           await t.run(
@@ -455,9 +468,9 @@ export async function approveUnverifiedJob(
             [jobId, at, jobId],
           );
           await t.run(
-            `INSERT INTO job_admin_approvals(job_id, url_key, kind, approved_by, approved_at, adders) VALUES (?, ?, 'legacy', ?, ?, 0)
+            `INSERT INTO job_admin_approvals(job_id, url_key, kind, approved_by, approved_at, adders) VALUES (?, ?, ?, ?, ?, 0)
              ON CONFLICT (job_id) DO NOTHING`,
-            [jobId, row.url_key, admin.id, at],
+            [jobId, row.url_key, fromImport ? 'import' : 'legacy', admin.id, at], // v35 IMPORT: kind import
           );
         },
         { label: again ? 'approve a job again' : 'approve a legacy job' },

@@ -1,21 +1,33 @@
 import { z } from 'zod';
 import {
+  ADMIN_BULK_MAX,
   AdminSourceRowSchema,
   IsoDateTime,
+  JOB_IMPORT_WAYS, // v35 INT-A
+  JOB_SOURCE_IMPORT_KINDS,
+  JobImportCountsSchema, // v35 INT-A
   JOB_SOURCE_KIND_LABEL,
   JobSourceRunSchema,
   SHEET_SOURCE_LABEL,
   SheetSourceConfigSchema,
+  type AdminRunSource,
+  type AdminRunSources,
   type AdminRunsQuery,
+  type AdminSourceAllAction,
   type AdminSourceRow,
+  type AdminSourcesAllCount,
+  type AdminSourcesAllResult,
   type AdminSourcesBulkBody,
   type AdminSourcesBulkResult,
+  type AdminSourcesFilter,
   type AdminSourcesQuery,
   type JobSourceKind,
+  type JobSourceRun,
+  type JobSourceWaiting,
 } from '@tailorit/shared';
 import { decodeCursor, encodeCursor, likeText, Where } from '../../core/admin/index';
 import { careerHostOfConfig } from './career/config'; // v30 S5
-import { optedOutSources } from './opt-out-gate'; // v30 FIX-A
+import { optedOutSourceSql, optedOutSources } from './opt-out-gate'; // v30 FIX-A; v35 ADMIN: optedOutSourceSql
 import type { DbQueries, SqlParams } from '../../core/db/types';
 import { validationFailed } from '../../core/http/errors';
 import { isWorkdayHost } from './adapters/workday'; // v30 S3
@@ -412,6 +424,49 @@ interface RunRow {
   name?: string;
   /** The source's config (joined in by the run queries, for its kind label). */
   config?: string;
+  /** v35 INT-A: the run's import (job_imports, joined in by the run queries: RUN_IMPORT_COLUMNS). */
+  import_id?: number | null;
+  import_way?: string | null;
+  import_name?: string | null;
+  import_started_by?: string | null;
+  import_rows?: number | null;
+  import_finished_at?: string | null;
+  import_counts?: string | Record<string, unknown> | null;
+}
+
+/**
+ * v35 INT-A: the run queries' join of the run's import (IMPORT's job_imports, one per run: ux_job_imports_run) and who
+ * started it, for Runs' "Import · <name> · <counts>" (importOf.import).
+ */
+const RUN_IMPORT_COLUMNS =
+  'ji.id AS import_id, ji.way AS import_way, ji.name AS import_name, ji.rows AS import_rows, ji.finished_at AS import_finished_at, ' +
+  "ji.counts AS import_counts, COALESCE(NULLIF(ju.name, ''), ju.email) AS import_started_by";
+const RUN_IMPORT_JOIN = 'LEFT JOIN job_imports ji ON ji.run_id = r.id LEFT JOIN users ju ON ju.id = ji.actor_id';
+
+/** v35 INT-A: the run's import as Runs shows it (JobSourceRun importOf.import), or null. */
+function runImportOf(row: RunRow): NonNullable<NonNullable<JobSourceRun['importOf']>['import']> | null {
+  if (row.import_id === null || row.import_id === undefined || !row.import_name) return null;
+  const way = JOB_IMPORT_WAYS.find((value) => value === row.import_way);
+  if (!way) return null;
+  const finishedAt = row.import_finished_at ? new Date(row.import_finished_at).toISOString() : null;
+  let counts: unknown = row.import_counts ?? null;
+  if (typeof counts === 'string') {
+    try {
+      counts = JSON.parse(counts);
+    } catch {
+      counts = null;
+    }
+  }
+  const parsed = finishedAt ? JobImportCountsSchema.safeParse(counts) : null;
+  return {
+    id: Number(row.import_id),
+    way,
+    name: row.import_name,
+    startedBy: row.import_started_by ?? null,
+    rows: Number(row.import_rows ?? 0),
+    finishedAt,
+    counts: parsed?.success ? parsed.data : null,
+  };
 }
 
 function toRunSummary(row: RunRow): SourceRunSummary {
@@ -431,6 +486,27 @@ function toRunSummary(row: RunRow): SourceRunSummary {
   };
 }
 
+/**
+ * v35 ADMIN (PLAN H6): how an import's run came (its csv or json record's config: a Google Sheet's tab, pasted links
+ * (`pasted`), else a file), for its label on Admin › Runs; null for a source's run.
+ */
+export function importOfRun(kind: SourceKind, config: Record<string, unknown>): NonNullable<JobSourceRun['importOf']> | null {
+  if (!(JOB_SOURCE_IMPORT_KINDS as readonly string[]).includes(kind)) return null;
+  const sheet = SheetSourceConfigSchema.safeParse(config.sheet);
+  const fileName = typeof config.fileName === 'string' && config.fileName.trim() ? config.fileName.trim() : null;
+  if (sheet.success) {
+    return { way: 'sheet', fileName, sheet: { spreadsheetTitle: sheet.data.spreadsheetTitle, tabTitle: sheet.data.tabTitle } };
+  }
+  return { way: config.pasted === true ? 'pasted' : 'file', fileName, sheet: null };
+}
+
+/** v35 INT-A: importOfRun with the run's import (runImportOf; absent when the run has none). */
+function importOfRunRow(kind: SourceKind, row: RunRow): JobSourceRun['importOf'] {
+  const of = importOfRun(kind, configOf(row.config));
+  const imported = of ? runImportOf(row) : null;
+  return of ? { ...of, ...(imported ? { import: imported } : {}) } : null;
+}
+
 function toAdminRun(row: RunRow): AdminRun {
   const kind = row.kind ?? 'seed';
   return {
@@ -445,6 +521,7 @@ function toAdminRun(row: RunRow): AdminRun {
     reopened: row.reopened ?? 0,
     errorCode: row.error_code,
     stopRequestedAt: row.stop_requested_at ?? null, // v31 RUNS
+    importOf: importOfRunRow(kind, row), // v35 ADMIN; v35 INT-A: with its import
   };
 }
 
@@ -490,7 +567,7 @@ async function extrasOf(db: DbQueries, ids: readonly number[]) {
   return { counts, latest };
 }
 
-function toAdminRow(row: ListedRow, at: string): AdminSourceRow {
+function toAdminRow(row: ListedRow, at: string, waiting: JobSourceWaiting | null = null): AdminSourceRow {
   const source = toSourceRecord(row);
   return {
     id: source.id,
@@ -517,6 +594,7 @@ function toAdminRow(row: ListedRow, at: string): AdminSourceRow {
     // v31 RUNS
     pausedAt: source.pausedAt ?? null,
     pausedBy: source.pausedAt ? (row.paused_by_email ?? null) : null,
+    waiting, // v35 ADMIN
   };
 }
 
@@ -527,8 +605,9 @@ function toAdminSource(
   lastRun: SourceRunSummary | null,
   runningHere: boolean,
   detail: boolean,
+  waiting: JobSourceWaiting | null = null, // v35 ADMIN
 ): AdminSource {
-  const base = toAdminRow(row, at);
+  const base = toAdminRow(row, at, waiting);
   const source = toSourceRecord(row);
   return {
     ...base,
@@ -582,29 +661,44 @@ function afterSorted(sort: (typeof SORTS)[keyof typeof SORTS], cursor: string): 
 const listParam = (values: readonly string[]) => values.join(',');
 
 /**
+ * The condition of Admin › Sources' filters on the job_sources row `s` (the list, its count, and Enable all / Disable
+ * all). v35 ADMIN (PLAN H6): an import's records (csv, json) are never one of them, whatever the filter.
+ */
+export function sourcesWhere(filter: AdminSourcesFilter): Where {
+  const where = new Where();
+  where.add("NOT (s.kind = ANY(string_to_array(@importKinds, ',')))", { importKinds: listParam(JOB_SOURCE_IMPORT_KINDS) });
+  if (filter.q) where.add("(s.name ILIKE @q ESCAPE '\\' OR s.host ILIKE @q ESCAPE '\\')", { q: likeText(filter.q) });
+  if (filter.kind.length) where.add("s.kind = ANY(string_to_array(@kinds, ','))", { kinds: listParam(filter.kind) });
+  if (filter.tier.length) where.add("s.tier = ANY(string_to_array(@tiers, ','))", { tiers: listParam(filter.tier) });
+  if (filter.terms.length) where.add("s.terms_status = ANY(string_to_array(@terms, ','))", { terms: listParam(filter.terms) });
+  if (filter.robots.length) where.add("s.robots_status = ANY(string_to_array(@robots, ','))", { robots: listParam(filter.robots) });
+  if (filter.discoveredVia.length) {
+    where.add("s.discovered_via = ANY(string_to_array(@via, ','))", { via: listParam(filter.discoveredVia) });
+  }
+  if (filter.enabled !== 'all') where.add(filter.enabled === 'enabled' ? 's.enabled' : 'NOT s.enabled');
+  if (filter.failing) where.add("(s.consecutive_failures > 0 OR s.tier = 'failing')");
+  if (filter.host) where.add('s.host = @host', { host: filter.host });
+  if (filter.companyId) where.add('s.company_id = @companyId', { companyId: filter.companyId });
+  return where;
+}
+
+/** v35 ADMIN (PLAN H7): each listed source's waiting reason (by id), as ingest/waiting.ts reads it; none by default. */
+export type SourcesWaiting = (sources: readonly SourceRecord[]) => Promise<ReadonlyMap<number, JobSourceWaiting>>;
+
+/**
  * Admin › Sources at 80,000 rows (12 §9.8): searched by name or host, filtered (kind, tier, terms, robots, how found,
  * enabled, failing, host, company), counted, ordered (next run by default, idx_job_sources_next_run) and paged by a
- * keyset cursor. `runningHere`: the sources this process runs now (the rest by their lease).
+ * keyset cursor. `runningHere`: the sources this process runs now (the rest by their lease). v35 ADMIN: never an
+ * import's record (sourcesWhere); each row says why it waits when it is on and cannot run (`waiting`).
  */
 export async function listAdminSources(
   db: DbQueries,
   query: AdminSourcesQuery,
   at: string,
   runningHere: (id: number) => boolean = () => false,
+  waiting?: SourcesWaiting,
 ): Promise<{ items: AdminSource[]; total: number; nextCursor?: string }> {
-  const where = new Where();
-  if (query.q) where.add("(s.name ILIKE @q ESCAPE '\\' OR s.host ILIKE @q ESCAPE '\\')", { q: likeText(query.q) });
-  if (query.kind.length) where.add("s.kind = ANY(string_to_array(@kinds, ','))", { kinds: listParam(query.kind) });
-  if (query.tier.length) where.add("s.tier = ANY(string_to_array(@tiers, ','))", { tiers: listParam(query.tier) });
-  if (query.terms.length) where.add("s.terms_status = ANY(string_to_array(@terms, ','))", { terms: listParam(query.terms) });
-  if (query.robots.length) where.add("s.robots_status = ANY(string_to_array(@robots, ','))", { robots: listParam(query.robots) });
-  if (query.discoveredVia.length) {
-    where.add("s.discovered_via = ANY(string_to_array(@via, ','))", { via: listParam(query.discoveredVia) });
-  }
-  if (query.enabled !== 'all') where.add(query.enabled === 'enabled' ? 's.enabled' : 'NOT s.enabled');
-  if (query.failing) where.add("(s.consecutive_failures > 0 OR s.tier = 'failing')");
-  if (query.host) where.add('s.host = @host', { host: query.host });
-  if (query.companyId) where.add('s.company_id = @companyId', { companyId: query.companyId });
+  const where = sourcesWhere(query);
   const total = (await db.one<{ n: number }>(`SELECT count(*) AS n FROM job_sources s ${where.sql()}`, where.params as SqlParams))?.n ?? 0;
 
   const sort = SORTS[query.sort];
@@ -623,7 +717,10 @@ export async function listAdminSources(
     db,
     page.map((row) => row.id),
   );
-  const items = page.map((row) => toAdminSource(row, at, counts.get(row.id), latest.get(row.id) ?? null, runningHere(row.id), false));
+  const reasons = waiting ? await waiting(page.map(toSourceRecord)) : new Map<number, JobSourceWaiting>();
+  const items = page.map((row) =>
+    toAdminSource(row, at, counts.get(row.id), latest.get(row.id) ?? null, runningHere(row.id), false, reasons.get(row.id) ?? null),
+  );
   if (rows.length <= query.limit || page.length === 0) return { items, total };
   const last = page[page.length - 1]!;
   // The sort column's value on the last row ("s.next_run_at" -> next_run_at), and its id.
@@ -631,12 +728,19 @@ export async function listAdminSources(
   return { items, total, nextCursor: encodeCursor({ k: value ?? null, id: last.id }) };
 }
 
-/** One source for the admin (its row, job counts, latest run, terms and pace), or null. */
-export async function adminSource(db: DbQueries, id: number, running: boolean, at = new Date().toISOString()): Promise<AdminSource | null> {
+/** One source for the admin (its row, job counts, latest run, terms and pace, why it waits), or null. */
+export async function adminSource(
+  db: DbQueries,
+  id: number,
+  running: boolean,
+  at = new Date().toISOString(),
+  waiting?: SourcesWaiting,
+): Promise<AdminSource | null> {
   const row = await db.one<ListedRow>(`SELECT ${LISTED_COLUMNS} FROM ${LISTED_FROM} WHERE s.id = ?`, [id]);
   if (!row) return null;
   const { counts, latest } = await extrasOf(db, [id]);
-  return toAdminSource(row, at, counts.get(id), latest.get(id) ?? null, running, true);
+  const reason = waiting ? ((await waiting([toSourceRecord(row)])).get(id) ?? null) : null;
+  return toAdminSource(row, at, counts.get(id), latest.get(id) ?? null, running, true, reason);
 }
 
 /**
@@ -658,7 +762,8 @@ export async function adminRuns(
   }
   if (before !== undefined) where.add('r.id < @before', { before });
   const rows = await db.all<RunRow>(
-    'SELECT r.*, s.kind AS kind, s.name AS name, s.config AS config FROM job_source_runs r JOIN job_sources s ON s.id = r.source_id ' +
+    `SELECT r.*, s.kind AS kind, s.name AS name, s.config AS config, ${RUN_IMPORT_COLUMNS} FROM job_source_runs r ` +
+      `JOIN job_sources s ON s.id = r.source_id ${RUN_IMPORT_JOIN} ` + // v35 INT-A: the run's import
       `${where.sql()} ORDER BY r.id DESC LIMIT @limit`,
     { ...where.params, limit: options.limit + 1 } as SqlParams,
   );
@@ -676,7 +781,8 @@ export const runsOptionsOf = (query: AdminRunsQuery) => ({
 });
 
 const RUN_SQL =
-  'SELECT r.*, s.kind AS kind, s.name AS name, s.config AS config FROM job_source_runs r JOIN job_sources s ON s.id = r.source_id WHERE r.id = ?';
+  `SELECT r.*, s.kind AS kind, s.name AS name, s.config AS config, ${RUN_IMPORT_COLUMNS} FROM job_source_runs r ` +
+  `JOIN job_sources s ON s.id = r.source_id ${RUN_IMPORT_JOIN} WHERE r.id = ?`; // v35 INT-A: the run's import
 
 function toRunDetail(row: RunRow): AdminRunDetail {
   return { ...toAdminRun(row), log: (row.log ?? '').split('\n').filter(Boolean) };
@@ -703,6 +809,8 @@ const SKIP_WORDS = {
   opted_out: "This source's company asked TailorIT not to read its jobs.",
   /** v31 RUNS: an admin paused it (the words are MSG_INGEST_SOURCE_PAUSED's, given by the route). */
   paused: 'It is paused: continue it first.',
+  /** v35 ADMIN (PLAN H6): an import's record (Admin › Import lists it). */
+  import: 'An import is not a source: Admin › Import lists it.',
 } as const;
 
 /**
@@ -734,6 +842,7 @@ export async function bulkSources(
         message: why === 'opted_out' ? optedOutWords : why === 'paused' ? pausedWords : SKIP_WORDS[why],
       });
     if (!source) skip('gone');
+    else if ((JOB_SOURCE_IMPORT_KINDS as readonly string[]).includes(source.kind)) skip('import'); // v35 ADMIN
     else if (optedOut.has(id) && !(body.action === 'enable' && source.enabled)) skip('opted_out');
     else if (body.action === 'enable') {
       if (UNRUN_KINDS.includes(source.kind)) skip('never_run');
@@ -770,3 +879,147 @@ export async function bulkSources(
   for (const result of results) counts[result.outcome] = (counts[result.outcome] ?? 0) + 1;
   return { ids: chosen, body: { results, counts } };
 }
+
+// v35 ADMIN (PLAN H6) ------------------------------------------------------------------------------- "all" and imports
+
+/** The words a bulk change gives a skipped row (the route's constants: an opt-out's, a pause's). */
+export interface BulkWords {
+  optedOut?: string;
+  paused?: string;
+}
+
+/**
+ * What Enable all / Disable all would change for the filter (Admin › Sources' confirm): every match, those off that may
+ * run (no kind that never runs, no company that opted out) and those on.
+ */
+export async function countSourcesAll(db: DbQueries, filter: AdminSourcesFilter): Promise<AdminSourcesAllCount> {
+  const where = sourcesWhere(filter);
+  const row = await db.one<{ total: number; can_enable: number; can_disable: number }>(
+    `SELECT count(*) AS total,
+       count(*) FILTER (WHERE NOT s.enabled AND NOT (s.kind = ANY(string_to_array(@unrun, ','))) AND NOT ${optedOutSourceSql('s')}) AS can_enable,
+       count(*) FILTER (WHERE s.enabled) AS can_disable
+     FROM job_sources s ${where.sql()}`,
+    { ...where.params, unrun: UNRUN_KINDS.join(',') } as SqlParams,
+  );
+  return { total: row?.total ?? 0, canEnable: row?.can_enable ?? 0, canDisable: row?.can_disable ?? 0 };
+}
+
+/**
+ * Turns on, or off, the sources of `next`'s pages (ids in ascending order after the last one), ADMIN_BULK_MAX at a time,
+ * each page through bulkSources (its skips: on already, a kind that never runs, an opt-out, an import's record): one
+ * result for them all. Answers the ids it changed too (for the audit's count).
+ */
+async function bulkInPages(
+  db: DbQueries,
+  action: AdminSourceAllAction,
+  now: string,
+  words: BulkWords,
+  next: (after: number) => Promise<number[]>,
+): Promise<{ result: AdminSourcesAllResult; changed: number }> {
+  const counts: AdminSourcesAllResult['counts'] = {};
+  let matched = 0;
+  let changed = 0;
+  for (let after = 0; ; ) {
+    const ids = await next(after);
+    if (ids.length === 0) break;
+    matched += ids.length;
+    const done = await bulkSources(db, { action, ids }, now, words.optedOut, words.paused);
+    changed += done.ids.length;
+    for (const [outcome, n] of Object.entries(done.body.counts)) {
+      const key = outcome as keyof AdminSourcesAllResult['counts'];
+      counts[key] = (counts[key] ?? 0) + (n ?? 0);
+    }
+    after = ids[ids.length - 1]!;
+    if (ids.length < ADMIN_BULK_MAX) break;
+  }
+  return { result: { action, matched, counts }, changed };
+}
+
+/**
+ * POST /api/admin/sources/all: Enable all / Disable all for every source the filter matches now (see countSourcesAll),
+ * in pages of ADMIN_BULK_MAX by id.
+ */
+export async function sourcesAll(
+  db: DbQueries,
+  action: AdminSourceAllAction,
+  filter: AdminSourcesFilter,
+  now: string,
+  words: BulkWords = {},
+): Promise<{ result: AdminSourcesAllResult; changed: number }> {
+  return bulkInPages(db, action, now, words, async (after) => {
+    const where = sourcesWhere(filter);
+    where.add('s.id > @after', { after });
+    const rows = await db.all<{ id: number }>(`SELECT s.id FROM job_sources s ${where.sql()} ORDER BY s.id LIMIT @limit`, {
+      ...where.params,
+      limit: ADMIN_BULK_MAX,
+    } as SqlParams);
+    return rows.map((row) => row.id);
+  });
+}
+
+/** Whether a run is an import's (its source a csv or json record); null when there is no such run. */
+export async function importRunOf(db: DbQueries, runId: number): Promise<{ sourceId: number; kind: SourceKind } | null> {
+  const row = await db.one<{ source_id: number; kind: SourceKind }>(
+    'SELECT r.source_id, s.kind FROM job_source_runs r JOIN job_sources s ON s.id = r.source_id WHERE r.id = ?',
+    [runId],
+  );
+  return row ? { sourceId: row.source_id, kind: row.kind } : null;
+}
+
+/**
+ * GET /api/admin/runs/:id/sources: the board sources an import's run found (job_source_import_finds), the ones it made
+ * first, then by name, each as it is now with why it waits; null when there is no such run.
+ */
+export async function runSources(db: DbQueries, runId: number, waiting?: SourcesWaiting): Promise<AdminRunSources | null> {
+  if (!(await importRunOf(db, runId))) return null;
+  const rows = await db.all<SourceRow & { created: boolean; company_name: string | null }>(
+    `SELECT s.*, f.created, c.name AS company_name FROM job_source_import_finds f JOIN job_sources s ON s.id = f.source_id
+     LEFT JOIN companies c ON c.id = s.company_id WHERE f.run_id = ? ORDER BY f.created DESC, lower(s.name), s.id`,
+    [runId],
+  );
+  const records = rows.map(toSourceRecord);
+  const reasons = waiting ? await waiting(records) : new Map<number, JobSourceWaiting>();
+  const items: AdminRunSource[] = rows.map((row, i) => {
+    const source = records[i]!;
+    return {
+      id: source.id,
+      kind: source.kind as AdminRunSource['kind'],
+      kindLabel: kindLabelOf(source.kind, source.config),
+      name: source.name,
+      host: source.host ?? null,
+      companyName: row.company_name ?? (typeof source.config.companyName === 'string' ? source.config.companyName : null),
+      enabled: source.enabled,
+      created: row.created === true,
+      discoveredVia: (source.discoveredVia ?? null) as AdminRunSource['discoveredVia'],
+      openJobs: source.openJobs ?? 0,
+      lastRunAt: source.lastRunAt,
+      pausedAt: source.pausedAt ?? null,
+      waiting: reasons.get(source.id) ?? null,
+    };
+  });
+  const made = items.filter((item) => item.created);
+  return { items, total: items.length, created: made.length, createdEnabled: made.filter((item) => item.enabled).length };
+}
+
+/**
+ * POST /api/admin/runs/:id/sources {action}: Enable all / Disable all of the sources an import's run made (the ones it
+ * found there already stay as they are: each is switched on its own row); null when there is no such run.
+ */
+export async function runSourcesAll(
+  db: DbQueries,
+  runId: number,
+  action: AdminSourceAllAction,
+  now: string,
+  words: BulkWords = {},
+): Promise<{ result: AdminSourcesAllResult; changed: number } | null> {
+  if (!(await importRunOf(db, runId))) return null;
+  return bulkInPages(db, action, now, words, async (after) =>
+    (
+      await db.all<{ source_id: number }>(
+        'SELECT source_id FROM job_source_import_finds WHERE run_id = ? AND created AND source_id > ? ORDER BY source_id LIMIT ?',
+        [runId, after, ADMIN_BULK_MAX],
+      )
+    ).map((row) => row.source_id),
+  );
+}
+// end v35 ADMIN
