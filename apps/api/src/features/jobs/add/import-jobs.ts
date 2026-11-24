@@ -25,6 +25,9 @@ import { noteUnverified } from './verification';
 //   - fillReadPosting (v35 INT-A, H2 "a row's own fields only fill what the read lacks"): an admin row's title, company,
 //     description and location in the read's raw posting where it has none, before the store (the read's own always
 //     win; pay follows H4 through fillPayFromRate after the read). A person's row never reaches a shared job.
+// v36 IMPORTTIME (SP v36 PLAN.md I1): holdImported dates the job the import's (jobs.reposted_at, import-time.ts) in its
+// transaction: a job made from a row, or a known job held again for Couldn't verify, counts as posted at the import (its
+// approval dates it again: approve.ts).
 
 /** The country of a job's first place (a salary's currency when its text names none). */
 async function countryOf(db: DbQueries, jobId: number): Promise<string | null> {
@@ -203,10 +206,12 @@ export async function jobFromRow(
  * FIX-PIPE: exported, so an import's other writes of the row join it: import-pipeline.ts, data D8).
  */
 export async function holdImported(t: DbQueries, jobId: number, url: string, reason: JobVerifyReason, at: string): Promise<void> {
+  // v36 IMPORTTIME (I1): dated the import's (never moved back).
   await t.run(
-    `UPDATE jobs SET held_since = COALESCE(held_since, ?), active = true, closed_at = NULL, ai_input = false, updated_at = ?
+    `UPDATE jobs SET held_since = COALESCE(held_since, ?), active = true, closed_at = NULL, ai_input = false, updated_at = ?,
+       reposted_at = GREATEST(reposted_at, CAST(? AS timestamptz))
      WHERE id = ? AND owner_user_id IS NULL`,
-    [at, at, jobId],
+    [at, at, at, jobId],
   );
   await projectJob(t, jobId);
   await noteUnverified(t, { jobId, userId: null, url, origin: 'import', reason, addedBy: null }, at);

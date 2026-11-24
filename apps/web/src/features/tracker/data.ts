@@ -485,6 +485,31 @@ export function useLettersForApplication(id: string, enabled: boolean) {
 
 const path = (id: string) => `/api/applications/${encodeURIComponent(id)}`;
 
+/**
+ * v36 FIX-WEB (SP v36 FINAL-FIXES D1): an archive's answer: the entry, plus what the archive did to the auto-apply
+ * queue when it was a Saved entry with a queue row (FIX-API: each count only when not 0). A Saved entry the extension is
+ * applying to, or queued on a shared profile without Queue changes, is left as it is (`archivedAt` still null).
+ */
+export const ArchiveAnswerSchema = ApplicationDetailSchema.extend({
+  // v36 FIX-WEB (FIX-API's answer)
+  dequeued: z.number().int().nonnegative().optional(),
+  // v36 FIX-WEB (FIX-API's answer)
+  applying: z.number().int().nonnegative().optional(),
+  // v36 FIX-WEB (FIX-API's answer)
+  queueLocked: z.number().int().nonnegative().optional(),
+});
+export type ArchiveAnswer = z.infer<typeof ArchiveAnswerSchema>;
+export type BulkApplicationsResponse = z.infer<typeof BulkApplicationsResponseSchema>;
+/** v36 FIX-WEB (D1): Archive all's answer, with the same counts when not 0 (FIX-API). */
+export const ArchiveAllAnswerSchema = ArchiveAllResponseSchema.extend({
+  // v36 FIX-WEB (FIX-API's answer)
+  dequeued: z.number().int().nonnegative().optional(),
+  // v36 FIX-WEB (FIX-API's answer)
+  applying: z.number().int().nonnegative().optional(),
+  // v36 FIX-WEB (FIX-API's answer)
+  queueLocked: z.number().int().nonnegative().optional(),
+});
+
 export const trackerApi = {
   create: (body: CreateApplicationBody) => api.post<ApplicationDetail>('/api/applications', body, { schema: ApplicationDetailSchema }),
   // v33 SHARE-9: `profile`, the card's profile in the All profiles view (left out: the document's).
@@ -501,12 +526,13 @@ export const trackerApi = {
   clearDate: (id: string, status: ApplicationStatus) =>
     api.delete<StatusChangeResponse>(`${path(id)}/events/${status}`, { schema: StatusChangeResponseSchema }),
   archive: (id: string, profile?: ProfileChoice) =>
-    api.post<ApplicationDetail>(`${path(id)}/archive`, undefined, { schema: ApplicationDetailSchema, profile }),
+    api.post<ArchiveAnswer>(`${path(id)}/archive`, undefined, { schema: ArchiveAnswerSchema, profile }),
   restore: (id: string, profile?: ProfileChoice) =>
     api.post<ApplicationDetail>(`${path(id)}/restore`, undefined, { schema: ApplicationDetailSchema, profile }),
+  // v36 FIX-WEB (D1): `archive` also answers what it did to the auto-apply queue (BulkApplicationsResponseSchema).
   bulk: (body: BulkApplicationsBody) =>
-    api.post<{ affected: number }>('/api/applications/bulk', body, { schema: BulkApplicationsResponseSchema }),
-  archiveAll: () => api.post<{ archived: number }>('/api/applications/archive-all', undefined, { schema: ArchiveAllResponseSchema }),
+    api.post<BulkApplicationsResponse>('/api/applications/bulk', body, { schema: BulkApplicationsResponseSchema }),
+  archiveAll: () => api.post<z.infer<typeof ArchiveAllAnswerSchema>>('/api/applications/archive-all', undefined, { schema: ArchiveAllAnswerSchema }),
   import: (body: TrackerImportBody) =>
     api.post<TrackerImportResponse>('/api/applications/import', body, { schema: TrackerImportResponseSchema }),
   /** Which of an import file's company names TailorIT knows (up to 1,000 at a time), each with its known name. */

@@ -17,13 +17,14 @@ import {
   type JobFacet,
   type JobRowMatch,
   type JobsQuery,
-  type SavedJobRef,
 } from '@tailorit/shared';
 import { useCallback } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { PREFERENCES_QUERY_KEY, fetchPreferences } from '@/features/settings/api';
 import { readLocation } from '@/features/settings/location';
 import { isProfileRefusal, userMessage } from '@/lib/api';
+import { archiveOneOutcome, QUEUE_COPY } from '@/features/sharing/fanout/copy'; // v36 FIX-WEB (D1)
+import { useQueueWords } from '@/features/sharing/fanout/useQueueWords';
 import {
   APPLIED_STATUS,
   SAVED_STATUS,
@@ -43,11 +44,9 @@ import {
   jobsKeys,
   listQueryString,
   restoreApplication,
-  saveAllJobs,
   trackJob,
   unhideCompany,
   unhideJob,
-  unsaveApplications,
   type ApplicationRef,
   type JobListItem,
   type JobListPage,
@@ -262,23 +261,6 @@ function refreshAfterTracking(client: QueryClient, jobId: number): Promise<unkno
   ]);
 }
 
-/**
- * After Save all and its Undo: many jobs changed, most of them beyond the loaded pages. The lists on screen are read
- * again now (not only marked stale, unlike a single save), with the counts, the details, the keyword cards (a saved
- * job scores the resume linked to it) and the Job Tracker.
- */
-function refreshAfterBulkTracking(client: QueryClient): Promise<unknown> {
-  return Promise.all([
-    client.invalidateQueries({ queryKey: jobsKeys.lists }),
-    client.invalidateQueries({ queryKey: jobsKeys.counts }),
-    client.invalidateQueries({ queryKey: jobsKeys.details }),
-    client.invalidateQueries({ queryKey: jobsKeys.allInsights }),
-    client.invalidateQueries({ queryKey: jobsKeys.allRowMatches }), // v31 FIX-JOBS
-    client.invalidateQueries({ queryKey: TRACKER_KEY }),
-    client.invalidateQueries({ queryKey: SAVED_ON_KEY }), // v34 FANWEB fix
-  ]);
-}
-
 // --------------------------------------------------------------------------------------------------- writes
 
 interface TrackJobInput {
@@ -325,11 +307,17 @@ export function useUnsaveJob() {
       await client.cancelQueries({ queryKey: jobsKeys.detail(jobId) });
       patchJob(client, jobId, { saved: false });
     },
-    onSuccess: (_data, { jobId }) => patchJob(client, jobId, { saved: false, applicationId: null }),
+    // v36 FIX-WEB (D1): an entry the archive left as it was (being applied now, or its queue locked) stays saved.
+    onSuccess: (data, { jobId }) =>
+      patchJob(client, jobId, unsaveLeft(data) ? { saved: true } : { saved: false, applicationId: null }),
     onError: (_error, { jobId }) => patchJob(client, jobId, { saved: true }),
     onSettled: (_data, _error, { jobId }) => refreshAfterTracking(client, jobId),
   });
 }
+
+/** v36 FIX-WEB (D1): an un-save the server left as it was (the extension applies to it now, or its queue is locked). */
+export const unsaveLeft = (answer: { archivedAt?: string | null; dequeued?: number; applying?: number; queueLocked?: number }): boolean =>
+  archiveOneOutcome({ ...answer, archivedAt: answer.archivedAt ?? null }, '', '').left;
 
 /** Undo of an un-save: restores the archived application, so the job is saved again. Optimistic. */
 export function useRestoreSavedJob() {
@@ -349,7 +337,7 @@ export function useRestoreSavedJob() {
 /**
  * v33 FIX-1 (PLAN-sharing §9: a refused write shows one alert): says why a job action failed in a toast, unless it is a
  * shared profile's refusal, which the shell's alert already says (the toast and the alert disagreed on the owner's
- * name). For the Jobs page's save, un-save, mark applied, hide and Save all.
+ * name). For the Jobs page's save, un-save, mark applied and hide.
  */
 export function failure(toast: Pick<ReturnType<typeof useToast>, 'error'>, title: string, error: unknown): void {
   if (isProfileRefusal(error)) return;
@@ -370,6 +358,7 @@ export interface SaveTarget {
  */
 export function useSaveToggle() {
   const toast = useToast();
+  const queueWords = useQueueWords(); // v36 FIX-WEB (D1)
   const save = useSaveJob();
   const unsave = useUnsaveJob();
   const restore = useRestoreSavedJob();
@@ -388,20 +377,33 @@ export function useSaveToggle() {
         unsaveJob(
           { jobId, applicationId },
           {
-            onSuccess: () =>
+            onSuccess: (answer) => {
+              // v36 FIX-WEB (D1): what the un-save did to the auto-apply queue; one it left in saved jobs says why.
+              const outcome = archiveOneOutcome({ ...answer, archivedAt: answer.archivedAt ?? null }, queueWords.box, queueWords.name);
+              if (outcome.left) {
+                toast.info(QUEUE_COPY.notRemoved, outcome.notes.join(' '));
+                return;
+              }
               toast.toast({
                 type: 'info',
                 title: 'Removed from saved jobs',
-                description: 'It is archived in your Job Tracker, notes and all.',
+                description: ['It is archived in your Job Tracker, notes and all.', ...outcome.notes].join(' '),
                 action: {
                   label: 'Undo',
                   onClick: () =>
                     restoreJob(
                       { jobId, applicationId },
-                      { onError: (error) => failure(toast, 'The job could not be saved again', error) },
+                      {
+                        // v36 FIX-WEB (D1.5): the saved job is back, not its place in the queue.
+                        onSuccess: () => {
+                          if ((answer.dequeued ?? 0) > 0) toast.info('Back in saved jobs', QUEUE_COPY.requeue(1));
+                        },
+                        onError: (error) => failure(toast, 'The job could not be saved again', error),
+                      },
                     ),
                 },
-              }),
+              });
+            },
             onError: (error) => failure(toast, 'The job could not be removed from saved jobs', error),
           },
         );
@@ -417,54 +419,10 @@ export function useSaveToggle() {
         },
       );
     },
-    [toast, saveJob, unsaveJob, restoreJob],
+    [toast, saveJob, unsaveJob, restoreJob, queueWords.box, queueWords.name],
   );
 
   return { toggle, pending: save.isPending || unsave.isPending || restore.isPending };
-}
-
-/**
- * Save all: saves the jobs matching the filters the confirm was shown for (`queryString`), at most 100, on the
- * browser's day. Their cards read Saved as soon as the answer is in; the rest is read again afterwards. The refresh is
- * not awaited (nor returned from onSettled), so `mutateAsync`, and with it the confirm dialog, finishes with the save.
- */
-export function useSaveAll() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ queryString }: { queryString: string }) => saveAllJobs(queryString, localToday()),
-    onSuccess: (result) =>
-      patchJobs(
-        client,
-        new Map<number, JobPatch>(result.items.map((item) => [item.jobId, { saved: true, applicationId: item.applicationId }])),
-      ),
-    onSettled: () => {
-      void refreshAfterBulkTracking(client);
-    },
-  });
-}
-
-/**
- * Save all's Undo: archives exactly the applications the click saved (an application applied to since is left as it
- * is). Optimistic: the cards read not saved at once, and come back if it fails.
- */
-export function useUndoSaveAll() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (items: readonly SavedJobRef[]) => unsaveApplications(items.map((item) => item.applicationId)),
-    onMutate: async (items) => {
-      // A refetch still running (the one after Save all) would bring the saved state back over the change.
-      await Promise.all([client.cancelQueries({ queryKey: jobsKeys.lists }), client.cancelQueries({ queryKey: jobsKeys.details })]);
-      patchJobs(client, new Map<number, JobPatch>(items.map((item) => [item.jobId, { saved: false, applicationId: null }])));
-    },
-    onError: (_error, items) =>
-      patchJobs(
-        client,
-        new Map<number, JobPatch>(items.map((item) => [item.jobId, { saved: true, applicationId: item.applicationId }])),
-      ),
-    onSettled: () => {
-      void refreshAfterBulkTracking(client);
-    },
-  });
 }
 
 /** "Applied to this job?" → Yes, and "Mark as applied": tracks the job as Applied today. */

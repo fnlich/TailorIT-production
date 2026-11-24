@@ -149,7 +149,7 @@ export const SHARE_DEFAULT_PRESET: SharePreset = 'see_and_prepare';
 
 /** Each preset's boxes (closed sets, canonical order). */
 export const SHARE_PRESET_PERMISSIONS: Readonly<Record<Exclude<SharePreset, 'custom'>, readonly SharePermission[]>> = {
-  // The three See boxes of Job Tracker, Documents and Prepare & queue.
+  // The three See boxes of Job Tracker, Documents and Prepare.
   see_only: ['tracker:view', 'documents:view', 'prepare:view'],
   // The table's defaults: See on everything but sensitive answers and exports; Change on the Job Tracker, Documents and
   // Prepare; their own AI on. Queue changes, Apply without my OK and the sensitive answers stay off.

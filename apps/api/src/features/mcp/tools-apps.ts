@@ -2,12 +2,13 @@ import { STATUS, type ApplicationStatus, type StatusKey } from '@tailorit/shared
 import { AUTOFILL_AGENT_FINISHED_STATES, AUTOFILL_AGENT_STATES, type AutofillAgentState } from '@tailorit/shared/autofill';
 import type { AppDeps } from '../../core/context';
 import type { Dialect, SqlParam } from '../../core/db/index';
-import type { DbQueries } from '../../core/db/types'; // v34 MCPFAN
 import { AppError, validationFailed } from '../../core/http/errors';
 import { clearFinished, removeQueued } from '../autofill/agent/queue';
 import { resumeChooser } from '../applications/resume-choice';
 import { saveJobs } from '../applications/service';
-import { archiveRow, LIVE_QUEUE_ROW_AT_SQL } from '../applications/store';
+import { LIVE_QUEUE_ROW_AT_SQL } from '../applications/store';
+import { archivable, archiveSavedEntries, entriesOf } from '../sharing/fanout/unsave'; // v36 JOBS
+import type { ArchiveUnder } from '../applications/archive-saved'; // v36 FIX-API (D1)
 import { untrustedText } from '../autofill/ai/untrusted';
 import { dayIn, dayRange, zoneOf, type DayRange, type Zone } from './dates';
 import { loadResultSet, readSetCursor, saveResultSet, setCursor, targetsOf, type ResultSet, type SetOwner } from './result-sets';
@@ -21,7 +22,7 @@ import { PAGE_DEFAULT, PAGE_MAX, type Table } from './tools-jobs';
 // `draft`, v3.2's word, reads as saved and queued). Every write goes through the tracker's and the queue's own code (saveJobs,
 // archiveRow, removeQueued, clearFinished), so their rules hold (a tracked job keeps its status, a
 // running row is never removed), in one transaction where the code allows it (saveJobs
-// writes in chunks of 25, each its own transaction, as Save all does). Answers are counts, with at most
+// writes in chunks of 25, each its own transaction, as the Select bar's save does). Answers are counts, with at most
 // EXAMPLES_MAX example ids of what was refused and why. An account's applications are at most a few thousand, so a
 // list reads them in one indexed query and pages in memory.
 // v3.0 D2: async. The tracker's and the queue's helpers are awaited whether they are async yet or not (features/
@@ -119,33 +120,16 @@ export async function saveJobsTool(
   };
 }
 
-/** unsave_jobs: archives the Saved applications of the jobs, as the Jobs page's un-save does; never one past Saved. */
-export async function unsaveJobsTool(deps: Deps, userId: string, input: BulkInput, sets: SetOwner = userId) {
+/**
+ * unsave_jobs: archives the Saved applications of the jobs, as the Jobs page's un-save does; never one past Saved.
+ * v36 FIX-API (D1): `under` is the share the call acts under (null on the caller's own profile).
+ */
+export async function unsaveJobsTool(deps: Deps, userId: string, input: BulkInput, sets: SetOwner = userId, under: ArchiveUnder | null = null) {
   const targets = await targetsOf(deps, sets, input);
   // v34 MCPDIR: by set, only with the number it archives.
   const check = targets.setId === null ? undefined : (archives: number) => requireConfirm(input.confirm, archives, 'archive {n} Saved entries');
-  return archiveSavedJobs(deps, userId, targets.ids, check);
+  return archiveSavedJobs(deps, userId, targets.ids, check, under);
 }
-
-interface UnsaveRow {
-  job_id: number;
-  id: string;
-  current_status: number;
-  archived_at: string | null;
-}
-
-/** The entries of `jobIds` on `userId`'s profile, by job id (unsave_jobs reads them in its transaction). */
-async function entriesOf(t: Pick<DbQueries, 'all' | 'dialect'>, userId: string, jobIds: readonly number[]): Promise<Map<number, UnsaveRow>> {
-  const found = await t.all<UnsaveRow>(
-    `SELECT job_id, id, current_status, archived_at FROM applications
-     WHERE user_id = ? AND job_id IN (${jobIdsIn(t.dialect)})`,
-    [userId, JSON.stringify(jobIds)],
-  );
-  return new Map(found.map((row) => [row.job_id, row]));
-}
-
-/** The entries unsave_jobs archives: Saved and not archived yet. */
-const archivable = (row: UnsaveRow | undefined): boolean => row !== undefined && row.current_status === STATUS.saved && row.archived_at === null;
 
 /** v34 MCPFAN: how many of `jobIds` unsave_jobs would archive on `userId`'s profile (a removal by set on several profiles confirms their sum). */
 export async function archivableAmong(deps: Pick<AppDeps, 'db'>, userId: string, jobIds: readonly number[]): Promise<number> {
@@ -157,25 +141,33 @@ export async function archivableAmong(deps: Pick<AppDeps, 'db'>, userId: string,
 /**
  * unsave_jobs' archive of `jobIds` on one profile, in one transaction; `check` sees how many it archives before it
  * does (a removal by set: requireConfirm). v34 MCPFAN: also each profile's work of an unsave on several profiles.
+ * v36 JOBS (PLAN J5): the archive itself is the web's Unsave's too (sharing/fanout/unsave.ts archiveSavedEntries);
+ * this answer stays counts only.
+ * v36 FIX-API (D1): when the auto-apply queue was involved (never otherwise, so every other answer is as before), it
+ * also counts `dequeued` (archived and taken out of the queue), refuses `applying` and `queue_locked` (left saved) and
+ * says so in `queueNote`; `under` is the share it acts under (null on the owner's own profile).
  */
-export async function archiveSavedJobs(deps: Deps, userId: string, jobIds: readonly number[], check?: (archives: number) => void) {
-  const now = deps.now().toISOString();
-  return deps.db.tx(async (t) => {
-    const rows = await entriesOf(t, userId, jobIds);
-    check?.(jobIds.filter((jobId) => archivable(rows.get(jobId))).length);
-    const refused: Refusal[] = [];
-    let unsaved = 0;
-    for (const jobId of jobIds) {
-      const row = rows.get(jobId);
-      if (!row || (row.archived_at !== null && row.current_status === STATUS.saved)) refused.push([jobId, 'not_saved']);
-      else if (row.current_status !== STATUS.saved) refused.push([jobId, 'applied']);
-      else {
-        await archiveRow(t, userId, row.id, now);
-        unsaved += 1;
-      }
-    }
-    return { unsaved, ...refusals(refused) };
-  }, { label: 'unsave_jobs' });
+export async function archiveSavedJobs(
+  deps: Deps,
+  userId: string,
+  jobIds: readonly number[],
+  check?: (archives: number) => void,
+  under: ArchiveUnder | null = null,
+) {
+  const { archived, dequeued, skipped } = await archiveSavedEntries(deps, userId, jobIds, { check, under });
+  const left = (reason: string) => skipped.filter(([, why]) => why === reason).length;
+  const note = queueNote(dequeued.length, left('applying'), left('queue_locked'));
+  return { unsaved: archived.length, ...(dequeued.length > 0 ? { dequeued: dequeued.length } : {}), ...refusals(skipped), ...(note ? { queueNote: note } : {}) };
+}
+
+/** v36 FIX-API (D1): what an unsave did with the auto-apply queue, in words; null when it touched no queued job. */
+export function queueNote(dequeued: number, applying: number, queueLocked: number): string | null {
+  const parts = [
+    dequeued > 0 ? `${dequeued} also taken out of the auto-apply queue (dequeued: save_jobs, then prepare_start, queues one again)` : null,
+    applying > 0 ? `${applying} left saved: the extension is applying to them now (applying)` : null,
+    queueLocked > 0 ? `${queueLocked} left saved and queued: taking them out of the queue needs this profile's Queue changes (queue_locked)` : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? `${parts.join('; ')}.` : null;
 }
 
 // ------------------------------------------------------------------------------------------------- the queue

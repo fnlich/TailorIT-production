@@ -12,7 +12,7 @@ import { PREPARE_ALL_BUDGET, prepareAllConfirmLabel, prepareAllSummary, prepareA
 
 // v31 AUTO (decision D10): Prepare All's confirm, always shown (it can start many Prepares at once): how many saved
 // jobs in To prepare pass the filters and how many it takes now (with the server's words for what the caps leave), the
-// AI note (MSG_PREPARE_CONFIRM, the Prepare & Queue confirm's own words), and today's AI use as a tape meter against
+// AI note (MSG_PREPARE_CONFIRM, the Prepare confirm's own words), and today's AI use as a tape meter against
 // the daily budget with the extra usage left, or that the plan has no daily limit. Continue runs `onConfirm`: reject
 // to keep the dialog open with the error's words.
 // v32 COPY (E7): today's AI use is its share only ("40%"), never the budget's amounts; the extra usage keeps its amount.

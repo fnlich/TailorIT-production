@@ -16,7 +16,7 @@ import { INDUSTRY_IDS } from '../jobs/taxonomy';
 // v2.0: the prepare filters (docs/design/v2.0/06-filters-analysis.md). They decide which saved jobs may be prepared,
 // on the server path and the MCP path alike, with deterministic code over each job's facts (evaluateFilters, P4). A
 // value the analysis does not know passes. The only filter an AI judges is the Custom filter, against the person's
-// own prompt. Settings › Prepare & Queue edits them; user_settings.prepare_filters keeps them.
+// own prompt. Settings › Prepare edits them; user_settings.prepare_filters keeps them.
 //   GET  /api/prepare/filters          → PrepareFiltersResponse
 //   PUT  /api/prepare/filters          PrepareFiltersPutBody → PrepareFiltersResponse (filters_revision + 1)
 //   POST /api/prepare/filters/preview  PrepareFiltersPutBody → PrepareFiltersPreview (Saved jobs, no AI)

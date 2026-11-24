@@ -1,10 +1,10 @@
 import type { CoverLetterMode, PrepareResumeMode } from '@tailorit/shared/prepare';
 
-// v2.0: the words of Settings › Prepare & Queue (docs/design/v2.0/08-ui.md). The resume modes' own labels are
+// v2.0: the words of Settings › Prepare (docs/design/v2.0/08-ui.md). The resume modes' own labels are
 // constants (LABEL_RESUME_MODE_*, A29/A30), read with usePublicConstants; these are the rest.
 
 export const PREPARE_COPY = {
-  title: 'Prepare & Queue',
+  title: 'Prepare',
   description: 'How a saved job is prepared before it joins your queue.',
   loadFailed: "These settings didn't load",
   tryAgain: 'Try again',
@@ -16,11 +16,11 @@ export const PREPARE_COPY = {
   saveFailed: "The setting wasn't saved",
 
   askTitle: 'Ask before using AI',
-  askHint: 'Confirm before Prepare & Queue uses AI.',
+  askHint: 'Confirm before Prepare uses AI.',
   /** v34 FIX-WEB (final review share M1): on a shared profile, the row is the person's own setting. */
-  askOwnHint: 'Your own on every profile: confirm before Prepare & Queue uses your AI.',
-  askOn: 'TailorIT asks before Prepare & Queue uses its AI',
-  askOff: 'Prepare & Queue starts without asking',
+  askOwnHint: 'Your own on every profile: confirm before Prepare uses your AI.',
+  askOn: 'TailorIT asks before Prepare uses its AI',
+  askOff: 'Prepare starts without asking',
 } as const;
 
 /** What each resume mode does, under its label (v32 COPY: a few words). */
@@ -44,7 +44,7 @@ export const FILTERS_COPY = {
   title: 'Prepare filters',
   note: 'unknown details never filter a job out.',
   // v2.0 fix (UX-7): what the filters do, first (Job preferences only rank Jobs). v32 COPY: the heading's "?".
-  description: 'Prepare & Queue skips saved jobs that fail a filter;',
+  description: 'Prepare skips saved jobs that fail a filter;',
   locationType: 'Location type',
   anyHint: 'None picked: any.',
   jobType: 'Job type',

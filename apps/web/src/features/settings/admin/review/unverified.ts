@@ -247,8 +247,8 @@ export function approveText(row: Pick<UnverifiedLink, 'adders' | 'versions'>): {
   return {
     title: 'Approve and publish this job?',
     description: several
-      ? 'Pick the version to publish: everyone will see it as added, marked "Approved by an admin".'
-      : 'Everyone will see the job below as added, marked "Approved by an admin".',
+      ? 'Pick the version to publish: everyone will see it as added; only admins see it marked "Approved by an admin".'
+      : 'Everyone will see the job below as added; only admins see it marked "Approved by an admin".',
     tip:
       row.adders === 1
         ? 'The person who added it is told.'

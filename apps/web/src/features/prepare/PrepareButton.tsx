@@ -5,19 +5,19 @@ import type { ButtonSize, ButtonVariant } from '../../components/ui/Button';
 import { Button } from '../../components/ui/Button';
 import { prepareLabel } from './copy';
 
-// v2.0: the Prepare & Queue button (docs/design/v2.0/08-ui.md): primary, "Prepare & Queue" (or "Prepare & Queue (n)"
+// v2.0: the Prepare button (docs/design/v2.0/08-ui.md): primary, "Prepare" (or "Prepare (n)"
 // for a selection), the spinner while its request is in flight. On the Saved pane's rows, the Saved pane's and the
 // Tracker's selection bars. The action itself is usePrepareAndQueue's.
 
 export interface PrepareButtonProps {
   onClick: () => void;
-  /** A selection's count: "Prepare & Queue (3)". */
+  /** A selection's count: "Prepare (3)". */
   count?: number;
   loading?: boolean;
   disabled?: boolean;
   size?: ButtonSize;
   variant?: ButtonVariant;
-  /** The accessible name, when the visible words need the job's name ("Prepare & Queue Senior Engineer at Acme"). */
+  /** The accessible name, when the visible words need the job's name ("Prepare Senior Engineer at Acme"). */
   'aria-label'?: string;
   /** More about the job (a Saved row's support words). */
   'aria-describedby'?: string;

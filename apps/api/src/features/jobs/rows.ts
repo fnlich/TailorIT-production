@@ -1,4 +1,6 @@
 import {
+  CONSTANTS, // v36 IMPORTTIME
+  DAY_MS, // v36 IMPORTTIME
   EMPLOYMENT_TYPES,
   EXPERIENCE_LEVELS,
   LEADERSHIP,
@@ -222,11 +224,54 @@ export function toJobLocation(row: LocationRow): JobLocation {
 }
 
 /**
+ * v36 IMPORTTIME (SP v36 PLAN.md I1 refined, the owner's addendum 2: "If admin import jobs, the job post date will be
+ * import time (if it is too far, reposted, or if not, posted)"): how a job an admin's import dated (jobs.reposted_at,
+ * jobs/add/import-time.ts) reads. Its time is the import's; it reads "Reposted" when its board's own date (posted_at,
+ * kept for this rule only) is more than `repostedAfterDays` days before the import (ADMIN_IMPORT_REPOSTED_AFTER_DAYS),
+ * else "Posted" (also when the board's date is unknown: a link TailorIT could not read).
+ */
+export interface PostedRule {
+  repostedAfterDays: number;
+}
+
+/** The rule with the constant's default (a caller with no deps; routes pass the live value: postedRuleOf). */
+export const DEFAULT_POSTED_RULE: PostedRule = { repostedAfterDays: CONSTANTS.ADMIN_IMPORT_REPOSTED_AFTER_DAYS.default };
+
+/** The rule with the admin's current value. */
+export function postedRuleOf(constants: { get(key: 'ADMIN_IMPORT_REPOSTED_AFTER_DAYS'): number }): PostedRule {
+  return { repostedAfterDays: constants.get('ADMIN_IMPORT_REPOSTED_AFTER_DAYS') };
+}
+
+/**
+ * v36 IMPORTTIME: a job's times as a person reads them. `postedAt`: its board's date (else when TailorIT first saw it),
+ * or the admin's import's when later; `updatedAt`: its board's update, or the import's when later (the "Last updated"
+ * filter's time: the search projection's updated_sort); `repostedAt` (the import's time) only when it reads "Reposted"
+ * (PostedRule). A job no admin imported reads as before.
+ */
+export function postingTimesOf(
+  row: Pick<SummaryRow, 'posted_at' | 'first_seen_at' | 'source_updated_at' | 'reposted_at'>,
+  rule: PostedRule,
+): Pick<JobSummary, 'postedAt' | 'updatedAt' | 'repostedAt'> {
+  const board = isoTimestamp(row.posted_at);
+  const own = board ?? isoTimestamp(row.first_seen_at);
+  const updated = isoTimestamp(row.source_updated_at);
+  const imported = isoTimestamp(row.reposted_at);
+  if (imported === null || (own !== null && Date.parse(imported) <= Date.parse(own))) return { postedAt: own, updatedAt: updated };
+  const reposted = board !== null && Date.parse(board) < Date.parse(imported) - rule.repostedAfterDays * DAY_MS;
+  return {
+    postedAt: imported,
+    updatedAt: updated !== null && Date.parse(updated) > Date.parse(imported) ? updated : imported,
+    ...(reposted ? { repostedAt: imported } : {}),
+  };
+}
+
+/**
  * The viewer's tie to a job. Saved: the application is still only Saved and not archived (un-saving archives it, its
  * notes and all, so Undo and saving again bring it back). An archived application that never got past Saved ties
- * nothing to the job any more; one that did (Applied and on) still does.
+ * nothing to the job any more; one that did (Applied and on) still does. v36 IMPORTTIME: `rule`, how a job an admin's
+ * import dated reads (postingTimesOf).
  */
-export function toListItem(row: SummaryRow): JobListItem {
+export function toListItem(row: SummaryRow, rule: PostedRule = DEFAULT_POSTED_RULE): JobListItem {
   const onlySaved = row.application_status === STATUS.saved;
   const applicationId = row.application_id !== null && !(onlySaved && row.application_archived_at) ? row.application_id : null;
   return {
@@ -239,9 +284,8 @@ export function toListItem(row: SummaryRow): JobListItem {
     employmentType: oneOf<EmploymentType>(EMPLOYMENT_TYPES, row.employment_type),
     experienceLevels: experienceLevelsOf(row.experience_levels),
     salary: salaryOf(row),
-    postedAt: isoTimestamp(row.posted_at) ?? isoTimestamp(row.first_seen_at),
-    updatedAt: isoTimestamp(row.source_updated_at),
-    ...(row.reposted_at ? { repostedAt: isoTimestamp(row.reposted_at) } : {}), // v35 IMPORT (H5)
+    // v35 IMPORT (H5): repostedAt; v36 IMPORTTIME: an admin's import's time, "Reposted" or "Posted" (postingTimesOf).
+    ...postingTimesOf(row, rule),
     active: isFlag(row.active),
     saved: applicationId !== null && onlySaved,
     appliedOn: isoDay(row.applied_on),
@@ -264,8 +308,8 @@ function creditOf(row: Pick<SummaryRow, 'credit_json'>): { credit?: JobSummary['
   return credit ? { credit } : {};
 }
 
-export function toSummary(row: SummaryRow): JobSummary {
-  const { applicationId: _applicationId, ...summary } = toListItem(row);
+export function toSummary(row: SummaryRow, rule: PostedRule = DEFAULT_POSTED_RULE): JobSummary {
+  const { applicationId: _applicationId, ...summary } = toListItem(row, rule); // v36 IMPORTTIME: rule
   return summary;
 }
 
@@ -333,8 +377,9 @@ export function toJobDetail(
   locations: readonly LocationRow[],
   descriptionHtml: string,
   state: Pick<JobUserState, 'hidden' | 'companyHidden'>,
+  rule: PostedRule = DEFAULT_POSTED_RULE, // v36 IMPORTTIME
 ): JobDetail {
-  const summary = toListItem(row);
+  const summary = toListItem(row, rule);
   const places = locations.map(toJobLocation);
   const primary = summary.primaryLocation || (places[0] ? formatLocation(places[0]) : '');
   const { applicationId, ...base } = summary;

@@ -4,7 +4,7 @@ import type { ActingTable } from '../../../core/feature';
 // /api/autofill) does when a request names a shared profile. The extension's own routes (the next job, a run's result,
 // a tab it opened) serve its token, which is always its owner's own profile (a token naming a profile is refused before
 // any route): `never`; so is POST /agent/queue, the direct queueing v2.0 removed (always refused, kept one release for an
-// older page). The queue's reads need Prepare & queue's See; removing a job, clearing finished ones and Mark as applied
+// older page). The queue's reads need Prepare's See; removing a job, clearing finished ones and Mark as applied
 // are Queue changes (`queue:edit`); the auto-apply rule is a Job setting.
 export const AGENT_ACTING = {
   'GET /agent/next': 'never',

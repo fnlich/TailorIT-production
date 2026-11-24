@@ -23,7 +23,7 @@ export interface ApplicationActions {
   onMove: (application: ApplicationSummary, status: ApplicationStatus) => void;
   onArchive: (application: ApplicationSummary) => void;
   onRestore: (application: ApplicationSummary) => void;
-  /** v2.0: Prepare & Queue a Saved entry (its card menu); absent where the screen has no such action. */
+  /** v2.0: Prepare a Saved entry (its card menu); absent where the screen has no such action. */
   onPrepare?: (application: ApplicationSummary) => void;
   /**
    * v31 JOBSWEB: Retry read of the entry's job when it is the person's own, TailorIT having not read its link
@@ -38,7 +38,7 @@ export interface ApplicationActions {
 }
 
 /**
- * The card menu (the ⋯ button, a right-click and a long press): Open application, View job posting, Prepare & Queue,
+ * The card menu (the ⋯ button, a right-click and a long press): Open application, View job posting, Prepare,
  * Retry read (v31: a job only the person sees), Move to stage › (every status, the current one disabled), Archive /
  * Restore application. v32 LAYOUT (E9): "Move to stage", as the selection bar says it; on a phone, where the board shows
  * one lane at a time, this is how a card changes lanes.
@@ -63,7 +63,7 @@ export function ApplicationMenuItems({ application, actions }: { application: Ap
       )}
       {actions.onPrepare && prepareBlockReason(application) === null && (
         <MenuItem icon={<RobotIcon size={16} />} onClick={() => actions.onPrepare?.(application)}>
-          Prepare &amp; Queue
+          Prepare
         </MenuItem>
       )}
       {actions.onRetryRead && application.jobId !== null && canRetryRead(application) && (

@@ -39,7 +39,7 @@ export const SETTINGS_COPY = {
 export const GROUP_SETTINGS: Readonly<Record<NotificationGroup, { title: string; hint: string }>> = {
   applications: {
     title: 'Applications',
-    hint: 'Prepare & Queue and auto-apply results.',
+    hint: 'Prepare and auto-apply results.',
   },
   jobs: {
     title: 'Jobs you added',

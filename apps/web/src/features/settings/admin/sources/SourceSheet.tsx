@@ -31,13 +31,16 @@ import {
   sourceDetail,
   sourceLine,
   termsTone,
+  turnedOnText,
   waitingTip,
+  WAITING_FOR_ADMIN_TIP,
 } from './sources';
 
 // v30 S1-WEB: one source's sheet (12 §9.8): its schedule (tier, next run, the last complete listing that verified its
 // links, failures), whether its terms and robots.txt let it run, whether its postings may go to AI, how it was found,
 // its host and company, and what it reads. The row is CT's AdminSourceRow; its settings come from its own route.
 // v31 RUNS: whether an admin paused it (by whom, since when), and its Pause or Continue beside Run now.
+// v36 SOURCES (PLAN S8): "Waiting for an admin" (found, never turned on), and who turned it on and when.
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -77,7 +80,21 @@ export function SourceDetails({
           Schedule
         </h3>
         <dl className="mt-1 divide-y divide-divider-soft">
-          <Fact label="State">{source.enabled ? 'Enabled' : 'Disabled'}</Fact>
+          <Fact label="State">
+            {source.enabled ? (
+              'Enabled'
+            ) : source.waitingForAdmin ? (
+              <span data-source-waiting-admin="">Waiting for an admin: {WAITING_FOR_ADMIN_TIP}</span>
+            ) : (
+              'Disabled'
+            )}
+          </Fact>
+          {/* v36 SOURCES: who turned it on, and when ("Never turned on"); not from a server before v3.6. */}
+          {source.enabledAt !== undefined && (
+            <Fact label="Turned on">
+              <span data-source-turned-on="">{turnedOnText(source)}</span>
+            </Fact>
+          )}
           {/* v35 OPSWEB (PLAN H7): switched on, but it cannot run now: why, and what clears it. */}
           {source.enabled && waitingTip(source.waiting) && (
             <Fact label="Waiting">
@@ -175,7 +192,7 @@ export function SourceSheet({
   onPauseToggle?: (source: AdminSourceRow) => void;
   /** Its Pause or Continue is on its way. */
   pauseBusy?: boolean;
-  /** Why Run now waits (the source, or every run, is paused), or null. */
+  /** Why Run now waits (the source, or every run, is paused; v36 SOURCES: or it is off), or null. */
   pausedHint?: string | null;
 }) {
   const settings = useQuery({

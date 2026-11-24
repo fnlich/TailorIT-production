@@ -163,7 +163,7 @@ export function OptionsMenu({
   archivedColumn: { count: number; visible: boolean };
   onArchivedToggle: (visible: boolean) => void;
   onManage: () => void;
-  /** v2.0: "Prepare & Queue jobs": choose Saved entries to Prepare & Queue (Select applications' selection). */
+  /** v2.0: "Prepare jobs": choose Saved entries to Prepare (Select applications' selection). */
   onPrepare: () => void;
   onImport: () => void;
   onExport: () => void;
@@ -177,7 +177,7 @@ export function OptionsMenu({
   /**
    * v33 SHARE-9: which of the tracker's actions the ⋮ offers: none in the All profiles view (per-card actions only); on
    * a shared profile only what its owner lets the person do (Change for Select, Import and Archive all; Prepare for
-   * Prepare & Queue; Exports for the CSV and the zip). The ⋮ is left out when it would offer nothing.
+   * Prepare; Exports for the CSV and the zip). The ⋮ is left out when it would offer nothing.
    */
   actions?: TrackerActions;
 }) {
@@ -386,7 +386,7 @@ export function OptionsMenu({
                 )}
                 {actions.prepare && (
                   <MenuItem icon={<RobotIcon size={16} />} onClick={onPrepare}>
-                    Prepare &amp; Queue jobs
+                    Prepare jobs
                   </MenuItem>
                 )}
                 {actions.import && (

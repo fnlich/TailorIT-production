@@ -53,7 +53,7 @@ export const SAMPLE_FILTERS: PrepareFilters = PrepareFiltersSchema.parse({
   custom: { enabled: true, prompt: 'Keep jobs where most of the work is building or improving software, data or internal tools.' },
 });
 
-/** Prepare & Queue's settings: TailorIT's AI tailors the resume and writes a letter for every job. */
+/** Prepare's settings: TailorIT's AI tailors the resume and writes a letter for every job. */
 export const SAMPLE_PREPARE_SETTINGS = { resumeMode: 'tailor', letterMode: 'always' } as const satisfies PrepareSettingsBody;
 
 /** The Job Tracker the reviewer finds: jobs at Saved, and jobs moved on (one of them to an interview). */

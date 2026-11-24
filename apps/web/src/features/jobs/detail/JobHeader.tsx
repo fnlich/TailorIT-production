@@ -106,8 +106,10 @@ export function JobHeader({
   const companyFacts = cardCompanyFacts(job.company);
   const category = categoryFact(job.categoryId, job.subcategoryIds);
   const checked = job.active ? checkedLiveWhen(job.lastVerifiedAt, now) : null;
-  const posted = postedText(job.postedAt, now);
   const reposted = repostedText(job, now); // v35 OPSWEB (PLAN H5): "Reposted today" beside "Posted 3 weeks ago"
+  // v36 IMPORTTIME (SP v36 PLAN.md I1 refined): a job an admin's import dated reads from the import, "Reposted today" or
+  // "Posted 1 hour ago", never both (its board's older date is not shown).
+  const posted = reposted ? null : postedText(job.postedAt, now);
   const { first, others } = placesOf(job.primaryLocation, job.locations);
 
   const meta: Array<{ key: string; node: ReactNode }> = [];

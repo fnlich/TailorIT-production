@@ -1,5 +1,4 @@
 import {
-  BulkApplicationsResponseSchema,
   JobDetailSchema,
   JobFacetResponseSchema,
   JobFacetsSummarySchema,
@@ -7,13 +6,10 @@ import {
   JobMatchWithLevelSchema, // v33 JOBDETAIL
   JobRowMatchesResponseSchema, // v31 FIX-JOBS
   JobSummarySchema,
-  SaveAllPreviewSchema,
-  SaveAllResponseSchema,
   SavedSearchListSchema,
   SavedSearchSchema,
   jobsQueryToQueryString,
   listResponse,
-  type BulkApplicationsBody,
   type JobDetail,
   type JobFacet,
   type JobFacetResponse,
@@ -22,9 +18,6 @@ import {
   type JobMatchWithLevel, // v33 JOBDETAIL
   type JobRowMatchesResponse, // v31 FIX-JOBS
   type JobsQuery,
-  type SaveAllBody,
-  type SaveAllPreview,
-  type SaveAllResponse,
   type SavedSearch,
 } from '@tailorit/shared';
 import { z } from 'zod';
@@ -155,42 +148,25 @@ export function trackJob(jobId: number, status: typeof SAVED_STATUS | typeof APP
  * Un-saves a job: archives its application (never deletes it, so its notes survive and Undo can bring it back). The
  * Jobs page counts an archived application that is only Saved as not saved.
  */
+/**
+ * v36 FIX-WEB (SP v36 FINAL-FIXES D1): an un-save's answer also says what it did to the auto-apply queue (FIX-API: each
+ * count only when not 0); a Saved entry the extension is applying to now, or queued on a profile shared without Queue
+ * changes, is left as it is (`archivedAt` still null).
+ */
+const UnsaveAnswerSchema = ApplicationRefSchema.extend({
+  archivedAt: z.string().nullable().optional(),
+  // v36 FIX-WEB (FIX-API's answer)
+  dequeued: z.number().int().nonnegative().optional(),
+  // v36 FIX-WEB (FIX-API's answer)
+  applying: z.number().int().nonnegative().optional(),
+  // v36 FIX-WEB (FIX-API's answer)
+  queueLocked: z.number().int().nonnegative().optional(),
+});
+export type UnsaveAnswer = z.infer<typeof UnsaveAnswerSchema>;
+
 export const archiveApplication = (applicationId: string) =>
-  api.post<ApplicationRef>(`/api/applications/${encodeURIComponent(applicationId)}/archive`, undefined, { schema: ApplicationRefSchema });
+  api.post<UnsaveAnswer>(`/api/applications/${encodeURIComponent(applicationId)}/archive`, undefined, { schema: UnsaveAnswerSchema });
 
 /** Undo of an un-save: the archived application is active (and the job saved) again. */
 export const restoreApplication = (applicationId: string) =>
   api.post<ApplicationRef>(`/api/applications/${encodeURIComponent(applicationId)}/restore`, undefined, { schema: ApplicationRefSchema });
-
-// ------------------------------------------------------------------------------------------- Save all (WP7)
-
-/**
- * The "Save N jobs?" numbers for the list's filters (`listQueryString`): every match, those Save all can save (not
- * saved yet), and what one click saves (at most SAVE_BATCH_MAX, a public constant).
- */
-export function fetchSaveAllPreview(queryString: string, signal?: AbortSignal) {
-  return api.get<SaveAllPreview>(`/api/jobs/save-all/preview${queryString ? `?${queryString}` : ''}`, {
-    schema: SaveAllPreviewSchema,
-    signal,
-  });
-}
-
-/**
- * Saves the jobs matching the list's filters, at most SAVE_BATCH_MAX, in the order the list shows them, as Saved on
- * `occurredOn` (the browser's day). The answer lists the applications saved, for Undo.
- */
-export function saveAllJobs(queryString: string, occurredOn: string) {
-  const body: SaveAllBody = { occurredOn };
-  return api.post<SaveAllResponse>(`/api/jobs/save-all${queryString ? `?${queryString}` : ''}`, body, {
-    schema: SaveAllResponseSchema,
-  });
-}
-
-/**
- * Save all's Undo: archives the applications the click saved (as un-saving one job does), leaving alone any that
- * moved past Saved meanwhile. `affected` is how many it archived.
- */
-export function unsaveApplications(applicationIds: readonly string[]) {
-  const body: BulkApplicationsBody = { ids: [...applicationIds], action: 'archive', onlySaved: true };
-  return api.post<{ affected: number }>(`/api/applications/bulk`, body, { schema: BulkApplicationsResponseSchema });
-}

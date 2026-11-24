@@ -27,7 +27,7 @@ import {
   useSaveFilters,
 } from './PrepareFiltersForm';
 
-// v2.0: Settings › Prepare & Queue › Prepare filters (docs/design/v2.0/08-ui.md; 06-filters-analysis.md): the shared
+// v2.0: Settings › Prepare › Prepare filters (docs/design/v2.0/08-ui.md; 06-filters-analysis.md): the shared
 // filters form (PrepareFiltersForm, v31 AUTO: the Auto-apply page's filters dialog draws the same one) under a heading
 // with the count of filters on, its live preview, and a save bar that sticks to the bottom of the window while the
 // form holds a change.
@@ -36,7 +36,7 @@ export { PREVIEW_DELAY_MS, PreviewLine, WHERE_YOU_LIVE_ANCHOR } from './PrepareF
 
 /**
  * v33 SHARE-7: `access` on a shared profile (PrepareSection computes it): read-only without the Job settings Change box
- * (shown, never saved), the eligibility switches by the Sensitive answers boxes. `shared: false` (no Prepare & queue See
+ * (shown, never saved), the eligibility switches by the Sensitive answers boxes. `shared: false` (no Prepare See
  * box): "Not shared with you." and nothing is asked for.
  */
 export function PrepareFilters({

@@ -53,7 +53,7 @@ function Detail() {
         </li>
         <li>the questions the job&apos;s form asks, when TailorIT knows them;</li>
         <li>
-          <Ui>Prepared</Ui>: the resume, cover letter and answers Prepare &amp; Queue made, with any answer not ready yet
+          <Ui>Prepared</Ui>: the resume, cover letter and answers Prepare made, with any answer not ready yet
           marked, and once applied, what it was sent with;
         </li>
         <li>
@@ -74,7 +74,7 @@ function Actions() {
       </li>
       <li>
         <Ui>{t('LABEL_TRACKER_SELECT')}</Ui>: pick applications, then archive, restore or delete them, move them to a stage,
-        or build their resumes as a zip. The ⋮ menu&apos;s <Ui>Prepare &amp; Queue jobs</Ui> picks saved jobs to prepare.
+        or build their resumes as a zip. The ⋮ menu&apos;s <Ui>Prepare jobs</Ui> picks saved jobs to prepare.
       </li>
       <li>
         <Ui>Add application</Ui>: paste the posting&apos;s link first; TailorIT fills in the title and company from it. You
@@ -110,7 +110,7 @@ function AllProfiles() {
         other profiles (as Saved; notes, history and documents stay where they are). The All profiles view has{' '}
         <Ui>{t('LABEL_TRACKER_SELECT')}</Ui> too: copy cards of several profiles, move them to a stage, archive or restore them
         (with Undo), each on the card&apos;s own profile (a move, archive or restore leaves a card whose profile is shared
-        to see only alone, and names it). Its <Ui>Prepare &amp; Queue jobs</Ui> takes the saved jobs of each profile you may prepare, after one
+        to see only alone, and names it). Its <Ui>Prepare jobs</Ui> takes the saved jobs of each profile you may prepare, after one
         question, and <Ui>Prepare all profiles</Ui> prepares every profile&apos;s saved jobs in one go. See{' '}
         <See to="sharing-all">Every profile at once</See>.
       </P>

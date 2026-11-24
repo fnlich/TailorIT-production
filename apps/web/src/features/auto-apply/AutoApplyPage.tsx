@@ -17,6 +17,7 @@ import { UnderlineTabs } from '@/components/ui/UnderlineTabs';
 import { InfoIcon } from '@/components/ui/icons';
 import { invalidateAccount } from '@/lib/account';
 import { useStoredValue } from '@/lib/storage';
+import { useFrameHeight } from '@/lib/useFrameHeight'; // v36 APPLYWEB
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { SavedPane } from '../prepare/SavedPane';
 import { usePrepareAndQueue } from '../prepare/usePrepareAndQueue';
@@ -45,7 +46,7 @@ import { HeldSection } from './HeldSection'; // v33 SHARE-7
 import { NotShared, useTabProfile, type TabProfile } from '../sharing/access'; // v33 INT-1
 
 // v2.0: the Auto-apply page (/auto-apply), a two-pane workspace (docs/design/v2.0/08-ui.md, "The Auto-Apply page"):
-// Saved Jobs on the left (Prepare & Queue), the Queue on the right (preparing, up next, apply manually, needs
+// Saved Jobs on the left (Prepare), the Queue on the right (preparing, up next, apply manually, needs
 // attention, done), the Free account's usage line in the header, the kit sheet of the manual flow. Two panes from
 // 1024 px (5 : 7), tabs below. Both panes are read every 3 s while anything is preparing or applying, every 30 s
 // otherwise; nothing is read while the tab is hidden.
@@ -57,6 +58,12 @@ import { NotShared, useTabProfile, type TabProfile } from '../sharing/access'; /
 // line is its description (COPY's PageHeader shows it as the "?"), and "How auto-apply works" is a quiet button beside
 // the usage meter (it opens the same popover). E4: an Auto-save rule that could not be read is a short line, not a
 // banner.
+// v36 APPLYWEB (PLAN A1; SP v36 REQUEST.md: "In Auto-Apply Page, There will be no scroll for full screen"): from 1024 px
+// the panes' row is a frame measured to the window (lib/useFrameHeight, JOBS' helper): the Saved and Queue panes fill
+// its height and their lists scroll inside them (Pane's `fill`), "Auto-save new jobs" stays a line under Saved (its
+// opened form scrolls on its own), the header and the Held card keep their own height, and the window does not scroll.
+// A window too short for the frame's least height scrolls a little, as it must. Phones and the stacked page (< 1024 px)
+// keep the tabs and the window's scroll.
 
 /** Two panes side by side from Tailwind's `lg`. */
 const TWO_PANES_QUERY = '(min-width: 64rem)';
@@ -68,6 +75,11 @@ const TWO_PANES_QUERY = '(min-width: 64rem)';
  * (All | Active | Done, Clear finished) fits its 5.
  */
 export const PANES_GRID = 'grid grid-cols-[minmax(0,7fr)_minmax(0,5fr)] @min-[68rem]/auto-apply:grid-cols-2';
+/**
+ * v36 APPLYWEB (PLAN A1): the panes' frame from 1024 px: the height useFrameHeight measures (down to 16 px above the
+ * window's edge; a first paint's guess before it does), one row the panes stretch to fill.
+ */
+export const PANES_FRAME = 'h-[var(--frame-height,calc(100dvh_-_var(--spacing-topbar)_-_12rem))] grid-rows-[minmax(0,1fr)] items-stretch';
 /** The Prepares dismissed on this device ("Dismiss" on a failed preparation), most recent last. */
 const DISMISSED_KEY = 'tailorit.autoApply.dismissed';
 const DISMISSED_MAX = 200;
@@ -117,6 +129,9 @@ export function AutoApplyPage() {
   const [marking, setMarking] = useState<QueuePaneItem | null>(null);
   const [rawDismissed, setRawDismissed] = useStoredValue<string>(DISMISSED_KEY, parseDismissed);
   const dismissed = useMemo(() => dismissedSet(rawDismissed), [rawDismissed]);
+  // v36 APPLYWEB (PLAN A1): the panes' frame, measured to the window while the panes are side by side.
+  const frameRef = useRef<HTMLDivElement>(null);
+  useFrameHeight(frameRef, wide);
 
   const queue = useQueuePane();
   // The Saved pane reads at the Queue pane's pace.
@@ -238,16 +253,19 @@ export function AutoApplyPage() {
   );
 
   const savedPane = (
-    <div className="flex min-w-0 flex-col gap-4">
+    // v36 APPLYWEB (PLAN A1): in the frame the Saved pane takes what the rule's line leaves.
+    <div className={clsx('flex min-w-0 flex-col gap-4', wide && 'h-full min-h-0')} data-saved-column="">
       <SavedPane
         filter={savedFilter}
         onFilterChange={setSavedFilter}
         saved={saved}
         prepare={prepare}
         scroll={wide}
+        fill={wide}
         filtersOn={filters.data ? filtersOnCount(filters.data.filters) : null}
         onViewInQueue={viewInQueue}
       />
+      <div className={clsx(wide && 'flex max-h-[60%] min-h-0 shrink-0 flex-col')} data-rule-slot="">
       {!ruleAccess.see ? (
         // v33 INT-1: not asked for without the owner's Job settings See box (nothing while the list is read).
         ruleAccess.ready ? (
@@ -265,8 +283,9 @@ export function AutoApplyPage() {
       ) : rule.isPending ? (
         <Skeleton className="h-16 w-full" rounded="control" />
       ) : (
-        <RuleSection settings={rule.data} readOnly={!ruleAccess.change} />
+        <RuleSection settings={rule.data} readOnly={!ruleAccess.change} fill={wide} />
       )}
+      </div>
     </div>
   );
 
@@ -277,6 +296,7 @@ export function AutoApplyPage() {
       onFilterChange={setQueueFilter}
       prepare={prepare}
       scroll={wide}
+      fill={wide}
       supportOf={supportOf}
       onOpenKit={openKit}
       onMarkApplied={setMarking}
@@ -301,12 +321,13 @@ export function AutoApplyPage() {
   );
 
   return (
-    <div className={clsx('@container/auto-apply mx-auto w-full max-w-[1600px] pt-7 pb-20', PAGE_GUTTER)}>
+    // v36 APPLYWEB (PLAN A1): framed, no padding under the frame (its own 16 px gap is the margin), or the page would scroll.
+    <div className={clsx('@container/auto-apply mx-auto w-full max-w-[1600px] pt-7', wide ? 'pb-0' : 'pb-20', PAGE_GUTTER)}>
       {header}
       {/* v33 SHARE-7: jobs someone prepared on the person's own profile, waiting for their OK (none: nothing shows). */}
       <HeldSection className="mt-6" />
       {wide ? (
-        <div className={clsx(PANES_GRID, 'mt-6 items-start gap-6')} data-auto-apply-layout="panes">
+        <div ref={frameRef} className={clsx(PANES_GRID, PANES_FRAME, 'mt-6 gap-6')} data-auto-apply-layout="panes" data-auto-apply-frame="">
           {savedPane}
           {queuePane}
         </div>

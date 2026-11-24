@@ -216,7 +216,7 @@ export function PrivacyPage() {
           Tracker, its statistics and your auto-apply queue; save, archive and add jobs, and remove jobs from your queue;
           run your saved filters (it reads your own filter&apos;s words); write resumes, cover letters and answers for your
           applications (it reads your resumes, the posting and the form&apos;s questions, and saves what it writes); change
-          your Prepare settings and filters; start Prepare &amp; Queue and queue prepared jobs; and tell TailorIT what it
+          your Prepare settings and filters; prepare saved jobs and queue them; and tell TailorIT what it
           could not do. It can do the same on profiles other people share with you, as far as the boxes they ticked
           allow.
         </P>

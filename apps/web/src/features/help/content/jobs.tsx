@@ -13,10 +13,17 @@ import { useGuide } from '../context';
 import type { GuideSection } from '../model';
 import { AppPage, Bullets, P, See, Steps, Ui } from '../parts';
 import { FANOUT_COPY } from '../../sharing/fanout/copy';
+import { SELECTION_COPY } from '../../jobs/list/selectionCopy'; // v36 JOBS
 
 // v34 HELP: Find jobs: the search, a job's details, and saving, applying and adding a job. v35 OPSWEB (PLAN H5, H8): the
 // date filter's Past 3 days and reposted jobs; adding jobs by one link with details, a file or a Google Sheet, what each
 // row's result means, Download these rows, and the limits (public constants).
+
+/**
+ * v36 FIX-SRC (the final reviews' data D7 = ux L9): "7 days", "1 day": when an admin's import reads "Reposted" is the
+ * admin's value of ADMIN_IMPORT_REPOSTED_AFTER_DAYS (a public constant now), never a fixed "a week".
+ */
+const daysText = (days: number) => `${days.toLocaleString('en-US')} ${days === 1 ? 'day' : 'days'}`;
 
 function Search() {
   const { t, get } = useGuide();
@@ -40,8 +47,9 @@ function Search() {
         </li>
         <li>
           <Ui>Last updated</Ui>: {UPDATED_WITHIN_DAYS.map((days) => UPDATED_WITHIN_LABEL[days]).join(', ')}. A job TailorIT&apos;s
-          admin imported again (a repost) counts as new from that day: it shows under these filters and near the top of{' '}
-          <Ui>{JOB_SORT_LABEL.posted}</Ui>, and its row and its header say when it was reposted.
+          admin imports, new to TailorIT or imported again, counts as new from that day: it shows under these filters and near the top of{' '}
+          <Ui>{JOB_SORT_LABEL.posted}</Ui>, as posted at the import. Its row and its header say &quot;Reposted&quot; when its
+          board posted it more than {daysText(get('ADMIN_IMPORT_REPOSTED_AFTER_DAYS'))} before, else &quot;Posted&quot;.
         </li>
         <li>
           <Ui>Jobs I can apply to</Ui> (off by default) hides jobs whose location rules leave out where you live, as
@@ -92,15 +100,16 @@ function Details() {
         </li>
       </Bullets>
       <P>
-        A job someone added that an admin published shows <Ui>{t('LABEL_JOB_APPROVED_BY_ADMIN')}</Ui>. The company&apos;s
-        name opens its page, with its other jobs.
+        When an admin publishes a job you added that TailorIT could not read, you are told in your notifications; only
+        admins see such a job marked <Ui>{t('LABEL_JOB_APPROVED_BY_ADMIN')}</Ui>. The company&apos;s name opens its page,
+        with its other jobs.
       </P>
     </>
   );
 }
 
 function SaveAndApply() {
-  const { t, get } = useGuide();
+  const { t } = useGuide();
   return (
     <>
       <Bullets>
@@ -108,8 +117,11 @@ function SaveAndApply() {
           <Ui>Save</Ui> puts the job in your Job Tracker as Saved, with the resume that matches it best.
         </li>
         <li>
-          <Ui>Save all</Ui> saves the jobs your search matches, in the order the list shows them ({get('SAVE_BATCH_MAX')} a
-          click); <Ui>Undo</Ui> takes them back out. You can also select jobs and save the selection.
+          <Ui>Select</Ui> (the checklist button above the list) lets you tick jobs, saved ones too, then{' '}
+          <Ui>{SELECTION_COPY.save}</Ui> puts them in your saved jobs (a job saved already is counted, not saved twice) and{' '}
+          <Ui>{SELECTION_COPY.unsave}</Ui> takes them out (a job you applied to stays as it is; one waiting in the auto-apply
+          queue leaves it too, unless it is being applied now). Either one says what it did,
+          with <Ui>Undo</Ui>; <Ui>{SELECTION_COPY.done}</Ui> ends the selection.
         </li>
         <li>
           <Ui>Apply</Ui> opens the posting&apos;s application page; <Ui>{t('LABEL_JOB_MARK_APPLIED')}</Ui> records that you
@@ -118,8 +130,9 @@ function SaveAndApply() {
       </Bullets>
       <AddJob />
       <P>
-        Working on several profiles? Save&apos;s arrow, <Ui>{FANOUT_COPY.saveTo}</Ui>, saves the job on other profiles too,
-        and a job shows which other profiles have it saved: see <See to="sharing-all">Every profile at once</See>.
+        Working on several profiles? Save&apos;s arrow, <Ui>{FANOUT_COPY.saveTo}</Ui>, saves the job on other profiles too;
+        the Select bar&apos;s <Ui>{SELECTION_COPY.save}</Ui> and <Ui>{SELECTION_COPY.unsave}</Ui> have arrows that pick the
+        profiles; and a job shows which other profiles have it saved: see <See to="sharing-all">Every profile at once</See>.
       </P>
     </>
   );
@@ -219,7 +232,7 @@ export const JOBS_SECTION: GuideSection = {
       id: 'jobs-save',
       title: 'Save, apply and add a job',
       // v35 OPSWEB: importing a file or a sheet.
-      keywords: ['save all', 'mark as applied', 'add job', 'link', 'import', 'csv', 'xlsx', 'google sheet', 'download these rows'],
+      keywords: ['select', 'unsave', 'mark as applied', 'add job', 'link', 'import', 'csv', 'xlsx', 'google sheet', 'download these rows'],
       Body: SaveAndApply,
     },
     { id: 'jobs-report', title: 'Report a job', keywords: ['closed', 'scam', 'wrong'], Body: Report },

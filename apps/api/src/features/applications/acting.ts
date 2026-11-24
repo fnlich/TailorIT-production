@@ -8,7 +8,7 @@ import type { ActingTable } from '../../core/feature';
 // is `exports` (it implies `tracker:view`). The board's lanes are the person's own (`/api/me/tracker-lanes`, `self`:
 // SHARE-1). The other features mounted at /api/applications (prepare's draft, resume-match, resume-zip) declare their own.
 //
-// v33 SHARE-9 fix (review): F9's Change box is "save, add, status, notes, archive, import, Save all": a grantee archives
+// v33 SHARE-9 fix (review): F9's Change box is "save, add, status, notes, archive, import": a grantee archives
 // but never deletes (deleting takes the submitted answers, Prepare's work and the apply history with it), so
 // `DELETE /:id` is `never` and the router refuses `POST /bulk`'s `delete` while acting. An application's cover letters
 // are Documents (`documents:view`, PLAN-sharing.md §3), not the Job Tracker.

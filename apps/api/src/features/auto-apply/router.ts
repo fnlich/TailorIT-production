@@ -18,6 +18,7 @@ import { viewerOf } from '../prepare/kit'; // v33 SHARE-5
 import { preparedKit } from './kit';
 import { queuePane } from './queue-pane';
 import { savedJobs } from './saved';
+import { adminApprovalForAdminsOnly } from '../jobs/add/approval-view'; // v36 JOBS
 
 // v2.0: the Auto-apply page's read models (docs/design/v2.0/05-prepare-flow.md, "Read models for the web"), mounted at
 // /api/auto-apply, the session only:
@@ -34,7 +35,7 @@ import { savedJobs } from './saved';
 //   POST /approve  HeldDecisionBody {grantKey, ids?, through?}     → HeldApproved {approved} (they go into the queue)
 //   POST /reject   HeldDecisionBody {grantKey, ids?, through?}     → HeldRemoved {removed} (they leave the queue)
 // Without ids, `through` (the group's newestAt as shown) is required: only rows queued at or before it change (400).
-// The panes, on a shared profile (Prepare & queue's See): without the Sensitive answers permission an eligibility
+// The panes, on a shared profile (Prepare's See): without the Sensitive answers permission an eligibility
 // filter reason shows as one word; a held row says "Waiting for <owner>'s OK".
 
 /** v33 SHARE-5: the owner's approve and reject presses, per account per minute. */
@@ -46,6 +47,7 @@ export const AUTO_APPLY_READS_PER_MINUTE = 240;
 export function createAutoApplyRouter(deps: AppDeps): Router {
   const router = Router();
   router.use(requireUser);
+  router.use(adminApprovalForAdminsOnly); // v36 JOBS (PLAN J7): "Approved by an admin" for admins only
   const readLimit = perAccountLimit('auto-apply-read', AUTO_APPLY_READS_PER_MINUTE, MINUTE_MS);
   const decisionLimit = perAccountLimit('auto-apply-held', HELD_DECISIONS_PER_MINUTE, MINUTE_MS); // v33 SHARE-5
 

@@ -118,12 +118,16 @@ export function appliedChipLabel(date: DateInput): string {
 // v35 OPSWEB (PLAN H5): an admin's import reposted the job. The list shows "Reposted 1 hour ago" in place of its posted
 // time; the job's header adds "Reposted today" (or "Reposted 3 days ago") beside "Posted 3 weeks ago".
 
-/** Whether the job was reposted after it was posted (a repost with no posted date counts). */
+/**
+ * Whether the job was reposted after it was posted (a repost with no posted date counts). v36 IMPORTTIME (SP v36
+ * PLAN.md I1 refined): the API sends `repostedAt` only for a job that reads "Reposted", with `postedAt` the same time
+ * (the import's: the time a person sees), so a repost at the posted time counts.
+ */
 export function isReposted(job: { postedAt?: DateInput | null; repostedAt?: DateInput | null }): boolean {
   const reposted = toDate(job.repostedAt ?? null);
   if (!reposted) return false;
   const posted = toDate(job.postedAt ?? null);
-  return !posted || reposted.getTime() > posted.getTime();
+  return !posted || reposted.getTime() >= posted.getTime(); // v36 IMPORTTIME: >= (was >)
 }
 
 /** A list row's time once reposted: "Reposted 1 hour ago"; null when it was not reposted after it was posted. */

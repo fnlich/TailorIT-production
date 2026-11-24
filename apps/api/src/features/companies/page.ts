@@ -2,7 +2,7 @@ import { JOBS_PAGE_SIZE, type CompanyJobItem, type CompanyJobsQuery, type Compan
 import type { AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/types';
 import { notFound } from '../../core/http/errors';
-import { APPLICATION_JOIN, SUMMARY_COLUMNS, isoTimestamp, toSummary, type SummaryRow } from '../jobs/rows';
+import { APPLICATION_JOIN, DEFAULT_POSTED_RULE, SUMMARY_COLUMNS, isoTimestamp, toSummary, type PostedRule, type SummaryRow } from '../jobs/rows'; // v36 IMPORTTIME: PostedRule
 import { companyVisibleTo, jobVisibleTo } from '../jobs/visibility';
 import { survivorOf } from './aliases';
 import { COMPANY_DETAIL_SQL, profileOfDetail, sourcesLineOf } from './detail';
@@ -94,8 +94,20 @@ function decodeCursor(text: string | undefined): { at: string | null; id: number
   }
 }
 
+/**
+ * v36 FIX-SRC (the final data review's D3): the time an open position's row shows (jobs/rows.ts postingTimesOf), in SQL,
+ * as migration 0061's idx_jobs_company_open_shown holds it (the index's expression: keep the same text).
+ */
+export const OPEN_SHOWN_SORT = 'GREATEST(j.posted_sort, j.reposted_at)';
+
 /** GET /api/companies/:id/jobs?state=open|closed&cursor=: one page of the company's open positions or closed history. */
-export async function companyJobs(deps: Pick<AppDeps, 'db'>, companyId: number, userId: string, query: CompanyJobsQuery): Promise<CompanyJobsResponse> {
+export async function companyJobs(
+  deps: Pick<AppDeps, 'db'>,
+  companyId: number,
+  userId: string,
+  query: CompanyJobsQuery,
+  rule: PostedRule = DEFAULT_POSTED_RULE, // v36 IMPORTTIME: how a job an admin's import dated reads (jobs/rows.ts)
+): Promise<CompanyJobsResponse> {
   const db = deps.db;
   const id = await visibleCompanyId(db, companyId, userId);
   const open = query.state === 'open';
@@ -104,7 +116,11 @@ export async function companyJobs(deps: Pick<AppDeps, 'db'>, companyId: number, 
   // column is ever null (posted_sort is COALESCE(posted_at, first_seen_at); a closed job has its closed_at by the
   // table's CHECK), so the order and the keyset need no NULLS LAST and no "or null" (a cursor with no time, which
   // these lists never make, still reads as one).
-  const sort = open ? 'j.posted_sort' : 'j.closed_at';
+  // v36 FIX-SRC (the final data review's D3): the open positions follow the time each row shows (postingTimesOf: the
+  // later of the job's own date and an admin's import of it, jobs.reposted_at), on idx_jobs_company_open_shown (migration
+  // 0061: the same expression, never null either), so a job an admin imported an hour ago, reading "1 hour ago", is
+  // listed above one reading "2 days ago".
+  const sort = open ? OPEN_SHOWN_SORT : 'j.closed_at';
   const cursor = decodeCursor(query.cursor);
   const after = cursor
     ? cursor.at === null
@@ -120,7 +136,7 @@ export async function companyJobs(deps: Pick<AppDeps, 'db'>, companyId: number, 
     { companyId: id, userId, cursorAt: cursor?.at ?? null, cursorId: cursor?.id ?? 0, limit: JOBS_PAGE_SIZE + 1 },
   );
   const page = rows.slice(0, JOBS_PAGE_SIZE);
-  const items: CompanyJobItem[] = page.map((row) => ({ ...toSummary(row), closedAt: isoTimestamp(row.closed_at) }));
+  const items: CompanyJobItem[] = page.map((row) => ({ ...toSummary(row, rule), closedAt: isoTimestamp(row.closed_at) }));
   const last = page[page.length - 1];
   return { items, ...(rows.length > JOBS_PAGE_SIZE && last ? { nextCursor: encodeCursor(last.sort_at, last.id) } : {}) };
 }

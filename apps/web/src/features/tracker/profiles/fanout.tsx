@@ -7,9 +7,9 @@ import { useCallback, type ReactElement } from 'react';
 import { invalidateAccount } from '@/lib/account';
 import { usePublicConstants } from '@/lib/constants';
 import { bulkOnProfiles, copySavedTo } from '../../sharing/fanout/api';
-import { FANOUT_COPY, namesList } from '../../sharing/fanout/copy';
-import { fanoutReport, refusalText, type FanoutReport } from '../../sharing/fanout/results';
-import type { FanoutProfile, LabelOf } from '../../sharing/fanout/targets';
+import { FANOUT_COPY, namesList, queueNotes } from '../../sharing/fanout/copy';
+import { fanoutReport, nameOf, refusalText, type FanoutReport } from '../../sharing/fanout/results';
+import { rowName, type FanoutProfile, type LabelOf } from '../../sharing/fanout/targets';
 import { refreshAfterFanoutSave, useFanoutChoices, useFanoutReport, type FanoutChoices } from '../../sharing/fanout/useFanout';
 import { browserDay, bulkInBatches, copyInBatches, nothingSaved, savedItems, useUndoSaved } from '../../sharing/fanout/useSaveTo';
 import { invalidateApplications } from '../data';
@@ -18,7 +18,7 @@ import type { BulkKind } from '../toolbar/Toolbar';
 // v34 FANWEB (PLAN G2, G4): the Job Tracker's actions on several profiles. Copy to profiles… (the single view's Select
 // and the All profiles view's): the selected entries' jobs saved on the profiles chosen, as Saved (POST
 // /api/profiles/applications/copy: never their notes, history or documents). The All profiles view's bulk actions (Move
-// to a stage, Archive, Restore, Prepare & Queue): one request, each card on its own profile (POST
+// to a stage, Archive, Restore, Prepare): one request, each card on its own profile (POST
 // /api/profiles/applications/bulk), a card whose profile is shared to see only left out and named. One message each,
 // Undo for a copy and for archiving or restoring.
 // v34 FANWEB fix: a profile where nothing happened is named with why; Move, Archive and Restore go in batches the route
@@ -71,12 +71,19 @@ export function bulkReport(
 ): FanoutReport {
   const affected = answer.results.reduce((sum, result) => sum + (result.ok ? result.affected : 0), 0);
   const isPrepare = action === 'prepare';
+  // v36 FIX-WEB (D1): an archive says on each profile's line what it did to that profile's auto-apply queue, and then
+  // the toast lists those lines (ux M1).
+  const box = rowName('queue:edit', label);
+  const queueOf = (result: FanoutBulkAnswer['results'][number]) =>
+    action === 'archive' && result.ok ? queueNotes(result, box, nameOf(profiles, result.profile, result.name)) : [];
   const report = fanoutReport(answer, {
     profiles,
     label,
     did: (result) => result.affected > 0,
+    toastLines: answer.results.some((result) => queueOf(result).length > 0),
     detail: (result) => {
-      if (!isPrepare) return FANOUT_COPY.bulkDone(result.affected, BULK_WORD[action]);
+      const queue = queueOf(result as FanoutBulkAnswer['results'][number]);
+      if (!isPrepare) return [FANOUT_COPY.bulkDone(result.affected, BULK_WORD[action]), ...queue].join(', ');
       const outcomes = result.outcomes ?? [];
       const count = (wanted: readonly string[]) => outcomes.filter((outcome) => wanted.includes(outcome.outcome)).length;
       return FANOUT_COPY.prepareOutcome(count(['started', 'queued']), count(['filtered']), count(['skipped']), firstSkip(outcomes));
@@ -102,7 +109,7 @@ export interface TrackerFanout extends FanoutChoices {
   copy: (items: readonly FanoutItem[], targets: FanoutTargets) => Promise<void>;
   /** A bulk action on cards of several profiles; `skipped`: the profiles whose cards were left out (see only). */
   bulk: (kind: BulkKind, items: readonly FanoutItem[], skipped: readonly string[]) => Promise<void>;
-  /** Prepare & Queue on cards of several profiles (the confirm is the caller's). */
+  /** Prepare on cards of several profiles (the confirm is the caller's). */
   prepare: (items: readonly FanoutItem[]) => Promise<void>;
   /** The result's alert: render once. */
   element: ReactElement;

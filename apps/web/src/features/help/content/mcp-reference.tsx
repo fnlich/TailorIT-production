@@ -126,7 +126,7 @@ export function ServerPrompts() {
         ))}
       </ul>
       <P>
-        <Code>prepare_all</Code> gives your AI TailorIT&apos;s rules and starts Prepare &amp; Queue on your saved jobs; the
+        <Code>prepare_all</Code> gives your AI TailorIT&apos;s rules and starts Prepare on your saved jobs; the
         others are the steps of one job&apos;s kit, for a job id from the Prepare queue.
       </P>
     </>

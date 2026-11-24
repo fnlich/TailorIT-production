@@ -5,7 +5,7 @@ import { ERROR_CODES } from '../core/errors';
 import { IsoDate } from '../core/list';
 import { PrepareFiltersSchema, type PrepareFilters } from '../filters/schema';
 import { AddJobBodySchema, AddJobResultSchema } from '../jobs/add';
-import { SAVE_BATCH_CEILING, SaveAllPreviewSchema, SaveAllResponseSchema, SavedJobRefSchema } from '../jobs/dto';
+import { SAVE_BATCH_CEILING, SavedJobRefSchema } from '../jobs/dto';
 import { PREPARE_OWNER_ONLY_SETTINGS, PrepareSettingsBodySchema, PrepareSettingsSchema, PrepareStartResponseSchema } from '../prepare/index';
 import { ApplicationStatusSchema } from '../tracker/statuses';
 import { ProfileChoiceSchema, ProfileKeySchema } from './profile';
@@ -26,7 +26,7 @@ import { ProfileChoiceSchema, ProfileKeySchema } from './profile';
 // A target A may not use for the action (a key that is unknown, someone else's, ended, or without the box; or a share
 // that ends or loses the box before its turn) is refused with exactly the same answer whatever the case:
 // `refused: 'profile_ended'`, MSG_FANOUT_PROFILE_UNUSABLE's words, `name: ''` (nothing says why). A usable profile whose
-// own service refused (Save all already running there, the AI budget, the resume limit, its own check) answers that
+// own service refused (the AI budget, the resume limit, its own check) answers that
 // refusal's code and words with the owner's name. Targets: `'me'` and profile keys, or `'all'` = me + every live share
 // whose boxes allow the action; `left` names (for `'all'`) the live shares left out because their boxes do not allow it
 // (A sees every share's boxes on the Profiles page already: nothing new). A list holds at most
@@ -35,10 +35,8 @@ import { ProfileChoiceSchema, ProfileKeySchema } from './profile';
 //
 // Routes (apps/api/src/features/sharing/fanout/router.ts; each `self`, each with a per-minute limit of A's):
 //   POST  /api/profiles/jobs/save           FanoutSaveJobsBody    → FanoutSaveJobsAnswer        (tracker:edit each)
-//   GET   /api/profiles/jobs/save-all/preview?targets=&search=  → FanoutSaveAllPreviewAnswer   (tracker:edit each, the
-//                                                                   save's own box; the others in `left`)
-//   POST  /api/profiles/jobs/save-all       FanoutSaveAllBody     → FanoutSaveAllAnswer         (tracker:edit each; one of
-//                                                                   A's SAVE_ALL_RUNS_PER_HOUR when a profile ran)
+//   POST  /api/profiles/jobs/unsave         FanoutUnsaveJobsBody  → FanoutUnsaveJobsAnswer      (tracker:edit each; v36
+//                                                                   JOBS. v3.4's Save all to, /jobs/save-all*, is gone)
 //   POST  /api/profiles/jobs/add            FanoutAddJobBody      → FanoutAddJobAnswer          (tracker:edit each; one of
 //                                                                   A's JOB_ADDS_PER_HOUR per link when a profile is usable)
 //   GET   /api/profiles/jobs/saved-on?jobIds=1,2  FanoutSavedOnQuery → FanoutSavedOn          (me + tracker:view shares)
@@ -130,7 +128,7 @@ export const FanoutSaveJobsBodySchema = z
   .object({
     targets: FanoutTargetsSchema,
     jobIds: z.array(z.number().int().positive()).min(1).max(SAVE_BATCH_CEILING),
-    /** The browser's day (default today, UTC), as Save all's. */
+    /** The browser's day (default today, UTC). */
     occurredOn: IsoDate.optional(),
   })
   .strict();
@@ -164,40 +162,49 @@ export type FanoutSaveJobsResult = z.infer<typeof FanoutSaveJobsResultSchema>;
 export const FanoutSaveJobsAnswerSchema = fanoutAnswer(FanoutSaveJobsResultSchema);
 export type FanoutSaveJobsAnswer = z.infer<typeof FanoutSaveJobsAnswerSchema>;
 
-// Save all to profiles -------------------------------------------------------------------------------------------------
-
-/** The longest list query string Save all to profiles takes (a technical cap; the Jobs page's URLs are far shorter). */
-export const FANOUT_SEARCH_MAX_CHARS = 4_000;
+// v36 JOBS (PLAN J5): unsave jobs on profiles -----------------------------------------------------------------------
 
 /**
- * POST /api/profiles/jobs/save-all: Save all's current search on every target. `search` is the Jobs list's query string
- * as GET /api/jobs reads it (a cursor is ignored); each target's OWN list of it is saved there (that owner's jobs, marks
- * and tracker), at most SAVE_BATCH_MAX per profile (unlike Select → Save to, which saves exactly the jobs chosen). The
- * request is one of A's SAVE_ALL_RUNS_PER_HOUR when at least one profile ran.
+ * POST /api/profiles/jobs/unsave: these jobs' Saved entries removed on every target (at most SAVE_BATCH_MAX jobs, the
+ * Job Tracker's Change each: the box that saves there). Only Saved entries go, archived as the Tracker's own un-save
+ * (never deleted); an entry at Applied or later is left as it is.
  */
-export const FanoutSaveAllBodySchema = z
+export const FanoutUnsaveJobsBodySchema = z
   .object({
     targets: FanoutTargetsSchema,
-    search: z.string().max(FANOUT_SEARCH_MAX_CHARS),
-    occurredOn: IsoDate.optional(),
+    jobIds: z.array(z.number().int().positive()).min(1).max(SAVE_BATCH_CEILING),
   })
   .strict();
-export type FanoutSaveAllBody = z.infer<typeof FanoutSaveAllBodySchema>;
-export const FanoutSaveAllResultSchema = fanoutResult(SaveAllResponseSchema.shape);
-export type FanoutSaveAllResult = z.infer<typeof FanoutSaveAllResultSchema>;
-export const FanoutSaveAllAnswerSchema = fanoutAnswer(FanoutSaveAllResultSchema);
-export type FanoutSaveAllAnswer = z.infer<typeof FanoutSaveAllAnswerSchema>;
+export type FanoutUnsaveJobsBody = z.infer<typeof FanoutUnsaveJobsBodySchema>;
 
-/** GET /api/profiles/jobs/save-all/preview?targets=...&search=...: the confirm's numbers per profile. */
-export const FanoutSaveAllPreviewQuerySchema = z.object({
-  targets: FanoutTargetsQuerySchema,
-  search: z.string().max(FANOUT_SEARCH_MAX_CHARS).default(''),
-});
-export type FanoutSaveAllPreviewQuery = z.infer<typeof FanoutSaveAllPreviewQuerySchema>;
-export const FanoutSaveAllPreviewResultSchema = fanoutResult(SaveAllPreviewSchema.shape);
-export type FanoutSaveAllPreviewResult = z.infer<typeof FanoutSaveAllPreviewResultSchema>;
-export const FanoutSaveAllPreviewAnswerSchema = fanoutAnswer(FanoutSaveAllPreviewResultSchema);
-export type FanoutSaveAllPreviewAnswer = z.infer<typeof FanoutSaveAllPreviewAnswerSchema>;
+/** One entry an unsave archived: its job and application (an Undo restores it: the bulk's `unarchive`). */
+export const FanoutUnsavedJobSchema = z.object({ jobId: z.number().int().positive(), applicationId: z.string() });
+export type FanoutUnsavedJob = z.infer<typeof FanoutUnsavedJobSchema>;
+
+/** What an unsave did on one profile. Each distinct job asked counts once: removed, notSaved, applied or notFound. */
+export const FanoutUnsavedFields = {
+  /** Saved entries removed (archived). */
+  removed: z.number().int().nonnegative(),
+  /** The entries removed (Undo: the bulk's `unarchive` over these application ids). */
+  items: z.array(FanoutUnsavedJobSchema),
+  /** Jobs not in this profile's Saved Jobs (never saved, or removed already). */
+  notSaved: z.number().int().nonnegative(),
+  /** Jobs this profile applied to (Applied or later, archived or not): left as they are. */
+  applied: z.number().int().nonnegative(),
+  /** Jobs this profile does not see. */
+  notFound: z.number().int().nonnegative(),
+  /** v36 FIX-API: of `removed`, those also taken out of the auto-apply queue (not started there). */
+  dequeued: z.number().int().nonnegative(),
+  /** v36 FIX-API: jobs left in Saved Jobs because the extension is applying to them now. */
+  applying: z.number().int().nonnegative(),
+  /** v36 FIX-API: jobs left in Saved Jobs and the queue: taking them out of the queue needs that profile's Queue changes. */
+  queueLocked: z.number().int().nonnegative(),
+};
+export const FanoutUnsaveJobsResultSchema = fanoutResult(FanoutUnsavedFields);
+export type FanoutUnsaveJobsResult = z.infer<typeof FanoutUnsaveJobsResultSchema>;
+export const FanoutUnsaveJobsAnswerSchema = fanoutAnswer(FanoutUnsaveJobsResultSchema);
+export type FanoutUnsaveJobsAnswer = z.infer<typeof FanoutUnsaveJobsAnswerSchema>;
+// end v36 JOBS
 
 // Add by link to profiles ----------------------------------------------------------------------------------------------
 
@@ -284,9 +291,9 @@ export const FANOUT_BULK_ITEMS_MAX = 500;
 
 /**
  * POST /api/profiles/applications/bulk: each item on its own profile, with that profile's box (`tracker:edit`; for
- * `prepare`, Prepare & queue's Change `prepare:run`, at most PREPARE_BATCH_MAX per profile). `status` takes `status`
+ * `prepare`, Prepare's Change `prepare:run`, at most PREPARE_BATCH_MAX per profile). `status` takes `status`
  * (and `occurredOn`); `archive` takes `onlySaved` (an Undo of a Save to: entries moved past Saved are left alone).
- * Prepare & Queue keeps every rule of a Prepare on a shared profile: A pays, the owner's last queue and resume places
+ * Prepare keeps every rule of a Prepare on a shared profile: A pays, the owner's last queue and resume places
  * are kept, and what A prepares waits for the owner's OK unless the share has Apply without my OK.
  */
 export const FanoutBulkBodySchema = z
@@ -309,6 +316,12 @@ export type FanoutBulkBody = z.infer<typeof FanoutBulkBodySchema>;
 export const FanoutBulkResultSchema = fanoutResult({
   /** Cards changed there (a move, an archive, a restore); for `prepare`, the jobs started or queued. */
   affected: z.number().int().nonnegative(),
+  /** v36 FIX-API: `archive` only: of `affected`, those also taken out of the auto-apply queue. */
+  dequeued: z.number().int().nonnegative().optional(),
+  /** v36 FIX-API: `archive` only: entries left as they are because the extension is applying to them now. */
+  applying: z.number().int().nonnegative().optional(),
+  /** v36 FIX-API: `archive` only: entries left as they are because taking them out of the queue needs Queue changes. */
+  queueLocked: z.number().int().nonnegative().optional(),
   /** `prepare` only: each card's outcome, as POST /api/prepare answers it. */
   outcomes: PrepareStartResponseSchema.shape.results.optional(),
 });
@@ -366,7 +379,7 @@ export type PrepareFiltersPatchBody = z.infer<typeof PrepareFiltersPatchBodySche
  * What a filters PATCH answers. `changed`: the fields given that were applied (every field given but the kept ones; never
  * compared with the saved values, which would tell them); `kept`: the kept switches given without Sensitive answers'
  * Change there. The filters as saved (as the GET reads them: the eligibility switches off without Sensitive answers'
- * See), their revision and the location facts only with Prepare & queue's See there (`prepare:view`); else null.
+ * See), their revision and the location facts only with Prepare's See there (`prepare:view`); else null.
  */
 export const PrepareFiltersPatchFields = {
   filters: PrepareFiltersSchema.nullable(),
@@ -452,7 +465,7 @@ export type FanoutSettingsQuery = z.infer<typeof FanoutSettingsQuerySchema>;
 
 /** What a profile's boxes let A see and change of its settings. */
 export const FanoutSettingsCanSchema = z.object({
-  /** Prepare & queue's See: the filters show. */
+  /** Prepare's See: the filters show. */
   seeFilters: z.boolean(),
   /** Job settings' See: the Prepare settings and the auto-save rule show. */
   seeSettings: z.boolean(),
@@ -466,7 +479,7 @@ export const FanoutSettingsCanSchema = z.object({
 
 /**
  * GET /api/profiles/settings: per profile asked (default A's own first, then every live share), what its boxes let A
- * see and change. `filters` with Prepare & queue's See (the eligibility switches read as off without Sensitive answers'
+ * see and change. `filters` with Prepare's See (the eligibility switches read as off without Sensitive answers'
  * See, as the filters' GET answers them), `prepare` and `autoSave` with Job settings' See; null without the box, or
  * when the part was not asked. A key that names no live share answers as a refused target.
  */

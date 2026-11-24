@@ -12,7 +12,7 @@ import { HelpTip } from '../../../components/ui/HelpTip';
 import { ANSWER_STATE_TEXT, RESUME_MODE_SHORT, noAnswersText, partLine, preparedByText } from '../../prepare/copy';
 import { appliedWithText } from '../draft';
 
-// v2.0: the Tracker's "Prepared" tab (v1.5's "Draft" tab): the application's kit, as Prepare & Queue made it and the
+// v2.0: the Tracker's "Prepared" tab (v1.5's "Draft" tab): the application's kit, as Prepare made it and the
 // queue froze it (A30): the resume it uses (Tailored, Default resume or Best-matched resume, A29), the cover letter,
 // each with Preview and Edit, and every known question of the job with its answer (Ready, Not prepared: answered on
 // the form, From your autofill profile). Above it, once applied, "Applied with": what each application was
@@ -130,7 +130,7 @@ export function DraftView({ data, records = null, draft: isDraft = false, draftL
             size="sm"
             icon={<SparkleIcon size={20} />}
             title="Nothing prepared for this application yet."
-            description="Prepare & Queue it on Auto-apply."
+            description="Prepare it on Auto-apply."
             action={
               <Link href="/auto-apply" className={buttonClasses({ variant: 'outline', size: 'sm' })}>
                 Open Auto-apply

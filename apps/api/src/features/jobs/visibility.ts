@@ -44,7 +44,7 @@ export function jobVisibleTo(alias = 'j', viewer = '?'): string {
 /**
  * v30 SCH: the rule for a row of the search projection (`job_search`, alias `s` by default; '' for none). Its rows are
  * open, verified and unheld jobs (search-projection's searchableSql), so a viewer sees a shared row or one of their
- * own. Every search, count and facet (the Jobs page, Save all, MCP, the extension's job search) filters with it.
+ * own. Every search, count and facet (the Jobs page and its count, MCP, the extension's job search) filters with it.
  */
 export function searchRowVisibleTo(alias = 's', viewer = '?'): string {
   return `(${searchRowShared(alias)} OR ${searchRowOwnedBy(alias, viewer)})`;

@@ -32,7 +32,7 @@ import {
 // - Paid (one PAID_TERM, renewed when it has lapsed), so every tool works for valid input (ai_search_jobs is Paid);
 //   TailorIT's AI on for it (the server's AI on, no daily AI budget override below Paid's);
 // - the sample resume of a made-up person (sample.ts), the default resume;
-// - the prepare filters on (two job types and the Custom filter) and Prepare & Queue's settings (tailored resume, a
+// - the prepare filters on (two job types and the Custom filter) and Prepare's settings (tailored resume, a
 //   letter for every job);
 // - saved jobs from the shared job lake (open, newest first, one per company; remote ones first when the lake has
 //   them), two of them moved on in the current week (Applied, one to an interview), dated again on each run.
@@ -247,7 +247,7 @@ export async function ensureReviewerAccount(deps: AppDeps, email: string): Promi
     : await insertResume(deps, userId, { kind: 'built', title: SAMPLE_RESUME_TITLE, document });
   await deps.db.run('UPDATE users SET default_resume_id = ? WHERE id = ? AND default_resume_id IS NULL', [resumeId, userId]);
 
-  // The prepare filters and Prepare & Queue's settings, written only where they differ.
+  // The prepare filters and Prepare's settings, written only where they differ.
   const filters = await readFilterSettings(deps, userId);
   if (JSON.stringify(filters.filters) !== JSON.stringify(SAMPLE_FILTERS)) await saveFilterSettings(deps, userId, SAMPLE_FILTERS);
   const settings = await prepareSettingsOf(deps, userId);

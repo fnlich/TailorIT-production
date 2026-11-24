@@ -263,7 +263,7 @@ export function useProfileCounts(profiles: readonly TrackerProfile[], enabled: b
 }
 
 /**
- * The Saved cards' auto-apply markers of every profile whose Prepare & queue the person may see (as the single view's
+ * The Saved cards' auto-apply markers of every profile whose Prepare the person may see (as the single view's
  * useSavedMarkers; a profile without it, or an answer that fails, shows none: a queued card's Draft mark comes with the
  * card itself).
  */

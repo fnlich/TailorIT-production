@@ -55,7 +55,7 @@ export interface TrackerProfile {
   canEdit: boolean;
   /** Its auto-apply markers may be read (prepare:view). */
   canSeePrepare: boolean;
-  /** v34 FANWEB: its saved jobs may be prepared (prepare:run): the All profiles view's Prepare & Queue. */
+  /** v34 FANWEB: its saved jobs may be prepared (prepare:run): the All profiles view's Prepare. */
   canPrepare: boolean;
 }
 

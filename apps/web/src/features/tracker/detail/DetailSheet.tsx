@@ -20,6 +20,8 @@ import { useProfile } from '@/components/shell/profile';
 import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { useMediaQuery } from '@/lib/useMediaQuery';
+import { QUEUE_COPY, archiveOneOutcome } from '../../sharing/fanout/copy'; // v36 FIX-WEB (D1)
+import { useQueueWords } from '../../sharing/fanout/useQueueWords';
 import { CompanyLogo } from '../CompanyLogo';
 import { invalidateApplications, trackerApi, trackerKeys, useApplication, useMoveStatus, useToggleFavorite } from '../data';
 import { isDraft } from '../draft';
@@ -83,6 +85,7 @@ function DetailBody({
   // application and changes nothing (no Edit, heart, Archive, Delete or "Applied to this job?"; the panels read it).
   const profile = useProfile();
   const editable = profile.can('tracker:edit');
+  const queueWords = useQueueWords(); // v36 FIX-WEB (D1)
   // v33 SHARE-9 fix (review; F9's Change box archives but never deletes): Delete only on the person's own profile.
   const deletable = editable && !profile.acting;
 
@@ -96,9 +99,17 @@ function DetailBody({
   const toggleArchive = async () => {
     setArchiving(true);
     try {
-      const saved = application.archivedAt ? await trackerApi.restore(application.id) : await trackerApi.archive(application.id);
-      client.setQueryData(trackerKeys.detail(application.id), saved);
-      toast.success(saved.archivedAt ? 'Application archived' : 'Application restored');
+      if (application.archivedAt) {
+        client.setQueryData(trackerKeys.detail(application.id), await trackerApi.restore(application.id));
+        toast.success('Application restored');
+      } else {
+        // v36 FIX-WEB (D1): what the archive did to the auto-apply queue; a Saved entry it left as it was says why.
+        const { dequeued, applying, queueLocked, ...saved } = await trackerApi.archive(application.id);
+        client.setQueryData(trackerKeys.detail(application.id), saved);
+        const outcome = archiveOneOutcome({ archivedAt: saved.archivedAt, dequeued, applying, queueLocked }, queueWords.box, queueWords.name);
+        if (outcome.left) toast.info(QUEUE_COPY.notArchived, outcome.notes.join(' '));
+        else toast.success('Application archived', outcome.notes.length > 0 ? outcome.notes.join(' ') : undefined);
+      }
       void invalidateApplications(client);
     } catch (error) {
       toastFailure(toast, error, "We couldn't update the application. Please try again.");

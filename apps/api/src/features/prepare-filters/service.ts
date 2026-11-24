@@ -22,7 +22,7 @@ import { readFilterResults, recordFilterResults, type StoredFilterResult } from 
 import { readFilterSettings } from './settings';
 
 // v2.0 P4 (06-filters-analysis.md): the prepare filters as a service (core/seams.ts PrepareFilterService), for P2's
-// Prepare & Queue checks and runner, P3's Saved list and P5's MCP tools; and the settings routes' preview. Every check
+// Prepare checks and runner, P3's Saved list and P5's MCP tools; and the settings routes' preview. Every check
 // is deterministic over each job's facts (ensured first, never with AI) and the person's facts; the Custom filter's
 // state comes from its stored verdicts.
 // v3.0 D2-F: on the async client; deps.services.prepareFilters is this service (core/seams.ts PrepareFilterService).

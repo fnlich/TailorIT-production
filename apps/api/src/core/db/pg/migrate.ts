@@ -75,6 +75,18 @@ export function migrationsFingerprint(files = readPgMigrations()): string {
 }
 
 /**
+ * Whether `text` holds only `--` comment lines and blank lines. v36 INT-A: a line-by-line check, linear in the text; the
+ * regular expressions it replaces (`^(--[^\n]*\n?\s*)*$`) backtracked exponentially in the comment lines before a
+ * statement (each line break could be matched two ways): 0060's 25-line header took 107 s to split.
+ */
+function commentsOnly(text: string): boolean {
+  return text.split('\n').every((line) => {
+    const rest = line.trim();
+    return rest === '' || rest.startsWith('--');
+  });
+}
+
+/**
  * The statements of a script, split at top-level semicolons (outside strings, quoted names, comments and dollar
  * quotes), for files that run outside a transaction.
  */
@@ -103,13 +115,13 @@ export function splitStatements(sql: string): string[] {
       } else i += 1;
     } else if (c === ';') {
       const statement = sql.slice(start, i).trim();
-      if (statement && !/^(--[^\n]*\n?\s*)*$/.test(statement)) out.push(statement);
+      if (statement && !commentsOnly(statement)) out.push(statement);
       start = i + 1;
       i += 1;
     } else i += 1;
   }
   const rest = sql.slice(start).trim();
-  if (rest && !/^(\s*--[^\n]*)*\s*$/.test(rest)) out.push(rest);
+  if (rest && !commentsOnly(rest)) out.push(rest);
   return out;
 }
 

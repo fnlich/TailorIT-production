@@ -39,17 +39,17 @@ import {
 //   qualification filter) need Sensitive answers' Change there and are otherwise kept and reported (`kept`); the
 //   location filter is each owner's own (no place is part of the filters); the custom filter's text is screened once,
 //   before any profile changes, when it goes to a share (400 for the whole request); the filters are answered only with
-//   Prepare & queue's See;
+//   Prepare's See;
 // - the Prepare settings (prepare/settings.ts savePrepareSettings: the letter mode, the resume mode, Ask before using
 //   AI, any of them, each written in place) and the Auto-save rule (autofill/agent/rule-patch.ts).
 // Each write locks the share FOR SHARE in its own transaction (lockGrantIn: still live, still holding the box), so a
 // Stop waits for it, and a Stop made before it refuses it.
-// And the summary: per profile asked what its boxes let A see (the filters with Prepare & queue's See, the eligibility
+// And the summary: per profile asked what its boxes let A see (the filters with Prepare's See, the eligibility
 // switches read as off without Sensitive answers' See; the settings and the rule with Job settings' See).
 
 type Deps = AppDeps;
 
-/** Sensitive answers' Change and See, and Prepare & queue's See, on a target (always on A's own profile). */
+/** Sensitive answers' Change and See, and Prepare's See, on a target (always on A's own profile). */
 const filterViewOf = (target: FanoutTarget) => ({
   changeEligibility: targetHolds(target, 'sensitive:edit'),
   seeEligibility: targetHolds(target, 'sensitive:view'),
@@ -145,8 +145,8 @@ export interface SettingsSummaryOptions extends FanoutOptions {
 /**
  * GET /api/profiles/settings (and MCP's prepare_filters read): per profile asked (default A's own and every live share
  * with `options.extraPerms`), what its boxes let A see of the parts asked. A key that names no live share answers as a
- * refused target. Each share's read is counted in its activity, only for the profiles asked and the parts read (Prepare &
- * queue's area for the filters, Job settings' for the settings).
+ * refused target. Each share's read is counted in its activity, only for the profiles asked and the parts read (Prepare's
+ * area for the filters, Job settings' for the settings).
  */
 export async function settingsSummary(deps: Deps, actor: FanoutActor, options: SettingsSummaryOptions = {}): Promise<FanoutSettingsSummary> {
   const parts = new Set<FanoutSettingsPart>(options.parts ?? FANOUT_SETTINGS_PARTS);

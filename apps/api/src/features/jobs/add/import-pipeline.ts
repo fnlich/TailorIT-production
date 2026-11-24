@@ -24,6 +24,7 @@ import { noteImportedHold } from '../../job-reviews/new-jobs'; // v35 INT-A: ADM
 import { reviewById } from '../../job-reviews/store'; // v35 FIX-PIPE (data D4)
 import { sharedAddress } from './address';
 import { closeGoneJob, fillPayFromRate, fillReadPosting, holdImported, jobFromRow, repostJob } from './import-jobs';
+import { dateImported } from './import-time'; // v36 IMPORTTIME
 import { pastedLinksSource, type QueueOutcome } from './import-store';
 import { TRANSIENT_REASONS } from './legacy';
 import type { ImportRead } from './page';
@@ -64,6 +65,11 @@ import { LISTED, rejectionCovers } from './verification';
 //   - D8: the rejection is lifted only for a row that ends `review`, `added` or `reposted` (withRejectionLifted);
 //   - D11: every outcome that lands on a shared job gets the row's Rate (when it has no pay) and its board remembered,
 //     a read or not (afterLanding).
+// v36 IMPORTTIME (SP v36 PLAN.md I1, the owner's addendum): every row of an admin's import that lands on a job (added,
+// reposted, to review, already known or waiting) dates it the import's: jobs.reposted_at now, in the transaction that
+// creates, reposts or holds it (import-time.ts), so a job whose board posted it weeks ago is under "Past 24 hours" and
+// at the top of "Recently posted"; a new job a read made is dated in the store's transaction (page.ts ImportRead), a
+// held one here (heldAgain) or by holdImported. Closed, Needs a title and company and Can't import date nothing.
 // A person's import (the queue row names their profile): Add job's pipeline (addJobByLink) on their profile, the job
 // saved to its Job Tracker: a job TailorIT has is `known` ("Already in TailorIT"); read, `added`; unreadable (after the
 // queue's tries), their own job from the row (`added_private`, Add job with details: "From you, not verified", Retry
@@ -347,13 +353,18 @@ async function toCouldntVerify(deps: AppDeps, jobId: number, url: string, reason
  *   - a rejected New jobs review is reopened (decide.ts reopenReview) and marked this import's (New jobs › Imports and
  *     the import's own filter list it), in one transaction with the link's rejection lifted;
  *   - else the job is noted again in Couldn't verify (`reason`, or "no job data" when nothing was read).
+ * v36 IMPORTTIME (I1): each way dates the job the import's (out of search while held; its approval dates it again).
  */
 async function heldAgain(deps: AppDeps, runId: number | null, jobId: number, url: string, reason: JobVerifyReason | null): Promise<ImportSettle> {
   const subject = jobReviewSubject(jobId);
+  const waiting = async (): Promise<ImportSettle> => {
+    await deps.db.tx((t) => dateImported(t, jobId, nowIso(deps)), { label: 'import: a held job dated' }); // v36 IMPORTTIME
+    return done('known', 'waiting_review', jobId);
+  };
   const pending = await deps.db.one("SELECT 1 AS found FROM job_reviews WHERE kind = 'new_job' AND subject_key = ? AND state = 'pending'", [subject]);
-  if (pending) return done('known', 'waiting_review', jobId);
+  if (pending) return waiting();
   const listed = await deps.db.one(`SELECT 1 AS found FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE v.job_id = ? AND ${LISTED}`, [jobId]);
-  if (listed) return done('known', 'waiting_review', jobId);
+  if (listed) return waiting();
   const rejected = await deps.db.one<{ id: number }>(
     "SELECT id FROM job_reviews WHERE kind = 'new_job' AND subject_key = ? AND origin = 'ats' AND state = 'rejected' ORDER BY id DESC LIMIT 1",
     [subject],
@@ -366,6 +377,7 @@ async function heldAgain(deps: AppDeps, runId: number | null, jobId: number, url
         await reopenReview(deps, t, review, null, deps.now());
         await noteImportedHold(t, jobId, runId);
         await liftRejection(t, url);
+        await dateImported(t, jobId, nowIso(deps)); // v36 IMPORTTIME
       },
       { label: 'import: a rejected new job back to review' },
     );

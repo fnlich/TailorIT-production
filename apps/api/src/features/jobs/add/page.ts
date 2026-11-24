@@ -16,6 +16,7 @@ import { ADDED_BY_AUTOFILL, isAddedPageSource, type RawPosting, type SourceRecor
 import { holdNewJob } from '../../job-reviews/new-jobs';
 import { sharedAddress } from './address';
 import { readWaitsForAdmin, settleHeldAfterRead } from './held';
+import { dateImported } from './import-time'; // v36 IMPORTTIME
 import { linkRejected } from './verification';
 
 // v31 LINK (D3, docs/design/v3.1/21-jobs-from-links.md §4): an added job's own page, read once by TailorIT for its
@@ -109,7 +110,7 @@ async function siteSourceOrNew(t: DbQueries, host: string, now: string): Promise
     const name = n === 1 ? host : `${host} (${n})`;
     const made = await insertSourceIfNameFree(
       t,
-      { kind: 'career_site', name, config: { host, addedBy: ADDED_BY_AUTOFILL }, enabled: false },
+      { kind: 'career_site', name, config: { host, addedBy: ADDED_BY_AUTOFILL } },
       now,
     );
     if (made) return made;
@@ -151,6 +152,9 @@ async function optedOutCompany(t: DbQueries, jobId: number): Promise<boolean> {
  * row's `company`), and a job the read makes and holds for Admin › Review › New jobs is the import's from the start
  * (holdNewJob origin `import`, with the import's run, in the store's transaction): the New jobs From filter lists it,
  * and the AI job analysis leaves it until it is approved (job-analysis/backlog.ts).
+ * v36 IMPORTTIME (SP v36 PLAN.md I1): a job the read makes, published or held, is dated the import's (import-time.ts
+ * dateImported: jobs.reposted_at now), in the store's transaction: it is under "Past 24 hours" whatever its board's date.
+ * Only an admin's import reads with an ImportRead (a person's import never does: their board's date counts).
  */
 export interface ImportRead {
   /** The import's run (Admin › Runs), or null. */
@@ -217,6 +221,7 @@ export async function readPageToSharedJob(deps: AppDeps, url: string, options: P
           await holdNewJob(t, link.job_id, now, options.importRead ? 'import' : 'ats', options.importRead?.runId ?? null);
         }
         else if (!created) await settleHeldAfterRead(deps, t, link.job_id, { ...why, at: now });
+        if (created && options.importRead) await dateImported(t, link.job_id, now); // v36 IMPORTTIME (I1)
         const job = await t.one<{ held: boolean }>('SELECT held_since IS NOT NULL AS held FROM jobs WHERE id = ?', [link.job_id]);
         return { kind: 'shared', jobId: link.job_id, created, held: job?.held === true };
       },

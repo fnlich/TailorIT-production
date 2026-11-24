@@ -13,6 +13,7 @@ import { normalizeCompany } from '../../ingest/normalize';
 import { isRefusedPageHost, isSiteHost } from '../../job-reviews/hosts';
 import { sharedAddress } from './address';
 import { legacyHeld, RESTORE_AI_INPUT_SQL } from './held'; // v35 IMPORT: RESTORE_AI_INPUT_SQL
+import { DATE_APPROVED_SQL } from './import-time'; // v36 IMPORTTIME
 import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
 import { APPROVAL_LOCK, linkRejected, noteUnverified, ownJobsOfLink, type LinkAdder } from './verification'; // v33 SHARE-6: LinkAdder
 import { versionOf } from './versions';
@@ -390,11 +391,10 @@ export async function approveUnverifiedJob(
     added_by: string | null; // v33 SHARE-6
     grant_id: string | null; // v33 SHARE-6
     origin: string; // v35 IMPORT
-    seen_before_hold: boolean; // v35 IMPORT
   }>(
     `SELECT j.owner_user_id, j.active, j.held_since IS NOT NULL AS held, j.unverified_since IS NOT NULL AS out,
        EXISTS (SELECT 1 FROM job_admin_approvals a WHERE a.job_id = j.id) AS approved, j.superseded_by, v.url, v.url_key, v.user_id, v.reason,
-       v.added_by, v.grant_id, v.origin, (j.held_since IS NOT NULL AND j.first_seen_at < j.held_since - interval '1 minute') AS seen_before_hold
+       v.added_by, v.grant_id, v.origin
      FROM jobs j JOIN job_verifications v ON v.job_id = j.id WHERE j.id = ?`,
     [jobId],
   );
@@ -406,6 +406,9 @@ export async function approveUnverifiedJob(
   // `import`): any admin approves it, the importing one included (the import is an admin action), and its approvals
   // take nothing from ADMIN_APPROVALS_PER_HOUR (people's adds still do). Approved, it is published as the row gave it,
   // back in the AI job analysis, and a job TailorIT had before the import held it (a closed one, H5) is reposted.
+  // v36 IMPORTTIME (SP v36 PLAN.md I1): every such job is dated its approval (jobs.reposted_at: it reaches people now,
+  // under "Past 24 hours" whatever its board's date), a job the import made from its row too, and so is a held job an
+  // admin's import named while it waited (import-time.ts DATE_APPROVED_SQL).
   const fromImport = free && row.origin === 'import';
   if (!row || (!own && !legacy && !again)) {
     // An adder's job that gave way to the link's public job meanwhile (an approval that joined it, a Retry read): that
@@ -454,11 +457,13 @@ export async function approveUnverifiedJob(
             return;
           }
           if (!(await legacyHeld(t, jobId))) throw conflict(REFUSED.changed);
+          // v36 IMPORTTIME (I1): a job an admin's import held (one made from a row too), or named while it waited, is
+          // dated its approval.
+          await t.run(DATE_APPROVED_SQL, [at, jobId, fromImport]);
           await t.run('UPDATE jobs SET held_since = NULL, updated_at = ? WHERE id = ? AND held_since IS NOT NULL', [at, jobId]);
           if (fromImport) {
-            // v35 IMPORT: back in the AI job analysis; a job reopened for this review is reposted (H5).
+            // v35 IMPORT: back in the AI job analysis (v36 IMPORTTIME: dated above).
             await t.run(RESTORE_AI_INPUT_SQL, [jobId]);
-            if (row.seen_before_hold) await t.run('UPDATE jobs SET reposted_at = ? WHERE id = ?', [at, jobId]);
           }
           await projectJob(t, jobId);
           // Its legacy read is done (held.ts settleHeldAfterRead's rule): published. Its note stays (SB-4).

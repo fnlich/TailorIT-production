@@ -38,7 +38,7 @@ async function newestResumeOf(deps: Pick<AppDeps, 'db'>, userId: string): Promis
 }
 
 /**
- * Whether the mode has a resume to use (else Prepare & Queue is refused with MSG_PREPARE_NO_RESUME): `similar` any
+ * Whether the mode has a resume to use (else Prepare is refused with MSG_PREPARE_NO_RESUME): `similar` any
  * resume of the person's; `default` and `tailor` (which tailors from it) the default resume.
  */
 export async function resumeAvailable(deps: Pick<AppDeps, 'db'>, userId: string, mode: PrepareResumeMode): Promise<boolean> {

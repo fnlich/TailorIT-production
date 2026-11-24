@@ -13,7 +13,7 @@ import { PromptList, ServerPrompts, ToolReference } from './mcp-reference';
 
 // v34 HELP (PLAN G6, the owner: "especially MCP server feature, and supported tools, and how to prompt to use the
 // data"): Use TailorIT from your AI. Connecting (mcp-connect.tsx), how to ask (the tested examples), what the words
-// mean, Prepare & Queue with your AI, the rules in plain words, the tool reference (mcp-reference.tsx), shared profiles,
+// mean, Prepare with your AI, the rules in plain words, the tool reference (mcp-reference.tsx), shared profiles,
 // limits and privacy, and troubleshooting with Claude's own error messages (CLAUDE-DOCS.md).
 
 function HowToAsk() {
@@ -372,7 +372,7 @@ export const MCP_SECTION: GuideSection = {
     { id: 'mcp-tokens', title: 'Claude Code and other clients', keywords: ['token', 'claude desktop', 'personal access token', 'config'], Body: ConnectWithToken },
     { id: 'mcp-prompts', title: 'How to ask: example prompts', keywords: ['prompt', 'examples', 'ask'], Body: HowToAsk },
     { id: 'mcp-words', title: 'What the words mean', keywords: ['dates', 'time zone', 'clearance', 'platform', 'sponsorship', 'visa', 'salary'], Body: Words },
-    { id: 'mcp-prepare', title: 'Prepare & Queue with your AI', keywords: ['kit', 'revision rounds', 'custom instructions', 'own prompts'], Body: PrepareWithAi },
+    { id: 'mcp-prepare', title: 'Prepare with your AI', keywords: ['kit', 'revision rounds', 'custom instructions', 'own prompts'], Body: PrepareWithAi },
     { id: 'mcp-rules', title: 'The rules your AI follows', keywords: ['instructions'], Body: Rules },
     { id: 'mcp-tools', title: 'Tool reference', keywords: ['tools', 'reference', 'list'], Body: Tools },
     { id: 'mcp-profiles', title: 'Shared profiles with your AI', keywords: ['profile', 'all profiles'], Body: SharedProfiles },

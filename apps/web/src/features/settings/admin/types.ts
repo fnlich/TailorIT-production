@@ -125,6 +125,8 @@ export interface NewSourceBody {
   kind: AddableKind;
   name?: string;
   config: Record<string, string>;
+  /** v36 SOURCES (PLAN S4): Add source's "Turn on now" (ticked by default); unticked, the source is added off. */
+  enabled?: boolean;
 }
 
 export interface ImportResult {

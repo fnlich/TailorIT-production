@@ -18,6 +18,7 @@ import { setSourceEnabled, sourceKeys } from '../sources/api';
 import { allResultLine } from '../sources/bulk';
 import { importResultsHref } from '../sources/links';
 import { waitingTip } from '../sources/sources';
+import { WaitingForAdminBadge } from '../sources/SourcesTab'; // v36 INT-A
 import { changeRunSources, fetchRunSources, runKeys, type AdminRunRow } from './api';
 import { foundSourceState, importCountParts, importRunName, runSourcesConfirm, sourcesFoundLine, startedByText } from './imports';
 
@@ -62,8 +63,11 @@ function ImportCounts({ run }: { run: AdminRunRow }) {
   );
 }
 
-/** One found source: its name, kind and company, its state, and (made by this import) its switch. */
-function FoundSource({ source, busy, onToggle }: { source: AdminRunSource; busy: boolean; onToggle: (source: AdminRunSource) => void }) {
+/**
+ * One found source: its name, kind and company, its state, and (made by this import) its switch. v36 INT-A: a source no
+ * admin turned on yet also says "Waiting for an admin" (SOURCES' badge, as on Admin › Sources).
+ */
+export function FoundSource({ source, busy, onToggle }: { source: AdminRunSource; busy: boolean; onToggle: (source: AdminRunSource) => void }) {
   const state = foundSourceState(source);
   const line = [source.kindLabel, source.companyName && source.companyName !== source.name ? source.companyName : null].filter(Boolean).join(' · ');
   return (
@@ -77,6 +81,7 @@ function FoundSource({ source, busy, onToggle }: { source: AdminRunSource; busy:
           {state}
         </Badge>
         {state === 'Waiting' && <HelpTip label={`Waiting: ${source.name}`}>{waitingTip(source.waiting)}</HelpTip>}
+        {source.waitingForAdmin && <WaitingForAdminBadge name={source.name} />}
       </span>
       {source.created ? (
         <Switch

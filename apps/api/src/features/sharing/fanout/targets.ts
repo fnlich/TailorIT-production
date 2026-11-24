@@ -29,7 +29,7 @@ import { areaOfPermission, countActivity } from '../activity';
 //   own work (runOn: liveGrantById), so a share that ends or loses the box while earlier targets run gets that answer
 //   too; the settings writes also lock it in their transaction (lockGrantIn), and a work's own profile_ended /
 //   profile_not_shared (startPrepare's locked read) answers the same.
-// - The work's own refusal (an AppError: Save all running there, the AI budget, a check) is that profile's result, in
+// - The work's own refusal (an AppError: the AI budget, a check) is that profile's result, in
 //   its code and words; anything else is logged and answered as MSG_FANOUT_PROFILE_FAILED. The other profiles go on.
 // - Each grant whose work changed something (`wrote`; a read always) is counted in its activity (profile_activity, ids
 //   and codes only): the area of the action's box, `write` or `read`, via `web` (MCP passes `via: 'mcp'` and keeps the
@@ -136,6 +136,16 @@ export async function resolveTargets(
 
 export const isTarget = (entry: FanoutTarget | FanoutRefused): entry is FanoutTarget => !('ok' in entry);
 
+/**
+ * The share `grant` read again now: still live, A's, and holding `perms`; null when not (refused as an unknown key).
+ * runOn reads it just before a target's work; v36 FIX-API (D2, sec M1) a work of several steps reads it again before
+ * each later step (Share All's chunks: share-all.ts).
+ */
+export async function grantStillHolds(deps: Deps, actor: FanoutActor, grant: LiveGrant, perms: readonly SharePermission[]): Promise<LiveGrant | null> {
+  const fresh = await liveGrantById(deps, grant.id);
+  return fresh && fresh.granteeId === actor.id && grantHolds(fresh, perms) ? fresh : null;
+}
+
 /** runOn's options: the fan-out's, and whether a target's result changed something (counted as a write only then). */
 export interface RunOptions<T> extends FanoutOptions {
   wrote?: (value: T) => boolean;
@@ -178,8 +188,8 @@ export async function runOn<T extends object>(
     }
     let target: FanoutTarget = entry;
     if (entry.grant) {
-      const fresh = await liveGrantById(deps, entry.grant.id);
-      if (!fresh || fresh.granteeId !== actor.id || !grantHolds(fresh, resolved.perms)) {
+      const fresh = await grantStillHolds(deps, actor, entry.grant, resolved.perms);
+      if (!fresh) {
         results.push(refusedAsUnknown(deps, entry.profile));
         continue;
       }

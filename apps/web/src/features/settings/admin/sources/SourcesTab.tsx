@@ -62,11 +62,13 @@ import { SourceFiltersBar } from './SourceFilters';
 import { SourceSheet } from './SourceSheet';
 import {
   TIER_TONE,
+  WAITING_FOR_ADMIN_TIP,
   failureText,
   formatCount,
   isDeletable,
   isPaused,
   isUnrun,
+  offRunNowHint,
   pausedRunNowHint,
   robotsTone,
   runNowHint,
@@ -75,6 +77,7 @@ import {
   termsTone,
   waitingTip,
 } from './sources';
+import { TurnedOffNotice } from './TurnedOffNotice'; // v36 SOURCES
 
 /** How long the search box rests before the list is asked again. */
 const SEARCH_DELAY_MS = 300;
@@ -104,12 +107,78 @@ export function WaitingBadge({ waiting, name }: { waiting: AdminSourceRow['waiti
 }
 
 /**
+ * v36 SOURCES (SP v36 PLAN S8): a source discovery or an import found that no admin turned on yet: "Waiting for an
+ * admin", its "?" saying what ends it.
+ */
+export function WaitingForAdminBadge({ name }: { name: string }) {
+  return (
+    <span className="flex items-center gap-1" data-source-waiting-admin="">
+      <Badge tone="sky">Waiting for an admin</Badge>
+      <HelpTip label={`Waiting for an admin: ${name}`}>{WAITING_FOR_ADMIN_TIP}</HelpTip>
+    </span>
+  );
+}
+
+/**
+ * v36 FIX-SRC (the final ux review's L6): a row's Run now. Off with a reason (the source is off or paused, every run is
+ * paused, or its kind is never run), it stays focusable (aria-disabled: focusableWhenDisabled, which also keeps focus on
+ * it while its own run starts) and is described by the reason, which its tooltip shows on keyboard focus and on hover (on
+ * a wrapper: a button that is off takes no pointer events).
+ */
+export function RunNowButton({
+  sourceId,
+  running,
+  hint,
+  disabled,
+  onRun,
+}: {
+  sourceId: number;
+  running: boolean;
+  /** Why it is off (or what it does), or null. */
+  hint: string | null;
+  disabled: boolean;
+  onRun: () => void;
+}) {
+  const whyId = `source-run-now-why-${sourceId}`;
+  const button = (
+    <Button
+      variant="outline"
+      size="sm"
+      icon={<ArrowsClockwiseIcon size={14} />}
+      disabled={disabled}
+      focusableWhenDisabled
+      aria-describedby={hint ? whyId : undefined}
+      onClick={onRun}
+      data-source-run-now=""
+    >
+      {running ? 'Running' : 'Run now'}
+    </Button>
+  );
+  if (!hint) return button;
+  return (
+    <>
+      <Tooltip content={hint}>
+        <span className="inline-flex" data-source-run-now-tip="">
+          {button}
+        </span>
+      </Tooltip>
+      <span id={whyId} hidden>
+        {hint}
+      </span>
+    </>
+  );
+}
+
+/**
  * Admin › Sources (v30 S1-WEB, 12 §9.8): every job source, at 80,000 rows. The server pages, searches (name or host),
  * filters (kind, tier, terms, robots, how it was found, enabled, failing, one host or company) and orders them; rows
  * are chosen for bulk Enable, Disable and Run now (one request per ADMIN_BULK_MAX). A row opens its sheet; Purges lists
  * the purges by source. Today's alarms (the daily report's) show above the filters.
  * v31 RUNS: a source is paused and continued from its row's menu and its sheet (apart from Enabled); while every run is
  * paused a notice says so, with Continue; Run now waits for a pause to end.
+ * v36 SOURCES (PLAN S1, S5, S7, S8): a source runs only once an admin turned it on: Run now waits while it is off; a
+ * source found and never turned on is "Waiting for an admin" (its chip filters them); v3.6's one-time notice says how
+ * many sources it turned off, with a filter for them and Enable all.
  */
 export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => void }) {
   const queryClient = useQueryClient();
@@ -228,9 +297,17 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
     onError: (error, source) => toast.error(isPaused(source) ? 'The source did not continue' : 'The source was not paused', userMessage(error)),
   });
 
+  // v36 SOURCES: the answer's row says who turned it on and whether it still waits for an admin.
   const toggle = useMutation({
     mutationFn: (source: AdminSourceRow) => setSourceEnabled(source.id, !source.enabled),
-    onSuccess: (_answer, source) => patchRows(new Set([source.id]), { enabled: !source.enabled }),
+    onSuccess: (row, source) =>
+      patchRows(new Set([source.id]), {
+        enabled: row.enabled,
+        enabledAt: row.enabledAt ?? null,
+        enabledBy: row.enabledBy ?? null,
+        waitingForAdmin: row.waitingForAdmin ?? false,
+        nextRunAt: row.nextRunAt,
+      }),
     onError: (error) => toast.error('The source was not changed', userMessage(error)),
   });
 
@@ -241,7 +318,7 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
       const names = new Map(items.map((item) => [item.id, item.name]));
       setOutcome({ summary: bulkSummary(action, result), problems: bulkProblems(result, (id) => names.get(Number(id))) });
       const done = new Set(result.results.filter((row) => row.outcome === 'done').map((row) => Number(row.id)));
-      if (action !== 'run_now') patchRows(done, { enabled: action === 'enable' });
+      if (action !== 'run_now') patchRows(done, action === 'enable' ? { enabled: true, waitingForAdmin: false } : { enabled: false }); // v36 SOURCES
       setSelection({ key: filtersKey, ids: new Set([...selected].filter((id) => !done.has(id))) });
       void queryClient.invalidateQueries({ queryKey: sourceKeys.pages });
     },
@@ -364,6 +441,8 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
           {isPaused(source) && <span className="text-[13px] text-muted-foreground">{sourcePausedText(source, now)}</span>}
           {/* v35 OPSWEB (PLAN H7): switched on, but it cannot run now: why, in its "?". */}
           {source.enabled && <WaitingBadge waiting={source.waiting} name={source.name} />}
+          {/* v36 SOURCES (PLAN S8): found, never turned on. */}
+          {source.waitingForAdmin && <WaitingForAdminBadge name={source.name} />}
           {failureText(source) && <span className="text-[13px] text-danger">{failureText(source)}</span>}
         </div>
       ),
@@ -395,23 +474,20 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
       className: 'w-40 text-right',
       cell: (source) => (
         <div className="flex items-center justify-end gap-1.5">
-          <Tooltip content={source.running ? null : (pausedRunNowHint(source, Boolean(runsPause.paused), t) ?? runNowHint(source))}>
-            <Button
-              variant="outline"
-              size="sm"
-              icon={<ArrowsClockwiseIcon size={14} />}
-              disabled={
-                source.running ||
-                isUnrun(source) ||
-                isPaused(source) || // v31 RUNS
-                Boolean(runsPause.paused) ||
-                (run.isPending && run.variables?.id === source.id)
-              }
-              onClick={() => run.mutate(source)}
-            >
-              {source.running ? 'Running' : 'Run now'}
-            </Button>
-          </Tooltip>
+          <RunNowButton
+            sourceId={source.id}
+            running={Boolean(source.running)}
+            hint={source.running ? null : (pausedRunNowHint(source, Boolean(runsPause.paused), t) ?? offRunNowHint(source, t) ?? runNowHint(source))}
+            disabled={
+              Boolean(source.running) ||
+              isUnrun(source) ||
+              isPaused(source) || // v31 RUNS
+              offRunNowHint(source, t) !== null || // v36 SOURCES (PLAN S5): it is off
+              Boolean(runsPause.paused) ||
+              (run.isPending && run.variables?.id === source.id)
+            }
+            onRun={() => run.mutate(source)}
+          />
           <Menu>
             <MenuTrigger
               render={<IconButton label={`More actions for ${source.name}`} icon={<DotsThreeIcon size={18} weight="bold" />} size="sm" tooltip={false} />}
@@ -470,6 +546,15 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
           <span id="admin-sources-title" className="sr-only">
             Job sources
           </span>
+          {/* v36 SOURCES (PLAN S7): the sources v3.6 turned off, once. */}
+          <TurnedOffNotice
+            onShow={(part) => narrow({ turnedOff: part })}
+            onEnableAll={() => {
+              narrow({ turnedOff: 'all' });
+              setAllAction('enable');
+            }}
+            onDismissed={() => focusLater(SOURCES_SEARCH)} // v36 FIX-SRC (ux L5): to the next control, not the page's top
+          />
           {/* v31 RUNS: every run paused: no source runs until Continue. v32 COPY (E4): states are chips with a "?" and
               their button, not banners. */}
           {(runsPause.paused || alarms.length > 0) && (
@@ -652,7 +737,7 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
         running={run.isPending && run.variables?.id === opened?.id}
         onPauseToggle={(source) => pauseToggle.mutate(source)}
         pauseBusy={pauseToggle.isPending && pauseToggle.variables?.id === opened?.id}
-        pausedHint={opened ? pausedRunNowHint(opened, Boolean(runsPause.paused), t) : null}
+        pausedHint={opened ? (pausedRunNowHint(opened, Boolean(runsPause.paused), t) ?? offRunNowHint(opened, t)) : null} // v36 SOURCES: or off
         onShowRuns={onShowRuns}
         onShowHost={(host) => link({ tab: 'hosts', host })}
         onPurge={(source) => setPurging(source)}
@@ -672,7 +757,13 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
         open={adding}
         onOpenChange={setAdding}
         onCreated={(source) => {
-          toast.success('Source added', `${source.name} is ready. Run it now to fetch its jobs.`);
+          // v36 SOURCES (PLAN S4): added on (Turn on now) or off.
+          toast.success(
+            'Source added',
+            source.enabled === false
+              ? `${source.name} is off. Turn it on when you want TailorIT to read it.`
+              : `${source.name} is on. Run it now to fetch its jobs.`,
+          );
           refresh();
         }}
       />

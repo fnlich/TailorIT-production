@@ -3,5 +3,6 @@
 export { Pane, type PaneProps } from './Pane';
 export { ROW_ACTION, useReducedMotion, useRowFocus, useThrottled } from './hooks';
 export { SelectBar, type SelectBarProps } from './SelectBar';
+export { SELECT_TOGGLE_NAME, SELECT_TOGGLE_TIP, SelectToggle, type SelectToggleProps } from './SelectToggle'; // v36 JOBS
 export { STATE_ICON_NAMES, STATE_ICONS, StateLine, type StateIconName, type StateLineProps, type StateTone } from './StateLine';
 export { RowDetailSheet, DetailStep, type RowDetailSheetProps } from './RowDetailSheet';

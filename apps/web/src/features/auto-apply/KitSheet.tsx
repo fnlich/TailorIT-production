@@ -179,7 +179,7 @@ export function KitBody({ item, onMarkApplied }: { item: QueuePaneItem; onMarkAp
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">The prepared resume was deleted. Prepare &amp; Queue it again.</p>
+          <p className="text-sm text-muted-foreground">The prepared resume was deleted. Prepare it again.</p>
         )}
       </DetailStep>
 

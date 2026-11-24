@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { ApplicationStatus, ApplicationSummary, TrackerTab, TrackerView } from '@tailorit/shared';
 import type { ProfileChoice } from '@tailorit/shared/sharing';
 import type { ToastApi } from '@/components/ui/Toast';
+import { FANOUT_COPY, QUEUE_COPY, archiveOneOutcome } from '../../sharing/fanout/copy'; // v36 FIX-WEB (D1)
 import { celebrateIfReached } from '../confetti';
 import { invalidateApplications, trackerApi, type ColumnLimits, type MoveStatusVariables } from '../data';
 import { toastFailure } from '../failure';
@@ -31,7 +32,12 @@ export interface CardActionsHost {
   favorite: (variables: { id: string; favorite: boolean; profile: ProfileChoice }) => void;
   /** Shows a lane a card moves to when it is hidden (the board). */
   showLane: (status: ApplicationStatus) => void;
+  /** v36 FIX-WEB (D1): the Queue changes box's name (the Sharing page's words; default its own default). */
+  queueBox?: string;
 }
+
+/** v36 FIX-WEB: LABEL_SHARING_ROW_QUEUE's default, for a host that gives no name. */
+const QUEUE_BOX = 'Queue changes';
 
 /** The All profiles view's per-card actions. */
 export function cardActions(host: CardActionsHost) {
@@ -64,12 +70,21 @@ export function cardActions(host: CardActionsHost) {
     const profile = editableProfile(application);
     if (profile === null) return;
     try {
-      if (archive) await trackerApi.archive(application.id, profile);
-      else await trackerApi.restore(application.id, profile);
+      // v36 FIX-WEB (D1): what the archive did to the auto-apply queue; a Saved entry it left as it was says why.
+      let outcome: ReturnType<typeof archiveOneOutcome> | null = null;
+      if (archive) {
+        const answer = await trackerApi.archive(application.id, profile);
+        outcome = archiveOneOutcome(answer, host.queueBox ?? QUEUE_BOX, ownerOf(application)?.label ?? FANOUT_COPY.you);
+      } else await trackerApi.restore(application.id, profile);
       void invalidateApplications(client);
+      if (outcome?.left) {
+        toast.toast({ type: 'info', title: QUEUE_COPY.notArchived, description: outcome.notes.join(' ') });
+        return;
+      }
       toast.toast({
         type: 'success',
         title: archive ? 'Application archived' : 'Application restored',
+        ...(outcome && outcome.notes.length > 0 ? { description: outcome.notes.join(' ') } : {}),
         action: { label: 'Undo', onClick: () => void setArchived(application, !archive) },
       });
     } catch (error) {

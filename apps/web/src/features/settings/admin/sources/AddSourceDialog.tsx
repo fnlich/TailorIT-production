@@ -3,6 +3,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
@@ -17,6 +18,8 @@ import { addableKindItems, careerSiteHost, feedNote, workdayAddressProblem } fro
 
 // "Add source" (v2.0, moved out of SourcesTab by v30 S1-WEB unchanged): a Greenhouse, Lever, Ashby or Workable board,
 // free_tailor's lake or the demo jobs, tested before it is saved. Discovery (12 §4) adds most boards from v3.0 on.
+// v36 SOURCES (SP v36 PLAN S4): "Turn on now", ticked by default: ticked, the source is added on (the server records the
+// admin who turned it on); unticked, it is added off and runs only once an admin turns it on in the list.
 
 /** v30 INT-0: no "Demo jobs" in a production build (dev-only, like app/(dev)/). */
 const KIND_ITEMS = addableKindItems(process.env.NODE_ENV === 'production');
@@ -107,10 +110,11 @@ export function AddSourceDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: (source: { id: number; name: string }) => void;
+  onCreated: (source: { id: number; name: string; enabled?: boolean }) => void; // v36 SOURCES: on or off
 }) {
   const [kind, setKind] = useState<AddableKind>('greenhouse');
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [turnOn, setTurnOn] = useState(true); // v36 SOURCES
   const [outcome, setOutcome] = useState<TestOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** v35 OPSWEB: the API's words about the Workday address (its `config.url` field), shown under the field. */
@@ -131,6 +135,7 @@ export function AddSourceDialog({
   const reset = () => {
     setKind('greenhouse');
     setDraft(EMPTY_DRAFT);
+    setTurnOn(true); // v36 SOURCES
     setOutcome(null);
     setError(null);
     setUrlError(null);
@@ -155,7 +160,7 @@ export function AddSourceDialog({
   });
 
   const create = useMutation({
-    mutationFn: () => createSource(bodyOf(kind, draft)),
+    mutationFn: () => createSource({ ...bodyOf(kind, draft), enabled: turnOn }), // v36 SOURCES: Turn on now
     onSuccess: (source) => {
       onCreated(source);
       reset();
@@ -311,6 +316,8 @@ export function AddSourceDialog({
           <Field label="Display name" optional hint="How it's listed here (the board's name by default).">
             <Input value={draft.name} onChange={set('name')} autoComplete="off" />
           </Field>
+          {/* v36 SOURCES (PLAN S4): unticked, the source is added off and never runs until it is turned on. */}
+          <Checkbox checked={turnOn} onCheckedChange={(checked) => setTurnOn(checked)} label="Turn on now" className="min-h-11 sm:min-h-0" />
 
           {outcome && (
             <Notice tone={outcome.ok ? 'success' : 'error'} title={outcome.ok ? 'It works' : 'That did not work'}>

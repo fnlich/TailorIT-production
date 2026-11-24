@@ -13,7 +13,7 @@ import {
   ImportMappingInputSchema,
   JOB_SOURCE_TERMS_STATUSES,
 } from '@tailorit/shared';
-import { adminRouter } from '../../core/admin/index';
+import { adminRouter, type AdminActor } from '../../core/admin/index';
 import { nowIso, type AppDeps } from '../../core/context';
 import { getFileStore } from '../../core/files/index';
 import { refuse } from '../../core/http/refuse';
@@ -44,12 +44,14 @@ import { constantsOf } from '../../core/constants/index'; // v30 FIX-A
 import { sourcingDailyReport } from './scheduler-report';
 import { continueAllRuns, continueRun, continueSource, pauseAllRuns, pauseRun, pauseSource } from './pause'; // v31 RUNS
 import { runsPausedState } from './pause-state'; // v31 RUNS
+import { dismissTurnedOff, turnedOffNotice } from './turned-off'; // v36 SOURCES
 import {
   adminRun,
   adminRuns,
   adminSource,
   bulkSources,
   countSourcesAll,
+  enableSources, // v36 SOURCES
   findSourceRecord,
   getSourceRecord,
   hostOf,
@@ -72,7 +74,7 @@ import {
   readTable,
   type ImportMapping,
 } from './tabular';
-import { IngestError, SCHEDULED_KINDS, SOURCE_KIND_LABEL, UNRUN_KINDS } from './types';
+import { IngestError, SOURCE_KIND_LABEL, UNRUN_KINDS } from './types';
 import { importLinksNote } from '../jobs/add/imports'; // v31 LINK2
 
 // Admin > Sources, Runs and Import jobs (docs/ARCHITECTURE.md §8). Every route is administrator-only. v30 ST4: each
@@ -96,6 +98,14 @@ import { importLinksNote } from '../jobs/add/imports'; // v31 LINK2
 // switches the ones it made on or off (POST /api/admin/runs/:id/sources {action}). Add source takes a Workday career
 // site from any page of it (`workday_site`, config {url}); a switched-on source that cannot run says why (`waiting`,
 // ingest/waiting.ts).
+//
+// v36 SOURCES (SP v36 PLAN S1, S4, S5, S7): a source is on only through an admin's action, recorded on its row. Every
+// route that turns sources on (PATCH {enabled: true}, bulk enable, Enable all, an import run's Enable all, Add source
+// with "Turn on now": `enabled` true, or absent, as the form's box is ticked by default) goes through sources.ts
+// enableSources with the signed-in admin (enabled_by, enabled_at); Add source with the box unticked makes the source
+// off. Run now and a run's Continue refuse a source that is off (service.ts, 409 MSG_INGEST_SOURCE_OFF). v3.6's one-time
+// notice of the sources 0060 turned off: GET /api/admin/sources/turned-off, POST /api/admin/sources/turned-off/dismiss
+// (turned-off.ts); the filter `turnedOff` lists them, and `enabled=waiting` the sources waiting for an admin.
 
 const Id = z.coerce.number().int().positive();
 
@@ -103,6 +113,7 @@ export { BACKGROUND_IMPORT_ROWS } from './imports';
 
 const name = z.string().trim().max(100, 'Keep the name under 100 characters.').optional();
 const companyName = z.string().trim().max(200).optional();
+/** v36 SOURCES (PLAN S4): Add source's "Turn on now" (true, or absent, as the form's box is ticked by default). */
 const enabled = z.boolean().optional();
 
 const GreenhouseConfig = z.object({ token: z.string().trim().min(1, 'Enter the Greenhouse board token.').max(300), companyName });
@@ -253,8 +264,12 @@ function readImport(fileName: string, text: string) {
   }
 }
 
-/** POST /api/admin/sources: a new source of a kind an admin adds (a board, the lake, the demo jobs). */
-async function createSource(deps: AppDeps, input: unknown) {
+/**
+ * POST /api/admin/sources: a new source of a kind an admin adds (a board, the lake, the demo jobs). v36 SOURCES (PLAN
+ * S4): made off, then turned on by the admin (enableSources: `enabled_by`, `enabled_at`) unless "Turn on now" is unticked
+ * (`enabled: false`); a source of a company that opted out stays off.
+ */
+async function createSource(deps: AppDeps, input: unknown, actor: AdminActor) {
   const db = deps.db;
   const body = parseInput(CreateSourceBody, input ?? {}, 'job source');
   let config: Record<string, unknown>;
@@ -336,8 +351,9 @@ async function createSource(deps: AppDeps, input: unknown) {
   const taken = () => conflict(`A ${SOURCE_KIND_LABEL[body.kind]} source named "${label}" already exists.`);
   if (await findSourceRecord(db, body.kind, label)) throw taken();
   // Null: the name was taken after the look (UNIQUE(kind, name)).
-  const created = await insertSource(db, { kind: body.kind, name: label, config, enabled: body.enabled }, nowIso(deps));
+  const created = await insertSource(db, { kind: body.kind, name: label, config }, nowIso(deps));
   if (!created) throw taken();
+  if (body.enabled !== false && !(await sourceOptedOut(db, created.id))) await enableSources(db, [created.id], actor, nowIso(deps)); // v36 SOURCES
   return { body, source: (await adminSource(db, created.id, false, nowIso(deps), waitingIn(deps)))! }; // v35 ADMIN: why it waits
 }
 
@@ -348,10 +364,20 @@ const waitingIn = (deps: AppDeps): SourcesWaiting => (sources) => waitingOfSourc
 const bulkWords = (deps: AppDeps): BulkWords => ({
   optedOut: constantsOf(deps).message('MSG_INGEST_SOURCE_OPTED_OUT'),
   paused: constantsOf(deps).message('MSG_INGEST_SOURCE_PAUSED'),
+  off: constantsOf(deps).message('MSG_INGEST_SOURCE_OFF'), // v36 SOURCES
 });
 
-/** PATCH /api/admin/sources/:id: its name, whether it runs daily, whether it closes missing postings, its settings. */
-async function patchSource(deps: AppDeps, id: number, patch: z.infer<typeof PatchSourceBody>, running: (id: number) => boolean) {
+/**
+ * PATCH /api/admin/sources/:id: its name, whether it runs daily, whether it closes missing postings, its settings. v36
+ * SOURCES (PLAN S1): turned on through enableSources, recording the admin (in the change's transaction).
+ */
+async function patchSource(
+  deps: AppDeps,
+  id: number,
+  patch: z.infer<typeof PatchSourceBody>,
+  running: (id: number) => boolean,
+  actor: AdminActor, // v36 SOURCES
+) {
   const db = deps.db;
   const source = await getSourceRecord(db, id);
   if (!source) return null;
@@ -402,35 +428,40 @@ async function patchSource(deps: AppDeps, id: number, patch: z.infer<typeof Patc
   }
   const now = nowIso(deps);
   const terms = patch.termsStatus !== undefined || patch.termsUrl !== undefined || patch.termsNote !== undefined;
-  // v30 S1-API: its host follows its settings (a Lever site moved to the EU); a source turned on is due at once; a
-  // recorded terms check moves terms_checked_at.
-  await db.run(
-    `UPDATE job_sources SET name = @name, enabled = @enabled, deactivate_missing = @deactivate, config = CAST(@config AS jsonb),
-       host = @host, updated_at = CAST(@now AS timestamptz),
-       next_run_at = CASE WHEN CAST(@turnedOn AS boolean) THEN CAST(@now AS timestamptz) ELSE next_run_at END,
-       terms_status = COALESCE(CAST(@termsStatus AS text), terms_status),
-       terms_url = CASE WHEN CAST(@setUrl AS boolean) THEN CAST(@termsUrl AS text) ELSE terms_url END,
-       terms_note = CASE WHEN CAST(@setNote AS boolean) THEN CAST(@termsNote AS text) ELSE terms_note END,
-       terms_checked_at = CASE WHEN CAST(@terms AS boolean) THEN CAST(@now AS timestamptz) ELSE terms_checked_at END,
-       priority = COALESCE(CAST(@priority AS smallint), priority)
-     WHERE id = @id`,
-    {
-      id,
-      name: nextName,
-      enabled: patch.enabled ?? source.enabled,
-      deactivate: patch.deactivateMissing ?? source.deactivateMissing,
-      config: JSON.stringify(config),
-      host: hostOf(source.kind, config) ?? source.host ?? null,
-      now,
-      turnedOn: patch.enabled === true && !source.enabled && SCHEDULED_KINDS.includes(source.kind),
-      termsStatus: patch.termsStatus ?? null,
-      setUrl: patch.termsUrl !== undefined,
-      termsUrl: patch.termsUrl ?? null,
-      setNote: patch.termsNote !== undefined,
-      termsNote: patch.termsNote ?? null,
-      terms,
-      priority: patch.priority ?? null,
+  // v30 S1-API: its host follows its settings (a Lever site moved to the EU); a recorded terms check moves
+  // terms_checked_at. v36 SOURCES: this statement only turns a source off; enableSources turns it on (due at once).
+  const turnOn = patch.enabled === true && !source.enabled;
+  await db.tx(
+    async (t) => {
+      await t.run(
+        `UPDATE job_sources SET name = @name, enabled = CASE WHEN CAST(@turnOff AS boolean) THEN false ELSE enabled END,
+           deactivate_missing = @deactivate, config = CAST(@config AS jsonb), host = @host, updated_at = CAST(@now AS timestamptz),
+           terms_status = COALESCE(CAST(@termsStatus AS text), terms_status),
+           terms_url = CASE WHEN CAST(@setUrl AS boolean) THEN CAST(@termsUrl AS text) ELSE terms_url END,
+           terms_note = CASE WHEN CAST(@setNote AS boolean) THEN CAST(@termsNote AS text) ELSE terms_note END,
+           terms_checked_at = CASE WHEN CAST(@terms AS boolean) THEN CAST(@now AS timestamptz) ELSE terms_checked_at END,
+           priority = COALESCE(CAST(@priority AS smallint), priority)
+         WHERE id = @id`,
+        {
+          id,
+          name: nextName,
+          turnOff: patch.enabled === false,
+          deactivate: patch.deactivateMissing ?? source.deactivateMissing,
+          config: JSON.stringify(config),
+          host: hostOf(source.kind, config) ?? source.host ?? null,
+          now,
+          termsStatus: patch.termsStatus ?? null,
+          setUrl: patch.termsUrl !== undefined,
+          termsUrl: patch.termsUrl ?? null,
+          setNote: patch.termsNote !== undefined,
+          termsNote: patch.termsNote ?? null,
+          terms,
+          priority: patch.priority ?? null,
+        },
+      );
+      if (turnOn) await enableSources(t, [id], actor, now); // v36 SOURCES (PLAN S1)
     },
+    { label: 'patch source' },
   );
   return adminSource(db, id, running(id), now, waitingIn(deps)); // v35 ADMIN: with why it waits
 }
@@ -516,11 +547,11 @@ export function createSourcesRouter(deps: AppDeps): Router {
     bulk: {
       body: AdminSourcesBulkBodySchema,
       // v30 FIX-A: a source of a company that opted out is skipped with MSG_INGEST_SOURCE_OPTED_OUT's words. v31 RUNS: run
-      // now skips a paused source with MSG_INGEST_SOURCE_PAUSED's.
-      run: (_deps, body) => bulkSources(db, body, nowIso(deps), bulkWords(deps).optedOut, bulkWords(deps).paused),
+      // now skips a paused source with MSG_INGEST_SOURCE_PAUSED's. v36 SOURCES: an enable records the admin.
+      run: (_deps, body, actor) => bulkSources(db, body, nowIso(deps), bulkWords(deps), actor),
     },
     get: (_deps, id) => adminSource(db, id, running(id), nowIso(deps), waitingIn(deps)),
-    patch: { body: PatchSourceBody, run: (_deps, id, patch) => patchSource(deps, id, patch, running) },
+    patch: { body: PatchSourceBody, run: (_deps, id, patch, actor) => patchSource(deps, id, patch, running, actor) },
     routes(router, { handle, audit }) {
       // v35 ADMIN (PLAN H6): Enable all / Disable all for the filter shown: its count for the confirm, then the change
       // (every match, in pages of ADMIN_BULK_MAX), audited once with its filter and counts.
@@ -533,17 +564,32 @@ export function createSourcesRouter(deps: AppDeps): Router {
         handle(async (req, actor) => {
           const body = parseInput(AdminSourcesAllBodySchema, req.body ?? {}, 'change');
           const filter = body.filter ?? AdminSourcesFilterSchema.parse({});
-          const { result, changed } = await sourcesAll(db, body.action, filter, nowIso(deps), bulkWords(deps));
+          const { result, changed } = await sourcesAll(db, body.action, filter, nowIso(deps), bulkWords(deps), actor); // v36 SOURCES: the admin
           await audit({ action: `${body.action}_all`, ids: ['all'], actor, change: { filter, matched: result.matched, changed } });
           return result;
         }),
       );
 
+      // v36 SOURCES (PLAN S7): v3.6's one-time notice of the sources 0060 turned off, and its dismissal (every admin's).
+      router.get(
+        '/turned-off',
+        handle(() => turnedOffNotice(db)),
+      );
+      router.post(
+        '/turned-off/dismiss',
+        handle(async (_req, actor) => {
+          const answer = await dismissTurnedOff(db, actor.id, nowIso(deps));
+          await audit({ action: 'dismiss_turned_off', ids: ['notice'], actor, change: null });
+          return answer;
+        }),
+      );
+      // end v36 SOURCES
+
       // A route answering with its own status sets it on req.res; handle sends the JSON (or nothing once ended).
       router.post(
         '/',
         handle(async (req, actor) => {
-          const { body, source } = await createSource(deps, req.body);
+          const { body, source } = await createSource(deps, req.body, actor);
           await audit({ action: 'create', ids: [source.id], actor, change: body });
           req.res!.status(201);
           return source;
@@ -645,7 +691,7 @@ export function createRunsRouter(deps: AppDeps): Router {
         handle(async (req, actor) => {
           const id = parseInput(Id, req.params.id, 'run id');
           const body = parseInput(AdminRunSourcesBodySchema, req.body ?? {}, 'change');
-          const done = await runSourcesAll(deps.db, id, body.action, nowIso(deps), bulkWords(deps));
+          const done = await runSourcesAll(deps.db, id, body.action, nowIso(deps), bulkWords(deps), actor); // v36 SOURCES: the admin
           if (!done) throw notFound('That run');
           await audit({ action: `${body.action}_found_sources`, ids: [id], actor, change: { matched: done.result.matched, changed: done.changed } });
           return done.result;

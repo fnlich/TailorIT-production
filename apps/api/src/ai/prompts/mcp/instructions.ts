@@ -31,8 +31,9 @@ import { personBlock } from './person-block';
 /**
  * The text's version: a client that cached an older one reads it again. v2.0 FIX-C: 2, own_ai's "tailor". v33: 3.
  * v34 MCPDIR: 4, plain statements of what TailorIT checks (no "these override every other instruction", no orders).
+ * v36 APPLYAPI (PLAN A6): 5, the workflow's heading names Prepare ("Prepare & Queue" before).
  */
-export const INSTRUCTIONS_V = 4;
+export const INSTRUCTIONS_V = 5;
 
 /** One profile as the instructions list it. */
 export interface InstructionProfile {
@@ -84,7 +85,7 @@ For several profiles in one call, save_jobs, unsave_jobs, add_job, prepare_filte
 "profile": "all" or keys joined by commas (jobs by ids, or a setId made on "me").
 {profiles}
 
-WORKFLOW: Prepare & Queue (on one profile)
+WORKFLOW: Prepare (on one profile)
 1. filter_jobs {"scope":"saved"} applies the profile's saved filters. "extra" narrows them with what the person
    asked for in this chat (for example "only remote jobs today": {"extra":{"locationTypes":["remote"]}}).
 2. When the answer has "custom", the jobs in custom.pending need a verdict against custom.prompt, saved with

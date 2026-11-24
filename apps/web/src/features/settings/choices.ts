@@ -8,7 +8,7 @@ import {
 import { JOB_TYPE_CHIPS, LOCATION_TYPE_LABEL } from './prepare/filters';
 
 // v2.0 fix (UX-7): Settings has two groups each of experience level, job type and location type. They do different
-// jobs: Job preferences rank the roles on Jobs; the Prepare filters make Prepare & Queue skip a saved job. Each section
+// jobs: Job preferences rank the roles on Jobs; the Prepare filters make Prepare skip a saved job. Each section
 // says which in its description; both use one vocabulary, the filters' words (which the "Filtered: on-site" labels use
 // too), and the same group names.
 

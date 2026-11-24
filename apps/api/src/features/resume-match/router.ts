@@ -5,6 +5,7 @@ import type { AppDeps } from '../../core/context';
 import { AppError, asyncHandler } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
 import { keyedRateLimit } from '../../core/rate-limit';
+import { adminApprovalForAdminsOnly } from '../jobs/add/approval-view'; // v36 FIX-API (sec L1)
 import type { ResumeMatchService } from './types';
 
 // The tracker's resume picker (work package WP5), mounted at /api/applications beside the tracker's own router (whose
@@ -46,9 +47,12 @@ export function createResumeMatchRouter(deps: AppDeps): Router {
   const rankLimit = perAccount('resume-matches', RANK_LIMIT);
   const autoMatchLimit = perAccount('resume-match', AUTO_MATCH_LIMIT);
 
+  // v36 FIX-API (sec L1): "Approved by an admin" for admins only on these answers too, installed here: never through
+  // the tracker's router mounted before this one on /api/applications.
   router.get(
     '/:id/resume-matches',
     requireUser,
+    adminApprovalForAdminsOnly,
     rankLimit,
     asyncHandler(async (req, res) => {
       res.json(await serviceOf(deps).rank(userOf(req).id, idOf(req)));
@@ -58,6 +62,7 @@ export function createResumeMatchRouter(deps: AppDeps): Router {
   router.post(
     '/:id/resume-match',
     requireUser,
+    adminApprovalForAdminsOnly,
     autoMatchLimit,
     asyncHandler(async (req, res) => {
       res.json(await serviceOf(deps).autoMatch(userOf(req).id, idOf(req)));

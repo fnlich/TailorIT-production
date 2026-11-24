@@ -41,8 +41,8 @@ function SettingsPage() {
           and time zone), which <Ui>Jobs I can apply to</Ui> and the location filter check jobs against.
         </li>
         <li>
-          <Ui>Prepare &amp; Queue</Ui>: the resume, cover letter and ask-first settings and your Prepare filters (see{' '}
-          <See to="auto-settings">Prepare &amp; Queue settings</See>).
+          <Ui>Prepare</Ui>: the resume, cover letter and ask-first settings and your Prepare filters (see{' '}
+          <See to="auto-settings">Prepare settings</See>).
         </li>
         <li>
           <Ui>Notification settings</Ui>: turn each group of notifications off or on: {groups.join(', ')}. Notifications stay

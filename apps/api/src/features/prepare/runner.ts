@@ -134,7 +134,7 @@ const PAYER_REFUSALS: ReadonlySet<string> = PAYER_LIMIT_CODES;
 const RUN_PERMS = 'prepare:run' as const;
 // end v33 SHARE-5
 
-// The server path of Prepare & Queue (docs/design/v2.0/05-prepare-flow.md, "The runner"): TailorIT's AI prepares
+// The server path of Prepare (docs/design/v2.0/05-prepare-flow.md, "The runner"): TailorIT's AI prepares
 // each `server` Prepare, one at a time per account (accounts side by side, oldest row first, RUNNER_PARALLEL at
 // most), paced by the plan's Prepares an hour (FREE_/PAID_PREPARE_PER_HOUR, v32 FIX-PLAN: Paid's unlimited by default;
 // Prepares started per account in the last hour, from prepare_jobs.started_at: it waits, it refuses nothing). For one

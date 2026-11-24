@@ -224,7 +224,7 @@ export function FilterChipsRow({ filters, onChange }: { filters: FilterState; on
 }
 
 /**
- * v2.0: "Prepare & Queue jobs", the select-mode bar for choosing Saved entries to Prepare & Queue (no job is queued
+ * v2.0: "Prepare jobs", the select-mode bar for choosing Saved entries to Prepare (no job is queued
  * directly: A4). Only Saved entries with a job that are not drafts in the queue already can be ticked (the others'
  * boxes say why); select all takes those on screen.
  */
@@ -251,7 +251,7 @@ export function PrepareBar({
   return (
     <div
       role="toolbar"
-      aria-label="Choose saved jobs to Prepare & Queue"
+      aria-label="Choose saved jobs to Prepare"
       className="flex min-h-11 flex-wrap items-center gap-3 rounded-card border border-primary-200 bg-primary-50 py-1.5 pr-1.5 pl-3.5 shadow-card"
     >
       <Checkbox
@@ -304,6 +304,7 @@ export function ManageBar({
   deletable = true,
   onCopy,
   changeable,
+  archiveNote = null,
   onDone,
 }: {
   tab: TrackerTab;
@@ -328,6 +329,11 @@ export function ManageBar({
    * three are off.
    */
   changeable?: { count: number; note: string | null };
+  /**
+   * v36 FIX-WEB (D1): the chosen Saved entries in the auto-apply queue, said in Archive's question ("1 is in the
+   * auto-apply queue and will be taken out of it."); null: none.
+   */
+  archiveNote?: string | null;
   onDone: () => void;
 }) {
   const [pending, setPending] = useState<BulkKind | null>(null);
@@ -348,7 +354,9 @@ export function ManageBar({
           }
         : {
             title: t(CONFIRM[pending].title, { count: pending === 'delete' ? count : changes }),
-            description: t(CONFIRM[pending].description, { count: pending === 'delete' ? count : changes }),
+            description: [t(CONFIRM[pending].description, { count: pending === 'delete' ? count : changes }), pending === 'archive' ? archiveNote : null]
+              .filter(Boolean)
+              .join(' '),
             label: CONFIRM[pending].label,
             tone: CONFIRM[pending].tone,
           };

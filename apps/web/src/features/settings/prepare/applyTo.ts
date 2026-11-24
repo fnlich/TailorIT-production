@@ -76,7 +76,7 @@ export function mergeFiltersAnswers(main: FanoutFiltersAnswer | null, own: Fanou
   };
 }
 
-/** A PATCH's answer as the form's stored copy (null without Prepare & queue's See there: read it again instead). */
+/** A PATCH's answer as the form's stored copy (null without Prepare's See there: read it again instead). */
 export function storedFilters(answer: Pick<PrepareFiltersPatchResponse, 'filters' | 'revision' | 'locationKnown' | 'timeZoneKnown'>): PrepareFiltersResponse | null {
   if (!answer.filters || answer.revision === null) return null;
   return {

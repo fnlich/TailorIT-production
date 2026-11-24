@@ -18,6 +18,9 @@ import type { CandidateBulkAction } from './api';
 // v30 S2: the words Admin › Candidates shows (docs/design/part2/12-job-sourcing.md §4): a candidate's state and its
 // next try, the funnel (found, waiting, became sources, not found, not allowed, dropped), why validation is off,
 // Common Crawl's progress, a board's open life, and what retry, drop and Add boards did. Pure.
+// v36 SOURCES (SP v36 PLAN S2, S8): a board that answers becomes a source that stays off until an admin turns it on: the
+// funnel's last steps say "a source, waiting for you", and a candidate's source says whether it still waits. v36 FIX-SRC
+// (the final ux review's L7): "waiting for you" only of the sources still waiting; turned-on ones say they run.
 
 /** A candidate state's badge tone. */
 export const STATUS_TONE: Record<JobSourceCandidateStatus, BadgeTone> = {
@@ -95,24 +98,67 @@ export function openLifeText(days: number | null | undefined): string | null {
 }
 
 /** The source column: the board's open jobs now and how long its jobs stay open, once it is a source. */
-export function sourceText(candidate: Pick<JobSourceCandidate, 'sourceId' | 'sourceOpenJobs' | 'openLifeDays' | 'openJobs' | 'sourceEnabled'>): string | null {
+export function sourceText(
+  candidate: Pick<JobSourceCandidate, 'sourceId' | 'sourceOpenJobs' | 'openLifeDays' | 'openJobs' | 'sourceEnabled' | 'sourceWaiting'>,
+): string | null {
   if (candidate.sourceId === null) return null;
   const open = candidate.sourceOpenJobs ?? candidate.openJobs ?? null;
   const parts = [open === null ? null : countLabel(open, 'open job', 'open jobs')];
   const life = openLifeText(candidate.openLifeDays);
   if (life) parts.push(`jobs stay open about ${life}`);
   // v31 ADMINWEB (RUNS' wording): a source turned off reads "disabled"; "paused" means Pause/Continue now (22-runs-pause.md).
-  if (candidate.sourceEnabled === false) parts.push('disabled');
+  // v36 SOURCES: one no admin turned on yet waits for you.
+  if (candidate.sourceWaiting === true) parts.push('waiting for you to turn it on');
+  else if (candidate.sourceEnabled === false) parts.push('disabled');
   return parts.filter(Boolean).join(', ') || 'A source';
 }
 
+/** v36 SOURCES (PLAN S8): the funnel's last steps: a validated board is a source that waits for an admin to turn it on. */
+const FUNNEL_SOURCE: Partial<Record<JobSourceCandidateStatus, string>> = {
+  valid: 'A source',
+  empty: 'A source with no open jobs',
+};
+
+/** A funnel row: its state, words and count; `detail`, a second line (a source step's split, v36 FIX-SRC). */
+export interface FunnelRow {
+  status: JobSourceCandidateStatus | 'all';
+  label: string;
+  count: number;
+  detail?: string;
+}
+
+/**
+ * v36 FIX-SRC (the final ux review's L7): a source step's words, from how many of its boards' sources still wait for an
+ * admin and how many an admin turned on: "waiting for you" only of those still waiting; turned-on ones say they run.
+ * All waiting (or a server that does not say): "A source, waiting for you"; all on: "A source, turned on: it runs";
+ * else the step's name, and the split on a second line ("120 waiting for you · 180 turned on: they run · 2 off").
+ */
+function sourceStep(base: string, row: CandidateFunnel['byStatus'][number] | undefined): Pick<FunnelRow, 'label' | 'detail'> {
+  const count = row?.count ?? 0;
+  const waiting = row?.sourcesWaiting;
+  const on = row?.sourcesOn;
+  if (waiting === undefined || on === undefined || count === 0 || waiting >= count) return { label: `${base}, waiting for you` };
+  if (on >= count) return { label: `${base}, turned on: it runs` };
+  const off = Math.max(0, count - waiting - on);
+  const detail = [
+    waiting > 0 ? `${formatCount(waiting)} waiting for you` : null,
+    on > 0 ? `${formatCount(on)} turned on: ${on === 1 ? 'it runs' : 'they run'}` : null,
+    off > 0 ? `${formatCount(off)} off` : null,
+  ].filter(Boolean);
+  return { label: base, detail: detail.join(' · ') };
+}
+
 /** The funnel's counts as rows (label, count, state), in FUNNEL_ORDER, with the total found first. */
-export function funnelRows(funnel: CandidateFunnel): Array<{ status: JobSourceCandidateStatus | 'all'; label: string; count: number }> {
-  const counts = new Map(funnel.byStatus.map((row) => [row.status, row.count]));
+export function funnelRows(funnel: CandidateFunnel): FunnelRow[] {
+  const rows = new Map(funnel.byStatus.map((row) => [row.status, row]));
   const total = funnel.byStatus.reduce((sum, row) => sum + row.count, 0);
   return [
     { status: 'all', label: 'Found', count: total },
-    ...FUNNEL_ORDER.map((status) => ({ status, label: JOB_SOURCE_CANDIDATE_STATUS_LABEL[status], count: counts.get(status) ?? 0 })),
+    ...FUNNEL_ORDER.map((status): FunnelRow => {
+      const row = rows.get(status);
+      const source = FUNNEL_SOURCE[status];
+      return { status, count: row?.count ?? 0, ...(source ? sourceStep(source, row) : { label: JOB_SOURCE_CANDIDATE_STATUS_LABEL[status] }) };
+    }),
   ];
 }
 

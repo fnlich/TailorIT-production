@@ -79,6 +79,8 @@ export interface QueuePaneProps {
   onFilterChange: (filter: QueueFilter) => void;
   prepare: PrepareAndQueue;
   scroll: boolean;
+  /** v36 APPLYWEB (PLAN A1): the pane fills the page's measured frame and its list scrolls inside it (Pane's `fill`). */
+  fill?: boolean;
   /** A saved job's support, when the Saved pane knows it (a Prepare row's accent and icon). */
   supportOf: (applicationId: string) => SavedJobSupport | undefined;
   /** View kit, a kit line, or Open job page on a manual row. */
@@ -98,6 +100,7 @@ export function QueuePane({
   onFilterChange,
   prepare,
   scroll,
+  fill = false,
   supportOf,
   onOpenKit,
   onMarkApplied,
@@ -304,7 +307,7 @@ export function QueuePane({
         icon={<RobotIcon size={22} />}
         title="Nothing in the queue"
         // v32 FIX-UX (UXREQ-8): the next step in view, not in the "?".
-        nextStep="Prepare & Queue a saved job and it shows up here, ready to apply."
+        nextStep="Prepare a saved job and it shows up here, ready to apply."
       />
     );
   } else {
@@ -373,6 +376,7 @@ export function QueuePane({
         controls={controls}
         status={queue.isError && data ? <PaneOutOfDate onRetry={() => void queue.refetch()} /> : undefined}
         scroll={scroll}
+        fill={fill}
       >
         {usage?.reached && (
           <div className="px-4 pt-3 sm:px-5" data-waiting-reset="">

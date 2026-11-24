@@ -39,13 +39,13 @@ import { usePrepareAllProfiles } from './usePrepareAllProfiles';
 
 // v33 SHARE-7 (PLAN F9 "Seeing every profile at once"; SP v33 PLAN-sharing.md §8): the Profiles page (/profiles, "All
 // profiles" in the account menu): a card per profile (the person's own first, then each profile shared with them that
-// shows Prepare & queue) with its counts, running Prepares and "Needs you"; one merged "Needs you" list; and "Prepare all
+// shows Prepare) with its counts, running Prepares and "Needs you"; one merged "Needs you" list; and "Prepare all
 // profiles": one confirm (the jobs over every profile the person may prepare, and their own AI use, which pays for all
 // of it), then one Prepare All per profile, every refusal in one alert. GET /api/sharing/overview is `self`, so the page
 // shows the same on any profile the tab works on; it asks again every 10 s while something prepares, else every 60 s
 // (never in a hidden tab).
 // v34 FANWEB (PLAN G3, G4): each card also says which Prepare filters are on there (GET /api/profiles/settings, one read
-// for every profile), with Edit (the tab opens that profile's Settings > Prepare & Queue) and, over the cards, "Change
+// for every profile), with Edit (the tab opens that profile's Settings > Prepare) and, over the cards, "Change
 // filters for all profiles" (the filters form over every profile, starting from the person's own filters). Prepare all
 // profiles is usePrepareAllProfiles (the Tracker's All profiles view starts the same).
 

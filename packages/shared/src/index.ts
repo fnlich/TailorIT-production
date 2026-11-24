@@ -12,7 +12,7 @@ export * from './tracker/index';
 export * from './ingest/index';
 // v1.4 D: tailoring a resume and a cover letter for a job (POST /api/tailor).
 export * from './tailor/index';
-// v2.0: Prepare & Queue (it replaces v1.5's Prebuild), the central constants, the accounts, the announcements and the
+// v2.0: Prepare (it replaces v1.5's Prebuild), the central constants, the accounts, the announcements and the
 // prepare filters.
 export * from './prepare/index';
 export * from './constants/index';

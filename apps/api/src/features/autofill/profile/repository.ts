@@ -146,7 +146,7 @@ const ADDED_PLACES = {
     'documents.resumeTemplateId',
     'documents.coverLetterTemplateId',
     // end v1.4 D
-    // v2.0: Prepare & Queue's cover-letter mode (API 8's documents.coverLetters, 'required' or 'always', replacing
+    // v2.0: Prepare's cover-letter mode (API 8's documents.coverLetters, 'required' or 'always', replacing
     // v1.5's documents.prebuildCoverLetters); an extension or page older than it keeps the stored choice.
     'documents.coverLetters',
     // end v2.0
@@ -378,7 +378,7 @@ export async function saveAutofillProfile(
   };
 }
 
-// v2.0 (docs/design/v2.0/05-prepare-flow.md): Prepare & Queue's cover-letter mode
+// v2.0 (docs/design/v2.0/05-prepare-flow.md): Prepare's cover-letter mode
 /**
  * Sets the profile's documents.coverLetters ('required' or 'always', API 8) alone, in the stored profile (PUT
  * /api/prepare/settings {letterMode}, MCP prepare_settings), its revision going up: a page or an extension holding an

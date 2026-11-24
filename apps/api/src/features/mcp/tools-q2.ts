@@ -188,7 +188,11 @@ export function registerWorkTools(server: McpServer, session: McpSession): void 
         'unsave_jobs',
         args,
         (own, many) => unsaveJobsOnMany(session, own, many, argsOf(args)),
-        () => run('unsave_jobs', args, (ctx) => unsaveJobsTool(ctx.deps, ctx.userId, argsOf(args), ctx.sets)),
+        // v36 FIX-API (D1): on a shared profile, its share decides whether queued jobs leave the queue.
+        () =>
+          run('unsave_jobs', args, (ctx) =>
+            unsaveJobsTool(ctx.deps, ctx.userId, argsOf(args), ctx.sets, ctx.profile.grant ? { grantId: ctx.profile.grant.id, actorId: ctx.caller.id } : null),
+          ),
       ),
   );
 

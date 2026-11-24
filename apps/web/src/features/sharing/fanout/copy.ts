@@ -71,26 +71,91 @@ export const FANOUT_COPY = {
   notReached: (name: string) => `Not saved on ${name}: try again.`,
   nothingNewOn: (name: string) => `Nothing new on ${name}.`,
 
+  // v36 JOBS (PLAN J3-J5): Unsave on the tab's profile and on profiles ------------------------------------------------
+  unsaveMenu: 'Unsave from profiles',
+  unsaveSelectedTitle: (jobs: number) => `Unsave ${plural(jobs, 'job', 'jobs')} from profiles`,
+  unsaveHelp: 'Only saved jobs are removed; a job applied to stays.',
+  unsaveConfirm: (count: number) => (count === 1 ? 'Unsave from 1 profile' : `Unsave from ${count} profiles`),
+  removedFrom: (names: string) => `Removed from ${names}`,
+  notRemovedTitle: 'Nothing was removed',
+  /**
+   * One profile's line in an unsave's result: "Ana: 2 removed, 1 applied: left as is, 1 not saved". v36 FIX-WEB (D1):
+   * `queue` (queueNotes: taken out of the queue too, being applied now, needing Queue changes) after the removed.
+   */
+  unsavedCounts: (removed: number, applied: number, notSaved: number, notFound: number, queue: readonly string[] = []) =>
+    [
+      removed > 0 ? `${removed} removed` : null,
+      ...queue,
+      applied > 0 ? `${applied} applied: left as is` : null,
+      notSaved > 0 ? `${notSaved} not saved` : null,
+      notFound > 0 ? `${notFound} not visible there` : null,
+    ]
+      .filter(Boolean)
+      .join(', ') || 'nothing to remove',
+  nothingRemovedOn: (name: string) => `Nothing to remove on ${name}.`,
+  /** An unsave's Undo. */
+  backInSaved: (count: number) => `${plural(count, 'job', 'jobs')} back in saved jobs`,
+  unsaveUndoFailed: "The unsave couldn't be undone",
+
+  // v36 APPLYWEB (PLAN A3-A5): Share (Auto-apply's Share All ▾, the Select bar's Share ▾, a row's Share to ›) ---------
+  share: 'Share',
+  shareAll: 'Share All',
+  shareTo: 'Share to',
+  shareMenu: 'Share to profiles',
+  shareAllMenu: 'Share all saved jobs to profiles',
+  /** The Select bar's Choose profiles…. */
+  shareSelectedTitle: (jobs: number) => `Share ${plural(jobs, 'job', 'jobs')} to profiles`,
+  /** A row's Choose profiles…. */
+  shareOneTitle: 'Share to profiles',
+  shareHelp: 'Only the jobs are shared, as Saved; notes, documents and the queue stay here.',
+  shareConfirm: (count: number) => (count === 1 ? 'Share to 1 profile' : `Share to ${count} profiles`),
+  sharedWith: (names: string) => `Shared with ${names}`,
+  nothingShared: 'Nothing was shared',
+  shareUndone: (count: number) => `${plural(count, 'shared job', 'shared jobs')} removed`,
+  shareAllTitle: 'Share all saved jobs',
+  shareAllHelp: 'Every job in Saved on this profile is shared, as Saved; notes, documents and the queue stay here.',
+  /** Share All's Choose profiles… goes on to the preview. */
+  shareAllNext: 'Continue',
+  shareAllReading: 'Reading...',
+  shareAllConfirmTitle: (jobs: number) => `Share ${plural(jobs, 'saved job', 'saved jobs')}?`,
+  shareAllNone: 'No saved jobs to share',
+  shareAllNoneLine: 'Saved is empty on this profile.',
+  shareAllNothingNew: 'Nothing new to share',
+  shareAllNothingNewLine: 'Every profile you chose has these jobs already, or cannot see them.',
+  /** v36 FIX-WEB (ux M1): Share All's result per target, in the preview's order: "3 added, 1 already there, 1 back in Saved". */
+  sharedCounts: (added: number, alreadyThere: number, backInSaved: number, notFound: number, notReached: number, stopped = false) =>
+    [
+      added > 0 ? `${added} added` : null,
+      alreadyThere > 0 ? `${alreadyThere} already there` : null,
+      backInSaved > 0 ? `${backInSaved} back in Saved` : null,
+      notFound > 0 ? `${notFound} not visible there` : null,
+      notReached > 0 ? (stopped ? `${notReached} not reached: stopped part-way` : `${notReached} not reached: try again`) : null,
+    ]
+      .filter(Boolean)
+      .join(', ') || 'nothing new',
+  /** The preview's line for one target: "3 will be added, 1 already there, 1 back in Saved". */
+  shareAllCounts: (added: number, alreadyThere: number, backInSaved: number, notFound: number) =>
+    [
+      added > 0 ? `${added} will be added` : null,
+      alreadyThere > 0 ? `${alreadyThere} already there` : null,
+      backInSaved > 0 ? `${backInSaved} back in Saved` : null,
+      notFound > 0 ? `${notFound} not visible there` : null,
+    ]
+      .filter(Boolean)
+      .join(', ') || 'nothing to share',
+  /** After MSG_SHARE_ALL_TOO_MANY ("Share at most {max} saved jobs at once."): which ones go now. */
+  shareAllNewest: (taking: number, saved: number) => `This shares the newest ${taking} of ${saved}.`,
+  shareAllLine: (profiles: number) => `To ${profiles === 1 ? '1 profile' : `${profiles} profiles`} · Only the jobs, as Saved`,
+  shareAllConfirmLabel: (jobs: number) => `Share ${jobs}`,
+  shareAllBusy: 'Sharing...',
+  /** Share All's start: entries that left the source's Saved after the preview. */
+  shareAllGone: (count: number) => `${plural(count, 'job', 'jobs')} left Saved meanwhile and ${count === 1 ? 'was' : 'were'} not shared.`,
+  /** A profile the preview could not use. */
+  shareAllRefusedLead: 'Not shared to these:',
+
   // Saved on chips -----------------------------------------------------------------------------------------------------
   savedOnChip: (names: string) => `Saved on ${names}`,
   savedOnLabel: (names: string) => `Also saved on ${names}`,
-
-  // Save all to --------------------------------------------------------------------------------------------------------
-  saveAllTo: 'Save all to…',
-  saveAllToTip: "Save this search's jobs on other profiles too",
-  saveAllToTitle: 'Save all to profiles',
-  saveAllToHelp: "Each profile saves its own matches for this search, with its own resume.",
-  saveAllContinue: 'Continue',
-  /** v34 FANWEB fix (spec L4): the lines under it give each profile's count. */
-  saveAllConfirmTitle: (profiles: number) => `Save on ${plural(profiles, 'profile', 'profiles')}?`,
-  saveAllConfirmNone: 'Nothing new to save',
-  saveAllConfirmLine: 'Each profile saves the jobs it does not have yet.',
-  saveAllConfirmLabel: 'Save',
-  saveAllBusy: 'Saving...',
-  willSave: (count: number) => (count === 0 ? 'nothing new' : `saves ${count}`),
-  /** v34 FANWEB fix (spec M2): Save all on a profile that saved nothing. */
-  allSavedAlready: (name: string) => `${name} has these jobs saved already.`,
-  noNewMatches: (name: string) => `No new matches on ${name}.`,
 
   // Add job ------------------------------------------------------------------------------------------------------------
   alsoSaveTo: 'Also save to',
@@ -123,9 +188,9 @@ export const FANOUT_COPY = {
   nothingToChangeOn: (name: string) => `Nothing to change on ${name}.`,
   nothingStartedOn: (name: string, why: string | null) => (why ? `Nothing started on ${name}: ${why.replace(/\.$/, '')}.` : `Nothing started on ${name}.`),
   prepareConfirmTitle: (jobs: number, profiles: number) =>
-    `Prepare & Queue ${plural(jobs, 'job', 'jobs')}${profiles > 1 ? ` on ${profiles} profiles` : ''}?`,
+    `Prepare ${plural(jobs, 'job', 'jobs')}${profiles > 1 ? ` on ${profiles} profiles` : ''}?`,
   prepareConfirmLine: 'Your AI use pays for every profile. What you prepare on a shared profile waits for its owner\'s OK unless they let you apply.',
-  prepareConfirmLabel: 'Prepare & Queue',
+  prepareConfirmLabel: 'Prepare',
   prepareBusy: 'Starting...',
   prepareStarted: (count: number) => `${plural(count, 'job', 'jobs')} preparing`,
   prepareNone: 'Nothing was prepared',
@@ -209,6 +274,10 @@ export const FANOUT_COPY = {
   resultLead: 'Not done on every profile:',
   /** v34 FIX-WEB (final review U-L2): the lead when no profile refused, only a switch or a filter was kept. */
   resultLeadKept: 'Done, with exceptions:',
+  /** v36 FIX-WEB (ux M1): a result done on more profiles than a toast lists: its line, its button, its alert's lead. */
+  doneOnProfiles: (count: number) => `Done on ${count} profiles.`,
+  details: 'Details',
+  resultLeadDone: 'What happened on each profile:',
   ok: 'OK',
   /**
    * v34 FANWEB fix (spec M3): the shares 'all' left out, each with the box it needs ("Ben Ito (needs Job Tracker ›
@@ -218,3 +287,90 @@ export const FANOUT_COPY = {
     `Left out: ${items}.${ask ? ` Ask ${ask === 'each' ? 'each owner' : 'its owner'} to tick it in Settings › Sharing.` : ''}`,
   leftOutItem: (name: string, box: string | null) => (box ? `${name} (needs ${box})` : `${name} (the share changed)`),
 } as const;
+
+// v36 FIX-WEB (SP v36 FINAL-FIXES D1): removing saved jobs also takes them out of the auto-apply queue when they wait
+// there (queued, held, waiting for their owner's OK); a job the extension is applying to now is left in saved jobs and
+// in the queue, and so is a queued job on a shared profile without its Queue changes box. Every result names them; an
+// Undo brings the saved job back, never its place in the queue.
+
+/** The queue's counts an archive of saved jobs answers (each absent or 0 says nothing). */
+export interface QueueCounts {
+  dequeued?: number;
+  applying?: number;
+  queueLocked?: number;
+}
+
+export const QUEUE_COPY = {
+  dequeued: (count: number) => `${count} also taken out of the auto-apply queue`,
+  applying: (count: number) => `${count} being applied now: left in saved jobs`,
+  queueLocked: (count: number, box: string, name: string) => `${count} ${count === 1 ? 'needs' : 'need'} ${box} on ${name}: left in saved jobs`,
+  /** An Undo's line when the removal took jobs out of the queue. */
+  requeue: (count: number) =>
+    count === 1 ? 'Taken out of the queue: prepare it again to queue it.' : `${count} were taken out of the queue: prepare them again to queue them.`,
+  /** A Remove's question, for the chosen jobs in the queue. */
+  inQueue: (count: number) => `${count === 1 ? '1 is' : `${count} are`} in the auto-apply queue and will be taken out of it.`,
+  inQueueLocked: (count: number, box: string, name: string) =>
+    `${count === 1 ? '1 is' : `${count} are`} in the auto-apply queue: taking ${count === 1 ? 'it' : 'them'} out needs ${box} on ${name}, so ${count === 1 ? 'it stays' : 'they stay'} in saved jobs.`,
+  /** One job's Remove or archive (a row's, a card's). */
+  oneDequeued: 'Also taken out of the auto-apply queue.',
+  oneApplying: 'Being applied now: left in saved jobs.',
+  oneQueueLocked: (box: string, name: string) => `Needs ${box} on ${name}: left in saved jobs.`,
+  oneInQueue: 'It is in the auto-apply queue and will be taken out of it.',
+  oneInQueueLocked: (box: string, name: string) => `It is in the auto-apply queue: taking it out needs ${box} on ${name}, so it stays in saved jobs.`,
+  /** The title of one job an archive left as it was. */
+  notRemoved: 'Not removed',
+  notArchived: 'Not archived',
+} as const;
+
+/**
+ * One job's archive (a row's Remove, a card's Archive): whether it was left as it was (still not archived: the
+ * extension applies to it now, or its queue needs Queue changes) and the queue's sentences.
+ */
+export function archiveOneOutcome(answer: { archivedAt: string | null } & QueueCounts, box: string, name: string): { left: boolean; notes: string[] } {
+  const notes = [
+    (answer.dequeued ?? 0) > 0 ? QUEUE_COPY.oneDequeued : null,
+    (answer.applying ?? 0) > 0 ? QUEUE_COPY.oneApplying : null,
+    (answer.queueLocked ?? 0) > 0 ? QUEUE_COPY.oneQueueLocked(box, name) : null,
+  ].filter((note): note is string => note !== null);
+  const kept = (answer.applying ?? 0) + (answer.queueLocked ?? 0) > 0;
+  return { left: kept && answer.archivedAt === null, notes };
+}
+
+/** The queue's parts of a result, in its order (taken out too, being applied now, needing Queue changes). */
+export function queueNotes(counts: QueueCounts, box: string, name: string): string[] {
+  return [
+    (counts.dequeued ?? 0) > 0 ? QUEUE_COPY.dequeued(counts.dequeued!) : null,
+    (counts.applying ?? 0) > 0 ? QUEUE_COPY.applying(counts.applying!) : null,
+    (counts.queueLocked ?? 0) > 0 ? QUEUE_COPY.queueLocked(counts.queueLocked!, box, name) : null,
+  ].filter((part): part is string => part !== null);
+}
+
+/** The same as sentences ("1 also taken out of the auto-apply queue. 1 being applied now: left in saved jobs."). */
+export function queueSentences(counts: QueueCounts, box: string, name: string): string[] {
+  return queueNotes(counts, box, name).map((part) => `${part}.`);
+}
+
+/** The three counts added (a batched archive's answers laid together); absent where every part had none. */
+export function addQueueCounts(before: QueueCounts, next: QueueCounts): QueueCounts {
+  const out: QueueCounts = {};
+  for (const key of ['dequeued', 'applying', 'queueLocked'] as const) {
+    if (before[key] !== undefined || next[key] !== undefined) out[key] = (before[key] ?? 0) + (next[key] ?? 0);
+  }
+  return out;
+}
+
+/** The words a removal's question uses for the tab's queue (useQueueWords). */
+export interface QueueWordsLike {
+  box: string;
+  name: string;
+  canChange: boolean;
+}
+
+/**
+ * A removal's question on the chosen jobs in the auto-apply queue: they leave it ("1 is in the auto-apply queue and will
+ * be taken out of it."), or, on a profile shared without Queue changes, they stay; null when none is queued.
+ */
+export function inQueueNote(queued: number, queue: QueueWordsLike): string | null {
+  if (queued === 0) return null;
+  return queue.canChange ? QUEUE_COPY.inQueue(queued) : QUEUE_COPY.inQueueLocked(queued, queue.box, queue.name);
+}

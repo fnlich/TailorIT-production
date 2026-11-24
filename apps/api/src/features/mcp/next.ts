@@ -147,7 +147,7 @@ export async function finishIfDone(ctx: SaveContext, job: McpJob): Promise<Finis
 export async function nextAfterSave(ctx: SaveContext, job: McpJob, mode: McpPromptMode, finished: Finished): Promise<string> {
   if (finished.queueFull) {
     return 'The auto-apply queue is full, so this job is kept prepared, not queued: tell the person to clear finished ' +
-      `jobs and Prepare & Queue it again. ${await nextJob(ctx, job.jobId)}`;
+      `jobs and prepare it again. ${await nextJob(ctx, job.jobId)}`;
   }
   return finished.queued ? nextJob(ctx, job.jobId) : nextStep(ctx, job, mode);
 }

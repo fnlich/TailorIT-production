@@ -5,11 +5,12 @@ import {
   FanoutCopySavedAnswerSchema,
   FanoutFiltersAnswerSchema,
   FanoutPrepareSettingsAnswerSchema,
-  FanoutSaveAllAnswerSchema,
-  FanoutSaveAllPreviewAnswerSchema,
   FanoutSaveJobsAnswerSchema,
   FanoutSavedOnSchema,
   FanoutSettingsSummarySchema,
+  FanoutUnsaveJobsAnswerSchema, // v36 JOBS
+  FanoutShareAllAnswerSchema, // v36 APPLYWEB
+  FanoutShareAllPreviewAnswerSchema, // v36 APPLYWEB
   PROFILE_SELF,
   type AutoSaveRulePatch,
   type FanoutAddJobAnswer,
@@ -20,14 +21,16 @@ import {
   type FanoutFiltersAnswer,
   type FanoutItem,
   type FanoutPrepareSettingsAnswer,
-  type FanoutSaveAllAnswer,
-  type FanoutSaveAllPreviewAnswer,
   type FanoutSaveJobsAnswer,
   type FanoutSavedOn,
   type FanoutSettingsPart,
   type FanoutSettingsSummary,
   type FanoutTargets,
+  type FanoutUnsaveJobsAnswer, // v36 JOBS
+  type FanoutShareAllAnswer, // v36 APPLYWEB
+  type FanoutShareAllPreviewAnswer, // v36 APPLYWEB
   type PrepareFiltersPatch,
+  type ProfileChoice,
 } from '@tailorit/shared/sharing';
 import type { JobAddDetails } from '@tailorit/shared';
 import type { PrepareSettingsBody } from '@tailorit/shared/prepare';
@@ -40,8 +43,7 @@ import { api } from '../../../lib/api';
 // Ana's profile names Ana's key for "this profile"). So every call here names no profile (`profile: 'me'`: apiFetch
 // sends no profile header), and a refused profile is only ever a per-profile result, never the shell's "profile ended".
 //   POST  /api/profiles/jobs/save                → FanoutSaveJobsAnswer
-//   GET   /api/profiles/jobs/save-all/preview    → FanoutSaveAllPreviewAnswer
-//   POST  /api/profiles/jobs/save-all            → FanoutSaveAllAnswer
+//   POST  /api/profiles/jobs/unsave              → FanoutUnsaveJobsAnswer (v36 JOBS)
 //   POST  /api/profiles/jobs/add                 → FanoutAddJobAnswer
 //   GET   /api/profiles/jobs/saved-on?jobIds=    → FanoutSavedOn
 //   POST  /api/profiles/applications/copy        → FanoutCopySavedAnswer
@@ -50,6 +52,8 @@ import { api } from '../../../lib/api';
 //   PATCH /api/profiles/prepare/settings         → FanoutPrepareSettingsAnswer
 //   PATCH /api/profiles/auto-apply/rule          → FanoutAutoSaveRuleAnswer
 //   GET   /api/profiles/settings?targets=&parts= → FanoutSettingsSummary
+//   GET   /api/profiles/saved/share-all/preview?source=&targets= → FanoutShareAllPreviewAnswer (v36 APPLYWEB)
+//   POST  /api/profiles/saved/share-all          → FanoutShareAllAnswer (v36 APPLYWEB)
 
 /** The person's own route: no profile header (see above). */
 const OWN = { profile: PROFILE_SELF } as const;
@@ -71,17 +75,36 @@ export function saveJobsTo(targets: FanoutTargets, jobIds: readonly number[], oc
   return api.post('/api/profiles/jobs/save', { targets, jobIds: [...jobIds], occurredOn }, { ...OWN, schema: FanoutSaveJobsAnswerSchema });
 }
 
-export function previewSaveAllOn(targets: FanoutTargets, search: string, signal?: AbortSignal): Promise<FanoutSaveAllPreviewAnswer> {
-  return api.get('/api/profiles/jobs/save-all/preview', {
+/** v36 JOBS (PLAN J5): removes the jobs from Saved on `targets` (Job Tracker › Change each; an applied job is left). */
+export function unsaveJobsFrom(targets: FanoutTargets, jobIds: readonly number[]): Promise<FanoutUnsaveJobsAnswer> {
+  return api.post('/api/profiles/jobs/unsave', { targets, jobIds: [...jobIds] }, { ...OWN, schema: FanoutUnsaveJobsAnswerSchema });
+}
+
+/**
+ * v36 APPLYWEB (PLAN A3): Share All's preview: per target, what sharing every job in Saved on `source` would do, and the
+ * source's entries the start takes (send them back as they are).
+ */
+export function previewShareAll(source: ProfileChoice, targets: FanoutTargets, signal?: AbortSignal): Promise<FanoutShareAllPreviewAnswer> {
+  return api.get('/api/profiles/saved/share-all/preview', {
     ...OWN,
     signal,
-    query: { targets: targetsParam(targets), search },
-    schema: FanoutSaveAllPreviewAnswerSchema,
+    query: { source, targets: targetsParam(targets) },
+    schema: FanoutShareAllPreviewAnswerSchema,
   });
 }
 
-export function saveAllTo(targets: FanoutTargets, search: string, occurredOn: string): Promise<FanoutSaveAllAnswer> {
-  return api.post('/api/profiles/jobs/save-all', { targets, search, occurredOn }, { ...OWN, schema: FanoutSaveAllAnswerSchema });
+/** v36 APPLYWEB (PLAN A3): Share All's start: exactly the entries its preview named, from `source` to `targets`. */
+export function startShareAll(
+  source: ProfileChoice,
+  targets: FanoutTargets,
+  applicationIds: readonly string[],
+  occurredOn: string,
+): Promise<FanoutShareAllAnswer> {
+  return api.post(
+    '/api/profiles/saved/share-all',
+    { source, targets, applicationIds: [...applicationIds], occurredOn },
+    { ...OWN, schema: FanoutShareAllAnswerSchema },
+  );
 }
 
 export function addJobTo(targets: FanoutTargets, url: string, details?: JobAddDetails): Promise<FanoutAddJobAnswer> {

@@ -41,13 +41,13 @@ export function trackerMarker(
 }
 
 /**
- * Why a Tracker entry cannot be chosen for Prepare & Queue, or null when it can: one added by hand has no job, one past
+ * Why a Tracker entry cannot be chosen for Prepare, or null when it can: one added by hand has no job, one past
  * Saved was applied to already, an archived one is not a saved job, and a Draft is in the queue already.
  */
 export function prepareBlockReason(
   application: Pick<ApplicationSummary, 'jobId' | 'currentStatus' | 'queued' | 'archivedAt'>,
 ): string | null {
-  if (application.jobId === null) return 'Added by hand: Prepare & Queue needs a job from Jobs.';
+  if (application.jobId === null) return 'Added by hand: Prepare needs a job from Jobs.';
   if (application.archivedAt) return 'Archived: restore it to Saved first.';
   if (application.currentStatus !== STATUS.saved) return 'Past Saved in your Job Tracker: applied to already.';
   if (application.queued === true) return 'A draft in your auto-apply queue already.';

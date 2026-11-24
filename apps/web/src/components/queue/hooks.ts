@@ -10,7 +10,7 @@ import { useMediaQuery } from '../../lib/useMediaQuery';
 export const ROW_ACTION = { 'data-row-action': '' } as const;
 
 /**
- * v2.0 fix (UX-3): keeps keyboard focus in a row whose action changes under it. Prepare & Queue becomes Cancel, then
+ * v2.0 fix (UX-3): keeps keyboard focus in a row whose action changes under it. Prepare becomes Cancel, then
  * View in queue: the focused button unmounts and focus fell to `<body>`, so the person started again from the top of
  * the page. When focus was in the row and nothing else has it now, it moves to the row's new action (the element
  * marked ROW_ACTION, else its first button). `signature` names the row's actions. Returns the row's ref and its

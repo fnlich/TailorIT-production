@@ -4,7 +4,7 @@ TailorIT is a self-hosted job-search workspace:
 
 - **Jobs**: full-text search over postings read from public job boards, with filters, saved searches and each
   company's profile.
-- **Auto-apply**: Prepare & Queue makes each saved job's kit (a resume, a cover letter when one is needed, answers to
+- **Auto-apply**: Prepare makes each saved job's kit (a resume, a cover letter when one is needed, answers to
   the known questions); the TailorIT Autofill browser extension fills the application forms.
 - **Job Tracker**: a board, a list and a chart of your applications, with each application's documents, answers and
   notes.

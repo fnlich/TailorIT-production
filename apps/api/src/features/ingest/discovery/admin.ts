@@ -53,11 +53,14 @@ interface CandidateRow {
   source_enabled: boolean | null;
   source_open_jobs: number | null;
   open_life_days: number | null;
+  /** v36 SOURCES: its source is off and no admin ever turned it on. */
+  source_waiting: boolean | null;
 }
 
 const CANDIDATE_COLUMNS = `c.id, c.kind, c.name, c.discovered_via, c.seen_count, c.first_seen_at, c.last_seen_at, c.status, c.attempts,
   c.next_check_at, c.source_id, c.checked_at, c.open_jobs, c.last_error, s.name AS source_name, s.enabled AS source_enabled,
-  COALESCE(m.open_jobs, s.open_jobs) AS source_open_jobs, m.open_life_days_median AS open_life_days`;
+  COALESCE(m.open_jobs, s.open_jobs) AS source_open_jobs, m.open_life_days_median AS open_life_days,
+  (NOT s.enabled AND s.enabled_at IS NULL) AS source_waiting`; // v36 SOURCES
 const CANDIDATE_FROM = `job_source_candidates c LEFT JOIN job_sources s ON s.id = c.source_id
   LEFT JOIN job_source_measures m ON m.source_id = c.source_id`;
 
@@ -81,19 +84,25 @@ function toCandidate(row: CandidateRow): JobSourceCandidate {
     sourceEnabled: row.source_id === null ? null : row.source_enabled === true,
     sourceOpenJobs: row.source_id === null ? null : row.source_open_jobs,
     openLifeDays: row.open_life_days === null ? null : Math.round(Number(row.open_life_days) * 10) / 10,
+    sourceWaiting: row.source_id === null ? null : row.source_waiting === true, // v36 SOURCES (PLAN S8)
   };
 }
 
 /** The funnel (see the top). */
 export async function candidateFunnel(deps: AppDeps): Promise<CandidateFunnel> {
   const db = deps.db;
-  const byStatus = await db.all<{ status: JobSourceCandidateStatus; count: number }>(
-    'SELECT status, count(*) AS count FROM job_source_candidates GROUP BY status',
+  // v36 FIX-SRC (the final ux review's L7): with each status, how many of its candidates' sources wait for an admin (off,
+  // never turned on: the candidate rows' source_waiting) and how many are on, so the funnel says "waiting for you" only
+  // of those still waiting.
+  const byStatus = await db.all<{ status: JobSourceCandidateStatus; count: number; sources_waiting: number; sources_on: number }>(
+    `SELECT c.status, count(*) AS count,
+       count(*) FILTER (WHERE NOT s.enabled AND s.enabled_at IS NULL) AS sources_waiting, count(*) FILTER (WHERE s.enabled) AS sources_on
+     FROM job_source_candidates c LEFT JOIN job_sources s ON s.id = c.source_id GROUP BY c.status`,
   );
   const byVia = await db.all<{ discovered_via: JobSourceDiscoveredVia; count: number }>(
     'SELECT discovered_via, count(*) AS count FROM job_source_candidates GROUP BY discovered_via',
   );
-  const statusCounts = new Map(byStatus.map((row) => [row.status, row.count]));
+  const statusCounts = new Map(byStatus.map((row) => [row.status, row]));
   const viaCounts = new Map(byVia.map((row) => [row.discovered_via, row.count]));
   const usedToday = await counterOf(db, discoveryDayOf(deps), VALIDATIONS_COUNTER);
   const reading = new Set(validatableKinds(deps));
@@ -113,7 +122,10 @@ export async function candidateFunnel(deps: AppDeps): Promise<CandidateFunnel> {
   const crawl: CrawlState = { ...NO_CRAWL, ...((await readState<Partial<CrawlState>>(db, COMMON_CRAWL_STATE)) ?? {}) };
   const c = constantsOf(deps);
   return {
-    byStatus: JOB_SOURCE_CANDIDATE_STATUSES.map((status) => ({ status, count: statusCounts.get(status) ?? 0 })),
+    byStatus: JOB_SOURCE_CANDIDATE_STATUSES.map((status) => {
+      const row = statusCounts.get(status);
+      return { status, count: Number(row?.count ?? 0), sourcesWaiting: Number(row?.sources_waiting ?? 0), sourcesOn: Number(row?.sources_on ?? 0) };
+    }),
     byVia: JOB_SOURCE_DISCOVERED_VIA.map((discoveredVia) => ({ discoveredVia, count: viaCounts.get(discoveredVia) ?? 0 })),
     validatedToday: usedToday,
     validation: { on: reason === null, reason, cap: c.get('DISCOVERY_VALIDATIONS_PER_DAY'), usedToday, waitingKinds },

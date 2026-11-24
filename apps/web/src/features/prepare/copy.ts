@@ -9,19 +9,23 @@ import type {
   PrepareStartResponse,
   PrepareStep,
 } from '@tailorit/shared/prepare';
+// Relative, not '@/': the web tests read these words.
+import { queueSentences, type QueueCounts } from '../sharing/fanout/copy'; // v36 FIX-WEB (D1)
 
-// v2.0: the words of Prepare & Queue (docs/design/v2.0/08-ui.md, "Prepare & Queue: the button, the confirm, the
-// errors") and of the Tracker's "Prepared" tab: pure, so the tests read them without a page. Limit and status words
-// come from the constants (usePublicConstants().t); these are the feature's own.
+// v2.0: the words of Prepare (docs/design/v2.0/08-ui.md: the button, the confirm, the errors) and
+// of the Tracker's "Prepared" tab: pure, so the tests read them without a page. Limit and status words come from the
+// constants (usePublicConstants().t); these are the feature's own.
+// v36 APPLYWEB (PLAN A6; SP v36 REQUEST.md, the rename): v2.0's two-word name of the action is "Prepare" wherever a
+// person reads it (the action still prepares each job's kit, then queues it).
 
-/** The button's words: "Prepare & Queue", or "Prepare & Queue (3)" for a selection. */
-export const PREPARE_LABEL = 'Prepare & Queue';
+/** The button's words: "Prepare", or "Prepare (3)" for a selection. */
+export const PREPARE_LABEL = 'Prepare';
 export function prepareLabel(count?: number): string {
   return count === undefined ? PREPARE_LABEL : `${PREPARE_LABEL} (${count})`;
 }
 
 // v31 AUTO: the filters are a dialog on the page that needs them (PrepareFiltersDialog), no longer a link to Settings ›
-// Prepare & Queue; "Change filters" (a filtered row's popover, the result toast) opens it too.
+// Prepare; "Change filters" (a filtered row's popover, the result toast) opens it too.
 
 /** The Saved pane's Filters button: "Filters", named "Filters, 2 on" while filters are on. */
 export const FILTERS_LABEL = 'Filters';
@@ -54,7 +58,7 @@ export function passCount(preview: Pick<PrepareFiltersPreview, 'pass' | 'total'>
 /** The Saved pane's button beside Filters and Select. */
 export const PREPARE_ALL_LABEL = 'Prepare All';
 
-/** Prepare All's confirm: "Prepare & Queue 12 jobs" (one: "Prepare & Queue 1 job"). */
+/** Prepare All's confirm: "Prepare 12 jobs" (one: "Prepare 1 job"). */
 export function prepareAllTitle(taking: number): string {
   return `${PREPARE_LABEL} ${taking} ${taking === 1 ? 'job' : 'jobs'}`;
 }
@@ -72,6 +76,9 @@ export function prepareAllSummary(plan: Pick<PrepareAllPlan, 'passing' | 'taking
   const head = plan.passing === 1 ? '1 saved job in To prepare passes your filters' : `${plan.passing} saved jobs in To prepare pass your filters`;
   return plan.taking < plan.passing ? `${head}: this takes ${plan.taking} of them now.` : `${head}.`;
 }
+
+/** v36 APPLYWEB (PLAN A2): Prepare All's caret (the profiles it prepares on). */
+export const PREPARE_ALL_MENU = 'Prepare all on profiles';
 
 /** Prepare All found nothing to take. */
 export const PREPARE_ALL_NONE = {
@@ -91,7 +98,7 @@ export const PREPARE_ALL_BUDGET = {
   runsOut: 'If AI use runs out first, the rest wait in To prepare to retry after the reset.',
 } as const;
 
-/** The confirm's title: "Prepare & Queue", or "Prepare & Queue 5 jobs". */
+/** The confirm's title: "Prepare", or "Prepare 5 jobs". */
 export function confirmTitle(count: number): string {
   return count > 1 ? `${PREPARE_LABEL} ${count} jobs` : PREPARE_LABEL;
 }
@@ -161,7 +168,7 @@ function reasonsSummary(labels: readonly string[]): string {
 }
 
 /**
- * The toast after Prepare & Queue. One job: its own words ("Preparing Senior Engineer at Acme", "Filtered: on-site",
+ * The toast after Prepare. One job: its own words ("Preparing Senior Engineer at Acme", "Filtered: on-site",
  * the skip's message). Several: one line summing the outcomes, "3 preparing · 1 queued · 1 filtered (on-site)".
  * `filtered` renders MSG_FILTERED.
  */
@@ -229,7 +236,7 @@ export function prepareResultCopy(
   };
 }
 
-/** The live region's words after a Prepare & Queue: the same as the toast's title. */
+/** The live region's words after a Prepare: the same as the toast's title. */
 export const announcement = (copy: PrepareResultCopy) => (copy.description ? `${copy.title}. ${copy.description}` : copy.title);
 
 // The Tracker's "Prepared" tab ------------------------------------------------------------------------------------
@@ -296,4 +303,75 @@ export function partLine(part: 'resume' | 'letter', status: PreparePartStatus, q
     case 'not_ready':
       return `The ${words} was not made.`;
   }
+}
+
+// v36 APPLYWEB (PLAN A4): the Saved pane's Select bar --------------------------------------------------------------
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+/** Select All takes at most this many saved jobs (the bulk routes' cap). */
+export const SAVED_SELECT_MAX = 500;
+
+// v36 FIX-WEB (ux L8): one spelling on both pages: "saved jobs" in sentences (and controls), "Saved jobs" the pane's title.
+export const SAVED_SELECT = {
+  /** The bar's name. */
+  bar: 'Selected saved jobs',
+  /** Select All's tooltip. */
+  selectAllTip: (max: number) => `Every saved job in this tab (the first ${max} when there are more)`,
+  remove: 'Remove from saved jobs',
+  removeTitle: (count: number) => `Remove ${plural(count, 'job', 'jobs')} from saved jobs?`,
+  removeLine: 'They are archived in your Job Tracker, notes and all. You can restore them there, or Undo now.',
+  removeConfirm: 'Remove',
+  removeBusy: 'Removing...',
+  removed: (count: number) => `${plural(count, 'job', 'jobs')} removed from saved jobs`,
+  removedNone: 'Nothing was removed',
+  removedNoneLine: 'They moved past Saved meanwhile.',
+  restored: (count: number) => `${plural(count, 'job', 'jobs')} back in saved jobs`,
+  /** A row's own Remove (its ⋯ menu). */
+  removeOneTitle: 'Remove from saved jobs?',
+  removeOneLine: (name: string) => `${name} is archived in your Job Tracker, notes and all. You can restore it there.`,
+  removedOne: 'Removed from saved jobs',
+  restoreFailed: "The removal couldn't be undone",
+  prepare: 'Prepare',
+  prepareMenu: 'Prepare on profiles',
+  /** The rows Prepare left out on the tab's profile. */
+  skipped: (count: number) => `${count} skipped: preparing, queued or closed.`,
+  /** The rows past PREPARE_BATCH_MAX. */
+  overBatch: (count: number, max: number) => `${count} more past the ${max} a Prepare takes: prepare them next.`,
+  nothingTitle: 'Nothing to prepare',
+  nothingLine: 'Each selected job is preparing, queued or closed.',
+  prepareNeeds: (box: string) => `Needs ${box} on this profile.`,
+  cancel: 'Cancel',
+} as const;
+
+/** v36 APPLYWEB (PLAN A4): the Select bar's Prepare on other profiles (prepareOn.tsx). */
+export const PREPARE_ON = {
+  savesAndPrepares: (count: number, name: string) => `Saves ${count} on ${name} and prepares them · Uses your AI`,
+  preparesOn: (name: string) => `Prepares them on ${name} · Uses your AI`,
+  onProfiles: (count: number) => `On ${plural(count, 'profile', 'profiles')} · Uses your AI`,
+  saves: (count: number) => `saves ${count}`,
+  prepares: (count: number) => `prepares ${count}`,
+  leftAsIs: (count: number) => `${count} left as ${count === 1 ? 'it is' : 'they are'}`,
+  overLimit: (count: number) => `${count} past the limit`,
+  savedFirst: (count: number) => `${count} saved first`,
+  nothingTitle: 'Nothing to prepare',
+  nothingLine: 'Each selected job is applied to, closed or not open to prepare on the profiles you chose.',
+  failed: 'Prepare did not start',
+  /** v36 FIX-WEB: saves a profile could not make when the Prepare ran ("2 not saved there: Needs …"). */
+  notSavedFirst: (count: number, why: string) => `${count} not saved there: ${why}`,
+  cantSeeThere: 'That profile cannot see them.',
+  tryAgain: 'Try again.',
+} as const;
+
+/**
+ * v36 FIX-WEB (SP v36 FINAL-FIXES D1): what the Select bar's Remove says: how many left saved jobs, then what it did to
+ * the auto-apply queue (taken out too; being applied now, or needing Queue changes: left in saved jobs). Nothing
+ * removed: why, when the answer says (else they moved past Saved meanwhile).
+ */
+export function removedReport(answer: { affected: number } & QueueCounts, box: string, name: string): { done: boolean; title: string; description: string | null } {
+  const notes = queueSentences(answer, box, name);
+  if (answer.affected === 0) {
+    return { done: false, title: SAVED_SELECT.removedNone, description: notes.length > 0 ? notes.join(' ') : SAVED_SELECT.removedNoneLine };
+  }
+  return { done: true, title: SAVED_SELECT.removed(answer.affected), description: notes.length > 0 ? notes.join(' ') : null };
 }

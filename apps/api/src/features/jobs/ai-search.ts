@@ -153,7 +153,7 @@ export function createAiSearchService(deps: AppDeps): AiSearchService {
 
 // --------------------------------------------------------------------------------------------------- the route
 
-/** Mounted at /api/jobs/ai-search (before /api/jobs, as Save all is). */
+/** Mounted at /api/jobs/ai-search (before /api/jobs, so its /:id never takes the path). */
 export function createAiSearchRouter(deps: AppDeps): Router {
   const router = Router();
   router.use(requireUser);

@@ -2,7 +2,7 @@ import type { AppDeps } from '../../core/context';
 import type { ResumeChoice } from '../resume-match/types';
 
 // Which resume a saved job gets (work package WP6). Both save paths ask here: the single Save (POST /api/applications,
-// see router.ts) and Save all (`saveJobs` in service.ts, called by the Jobs feature). Asking is read-only: the resume
+// see router.ts) and a save of many jobs (`saveJobs` in service.ts: the Select bar, Copy to, MCP). Asking is read-only: the resume
 // match service (deps.services.resumeMatch, WP5) scores the account's resumes against each job, writes nothing and
 // never queues AI work. The save then writes the choice itself, through the full guard (`writeAutoChoice`).
 //
@@ -22,8 +22,8 @@ export interface ResumeChoices {
 
 /** How long the single Save waits for its choice before it saves the job due instead. */
 export const SINGLE_SAVE_MATCH_BUDGET_MS = 300;
-/** How long one Save all click spends choosing, over all of its chunks (see `resumeChooser`). */
-export const SAVE_ALL_MATCH_BUDGET_MS = 2_000;
+/** How long one save of many jobs spends choosing, over all of its chunks (see `resumeChooser`). v36 JOBS: renamed. */
+export const BULK_SAVE_MATCH_BUDGET_MS = 2_000;
 
 function uniqueJobIds(jobIds: readonly number[]): number[] {
   return [...new Set(jobIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
@@ -69,13 +69,13 @@ export async function bestResumes(
 }
 
 /**
- * A `chooseResumes` for `saveJobs` whose calls share one budget, counted from now (Save all's 2 s per click). Once
+ * A `chooseResumes` for `saveJobs` whose calls share one budget, counted from now (2 s per request). Once
  * it is spent, the jobs asked about are unfinished without asking the match service.
  */
 export function resumeChooser(
   deps: Pick<AppDeps, 'services' | 'log'>,
   userId: string,
-  totalBudgetMs: number = SAVE_ALL_MATCH_BUDGET_MS,
+  totalBudgetMs: number = BULK_SAVE_MATCH_BUDGET_MS,
 ): (jobIds: readonly number[]) => Promise<ResumeChoices> {
   const deadline = performance.now() + (Number.isFinite(totalBudgetMs) ? Math.max(0, totalBudgetMs) : 0);
   return (jobIds) => {

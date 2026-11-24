@@ -7,6 +7,7 @@ import { closeLink, offerToDiscovery, projectJob, type JobLinkRef } from '../../
 import { upgradeOwnPageJob } from '../autofill/jobs';
 import { noticeVerification } from '../jobs/add/notify'; // v31 LINK
 import { publishCapturedIn } from '../jobs/add/approve'; // v32 ADMINAPP (E6)
+import { DATE_APPROVED_SQL } from '../jobs/add/import-time'; // v36 IMPORTTIME
 import { boardOfUrl } from '../ingest/discovery/boards';
 import { boardOfJob, companyOf } from './checks';
 import { pendingReview, recountReview, type ReviewRow } from './store';
@@ -161,6 +162,9 @@ export async function approveReview(
         : undefined;
     await closeLink(deps, t, { jobId: review.job_id, ...(link ? { link } : {}), reason: 'report', at });
   } else if (review.origin === 'ats') {
+    // v36 IMPORTTIME (SP v36 PLAN.md I1): a job an admin's import held, or named while it waited, reaches people now:
+    // dated its approval.
+    await t.run(DATE_APPROVED_SQL, [at, review.job_id, review.imported]);
     await t.run('UPDATE jobs SET held_since = NULL, updated_at = ? WHERE id = ? AND held_since IS NOT NULL', [at, review.job_id]);
     await projectJob(t, review.job_id);
     await offerBoard(deps, t, review.job_id, null, at);

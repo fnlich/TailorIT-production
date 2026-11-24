@@ -22,6 +22,8 @@ export * from './activity';
 // end v33 SHARE-2
 // v34 FANOUT: one action on several profiles (./fanout: the targets, the per-profile answers, the PATCH bodies).
 export * from './fanout';
+// v36 APPLYAPI: Share All, a preview and a start (./share-all: SP v36 PLAN A3).
+export * from './share-all';
 
 /**
  * The refusals of a request that names a profile. `profile_ended`: the key is unknown, someone else's or not live

@@ -19,7 +19,7 @@ import { api } from '../../lib/api';
 // v2.0: the Auto-apply page's session routes (docs/design/v2.0/05-prepare-flow.md, "Read models for the web"): the
 // Saved Jobs pane, the Queue pane, a queue row's copy-ready kit, Mark as applied, Remove and Clear finished, the
 // prepare filters' count and the rule's settings. The extension's worker takes and reports jobs with its own token,
-// never through these. No route here queues a job: only Prepare & Queue does (features/prepare).
+// never through these. No route here queues a job: only Prepare does (features/prepare).
 
 export const autoApplyKeys = {
   all: ['auto-apply'] as const,

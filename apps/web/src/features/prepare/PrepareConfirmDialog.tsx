@@ -7,8 +7,8 @@ import { Checkbox } from '../../components/ui/Checkbox';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { confirmTitle } from './copy';
 
-// v2.0: the confirm before Prepare & Queue (docs/design/v2.0/08-ui.md, "The confirm"): title "Prepare & Queue" (or
-// "Prepare & Queue 5 jobs"), the body MSG_PREPARE_CONFIRM, the checkbox MSG_PREPARE_CONFIRM_DONT_SHOW, Cancel and
+// v2.0: the confirm before Prepare (docs/design/v2.0/08-ui.md, "The confirm"): title "Prepare" (or
+// "Prepare 5 jobs"), the body MSG_PREPARE_CONFIRM, the checkbox MSG_PREPARE_CONFIRM_DONT_SHOW, Cancel and
 // Continue. It shows while GET /api/prepare/settings says skipConfirm: false; Continue with the box ticked saves
 // skipConfirm: true first (the caller's `onContinue`). Cancel saves nothing.
 
@@ -19,7 +19,7 @@ export interface PrepareConfirmDialogProps {
   count: number;
   /** Continue: `dontShowAgain` is the box. Reject to keep the dialog open with the error shown. */
   onContinue: (dontShowAgain: boolean) => Promise<void> | void;
-  /** Where focus goes when it closes (the pressed Prepare & Queue, or its row's action now). */
+  /** Where focus goes when it closes (the pressed Prepare, or its row's action now). */
   finalFocus?: () => HTMLElement | boolean | null;
 }
 

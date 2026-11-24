@@ -32,11 +32,11 @@ import { fanoutReport } from '../../sharing/fanout/results';
 import { useFanoutChoices } from '../../sharing/fanout/useFanout';
 import { ReadOnlyLine } from './FiltersScope';
 
-// v2.0: Settings › Prepare & Queue (/settings#prepare; docs/design/v2.0/08-ui.md, "Settings › Prepare & Queue"; A29):
+// v2.0: Settings › Prepare (/settings#prepare; docs/design/v2.0/08-ui.md, its Settings section; A29):
 // - Resume (A29/A30): "Only my default resume", "Use my best-matched resume" or "Always tailor" (the constants' words),
 //   beside
 // - Cover letters: "Only when the application requires it" (the default) or "Always";
-// - Ask before using AI: the Prepare & Queue confirm, on or off (the inverse of "Don't show this again");
+// - Ask before using AI: the Prepare confirm, on or off (the inverse of "Don't show this again");
 // - the Prepare filters, with a live preview and their own save bar.
 // The three settings save as they change (PUT /api/prepare/settings); the filters save together.
 
@@ -46,8 +46,8 @@ export const PREPARE_ANCHOR = 'prepare';
 /**
  * v33 SHARE-7 (PLAN F9 "Permissions": Job settings): `access` is what the tab's profile may do here (Settings computes
  * it; the person's own profile by default): without the See box "Not shared with you." and nothing is asked for;
- * without the Change box the settings are shown, not changed. `filters`: the Prepare filters, read with Prepare &
- * queue's See box (as the server serves them, so a See only share shows them too) and changed with Job settings'
+ * without the Change box the settings are shown, not changed. `filters`: the Prepare filters, read with Prepare's
+ * See box (as the server serves them, so a See only share shows them too) and changed with Job settings'
  * Change box.
  */
 export function PrepareSection({
@@ -113,7 +113,7 @@ export function PrepareSection({
             {userMessage(settings.error, 'Please try again in a moment.')}
           </Notice>
         ) : (
-          <div className="grid gap-6 md:grid-cols-2" aria-busy="true" aria-label="Loading Prepare & Queue settings">
+          <div className="grid gap-6 md:grid-cols-2" aria-busy="true" aria-label="Loading Prepare settings">
             <Skeleton className="h-28 w-full" rounded="control" />
             <Skeleton className="h-28 w-full" rounded="control" />
           </div>
@@ -142,7 +142,7 @@ function useScrollToAnchor(anchor: string, ready: boolean) {
 
 /**
  * `ownAsk` (v34 FIX-WEB, final review share M1): the tab works on someone else's profile, so "Ask before using AI" is
- * the person's OWN (the payer's: it decides whether Prepare & Queue asks them, on every profile), read and saved with
+ * the person's OWN (the payer's: it decides whether Prepare asks them, on every profile), read and saved with
  * 'me'; the profile's owner keeps theirs.
  */
 function PrepareSettingsForm({ settings, readOnly = false, ownAsk = false }: { settings: PrepareSettings; readOnly?: boolean; ownAsk?: boolean }) {

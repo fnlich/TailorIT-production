@@ -13,7 +13,8 @@ import { BOARD_KINDS, boardNameOf, candidateName } from './boards';
 //   normaliser rejects the name (boards.ts candidateName), or a career site's host is no site host or a refused job
 //   board's (LinkedIn's above all);
 // - `known_source`: a source already reads the board (enabled, or disabled by an admin). A disabled source Add job made
-//   only to keep its postings' links (config addedBy 'autofill', 14 §4.1) reads nothing: it is no known source;
+//   only to keep its postings' links (config addedBy 'autofill', 14 §4.1) reads nothing: it is no known source, unless
+//   an admin ever turned it on (v36 SOURCES: isLinkKeeper);
 // - `forbidden`: the board's company is opted out (companies.do_not_fetch, through its board or domain alias) or the
 //   site's domain is on crawl_opt_outs: the candidate is kept `forbidden`, never validated;
 // - `added` / `bumped`: the candidate row made now, or seen again.
@@ -70,6 +71,8 @@ export interface BoardSourceRow {
   config: Record<string, unknown>;
   /** v35 ADMIN: how it was found (`import`: Found by import, switched on only by an admin). */
   discoveredVia?: string | null;
+  /** v36 SOURCES: when an admin last turned it on (null: never). */
+  enabledAt?: string | null;
 }
 
 /** A board to look up: its kind and its name as candidateName keeps it. */
@@ -104,8 +107,8 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
   const found = new Map<string, BoardSourceRow[]>();
   if (boards.length === 0) return found;
   const keyed = boards.map((board, i) => ({ i, kind: board.kind, name: board.name, ...lookupKeyOf(board.kind, board.name) }));
-  const rows = await t.all<{ i: number; id: number; enabled: boolean; name: string; config: string; discovered_via: string | null }>(
-    `SELECT b.i, s.id, s.enabled, s.name, s.config::text AS config, s.discovered_via
+  const rows = await t.all<{ i: number; id: number; enabled: boolean; name: string; config: string; discovered_via: string | null; enabled_at: string | null }>(
+    `SELECT b.i, s.id, s.enabled, s.name, s.config::text AS config, s.discovered_via, s.enabled_at
      FROM json_to_recordset(CAST(? AS json)) AS b(i integer, kind text, name text, board text, tenant text, site text)
      CROSS JOIN LATERAL (
        SELECT n.id FROM job_sources n WHERE n.kind = b.kind AND lower(n.name) = lower(b.name)
@@ -135,7 +138,14 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
     if ((named ?? row.name).toLowerCase() !== board.name.toLowerCase()) continue;
     const key = refKey(board.kind, board.name);
     const list = found.get(key) ?? [];
-    list.push({ id: row.id, enabled: row.enabled === true, name: row.name, config, discoveredVia: row.discovered_via ?? null });
+    list.push({
+      id: row.id,
+      enabled: row.enabled === true,
+      name: row.name,
+      config,
+      discoveredVia: row.discovered_via ?? null,
+      enabledAt: row.enabled_at ?? null, // v36 SOURCES
+    });
     found.set(key, list);
   }
   return found;
@@ -149,10 +159,15 @@ export async function sourcesOfBoard(t: DbQueries, kind: JobSourceKind, name: st
 /**
  * Whether a source is only Add job's keeper of a board's links (disabled, marked addedBy 'autofill'): it reads nothing.
  * v35 ADMIN (PLAN H6): a source Found by import never is one, whatever its config says: it is the admin's to switch on,
- * so discovery neither offers its board again nor adopts (switches on) the source (validate.ts sourceForCandidate).
+ * so discovery neither offers its board again nor adopts the source (validate.ts sourceForCandidate). v36 SOURCES (SP
+ * v36 PLAN S2): nor is a source an admin ever turned on (enabled_at), whatever its config says: an admin's off stays
+ * off (discovery adopts only a keeper, and an adopted keeper stays off too: nothing but an admin turns a source on).
+ * v36 FIX-SRC (the final data review's D2): nor is a keeper discovery adopted (discovered_via set, any value): a career
+ * site's keeps Add job's mark until an admin turns it on (validate.ts), and is the board's source all the same, so its
+ * board is a known source, never adopted or offered again.
  */
 export const isLinkKeeper = (source: BoardSourceRow) =>
-  !source.enabled && source.config.addedBy === ADDED_BY_ADD_JOB && source.discoveredVia !== 'import';
+  !source.enabled && source.config.addedBy === ADDED_BY_ADD_JOB && !source.discoveredVia && !source.enabledAt;
 
 /** The source that already reads the board (any but Add job's link keepers), or undefined. */
 export async function knownSource(t: DbQueries, kind: JobSourceKind, name: string): Promise<number | undefined> {

@@ -136,6 +136,12 @@ export function FunnelSummary({
               >
                 <span className="num text-lg leading-6">{formatCount(row.count)}</span>
                 <span className="text-[13px] text-muted-foreground">{row.label}</span>
+                {/* v36 FIX-SRC (ux L7): a source step's split (waiting for you, turned on, off). */}
+                {row.detail && (
+                  <span className="text-xs leading-4 text-muted-foreground" data-candidate-funnel-detail="">
+                    {row.detail}
+                  </span>
+                )}
               </button>
             </li>
           );
@@ -185,8 +191,8 @@ export function MeasuresTable({ byKind }: { byKind: readonly DiscoveryKindMeasur
   );
 }
 
-/** What validation is (the chip's "?"). */
-const VALIDATION_TIP = 'Validation reads each board discovery found, once, before it can become a source.';
+/** What validation is (the chip's "?"). v36 SOURCES: the source it makes stays off until an admin turns it on. */
+const VALIDATION_TIP = 'Validation reads each board discovery found, once; a board that answers becomes a source that waits, off, for you.';
 
 export function CandidatesTab() {
   const now = useNow();
@@ -315,7 +321,7 @@ export function CandidatesTab() {
   return (
     <AdminResourceTab
       title="Candidates"
-      description="Boards discovery found; each is read once, then becomes a source if it answers."
+      description="Boards discovery found; each is read once, then becomes a source that waits for you to turn it on."
       actions={
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" icon={<PlusIcon size={16} />} onClick={() => setAdding(true)}>

@@ -222,6 +222,20 @@ export async function archiveRow(db: DbQueries, userId: string, id: string, now:
 }
 
 /**
+ * v36 FIX-API (sec L3): archives an entry only while it is still at Saved and not archived, in the same statement (an
+ * entry the extension moved to Applied, or another request archived, since it was read is left as it is). Answers
+ * whether it archived it.
+ */
+export async function archiveSavedRow(db: DbQueries, userId: string, id: string, now: string): Promise<boolean> {
+  const row = await db.one<{ id: string }>(
+    `UPDATE applications SET archived_at = @now, updated_at = @now, resume_match_due = ${db.dialect.false}
+     WHERE id = @id AND user_id = @userId AND current_status = ${STATUS.saved} AND archived_at IS NULL RETURNING id`,
+    { now, id, userId },
+  );
+  return row !== undefined;
+}
+
+/**
  * Restores an application. One that comes back Saved, of a job, with a resume TailorIT chose (or nobody chose), is
  * marked due: what its choice depends on may have changed while it was archived. (SET reads the row as it was.)
  */

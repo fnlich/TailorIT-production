@@ -3,7 +3,9 @@ import {
   ADMIN_SOURCE_LIST_KINDS,
   ADMIN_SOURCE_SORTS,
   JOB_SOURCE_KINDS_NOT_BUILT,
+  type AdminSourceEnabledFilter,
   type AdminSourceListKind,
+  type AdminSourceTurnedOffPart,
   type AdminSourcesFilter,
   type AdminSourceSort,
   type JobSourceFoundVia,
@@ -16,7 +18,8 @@ import {
 // v30 S1-WEB: Admin › Sources' filters (12 §9.8: kind, tier, status, terms, robots, failing), its search and order, as
 // the query string CT's AdminSourcesQuerySchema reads. Pure, so the web tests check the query against the schema.
 
-export type SourceEnabledFilter = 'all' | 'enabled' | 'disabled';
+/** v36 SOURCES (PLAN S8): `waiting`, found and never turned on by an admin. */
+export type SourceEnabledFilter = AdminSourceEnabledFilter;
 
 export interface SourceFilters {
   /** Name or host. */
@@ -34,6 +37,8 @@ export interface SourceFilters {
   host: string | null;
   /** One company's sources. */
   companyId: number | null;
+  /** v36 SOURCES (PLAN S7): only the sources v3.6 turned off (the notice's), all or one part; null: any. */
+  turnedOff: AdminSourceTurnedOffPart | null;
   sort: AdminSourceSort;
 }
 
@@ -48,6 +53,7 @@ export const EMPTY_SOURCE_FILTERS: SourceFilters = {
   failing: false,
   host: null,
   companyId: null,
+  turnedOff: null, // v36 SOURCES
   sort: 'next_run',
 };
 
@@ -69,11 +75,23 @@ export const SOURCE_SORT_LABEL: Record<AdminSourceSort, string> = {
 
 export const SOURCE_SORT_OPTIONS = ADMIN_SOURCE_SORTS.map((value) => ({ value, label: `Sort: ${SOURCE_SORT_LABEL[value]}` }));
 
-/** v31 RUNS: an off source is "Disabled" (Paused is an admin's pause of its runs). */
+/**
+ * v31 RUNS: an off source is "Disabled" (Paused is an admin's pause of its runs). v36 SOURCES (PLAN S8): "Waiting for an
+ * admin", an off source discovery or an import found that no admin turned on yet.
+ */
 export const SOURCE_ENABLED_LABEL: Record<SourceEnabledFilter, string> = {
   all: 'Enabled and disabled',
   enabled: 'Enabled',
   disabled: 'Disabled',
+  waiting: 'Waiting for an admin',
+};
+
+/** v36 SOURCES (PLAN S7): the chip of the notice's filter, by part. */
+export const TURNED_OFF_LABEL: Record<AdminSourceTurnedOffPart, string> = {
+  all: 'Turned off by v3.6',
+  untouched: 'Turned off by v3.6: untouched since found',
+  changed: 'Turned off by v3.6: changed since found',
+  candidates: 'Turned off by v3.6: added from Candidates', // v36 FIX-SRC (D6)
 };
 
 /** v35 OPSWEB: the filters' query string alone (no order or page): GET /api/admin/sources/all/count's. */
@@ -89,6 +107,7 @@ export function sourcesFilterQuery(filters: SourceFilters) {
     failing: filters.failing ? 1 : undefined,
     host: filters.host ?? undefined,
     companyId: filters.companyId ?? undefined,
+    turnedOff: filters.turnedOff ?? undefined, // v36 SOURCES
   };
 }
 
@@ -126,6 +145,7 @@ export function sourcesAllFilter(filters: SourceFilters): AdminSourcesFilter {
     ...(filters.failing ? { failing: true as const } : {}),
     ...(filters.host ? { host: filters.host } : {}),
     ...(filters.companyId ? { companyId: filters.companyId } : {}),
+    ...(filters.turnedOff ? { turnedOff: filters.turnedOff } : {}), // v36 SOURCES
   };
 }
 // end v35 OPSWEB
@@ -141,7 +161,8 @@ export function activeFilterCount(filters: SourceFilters): number {
     (filters.enabled === 'all' ? 0 : 1) +
     (filters.failing ? 1 : 0) +
     (filters.host ? 1 : 0) +
-    (filters.companyId ? 1 : 0)
+    (filters.companyId ? 1 : 0) +
+    (filters.turnedOff ? 1 : 0) // v36 SOURCES
   );
 }
 
@@ -157,14 +178,24 @@ export function clearedFilters(filters: SourceFilters): SourceFilters {
 
 /**
  * The filters an address opens with: `host=` (Admin › Hosts' "See its sources"), `company=`, and v35 OPSWEB `found=import`
- * (the "Found by import" chip on).
+ * (the "Found by import" chip on). v36 SOURCES: `state=waiting` (the "Waiting for an admin" chip on, as Admin ›
+ * Candidates links a waiting source).
  */
 export function filtersFromAddress(params: { get(name: string): string | null }): SourceFilters {
   const host = params.get('host')?.trim().toLowerCase() || null;
   const company = Number(params.get('company'));
   const via: JobSourceFoundVia[] = params.get('found') === 'import' ? ['import'] : []; // v35 OPSWEB
-  return { ...EMPTY_SOURCE_FILTERS, host, via, companyId: Number.isInteger(company) && company > 0 ? company : null };
+  const enabled: SourceEnabledFilter = params.get('state') === 'waiting' ? 'waiting' : 'all'; // v36 SOURCES
+  return { ...EMPTY_SOURCE_FILTERS, host, via, enabled, companyId: Number.isInteger(company) && company > 0 ? company : null };
 }
+
+// v36 SOURCES (PLAN S8): the "Waiting for an admin" chip: the sources discovery or an import found that wait, off.
+
+/** Whether the list shows only the sources waiting for an admin (the chip is on). */
+export function waitingOnly(filters: Pick<SourceFilters, 'enabled'>): boolean {
+  return filters.enabled === 'waiting';
+}
+// end v36 SOURCES
 
 /** `values` with `value` added (on) or removed (off), in `order`'s order. */
 export function toggledIn<V extends string>(values: readonly V[], value: V, on: boolean, order: readonly V[]): V[] {

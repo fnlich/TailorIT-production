@@ -154,7 +154,7 @@ export const PROFILES_COPY = {
 export const ACTIVITY_AREA: Record<SharingActivityArea, string> = {
   tracker: 'Job Tracker',
   documents: 'Documents',
-  prepare: 'Prepare & queue',
+  prepare: 'Prepare',
   queue: 'Queue changes',
   apply: 'Applying',
   autofill: 'Autofill info',

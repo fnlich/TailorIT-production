@@ -3,6 +3,7 @@ import {
   AdminPurgesListSchema,
   AdminSourceRowSchema,
   AdminSourcesAllCountSchema,
+  AdminSourcesTurnedOffSchema, // v36 SOURCES
   AdminSourcesAllResultSchema,
   AdminSourcesBulkResultSchema,
   AdminSourcesListSchema,
@@ -14,6 +15,7 @@ import {
   type AdminSourceRow,
   type AdminSourcesBulkResult,
   type AdminSourcesList,
+  type AdminSourcesTurnedOff, // v36 SOURCES
   type JobSourcePurge,
   type JobSourcePurgeRequest,
   type JobSourcePurgeState,
@@ -36,6 +38,8 @@ export const sourceKeys = {
   purges: (states: readonly JobSourcePurgeState[]) => ['admin', 'sources', 'purges', states] as const,
   /** v35 OPSWEB: what Enable all / Disable all would change under a filter (read when the confirm opens). */
   allCount: (filters: SourceFilters) => ['admin', 'sources', 'all-count', filters] as const,
+  /** v36 SOURCES: v3.6's notice of the sources 0060 turned off. */
+  turnedOff: ['admin', 'sources', 'turned-off'] as const,
 };
 
 /** GET /api/admin/sources?q&kind&tier&terms&robots&discoveredVia&enabled&failing&host&companyId&sort&cursor&limit. */
@@ -78,15 +82,34 @@ export function changeAllSources(action: AdminSourceAllAction, filters: SourceFi
 }
 // end v35 OPSWEB
 
-/** POST /api/admin/sources: a board, the lake or the demo jobs (v2.0's route). */
+/**
+ * POST /api/admin/sources: a board, the lake or the demo jobs (v2.0's route). v36 SOURCES: `enabled` is "Turn on now"
+ * (the server records the admin); the answer says whether it is on.
+ */
 export function createSource(body: NewSourceBody) {
-  return api.post<{ id: number; name: string }>('/api/admin/sources', body);
+  return api.post<{ id: number; name: string; enabled?: boolean }>('/api/admin/sources', body);
 }
 
-/** PATCH /api/admin/sources/:id {enabled}: pauses or enables one source (v2.0's route; its answer is not read). */
-export function setSourceEnabled(id: number, enabled: boolean) {
-  return api.patch<unknown>(`/api/admin/sources/${id}`, { enabled });
+/**
+ * PATCH /api/admin/sources/:id {enabled}: turns one source on (the server records the admin) or off. v36 SOURCES: the
+ * answer is the source's row (who turned it on, and whether it still waits for an admin).
+ */
+export function setSourceEnabled(id: number, enabled: boolean): Promise<AdminSourceRow> {
+  return api.patch<AdminSourceRow>(`/api/admin/sources/${id}`, { enabled }, { schema: AdminSourceRowSchema });
 }
+
+// v36 SOURCES (PLAN S7): v3.6's one-time notice of the sources migration 0060 turned off.
+
+/** GET /api/admin/sources/turned-off: the notice's counts, or null once an admin dismissed it (or there is none). */
+export function fetchTurnedOff(signal?: AbortSignal): Promise<AdminSourcesTurnedOff> {
+  return api.get<AdminSourcesTurnedOff>('/api/admin/sources/turned-off', { signal, schema: AdminSourcesTurnedOffSchema });
+}
+
+/** POST /api/admin/sources/turned-off/dismiss: the notice goes, for every admin. */
+export function dismissTurnedOff(): Promise<AdminSourcesTurnedOff> {
+  return api.post<AdminSourcesTurnedOff>('/api/admin/sources/turned-off/dismiss', undefined, { schema: AdminSourcesTurnedOffSchema });
+}
+// end v36 SOURCES
 
 /** DELETE /api/admin/sources/:id (v2.0's route). */
 export function deleteSource(id: number) {

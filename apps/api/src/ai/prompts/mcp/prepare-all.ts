@@ -21,6 +21,6 @@ export const prepareAllPrompt = defineTextPrompt<{ instructions: string; otherPr
   name: 'prepare-all',
   version: 2,
   description:
-    "The MCP prompt prepare_all: TailorIT's instructions for the person's AI, then where Prepare & Queue starts (on each profile when others are shared).",
+    "The MCP prompt prepare_all: TailorIT's instructions for the person's AI, then where preparing starts (on each profile when others are shared).",
   text: ({ instructions, otherProfiles }) => prepareAllText(instructions, otherProfiles),
 });

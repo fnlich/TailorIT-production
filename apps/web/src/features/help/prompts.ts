@@ -7,7 +7,7 @@
 export const PROMPT_TASKS = [
   { id: 'find', title: 'Find jobs' },
   { id: 'save', title: 'Save and add jobs' },
-  { id: 'prepare', title: 'Prepare & Queue' },
+  { id: 'prepare', title: 'Prepare' },
   { id: 'track', title: 'Track and count' },
   { id: 'documents', title: 'Documents with your own AI' },
   { id: 'settings', title: 'Settings and rules' },
@@ -90,7 +90,7 @@ export const EXAMPLE_PROMPTS: readonly ExamplePrompt[] = [
     result: 'Your AI lists those Saved entries and sends their count with the archive (Claude asks you first). An application you already sent is never touched.',
     tools: { list_applications: ['company', 'status', 'saved'], unsave_jobs: ['setId', 'confirm'] },
   },
-  // Prepare & Queue
+  // Prepare
   {
     id: 'prepare-remote',
     task: 'prepare',

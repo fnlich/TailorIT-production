@@ -868,6 +868,12 @@ export function pageOf(page: PageReading): AutofillLookupPage {
   };
 }
 
+/** v36 IMPORTTIME: the later of two ISO instants (either may be null). */
+function laterOf(a: string | null, b: string | null): string | null {
+  if (a === null || b === null) return a ?? b;
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
 interface JobRow {
   id: number;
   title: string;
@@ -879,6 +885,8 @@ interface JobRow {
   apply_url: string;
   posted_at: string | null;
   first_seen_at: string | null;
+  /** v36 IMPORTTIME: when an admin's import last dated the job (jobs.reposted_at), or null. */
+  reposted_at: string | null;
   work_arrangement: string | null;
   salary_min: number | null;
   salary_max: number | null;
@@ -1099,7 +1107,7 @@ export async function lookupPosting(
     ? ((await deps.db.one<JobRow>(
         `SELECT j.id, j.title, c.name AS company_name, j.primary_location, j.locations_text, j.active,
            (SELECT k.key FROM job_keys k WHERE k.job_id = j.id AND k.key_kind = 'link' ORDER BY k.key LIMIT 1) AS link_key,
-           j.apply_url, j.posted_at, j.first_seen_at, j.work_arrangement, j.salary_min, j.salary_max, j.salary_currency,
+           j.apply_url, j.posted_at, j.first_seen_at, j.reposted_at, j.work_arrangement, j.salary_min, j.salary_max, j.salary_currency,
            j.salary_period, COALESCE(NULLIF(j.industry, ''), (SELECT NULLIF(cp.industry, '') FROM company_profiles cp WHERE cp.company_id = c.id)) AS industry,
            j.held_since IS NOT NULL AS held,
            EXISTS (SELECT 1 FROM job_reviews rv JOIN job_review_reports rr ON rr.review_id = rv.id
@@ -1135,8 +1143,9 @@ export async function lookupPosting(
             ...(request.includePostingText
               ? { postingText: capUtf16(postingText, AUTOFILL_POSTING_TEXT_MAX) }
               : {}),
-            // As the Jobs page's card dates it: when it was posted, else when TailorIT first saw it.
-            postedAt: isoTimestamp(job.posted_at) ?? isoTimestamp(job.first_seen_at),
+            // As the Jobs page's card dates it: when it was posted, else when TailorIT first saw it. v36 IMPORTTIME (SP v36
+            // PLAN.md I1): a job an admin's import dated later (jobs.reposted_at) reads from then, as the Jobs page's row.
+            postedAt: laterOf(isoTimestamp(job.posted_at) ?? isoTimestamp(job.first_seen_at), isoTimestamp(job.reposted_at)),
             salary: salaryTextOf(job),
             workArrangement: arrangementOf(job.work_arrangement),
             // The Jobs page's industry label (the side panel's job card shows it under the company); null when unknown.

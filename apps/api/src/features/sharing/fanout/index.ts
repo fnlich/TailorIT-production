@@ -7,8 +7,10 @@ import { createProfilesRouter } from './router';
 // - targets.ts: the targets ('me', keys, 'all'), each checked through core/auth/grants.ts; fanOut / runOn run the work
 //   once per target (A's own first) and answer per profile; a key A may not use answers as an unknown key; each
 //   shared profile's call is counted in its activity;
-// - jobs.ts: save jobs, Save all (and its preview), add by link, copy saved jobs, where each job is saved;
-// - bulk.ts: the Tracker's All profiles bulk (a move, Archive, Restore, Prepare & Queue), each card on its own profile;
+// - jobs.ts: save jobs, add by link, copy saved jobs, where each job is saved;
+// - unsave.ts: v36 JOBS, unsave jobs (MCP's unsave_jobs shares its archive);
+// - share-all.ts: v36 APPLYAPI's Share All, a preview and a start (every job in Saved on one profile to others);
+// - bulk.ts: the Tracker's All profiles bulk (a move, Archive, Restore, Prepare), each card on its own profile;
 // - settings.ts: the Prepare filters, the Prepare settings and the Auto-save rule on several profiles, and the Profiles
 //   page's summary.
 // The shared contracts are @tailorit/shared/sharing's fanout.ts. MCP (v34 MCPFAN) calls the services below directly,
@@ -17,13 +19,12 @@ export { bulkOnProfiles, BULK_PERMISSION, type BulkOnTarget, type BulkPayers } f
 export {
   addByLinkOnProfiles,
   copySavedJobs,
-  saveAllOnProfiles,
-  saveAllPreviewOnProfiles,
   saveJobsOn,
   saveJobsOnProfiles,
   savedOnProfiles,
   type SavedOnTarget,
 } from './jobs';
+export { archiveSavedEntries, unsaveJobsOn, unsaveJobsOnProfiles, type ArchivedSaved, type UnsavedOnTarget } from './unsave'; // v36 JOBS
 export { autoSaveRuleOnProfiles, filtersOnProfiles, prepareSettingsOnProfiles, settingsSummary, type SettingsSummaryOptions } from './settings';
 export {
   countOn,

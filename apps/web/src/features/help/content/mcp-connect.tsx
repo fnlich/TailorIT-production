@@ -58,7 +58,7 @@ export function CanAndCannot() {
         <li>tell you how your applications stand: how many, in which stage, on which platform, week by week;</li>
         <li>look after the auto-apply queue: what is waiting, what needs you, and take jobs out;</li>
         <li>
-          <Ui>Prepare &amp; Queue</Ui> your saved jobs, writing each kit (the tailored resume, the cover letter, the answers) on
+          <Ui>Prepare</Ui> your saved jobs, writing each kit (the tailored resume, the cover letter, the answers) on
           your own AI plan, while TailorIT checks, stores and queues it;
         </li>
         <li>write a cover letter for a saved job, or a resume tailored for one job, in TailorIT&apos;s place;</li>
@@ -134,7 +134,7 @@ export function ConnectClaude() {
         <li>
           Back in Claude, TailorIT&apos;s tools are in the chat&apos;s tools menu. Tools that only read run without asking.
           Claude asks you first, unless you allow a tool always, before tools that archive, remove or overwrite your data
-          and before Prepare &amp; Queue starts or a Prepare is ended: each is marked{' '}
+          and before Prepare starts or a Prepare is ended: each is marked{' '}
           <Ui>{TOOL_EFFECT_LABEL.removes}</Ui> in the tool reference.
         </li>
         <li>

@@ -117,15 +117,23 @@ function AllProfiles() {
         <Ui>Save to profiles</Ui>: once someone has shared their profile with you, Save is a split button: <Ui>Save</Ui>{' '}
         saves to the profile you are on, and its arrow, <Ui>{FANOUT_COPY.saveTo}</Ui>, offers <Ui>{FANOUT_COPY.you}</Ui>, each
         shared profile, <Ui>{FANOUT_COPY.allProfiles}</Ui> and <Ui>{FANOUT_COPY.chooseProfiles}</Ui>. A job row has the same
-        arrow beside its bookmark; the Select bar has <Ui>{FANOUT_COPY.saveTo}</Ui>; Save all has{' '}
-        <Ui>{FANOUT_COPY.saveAllTo}</Ui> (each profile saves its own matches for the search, and the question first shows
-        each profile&apos;s count); <Ui>Add job</Ui> has <Ui>{FANOUT_COPY.alsoSaveTo}</Ui>. Each profile picks its own
+        arrow beside its bookmark; <Ui>Add job</Ui> has <Ui>{FANOUT_COPY.alsoSaveTo}</Ui>. Each profile picks its own
         best-matched resume. A profile whose owner did not tick its <Ui>{boxName('tracker:edit')}</Ui> box is shown but
-        off, with the box it needs; while you work on such a profile, the
-        Jobs page offers no saving at all (switch to your own profile to save there). Rows and job details say &quot;Saved on&quot; with
-        the other profiles that have the job, and the result&apos;s <Ui>Undo</Ui> takes back exactly what it saved. A job
-        already saved on the profile you are on is not offered in the Select bar: copy it from the Job Tracker instead
-        (below).
+        off, with the box it needs; while you work on such a profile, a job&apos;s own Save is off there, and{' '}
+        <Ui>Select</Ui> still saves the jobs you tick to the other profiles you may save to (its <Ui>Save</Ui> and{' '}
+        <Ui>Unsave</Ui> are off for the profile you are on, and their arrows offer the others). Rows and job details say &quot;Saved on&quot; with
+        the other profiles that have the job, and the result&apos;s <Ui>Undo</Ui> takes back exactly what it saved.
+      </P>
+      <P>
+        <Ui>Save and unsave the jobs you select</Ui>: on the Jobs page, <Ui>Select</Ui> lets you tick any jobs (saved ones
+        too). The bar&apos;s <Ui>Save</Ui> and <Ui>Unsave</Ui> act on the profile you are on; their arrows offer the
+        profile you are on, each other profile, <Ui>{FANOUT_COPY.allProfiles}</Ui> and{' '}
+        <Ui>{FANOUT_COPY.chooseProfiles}</Ui>. Unsave takes jobs out of saved jobs only: a job applied to on a profile stays
+        as it is there. Whoever may save on a profile may also unsave there: both are its{' '}
+        <Ui>{boxName('tracker:edit')}</Ui> box. A job waiting in a profile&apos;s auto-apply queue leaves the queue too, when
+        you may change that profile&apos;s queue (its <Ui>{t('LABEL_SHARING_ROW_QUEUE')}</Ui> box); without it, and while the
+        extension is applying to it, the job stays saved and queued, and the result says why. Each result says what
+        happened on each profile, with <Ui>Undo</Ui> (which brings saved jobs back, not their place in a queue).
       </P>
       <P>
         <Ui>Copy saved jobs</Ui>: in the Job Tracker, <Ui>{t('LABEL_TRACKER_SELECT')}</Ui> › <Ui>{FANOUT_COPY.copyTo}</Ui>{' '}
@@ -133,8 +141,18 @@ function AllProfiles() {
         copied). The All profiles view has <Ui>{t('LABEL_TRACKER_SELECT')}</Ui> too, with copy, move to a stage, archive and restore (with Undo),
         each on the card&apos;s own profile: a move, archive or restore leaves a card whose profile is shared to see only
         alone, and names it. Its{' '}
-        <Ui>Prepare &amp; Queue jobs</Ui> takes the saved jobs of each profile you may prepare, after one question, and{' '}
+        <Ui>Prepare jobs</Ui> takes the saved jobs of each profile you may prepare, after one question, and{' '}
         <Ui>Prepare all profiles</Ui> is there too.
+      </P>
+      {/* v36 APPLYWEB (PLAN A2-A5): Auto-apply's Share and its profile arrows. */}
+      <P>
+        <Ui>Share saved jobs</Ui>: on <AppPage href="/auto-apply">Auto-apply</AppPage>, <Ui>{FANOUT_COPY.shareAll}</Ui>, the
+        Select bar&apos;s <Ui>{FANOUT_COPY.share}</Ui> and each saved job&apos;s <Ui>{FANOUT_COPY.shareTo} ›</Ui> save those
+        jobs on other profiles, as Saved. Sharing goes to the profiles shared with you whose{' '}
+        <Ui>{boxName('tracker:edit')}</Ui> box is ticked (and to your own profile while you work on a shared one); the people
+        you shared your own profile with are not offered, as your share gives you nothing of theirs. There, Prepare All and
+        the Select bar&apos;s Prepare have arrows for other profiles too (see{' '}
+        <See to="auto-select">Select, Share and other profiles</See>).
       </P>
       <P>
         <Ui>Filters for one profile or all</Ui>: while you work on a shared profile you change its Prepare filters with the
@@ -149,7 +167,7 @@ function AllProfiles() {
         new words turns it on for your form&apos;s profile only (the others are named as left out). Where you live stays
         each person&apos;s own, and the eligibility switches (sponsorship, clearance, qualifications) change only where you
         have that profile&apos;s <Ui>{boxName('sensitive:edit')}</Ui> box; elsewhere they are kept and you are told. Prepare
-        &amp; Queue settings and the Auto-save rule have <Ui>{FANOUT_COPY.applyOthers}</Ui> (not on a profile you may only
+        settings and the Auto-save rule have <Ui>{FANOUT_COPY.applyOthers}</Ui> (not on a profile you may only
         see): tick the settings and the profiles. <Ui>{PREPARE_COPY.askTitle}</Ui> is not among them: it is each
         person&apos;s own (see <See to="auto-steps">How auto-apply works</See>). The Profiles page shows each profile&apos;s filters in one line, with Edit
         (it opens that profile&apos;s settings; without its <Ui>{boxName('settings:edit')}</Ui> box the card says so) and{' '}

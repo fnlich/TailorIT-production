@@ -551,7 +551,7 @@ export async function seedAutofillProfile(
   );
   settings.push('preferences');
 
-  // v2.0: Prepare & Queue's cover-letter mode (API 8's documents.coverLetters) is a setting, never a value the seed
+  // v2.0: Prepare's cover-letter mode (API 8's documents.coverLetters) is a setting, never a value the seed
   // filled: the page keeps the person's own (COVER_LETTER_MODE_DEFAULT before they choose one).
   const filled = filledPaths(profile, '').filter((path) => path !== 'documents.coverLetters');
   return {

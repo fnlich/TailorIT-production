@@ -124,12 +124,19 @@ export const JobSummarySchema = z.object({
   employmentType: z.enum(EMPLOYMENT_TYPES).nullable(),
   experienceLevels: z.array(z.enum(EXPERIENCE_LEVELS)),
   salary: SalarySchema.nullable(),
+  /**
+   * When it was posted as a person reads it: its board's date, else when TailorIT first saw it. v36 IMPORTTIME (SP v36
+   * PLAN.md I1 refined): a job an admin's import dated later (or the approval of a job it held) reads from then.
+   */
   postedAt: IsoDateTime.nullable(),
+  /** Its board's last update; v36 IMPORTTIME: an admin's import's time when later (the "Last updated" filter's). */
   updatedAt: IsoDateTime.nullable(),
   /**
    * v35 IMPORT (SP v35 PLAN.md H5): when an admin's import last reposted the job (absent: never). The list shows
-   * "Reposted 1 hour ago" in place of its posted time; the header adds "Reposted today" beside the posted date. Search's
-   * "Last updated" filter and "Recently posted" sort count from the later of the two.
+   * "Reposted 1 hour ago" in place of its posted time. Search's "Last updated" filter and "Recently posted" sort count
+   * from the later of the two. v36 IMPORTTIME: present (the import's time, as `postedAt`) only when the job reads
+   * "Reposted": its board posted it more than ADMIN_IMPORT_REPOSTED_AFTER_DAYS before the import; absent when it reads
+   * "Posted" (its board's date later, or unknown). The header then says "Reposted today" in place of "Posted …".
    */
   repostedAt: IsoDateTime.nullable().optional(),
   active: z.boolean(),
@@ -329,28 +336,14 @@ export const JobReportBodySchema = z.object({
 export type JobReportBody = z.infer<typeof JobReportBodySchema>;
 
 /**
- * Save all (the list header) saves at most SAVE_BATCH_MAX jobs per click (a central constant, 100 by default, which an
- * admin may change), in the order the list shows them. The schemas below take the constant's own maximum (500) as a
- * technical ceiling; the server saves at most the resolved value (v2.0, 02-constants.md).
+ * One save or unsave request names at most SAVE_BATCH_MAX jobs (a central constant, 100 by default, which an admin may
+ * change: the Select bar's Save and Unsave, Copy to profiles, MCP's save_jobs on several profiles). The schemas take the
+ * constant's own maximum (500) as a technical ceiling; the server takes at most the resolved value (v2.0,
+ * 02-constants.md). v36 JOBS (PLAN J1): Save all, whose batch it first was, is gone.
  */
 export const SAVE_BATCH_CEILING = PUBLIC_CONSTANT_SPECS.SAVE_BATCH_MAX.max;
 
-/** GET /api/jobs/save-all/preview?<the list's query string>: the numbers of the "Save N jobs?" confirm. */
-export const SaveAllPreviewSchema = z.object({
-  /** Every match, as "Found N jobs" counts them. */
-  matched: z.number().int().nonnegative(),
-  /** Matches Save all can save: jobs not saved yet (never tracked, or un-saved: archived while only Saved). */
-  saveable: z.number().int().nonnegative(),
-  /** What one click saves: min(saveable, SAVE_BATCH_MAX). */
-  willSave: z.number().int().nonnegative().max(SAVE_BATCH_CEILING),
-});
-export type SaveAllPreview = z.infer<typeof SaveAllPreviewSchema>;
-
-/** POST /api/jobs/save-all?<the list's query string>. `occurredOn`: the browser's day (default today, UTC). */
-export const SaveAllBodySchema = z.object({ occurredOn: IsoDate.optional() });
-export type SaveAllBody = z.infer<typeof SaveAllBodySchema>;
-
-/** One job a Save all click saved. */
+/** One job a save saved. */
 export const SavedJobRefSchema = z.object({
   jobId: z.number().int().positive(),
   applicationId: z.string(),
@@ -360,20 +353,6 @@ export const SavedJobRefSchema = z.object({
   created: z.boolean(),
 });
 export type SavedJobRef = z.infer<typeof SavedJobRefSchema>;
-
-export const SaveAllResponseSchema = z.object({
-  /** The jobs this click saved, in the list's order. Undo archives exactly these applications. */
-  items: z.array(SavedJobRefSchema).max(SAVE_BATCH_CEILING),
-  /** Matches left as they were: saved already, or applied to (archived or not). */
-  alreadyTracked: z.number().int().nonnegative(),
-  /** Matches still saveable after this click (Save all again saves the next ones). */
-  remaining: z.number().int().nonnegative(),
-  /** Saved jobs whose best resume is still being chosen; TailorIT links it within seconds. */
-  pendingMatches: z.number().int().nonnegative(),
-  /** True when the server stopped part-way; `items` is what it saved. */
-  incomplete: z.boolean(),
-});
-export type SaveAllResponse = z.infer<typeof SaveAllResponseSchema>;
 
 export const SavedSearchSchema = z.object({
   id: z.string(),

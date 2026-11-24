@@ -393,7 +393,7 @@ export type BulkAction = (typeof BULK_ACTIONS)[number];
 
 /**
  * POST /api/applications/bulk (the Tracker's Select applications). `status` is required for the status action. `onlySaved` (archive only)
- * leaves alone the applications that have moved past Saved: Save all's Undo, which archives what the click saved.
+ * leaves alone the applications that have moved past Saved: a save's Undo, which archives what the save made.
  */
 export const BulkApplicationsBodySchema = z
   .object({
@@ -413,7 +413,15 @@ export const BulkApplicationsBodySchema = z
   });
 export type BulkApplicationsBody = z.infer<typeof BulkApplicationsBodySchema>;
 
-export const BulkApplicationsResponseSchema = z.object({ affected: z.number().int().nonnegative() });
+export const BulkApplicationsResponseSchema = z.object({
+  affected: z.number().int().nonnegative(),
+  /** v36 FIX-API: `archive` only: of `affected`, those also taken out of the auto-apply queue. */
+  dequeued: z.number().int().nonnegative().optional(),
+  /** v36 FIX-API: `archive` only: entries left as they are because the extension is applying to them now. */
+  applying: z.number().int().nonnegative().optional(),
+  /** v36 FIX-API: `archive` only: entries left as they are because taking them out of the queue needs Queue changes. */
+  queueLocked: z.number().int().nonnegative().optional(),
+});
 
 /** POST /api/applications/archive-all. */
 export const ArchiveAllResponseSchema = z.object({ archived: z.number().int().nonnegative() });

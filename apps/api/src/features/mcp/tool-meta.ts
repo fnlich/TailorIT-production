@@ -48,8 +48,8 @@ export const MCP_TOOL_META = {
   prepare_mark: { title: 'Mark a job failed or skipped', annotations: change(true, true) },
   prepare_prompt: { title: 'Get a Prepare step prompt', annotations: READ },
   // v34 MCPDIR (PLAN G8 addendum): the read and the write apart; customInstructions "" clears the person's own words.
-  prepare_settings: { title: 'Prepare & Queue settings', annotations: READ },
-  set_prepare_settings: { title: 'Change Prepare & Queue settings', annotations: change(true, true) },
+  prepare_settings: { title: 'Settings for Prepare', annotations: READ },
+  set_prepare_settings: { title: 'Change Prepare settings', annotations: change(true, true) },
   search_jobs: { title: 'Search jobs', annotations: READ },
   job_details: { title: 'Job details', annotations: READ },
   save_jobs: { title: 'Save jobs', annotations: change(false, true) },
@@ -67,7 +67,7 @@ export const MCP_TOOL_META = {
   filter_jobs: { title: 'Filter jobs', annotations: READ },
   custom_filter_verdicts: { title: 'Save custom filter verdicts', annotations: change(false, true) },
   // Starts Prepares and queues complete kits for auto-apply (a rebuild starts ready kits again): never a no-op to repeat.
-  prepare_start: { title: 'Start Prepare & Queue', annotations: change(true, false) },
+  prepare_start: { title: 'Start preparing jobs', annotations: change(true, false) },
   // Each call spends the account's TailorIT AI usage (and may pick other filters): a change, additive, not idempotent.
   ai_search_jobs: { title: 'AI job search', annotations: change(false, false) },
   own_ai_context: { title: 'Get a document-writing task', annotations: READ },
@@ -77,8 +77,9 @@ export const MCP_TOOL_META = {
   add_job: { title: 'Add a job by link', annotations: { ...change(false, true), openWorldHint: true } },
   // v34 MCPFAN (PLAN G5, its G8 addendum): the filters' read and write apart; a change replaces saved filter values
   // (setting the same fields again changes nothing more).
-  // v34 FIX-API (the final directory review, D9): a title, never an order ("prepare the filters").
-  prepare_filters: { title: 'Prepare & Queue filters', annotations: READ },
+  // v34 FIX-API (the final directory review, D9): a title, never an order ("prepare the filters"). v36 APPLYAPI (PLAN
+  // A6): "Prepare & Queue" is "Prepare"; a read tool's title still never starts with the verb ("Filters for Prepare").
+  prepare_filters: { title: 'Filters for Prepare', annotations: READ },
   set_prepare_filters: { title: 'Change Prepare filters', annotations: change(true, true) },
 } as const satisfies Record<McpToolName, McpToolMeta>;
 

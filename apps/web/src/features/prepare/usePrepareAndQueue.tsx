@@ -25,13 +25,13 @@ import { PrepareAllConfirmDialog } from './PrepareAllConfirmDialog';
 import { PrepareConfirmDialog } from './PrepareConfirmDialog';
 import { PrepareFiltersDialog } from './PrepareFiltersDialog';
 
-// v2.0: Prepare & Queue as one action every screen shares (the Auto-apply page's Saved pane and Queue pane, the
-// Tracker's "Prepare & Queue jobs" and its card menu): the first-time confirm (unless "Don't show this again" was
+// v2.0: Prepare as one action every screen shares (the Auto-apply page's Saved pane and Queue pane, the
+// Tracker's "Prepare jobs" and its card menu): the first-time confirm (unless "Don't show this again" was
 // ticked, stored on the server), POST /api/prepare, the result toast and live line, the limit and refusal dialog
 // (useLimitDialog), and the reads it changes: the Auto-apply panes, the Tracker, the kits and the account
 // (invalidateAccount after every Prepare).
 // v31 AUTO: beside it, the filters dialog (openFilters: the Auto-apply page's Filters button and every "Change
-// filters", in place of the link to Settings › Prepare & Queue) and Prepare All (D10: its plan, its confirm with the
+// filters", in place of the link to Settings › Prepare) and Prepare All (D10: its plan, its confirm with the
 // count and the AI budget, POST /api/prepare/all), which the dialog's "Filter and Prepare" starts too.
 
 /** The Auto-apply page's queries (the Saved and Queue panes, the kits): all start with this. */
@@ -47,6 +47,8 @@ export interface PrepareRequest {
   rebuild?: boolean;
   /** Runs once the server answered (not on a refusal): the caller clears its selection, for one. */
   onDone?: () => void;
+  /** v36 APPLYWEB (PLAN A4): a sentence the result adds (the Select bar's rows it left out: "2 skipped: ..."). */
+  note?: string;
 }
 
 /** v31 AUTO: Prepare All's request. */
@@ -56,7 +58,7 @@ export interface PrepareAllRequest {
 }
 
 export interface PrepareAndQueue {
-  /** Starts Prepare & Queue for the saved jobs (the confirm first, unless the person turned it off). */
+  /** Starts Prepare for the saved jobs (the confirm first, unless the person turned it off). */
   prepare: (request: PrepareRequest) => void;
   /** The saved jobs a request is in flight for (their buttons show the spinner). */
   pending: ReadonlySet<string>;
@@ -76,7 +78,7 @@ export interface PrepareAndQueue {
 const NO_IDS: ReadonlySet<string> = new Set();
 
 /**
- * Where a Prepare & Queue was pressed: the button, and its row (a Saved or a Queue row) when it has one, with the
+ * Where a Prepare was pressed: the button, and its row (a Saved or a Queue row) when it has one, with the
  * saved job (application) a Queue row is for.
  */
 interface FocusOrigin {
@@ -101,7 +103,7 @@ export function focusOrigin(): FocusOrigin | null {
 
 /**
  * v2.0 fix (UX-3): where focus goes back to after the confirm: the pressed button while it is still there, else its
- * row's action now (Prepare & Queue became Cancel), else Base UI's default. v2.0 FIX-INT (UX-3's tail): a Queue row's
+ * row's action now (Prepare became Cancel), else Base UI's default. v2.0 FIX-INT (UX-3's tail): a Queue row's
  * Try again starts a new Prepare whose row has another key; when the pressed row is gone, focus goes to the new
  * Preparing row of the same saved job.
  */
@@ -167,7 +169,8 @@ export function usePrepareAndQueue(): PrepareAndQueue {
       setPending(new Set(ids));
       try {
         const answer = await startPrepare(ids, request.rebuild ?? false);
-        const copy = prepareResultCopy(answer, (id) => request.names?.get(id), (reason) => t('MSG_FILTERED', { reason }));
+        const result = prepareResultCopy(answer, (id) => request.names?.get(id), (reason) => t('MSG_FILTERED', { reason }));
+        const copy = request.note ? { ...result, description: [result.description, request.note].filter(Boolean).join(' ') } : result;
         toast.toast({
           type: copy.tone,
           title: copy.title,
@@ -183,7 +186,7 @@ export function usePrepareAndQueue(): PrepareAndQueue {
           return;
         }
         // A refusal (the AI usage, the server AI, the resume limit) opens the limit dialog; anything else, a toast.
-        if (!limits.show(error)) toast.error('Prepare & Queue did not start', userMessage(error, 'Please try again.'));
+        if (!limits.show(error)) toast.error('Prepare did not start', userMessage(error, 'Please try again.'));
       } finally {
         busy.current = false;
         continuing.current = false;

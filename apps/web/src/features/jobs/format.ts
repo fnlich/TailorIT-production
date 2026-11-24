@@ -5,6 +5,7 @@ import {
   formatLocationLine,
   formatSalaryRange,
   relativeTime,
+  repostedAgo, // v36 IMPORTTIME
   standardOffsetOf,
   type DateInput,
   type ExperienceLevel,
@@ -12,8 +13,6 @@ import {
   type JobLocation,
   type JobSort,
   type JobSummary,
-  type SaveAllPreview,
-  type SaveAllResponse,
 } from '@tailorit/shared';
 import { industryWords, sizeWords } from '@/features/companies/format';
 
@@ -101,18 +100,20 @@ export function cardSalary(job: Pick<JobSummary, 'salary'>): string {
 
 /**
  * The card's age: "5 months ago" (when it was posted), or "Updated 3 days ago" while the list is sorted by
- * "Recently updated".
+ * "Recently updated". v36 IMPORTTIME (SP v36 PLAN.md I1): a job an admin's import dated after it was posted reads
+ * "Reposted 1 hour ago" (v3.5's words, as the Jobs page's row: list/age.ts), so a company's job list never shows the
+ * board's older date for it.
  */
-export function cardAge(job: Pick<JobSummary, 'postedAt' | 'updatedAt'>, sort: JobSort, now: DateInput): string {
+export function cardAge(job: Pick<JobSummary, 'postedAt' | 'updatedAt' | 'repostedAt'>, sort: JobSort, now: DateInput): string {
   if (sort === 'updated') {
     const when = relativeTime(job.updatedAt ?? job.postedAt, now);
     return when ? `Updated ${when}` : '';
   }
-  return relativeTime(job.postedAt, now);
+  return repostedAgo(job, now) ?? relativeTime(job.postedAt, now); // v36 IMPORTTIME
 }
 
 /** The card's last line: salary and age joined with " · ". */
-export function cardMetaLine(job: Pick<JobSummary, 'salary' | 'postedAt' | 'updatedAt'>, sort: JobSort, now: DateInput): string {
+export function cardMetaLine(job: Pick<JobSummary, 'salary' | 'postedAt' | 'updatedAt' | 'repostedAt'>, sort: JobSort, now: DateInput): string {
   return [cardSalary(job), cardAge(job, sort, now)].filter(Boolean).join(' · ');
 }
 
@@ -141,95 +142,4 @@ export function showMoreLabel(hidden: number, expanded: boolean): string {
 export function jobLevelsOf(own: readonly ExperienceLevel[], analysis: Pick<JobAnalysisView, 'experienceLevels'> | undefined): ExperienceLevel[] {
   if (own.length > 0) return [...own];
   return [...(analysis?.experienceLevels ?? [])];
-}
-
-// ------------------------------------------------------------------------------------------------- Save all
-
-/**
- * The Save all button's tooltip, for one click's batch (v2.0: the public constant SAVE_BATCH_MAX, which the button reads
- * with usePublicConstants). v2.0 fix (SEC-5): no default read from the whole constants table here, which would put
- * every constant (budgets and prices included) in the browser's bundle.
- */
-export function saveAllHint(limit: number): string {
-  return `Save the jobs that match your filters, up to ${limit.toLocaleString('en-US')} at a time`;
-}
-/** Toast titles of Save all's failures; the server's sentence follows. */
-export const SAVE_ALL_FAILED = 'The jobs could not be saved';
-export const UNDO_SAVE_ALL_FAILED = 'The jobs could not be removed from saved jobs';
-
-/** A toast's two lines. */
-export interface ToastCopy {
-  title: string;
-  description: string;
-}
-
-const number = (count: number) => count.toLocaleString('en-US');
-/** "1 job", "1,250 jobs". */
-const jobCount = (count: number) => `${number(count)} ${count === 1 ? 'job' : 'jobs'}`;
-
-/**
- * Save all found nothing to save: the matches are all in the Job Tracker already, or nothing matches any more. v30
- * WEB-JOBS: `cap` is JOB_SEARCH_COUNT_CAP ("All 10,000+ jobs").
- */
-export function nothingToSaveCopy(matched: number, cap?: number): ToastCopy {
-  let description = `All ${matchCount(matched, cap)} jobs are already in your Job Tracker.`;
-  if (matched === 0) description = 'No jobs match these filters any more.';
-  else if (matched === 1) description = 'This job is already in your Job Tracker.';
-  return { title: 'Nothing new to save', description };
-}
-
-export interface SaveAllConfirmCopy {
-  title: string;
-  description: string;
-  /** The matches left as they are (in the Job Tracker already), or null when there are none. */
-  note: string | null;
-  confirmLabel: string;
-  busyLabel: string;
-}
-
-/**
- * The "Save N jobs?" confirm, for the preview's numbers. v30 WEB-JOBS: with `cap` (JOB_SEARCH_COUNT_CAP) a count past it
- * reads "10,000+", and the matches already tracked are "some" when the match count is past it (then it is a floor).
- */
-export function saveAllConfirmCopy(preview: SaveAllPreview, cap?: number): SaveAllConfirmCopy {
-  const count = preview.willSave;
-  const tracked = Math.max(0, preview.matched - preview.saveable);
-  let description = count === 1 ? 'It goes to your Job Tracker under Saved.' : 'They go to your Job Tracker under Saved.';
-  // v2.0: one click saves willSave = min(saveable, SAVE_BATCH_MAX), so fewer than saveable means the batch is full.
-  if (preview.saveable > count) {
-    description =
-      `You can save up to ${number(count)} jobs at a time. These are the first ${number(count)} of ` +
-      `${matchCount(preview.saveable, cap)} jobs you haven't saved, in the order the list shows them.`;
-  }
-  let note: string | null = null;
-  if (tracked > 0 && isCapped(preview.matched, cap)) note = 'Some matching jobs are already in your Job Tracker and keep their status.';
-  else if (tracked === 1) note = '1 matching job is already in your Job Tracker and keeps its status.';
-  else if (tracked > 1) note = `${number(tracked)} matching jobs are already in your Job Tracker and keep their status.`;
-  return { title: `Save ${jobCount(count)}?`, description, note, confirmLabel: `Save ${jobCount(count)}`, busyLabel: 'Saving...' };
-}
-
-/**
- * The toast after Save all. Saved none (the jobs were saved meanwhile): "Nothing new to save". v30 WEB-JOBS: the
- * server counts the saveable matches up to `cap` (JOB_SEARCH_COUNT_CAP), so when what was saved and what is left reach
- * it, the number left is a floor and the toast names none.
- */
-export function saveAllResultCopy(result: Pick<SaveAllResponse, 'items' | 'remaining' | 'incomplete'>, cap?: number): ToastCopy {
-  const saved = result.items.length;
-  if (saved === 0) return { title: 'Nothing new to save', description: 'These jobs are already in your Job Tracker.' };
-  let description = saved === 1 ? 'Find it in your Job Tracker under Saved.' : 'Find them in your Job Tracker under Saved.';
-  if (result.incomplete) description += ' Some jobs could not be saved. Click Save all to try the rest.';
-  else if (result.remaining > 0 && cap !== undefined && result.remaining + saved >= cap) description += ' More can be saved with Save all.';
-  else if (result.remaining > 0) description += ` ${number(result.remaining)} more can be saved with Save all.`;
-  return { title: `Saved ${jobCount(saved)}`, description };
-}
-
-/** The toast after Save all's Undo, for how many applications it archived. */
-export function saveAllUndoneCopy(removed: number): ToastCopy {
-  if (removed === 0) {
-    return { title: 'Nothing was removed from saved jobs', description: 'These jobs have moved past Saved in your Job Tracker.' };
-  }
-  return {
-    title: `Removed ${jobCount(removed)} from saved jobs`,
-    description: removed === 1 ? 'It is archived in your Job Tracker.' : 'They are archived in your Job Tracker.',
-  };
 }

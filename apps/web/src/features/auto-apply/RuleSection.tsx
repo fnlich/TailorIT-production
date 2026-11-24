@@ -37,14 +37,17 @@ function percentOf(text: string): number | null {
  * at once; the threshold saves as the slider is let go (or as the page is left), or as its box is left or Enter is
  * pressed. One save runs at a time: a change made meanwhile waits for it, then goes, so the last one always wins. The
  * new jobs are those TailorIT first sees after the rule is turned on.
+ * v36 APPLYWEB (PLAN A1): `fill` (the Auto-apply page's frame, from 1024 px): it starts as its one collapsed line (its
+ * summary says On or Off), so the Saved list keeps the height; opened, its form scrolls inside the card when the frame
+ * is short, the line staying in view.
  */
-export function RuleSection({ settings, readOnly = false }: { settings: AutofillAgentSettings; readOnly?: boolean }) {
+export function RuleSection({ settings, readOnly = false, fill = false }: { settings: AutofillAgentSettings; readOnly?: boolean; fill?: boolean }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const hintId = useId();
   const headingId = useId();
   const panelId = useId();
-  const [expanded, setExpanded] = useState(settings.ruleEnabled);
+  const [expanded, setExpanded] = useState(fill ? false : settings.ruleEnabled);
   const [minMatch, setMinMatch] = useState(settings.minMatch);
   const [typed, setTyped] = useState(String(settings.minMatch));
   // The saved threshold (a save's answer, a reload) replaces what is shown, as it changes.
@@ -73,7 +76,8 @@ export function RuleSection({ settings, readOnly = false }: { settings: Autofill
       if (asked.ruleEnabled !== before.ruleEnabled) {
         toast.success(
           saved.ruleEnabled ? 'Auto-save turned on' : 'Auto-save turned off',
-          saved.ruleEnabled ? `New jobs of at least ${saved.minMatch}% match will be saved to Saved Jobs.` : undefined,
+          // v36 FIX-WEB (ux L8): "saved jobs" in sentences.
+          saved.ruleEnabled ? `New jobs of at least ${saved.minMatch}% match will be added to your saved jobs.` : undefined,
         );
       } else if (asked.minMatch !== before.minMatch) {
         toast.success(`Minimum match set to ${saved.minMatch}%`);
@@ -158,8 +162,12 @@ export function RuleSection({ settings, readOnly = false }: { settings: Autofill
     { key: 'minMatch' as const, label: 'Minimum match', value: `${settings.minMatch}%` },
   ];
   return (
-    <section aria-label="Auto-save new jobs" className="rounded-card border border-border bg-surface shadow-card" data-rule-section="">
-      <h2 id={headingId} className="text-[15px] leading-5 font-semibold text-foreground">
+    <section
+      aria-label="Auto-save new jobs"
+      className={clsx('rounded-card border border-border bg-surface shadow-card', fill && 'flex min-h-0 flex-col')}
+      data-rule-section=""
+    >
+      <h2 id={headingId} className={clsx('text-[15px] leading-5 font-semibold text-foreground', fill && 'shrink-0')}>
         <button
           type="button"
           aria-expanded={expanded}
@@ -180,14 +188,19 @@ export function RuleSection({ settings, readOnly = false }: { settings: Autofill
           />
         </button>
       </h2>
-      <div id={panelId} hidden={!expanded} className="border-t border-border px-4 py-4 sm:px-5">
+      <div
+        id={panelId}
+        hidden={!expanded}
+        className={clsx('border-t border-border px-4 py-4 sm:px-5', fill && 'min-h-0 overflow-y-auto overscroll-contain')}
+        data-rule-panel=""
+      >
       <div className="flex flex-col gap-5">
         <span className="flex items-center gap-1.5">
           <Switch
             checked={ruleEnabled}
             // v33 INT-1: shown, not changed, on a shared profile without the owner's Job settings Change box.
             disabled={readOnly}
-            label={`Save new jobs of at least ${minMatch}% match to Saved Jobs`}
+            label={`Save new jobs of at least ${minMatch}% match to saved jobs`}
             // Never disabled while saving, which would take the focus away: a change made meanwhile is sent after it.
             onCheckedChange={(on) => {
               // The threshold shown goes with it (a slider save still waiting is this one).

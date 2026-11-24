@@ -8,7 +8,7 @@ import type {
 } from '@tailorit/shared';
 import type { DbQueries } from '../../core/db/index';
 
-// Prepare & Queue's tables (v2.0, docs/design/v2.0/01-data-model.md: 0822's prepare_jobs and the rebuilt drafts, 0827's
+// Prepare's tables (v2.0, docs/design/v2.0/01-data-model.md: 0822's prepare_jobs and the rebuilt drafts, 0827's
 // resume mode, and the person's columns of 0824's user_settings): the only module that reads or writes them. One
 // prepare_jobs row is one Prepare of one saved job; the application's draft (application_drafts, one per application)
 // is its kit, `prepare_id` naming the Prepare that last worked on it. Every read takes its account or its own id;

@@ -114,10 +114,10 @@ const JOBS_INSIGHTS_KEY = ['jobs', 'insights'] as const;
 
 /**
  * Settings: v2.0's Account first (the plan, today's usage, extra credit), then the display name, the contact details
- * cover letters use, job preferences with where you live, and Prepare & Queue (/settings#prepare).
+ * cover letters use, job preferences with where you live, and Prepare (/settings#prepare).
  * v33 SHARE-7 (PLAN F9; SP v33 PLAN-sharing.md §9 "Permission-aware UI", "While acting, these are hidden"): on a profile
  * shared with the person, the Account (#account), the profile's name and email, and Notification settings
- * (#notifications) are the person's own and are not shown; the job preferences and Prepare & Queue show with the
+ * (#notifications) are the person's own and are not shown; the job preferences and Prepare show with the
  * owner's "Job settings" See box (else "Not shared with you."), and change only with its Change box.
  */
 export function SettingsPage() {
@@ -125,7 +125,7 @@ export function SettingsPage() {
   const profile = useProfile(); // v33 SHARE-7
   const access = accessOf(profile, 'settings:view', 'settings:edit'); // v33 SHARE-7
   const sensitive = accessOf(profile, 'sensitive:view', 'sensitive:edit'); // v33 SHARE-7: the eligibility switches
-  // v33 SHARE-7: the Prepare filters are read with Prepare & queue's See box (as the server serves them), changed with
+  // v33 SHARE-7: the Prepare filters are read with Prepare's See box (as the server serves them), changed with
   // Job settings' Change box.
   const filters = accessOf(profile, 'prepare:view', 'settings:edit');
   useOwnOnlySections(profile.acting, account?.id); // v33 SHARE-7
@@ -137,7 +137,7 @@ export function SettingsPage() {
 
   return (
     <div className={clsx('mx-auto w-full max-w-[880px] pt-7 pb-20', PAGE_GUTTER)}>
-      <PageHeader title="Settings" description="Your account, profile, job preferences and Prepare & Queue." />
+      <PageHeader title="Settings" description="Your account, profile, job preferences and Prepare." />
       {/* v33 SHARE-7: the Account is the signed-in person's own: not shown on a shared profile. */}
       {!profile.acting && <AccountSection className="mt-6" />}
       {access.ready && !access.see ? (
@@ -444,7 +444,7 @@ function SettingsSkeleton() {
 
 /**
  * v2.0 (A22): Job preferences › Where you live: country, state or province, city and time zone, for the location
- * filter (Settings › Prepare & Queue). Saved with the rest of the form.
+ * filter (Settings › Prepare). Saved with the rest of the form.
  */
 function WhereYouLive({
   prefs,

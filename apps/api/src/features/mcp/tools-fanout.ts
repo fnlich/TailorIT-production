@@ -32,6 +32,7 @@ import {
   type FanoutOptions,
   type SavedOnTarget,
 } from '../sharing/fanout/index';
+import { underOf } from '../sharing/fanout/unsave'; // v36 FIX-API (D1)
 import { dayIn, zoneOf } from './dates';
 import {
   filterTextFenced,
@@ -60,7 +61,7 @@ import { refuseLinkLeak, refuseWrittenLeaks } from './written';
 //   stays bound to its profile: with several profiles a call takes `ids`, or a setId made on "me" (its jobs are checked
 //   again on each profile: one an owner does not see is not_found there), never a set made on another profile. An
 //   archive by set confirms the sum of the entries it archives on every profile (MCPDIR's requireConfirm);
-// - prepare_filters (a read: Prepare & queue's See each) answers each profile's saved Prepare filters;
+// - prepare_filters (a read: Prepare's See each) answers each profile's saved Prepare filters;
 // - set_prepare_filters (a write: Job settings' Change each) changes only the fields given (FANOUT's PATCH merge); an
 //   eligibility switch without Sensitive answers' Change there is kept and reported (`kept`);
 // - a profile the call may not use is refused as naming it alone would be (session.refusalOf); `leftOut` names the
@@ -121,7 +122,7 @@ export function keptTextNote(names: readonly string[]): string {
   const where = names.length === 1 ? `${names[0]}'s profile` : `each of these profiles (${names.join(', ')})`;
   return (
     "custom: the custom filter's text is written only on the person's own profile, so it was kept on " +
-    `${where}; the person changes it there in TailorIT (Settings › Prepare & Queue).`
+    `${where}; the person changes it there in TailorIT (Settings › Prepare).`
   );
 }
 
@@ -137,7 +138,7 @@ export function offWordsKeptNote(names: readonly string[]): string {
 /** The review round (decision 2): what `hidden` means in prepare_filters' answer. */
 export const HIDDEN_NOTE =
   'hidden: sensitive answers ("I need visa sponsorship", the clearance switch), null on every profile: TailorIT keeps ' +
-  "them from every AI. The person sees them in TailorIT's Settings › Prepare & Queue; set_prepare_filters sets them " +
+  "them from every AI. The person sees them in TailorIT's Settings › Prepare; set_prepare_filters sets them " +
   'only when the person asks.';
 
 const oneOf = (values: readonly string[]) => `[${values.join('|')}]`;
@@ -320,7 +321,7 @@ export async function unsaveJobsOnMany(session: McpSession, own: SaveContext, ta
     actor,
     resolved,
     'tracker:edit',
-    (target) => archiveSavedJobs(deps, target.ownerId, ids, setId === null ? undefined : sameCount(target.profile)),
+    (target) => archiveSavedJobs(deps, target.ownerId, ids, setId === null ? undefined : sameCount(target.profile), underOf(actor, target)),
     { ...VIA_MCP, wrote: (value) => value.unsaved > 0 },
   );
   return perProfile(session, 'unsave_jobs', answer, (value) => ({ ...value }));
@@ -350,7 +351,7 @@ export async function addJobOnMany(session: McpSession, own: SaveContext, target
 /** The eligibility switches as MCP reads them on every profile (decision 2). */
 const HIDDEN_VALUES = Object.fromEntries(ELIGIBILITY_SWITCHES.map((key) => [key, null])) as Record<(typeof ELIGIBILITY_SWITCHES)[number], null>;
 
-/** prepare_filters: each profile's saved filters (Prepare & queue's See there), with what each field means. */
+/** prepare_filters: each profile's saved filters (Prepare's See there), with what each field means. */
 async function readFilters(session: McpSession, own: SaveContext, targets: FanoutTargets): Promise<PerProfile> {
   const service = prepareFilterService(own.deps);
   const answer = await fanOut(

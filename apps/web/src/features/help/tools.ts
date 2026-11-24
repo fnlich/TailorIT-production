@@ -9,7 +9,7 @@ export const TOOL_GROUPS = [
   { id: 'find', title: 'Find jobs' },
   { id: 'track', title: 'Save and track' },
   { id: 'queue', title: 'The auto-apply queue' },
-  { id: 'prepare', title: 'Prepare & Queue with your AI' },
+  { id: 'prepare', title: 'Prepare with your AI' },
   { id: 'documents', title: 'Documents with your AI' },
   { id: 'setup', title: 'Rules, settings and reports' },
 ] as const;
@@ -53,7 +53,7 @@ export const TOOL_SUMMARIES: Readonly<Record<string, ToolSummary>> = {
   queue_clear_finished: { group: 'queue', summary: 'Removes every finished row from the auto-apply queue.' },
   filter_jobs: { group: 'prepare', summary: 'Runs your saved Prepare filters over your saved jobs and says which pass and why.' },
   custom_filter_verdicts: { group: 'prepare', summary: 'Saves your AI\'s verdicts for the Custom filter, judged only against your own words.' },
-  prepare_start: { group: 'prepare', summary: 'Starts Prepare & Queue with your AI for every job that passed the filters.' },
+  prepare_start: { group: 'prepare', summary: 'Starts Prepare with your AI for every job that passed the filters.' },
   prepare_queue: { group: 'prepare', summary: 'The jobs waiting for your AI to write their kit, on every profile at once.' },
   prepare_job_context: { group: 'prepare', summary: 'One job to prepare: its resume, whether a letter is wanted, its keywords, its questions and the next step.' },
   prepare_prompt: { group: 'prepare', summary: "TailorIT's prompt for one step of a job's kit (analyze, review, tailor, revise, letter, answers)." },

@@ -16,8 +16,8 @@ import {
 import { PROFILE_SELF, type ProfileKey } from '@tailorit/shared/sharing';
 import { api } from '../../lib/api';
 
-// v2.0: Prepare & Queue's session routes (docs/design/v2.0/05-prepare-flow.md), as the Auto-apply page, the Tracker's
-// "Prepare & Queue jobs" and its "Prepared" tab use them. Settings › Prepare & Queue (P8) can read and save the same
+// v2.0: Prepare's session routes (docs/design/v2.0/05-prepare-flow.md), as the Auto-apply page, the Tracker's
+// "Prepare jobs" and its "Prepared" tab use them. Settings › Prepare (P8) can read and save the same
 // settings through fetchPrepareSettings / savePrepareSettings under prepareKeys.settings.
 
 export const prepareKeys = {
@@ -32,7 +32,7 @@ export const prepareKeys = {
   draft: (applicationId: string) => ['prepare', 'draft', applicationId] as const,
 };
 
-/** POST /api/prepare: Prepare & Queue the saved jobs (Tracker entries), each once. 202 with each job's outcome. */
+/** POST /api/prepare: Prepare the saved jobs (Tracker entries), each once. 202 with each job's outcome. */
 export function startPrepare(applicationIds: readonly string[], rebuild = false) {
   return api.post<PrepareStartResponse>(
     '/api/prepare',
@@ -89,7 +89,7 @@ export function saveOwnPrepareSettings(body: PrepareSettingsBody) {
 
 /**
  * Where the person's own Prepare settings sit in this document's cache: on their own profile the tab's settings key (so
- * Settings › Prepare & Queue and the confirm share one copy), on a shared profile `ownSettings` (the tab's key holds the
+ * Settings › Prepare and the confirm share one copy), on a shared profile `ownSettings` (the tab's key holds the
  * owner's). A document's profile never changes (lib/profile.ts), so the key is fixed for its life.
  */
 export function ownPrepareSettingsKey(documentProfile: ProfileKey | null): readonly string[] {

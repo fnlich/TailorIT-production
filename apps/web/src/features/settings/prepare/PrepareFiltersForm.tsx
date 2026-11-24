@@ -47,7 +47,7 @@ import {
   type SeveralFiltersPatch,
 } from './filters';
 
-// v31 AUTO: the Prepare filters as one form, shared by Settings › Prepare & Queue (PrepareFilters, with its save bar)
+// v31 AUTO: the Prepare filters as one form, shared by Settings › Prepare (PrepareFilters, with its save bar)
 // and the Auto-apply page's filters dialog (features/prepare/PrepareFiltersDialog, with Only Filter and Filter and
 // Prepare). Built from v2.0's Settings form (docs/design/v2.0/08-ui.md; 06-filters-analysis.md): the person's saved
 // filters as fields, a live preview of how many saved jobs they let through (POST /api/prepare/filters/preview, 500 ms
@@ -312,7 +312,7 @@ export function useSaveFilters({
     },
     onSuccess: (saved) => {
       onSaved?.();
-      // The tab's own profile's answer sets the stored copy (null without Prepare & queue's See there: read again).
+      // The tab's own profile's answer sets the stored copy (null without Prepare's See there: read again).
       const tabAnswer =
         saved.kind === 'single' ? saved.answer : saved.answer.results.find((result) => result.profile === choices.tab && result.ok);
       const stored = tabAnswer && !('ok' in tabAnswer && !tabAnswer.ok) ? storedFilters(tabAnswer as Parameters<typeof storedFilters>[0]) : null;

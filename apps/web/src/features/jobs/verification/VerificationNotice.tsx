@@ -12,6 +12,7 @@ import { reasonText } from '../add/outcome';
 import { HelpTip } from '@/components/ui/HelpTip';
 import { RETRY_READ_COPY } from './copy';
 import { ApprovedJobBadge } from './VerificationBadge';
+import { useIsAdmin } from '@/lib/auth'; // v36 JOBS
 import { useRetryRead } from './useRetryRead';
 
 /**
@@ -35,8 +36,10 @@ export function VerificationNotice({
   const { t } = usePublicConstants();
   const now = useNow();
   const { retry, pending } = useRetryRead({ onRead });
-  // v32 INT-1 (E6): a job an admin published as it was added: its chip and "?" (no Retry read: everyone sees it).
-  if (verification?.state === 'admin_approved') return <ApprovedJobBadge className={className} />;
+  const admin = useIsAdmin();
+  // v32 INT-1 (E6): a job an admin published as it was added: its chip and "?" (no Retry read: everyone sees it). v36
+  // JOBS (PLAN J7): for admins only.
+  if (verification?.state === 'admin_approved') return admin ? <ApprovedJobBadge className={className} /> : null;
   if (verification?.state !== 'private_unverified') return null;
   const why = reasonText(verification.reason, t);
   const title = t('LABEL_JOB_FROM_BROWSER');

@@ -19,6 +19,10 @@ import { lockState, writeState } from './state';
 // the next day. offerLink is the same step for one address, for the readers that find links elsewhere (a company
 // website's Careers link, signal 4; an adapter's JSON-LD).
 //
+// v36 SOURCES (SP v36 PLAN S6): a held job (jobs.held_since: waiting in Admin › Review › New jobs) offers nothing, in
+// any signal: its board becomes a candidate only once an admin approves the job (job-reviews/decide.ts offers it then).
+// The mark still moves past it.
+//
 // v30 FIX-PERF (PG-LOAD PGL-18): a pass read at most LINK_BATCHES_PER_PASS batches (100,000 rows) a signal a day,
 // against 150,000 new Tracker entries a day at 11 §1.2's base case: the applications signal fell 50,000 entries
 // further behind every day. A batch is 7.7 ms warm at mix B's size, so catching up takes seconds.
@@ -126,7 +130,7 @@ export async function sweepLinks(deps: AppDeps, options: { budgetMs?: number } =
     'applicationSeq',
     (t, after) =>
       t.all(
-        `SELECT a.seq AS at, COALESCE(NULLIF(a.posting_url, ''), j.apply_url) AS url
+        `SELECT a.seq AS at, CASE WHEN j.held_since IS NULL THEN COALESCE(NULLIF(a.posting_url, ''), j.apply_url) END AS url
          FROM applications a LEFT JOIN jobs j ON j.id = a.job_id
          WHERE a.seq > ? ORDER BY a.seq LIMIT ?`,
         [after, LINK_BATCH],
@@ -141,7 +145,11 @@ export async function sweepLinks(deps: AppDeps, options: { budgetMs?: number } =
     deps,
     'pageJobId',
     (t, after) =>
-      t.all('SELECT j.id AS at, j.apply_url AS url FROM jobs j WHERE j.id > ? AND j.owner_user_id IS NOT NULL ORDER BY j.id LIMIT ?', [after, LINK_BATCH]),
+      t.all(
+        `SELECT j.id AS at, CASE WHEN j.held_since IS NULL THEN j.apply_url END AS url
+         FROM jobs j WHERE j.id > ? AND j.owner_user_id IS NOT NULL ORDER BY j.id LIMIT ?`,
+        [after, LINK_BATCH],
+      ),
     'application_link',
     pass,
     false, // v30 INT-4: career sites of page jobs are S5's ingest.career_sites signal
@@ -155,7 +163,8 @@ export async function sweepLinks(deps: AppDeps, options: { budgetMs?: number } =
     (t, after) =>
       t.all(
         `SELECT j.id AS at,
-           CASE WHEN j.apply_platform IN ('greenhouse', 'lever', 'ashby', 'workable', 'workday', 'bamboohr', 'breezy', 'site')
+           CASE WHEN j.held_since IS NULL
+             AND j.apply_platform IN ('greenhouse', 'lever', 'ashby', 'workable', 'workday', 'bamboohr', 'breezy', 'site')
              AND NOT EXISTS (SELECT 1 FROM job_source_links l JOIN job_sources s ON s.id = l.source_id
                                              WHERE l.job_id = j.id AND s.kind = ANY(string_to_array(?, ',')))
            THEN j.apply_url END AS url

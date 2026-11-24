@@ -7,7 +7,7 @@ import { OutboundRefusedError } from '../../../core/http/outbound';
 import { ADAPTERS } from '../adapters/index';
 import { HostHeldError, IngestHttpError, type IngestHttp } from '../http';
 import { RobotsRefusal } from '../robots';
-import { JITTER, NOT_FOUND_DAYS, NOT_FOUND_DROP_AFTER, runnableKinds } from '../scheduler';
+import { NOT_FOUND_DAYS, NOT_FOUND_DROP_AFTER, runnableKinds } from '../scheduler';
 import { requireIngest } from '../service';
 import { hostOf, KIND_TERMS, NEW_SOURCE_COLUMNS, NEW_SOURCE_PLACEHOLDERS, newSourceValues } from '../sources';
 import { IngestError, SourceNotFoundError, type SourceAdapter, type SourceKind, type SourceRecord } from '../types';
@@ -27,10 +27,11 @@ import { DAY_MS } from '@tailorit/shared';
 // while DISCOVERY_VALIDATE_V2_KINDS_TODAY is on (its default): a board Add job found gets its listing (and its jobs a
 // liveness signal) before the owner sets BOT_USER_AGENT. Every other kind still waits for BOT_USER_AGENT.
 //
-// The outcomes (12 §4.2):
-//   valid, open jobs       a job_sources row, enabled, tier `normal`, due now (the worker runs it at once); robots.txt
-//                          allowed (validation just read its paths); discovered_via the candidate's
-//   valid, no open jobs    a source, tier `empty`, first run after INGEST_CADENCE_EMPTY_DAYS (boards post again)
+// The outcomes (12 §4.2; v36 SOURCES, SP v36 PLAN S2: a source validation makes is OFF and not due, "Waiting for an
+// admin" in Admin › Sources, until an admin turns it on there; validation never turns a source on):
+//   valid, open jobs       a job_sources row, off, not due, tier `normal`; robots.txt allowed (validation just read its
+//                          paths); discovered_via the candidate's
+//   valid, no open jobs    a source, off, not due, tier `empty` (its cadence INGEST_CADENCE_EMPTY_DAYS once turned on)
 //   404, no such board     `not_found`, tried again in NOT_FOUND_DAYS (30), `dropped` after NOT_FOUND_DROP_AFTER (3)
 //                          in a row; a name probe's wrong guess is dropped at once
 //   robots.txt, terms      `forbidden` (robots.txt disallows the listing, a refused host, an opted-out company): never
@@ -39,8 +40,11 @@ import { DAY_MS } from '@tailorit/shared';
 //                          after INGEST_SOURCE_DISABLE_AFTER_FAILURES in a row
 //   host held              not a try: due again after the hold, its place under the cap given back
 // A source that reads the board already (an admin added it meanwhile) is linked, unread; Add job's disabled keeper of
-// the board's links is adopted (turned on, its links kept). `attempts` counts the tries in a row that ended the same
-// way. A candidate never names a person.
+// the board's links is adopted: promoted to the board's source (its mark goes, its links kept) and left off, waiting for
+// an admin like a new one (v36 SOURCES; v36 FIX-SRC: a career site's keeper keeps its mark, and with it the weekly
+// re-read of its pages, until an admin turns it on). A source an admin ever turned on is never a keeper (offer.ts isLinkKeeper), so
+// validation never undoes an admin's off. The read stores no job: it counts the board's open postings, and nothing of
+// the listing is kept. `attempts` counts the tries in a row that ended the same way. A candidate never names a person.
 
 /** How long a candidate is held by the pass reading it (a crashed pass's candidate is due again after it). */
 export const VALIDATION_LEASE_MS = 10 * 60_000;
@@ -124,7 +128,7 @@ export function validatableKinds(deps: Parameters<typeof runnableKinds>[0]): Job
 /** The source config a candidate's board gets. */
 export const candidateConfig = (kind: JobSourceKind, name: string): Record<string, unknown> => BOARD_KINDS[kind]?.configOf(name) ?? {};
 
-/** A source record for the read (as the Test button makes one): nothing is stored by it. */
+/** A source record for the read (as the Test button makes one): nothing is stored by it, and nothing turns it on. */
 function readRecord(kind: JobSourceKind, name: string, config: Record<string, unknown>): SourceRecord {
   return {
     id: -1,
@@ -132,7 +136,7 @@ function readRecord(kind: JobSourceKind, name: string, config: Record<string, un
     name,
     config,
     companyId: null,
-    enabled: true,
+    enabled: false, // v36 SOURCES: an adapter's read never asks; no record of a read is ever on
     deactivateMissing: false,
     lastRunAt: null,
     lastSuccessAt: null,
@@ -242,16 +246,17 @@ async function recordCandidate(
 
 /**
  * The board's source, made or adopted for a valid candidate (in the caller's transaction): a source that reads it
- * already (linked as it is), else Add job's keeper of its links (turned on), else a new one named by the board ("acme",
- * "acme (2)" when another source holds the name). Valid: tier normal, due now; empty: tier empty, first run after the
- * empty cadence. Answers its id and whether a source that read it already was found.
+ * already (linked as it is, on or off), else Add job's keeper of its links (promoted: its mark goes, but a career site's
+ * stays until an admin turns it on: v36 FIX-SRC), else a new one
+ * named by the board ("acme", "acme (2)" when another source holds the name). v36 SOURCES (PLAN S2): either way it is
+ * off and not due, waiting for an admin (only an admin's enableSources turns it on, and makes it due then). Valid: tier
+ * normal; empty: tier empty. Answers its id and whether a source that read it already was found.
  */
 export async function sourceForCandidate(
   deps: AppDeps,
   t: DbTx,
   candidate: { kind: JobSourceKind; name: string; via: JobSourceDiscoveredVia },
   found: { open: number; config: Record<string, unknown> },
-  random: () => number = Math.random,
 ): Promise<{ sourceId: number; linked: boolean }> {
   const at = nowIso(deps);
   const sources = await sourcesOfBoard(t, candidate.kind, candidate.name);
@@ -260,14 +265,17 @@ export async function sourceForCandidate(
   const c = constantsOf(deps);
   const empty = found.open === 0;
   const cadenceMs = empty ? c.get('INGEST_CADENCE_EMPTY_DAYS') * DAY_MS : c.get('INGEST_CADENCE_NORMAL_HOURS') * 3_600_000;
-  const firstRunMs = empty ? Math.round(cadenceMs * (1 - JITTER + 2 * JITTER * random())) : 0;
   const host = hostOf(candidate.kind, found.config);
   const keeper = sources.find(isLinkKeeper);
   let sourceId: number;
   if (keeper) {
-    // Add job's mark goes: the source reads its board now.
-    const kept = Object.fromEntries(Object.entries(keeper.config).filter(([key]) => key !== 'addedBy'));
-    await t.run('UPDATE job_sources SET config = CAST(? AS jsonb), enabled = true WHERE id = ?', [JSON.stringify({ ...kept, ...found.config }), keeper.id]);
+    // Add job's mark goes: the board's source now, off as it was (v36 SOURCES: waiting for an admin). v36 FIX-SRC (the
+    // final data review's D2): a career site's keeper keeps its mark until an admin turns the site on (enableSources
+    // drops it then), so the weekly re-read of its pages (jobs/add/recheck.ts) goes on while it waits, off: nothing else
+    // reads them meanwhile. Its discovered_via makes it the board's source all the same (offer.ts isLinkKeeper).
+    const kept =
+      candidate.kind === 'career_site' ? keeper.config : Object.fromEntries(Object.entries(keeper.config).filter(([key]) => key !== 'addedBy'));
+    await t.run('UPDATE job_sources SET config = CAST(? AS jsonb) WHERE id = ?', [JSON.stringify({ ...kept, ...found.config }), keeper.id]);
     sourceId = keeper.id;
   } else {
     let made: number | null = null;
@@ -275,21 +283,21 @@ export async function sourceForCandidate(
       const name = n === 1 ? candidate.name : `${candidate.name} (${n})`;
       const row = await t.one<{ id: number }>(
         `INSERT INTO ${NEW_SOURCE_COLUMNS} VALUES (${NEW_SOURCE_PLACEHOLDERS}) ON CONFLICT(kind, name) DO NOTHING RETURNING id`,
-        newSourceValues({ kind: candidate.kind as SourceKind, name, config: found.config, enabled: true }, at),
+        newSourceValues({ kind: candidate.kind as SourceKind, name, config: found.config }, at),
       );
       made = row?.id ?? null;
     }
     sourceId = made;
   }
+  // v36 SOURCES (PLAN S2): not due (next_run_at NULL): enableSources makes it due when an admin turns it on.
   await t.run(
-    `UPDATE job_sources SET tier = @tier, cadence = CAST(@cadenceMs AS bigint) * interval '1 millisecond',
-       next_run_at = CAST(@at AS timestamptz) + CAST(@firstRunMs AS bigint) * interval '1 millisecond',
+    `UPDATE job_sources SET tier = @tier, cadence = CAST(@cadenceMs AS bigint) * interval '1 millisecond', next_run_at = NULL,
        discovered_via = @via, host = COALESCE(host, @host),
        robots_status = CASE WHEN CAST(@host AS text) IS NULL THEN robots_status ELSE 'allowed' END,
        robots_checked_at = CASE WHEN CAST(@host AS text) IS NULL THEN robots_checked_at ELSE CAST(@at AS timestamptz) END,
        updated_at = CAST(@at AS timestamptz)
      WHERE id = @id`,
-    { id: sourceId, tier: empty ? 'empty' : 'normal', cadenceMs, firstRunMs, at, via: candidate.via, host },
+    { id: sourceId, tier: empty ? 'empty' : 'normal', cadenceMs, at, via: candidate.via, host },
   );
   return { sourceId, linked: false };
 }
@@ -396,7 +404,7 @@ export async function validateCandidates(deps: AppDeps, options: ValidationOptio
     if (answer.kind === 'listed') {
       const outcome = answer.open > 0 ? 'valid' : 'empty';
       await deps.db.tx(async (t) => {
-        const made = await sourceForCandidate(deps, t, { kind: candidate.kind, name: candidate.name, via: candidate.discovered_via }, answer, random);
+        const made = await sourceForCandidate(deps, t, { kind: candidate.kind, name: candidate.name, via: candidate.discovered_via }, answer);
         await recordCandidate(t, candidate.id, {
           status: outcome,
           attempts: 0,

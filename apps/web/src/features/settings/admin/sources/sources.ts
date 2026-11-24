@@ -6,6 +6,7 @@ import {
   JOB_SOURCE_RUNNABLE_TERMS,
   JOB_SOURCE_TERMS_LABEL,
   type AdminSourceRow,
+  type AdminSourcesTurnedOff, // v36 FIX-SRC
   type JobSourceKind,
   type JobSourceRobotsStatus,
   type JobSourceTermsStatus,
@@ -252,15 +253,17 @@ export function untilText(value: string, now: number): string {
 
 /**
  * When it runs next: running, paused by an admin, disabled, held back by its terms or robots, due, or in some time.
- * v31 RUNS: "Paused" is an admin's pause (pausedAt); a source turned off reads "Disabled".
+ * v31 RUNS: "Paused" is an admin's pause (pausedAt); a source turned off reads "Disabled". v36 SOURCES: one found that no
+ * admin turned on yet reads "Not until turned on" (its Status says "Waiting for an admin").
  */
 export function scheduleText(
-  row: Pick<AdminSourceRow, 'running' | 'enabled' | 'nextRunAt' | 'termsStatus' | 'robotsStatus' | 'kind' | 'pausedAt'>,
+  row: Pick<AdminSourceRow, 'running' | 'enabled' | 'nextRunAt' | 'termsStatus' | 'robotsStatus' | 'kind' | 'pausedAt' | 'waitingForAdmin'>,
   now: number,
 ): string {
   if (row.running) return 'Running now';
   if (isUnrun(row)) return 'Never run';
   if (row.pausedAt) return 'Paused';
+  if (row.waitingForAdmin) return 'Not until turned on'; // v36 SOURCES
   if (!row.enabled) return 'Disabled';
   if (!(JOB_SOURCE_RUNNABLE_TERMS as readonly JobSourceTermsStatus[]).includes(row.termsStatus)) {
     return `Not run: terms ${JOB_SOURCE_TERMS_LABEL[row.termsStatus].toLowerCase()}`;
@@ -350,6 +353,75 @@ export function workdayAddressProblem(input: string): string | null {
   return null;
 }
 // end v35 OPSWEB
+
+// v36 SOURCES (SP v36 PLAN S1, S5, S8): a source runs only once an admin turned it on, and says who did and when.
+
+/** The kinds that run while off: the demo jobs (an import's records, csv and json, are no source listed here). */
+const RUNS_WHILE_OFF_KINDS: readonly JobSourceKind[] = ['csv', 'json', 'seed'];
+
+/**
+ * Why Run now waits for the source to be turned on (the server refuses it: MSG_INGEST_SOURCE_OFF, rendered by `t`), or
+ * null when it is on (or a kind that runs while off).
+ */
+export function offRunNowHint(row: Pick<AdminSourceRow, 'enabled' | 'kind'>, t: MessageRenderer): string | null {
+  if (row.enabled || RUNS_WHILE_OFF_KINDS.includes(row.kind)) return null;
+  return t('MSG_INGEST_SOURCE_OFF');
+}
+
+/** "Waiting for an admin"'s "?": what it means and what ends it, in one sentence. */
+export const WAITING_FOR_ADMIN_TIP = 'TailorIT found and checked this board; it stays off and never runs until you turn it on.';
+
+/** "Nov 23, 2026": an enable's day, in the viewer's time. */
+function dayText(value: string): string {
+  return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Who turned the source on and when ("Turned on by ana@example.com, Nov 23, 2026"); "Last turned on by ..." once it is
+ * off again; "Turned on Nov 23, 2026" when who is not known (an account deleted since, or a source on before v3.6);
+ * "Never turned on" when no admin ever did.
+ */
+export function turnedOnText(row: Pick<AdminSourceRow, 'enabled' | 'enabledAt' | 'enabledBy'>): string {
+  if (!row.enabledAt) return 'Never turned on';
+  const lead = row.enabled ? 'Turned on' : 'Last turned on';
+  return row.enabledBy ? `${lead} by ${row.enabledBy}, ${dayText(row.enabledAt)}` : `${lead} ${dayText(row.enabledAt)}`;
+}
+
+/** v36 FIX-SRC (D6): the notice's counts, of each part and of those still off. */
+export type TurnedOffCounts = Pick<
+  NonNullable<AdminSourcesTurnedOff['notice']>,
+  'untouched' | 'changed' | 'candidates' | 'untouchedOff' | 'changedOff' | 'candidatesOff'
+>;
+
+/** v36 FIX-SRC (D6): every source the notice names, and those of them still off. */
+export function turnedOffTotals(notice: TurnedOffCounts): { total: number; off: number } {
+  return {
+    total: notice.untouched + notice.changed + notice.candidates,
+    off: notice.untouchedOff + notice.changedOff + notice.candidatesOff,
+  };
+}
+
+/**
+ * v3.6's notice (the sources 0060 turned off), in words: its title and the line under it. v36 FIX-SRC (D6): the boards an
+ * admin added from Admin › Candidates are told apart ("added from Candidates"), never "untouched since found".
+ */
+export function turnedOffWords(notice: TurnedOffCounts): {
+  title: string;
+  description: string;
+} {
+  const { total, off } = turnedOffTotals(notice);
+  const parts = [
+    notice.untouched > 0 ? `${formatCount(notice.untouched)} untouched since found` : null,
+    notice.candidates > 0 ? `${formatCount(notice.candidates)} added from Candidates` : null,
+    notice.changed > 0 ? `${formatCount(notice.changed)} changed since (maybe by an admin)` : null,
+  ].filter(Boolean);
+  const still = off === total ? 'They run only once you turn them on.' : `${formatCount(off)} of them are still off; they run only once you turn them on.`;
+  return {
+    title: `v3.6 turned off ${formatCount(total)} ${total === 1 ? 'source' : 'sources'} that discovery had switched on`,
+    description: `${parts.join(', ')}. ${still}`,
+  };
+}
+// end v36 SOURCES
 
 /** "80,214". */
 export function formatCount(count: number): string {

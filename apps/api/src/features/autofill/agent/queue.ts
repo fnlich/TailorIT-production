@@ -75,7 +75,7 @@ interface QueueRow {
   finished_at: string | null;
   /**
    * v1.5 Q2: which run took the row (migration 0818): the background agent, or the Queue tab's sequential run. v2.0:
-   * `manual`, a row Prepare & Queue inserted for the person to apply to by hand (never taken by a run).
+   * `manual`, a row Prepare inserted for the person to apply to by hand (never taken by a run).
    */
   run?: AutofillAgentRunKind | null;
   // v20 P3
@@ -227,12 +227,25 @@ async function jobFacts(deps: Pick<AppDeps, 'db'>, jobId: number): Promise<JobFa
 /** Whether a job's facts say it is open. */
 const isOpen = (d: Dialect, job: JobFacts | undefined): job is JobFacts => job !== undefined && d.isTrue(job.active);
 
-/** The account's tracker entry for the job: its status and resume, if any. */
+/** The account's tracker entry for the job: its status, resume and (v36 FIX-API, D1) when it was archived, if any. */
 async function entryOf(deps: Pick<AppDeps, 'db'>, userId: string, jobId: number) {
-  return deps.db.one<{ current_status: number; resume_id: string | null }>(
-    'SELECT current_status, resume_id FROM applications WHERE user_id = ? AND job_id = ?',
+  return deps.db.one<{ current_status: number; resume_id: string | null; archived_at: string | null }>(
+    'SELECT current_status, resume_id, archived_at FROM applications WHERE user_id = ? AND job_id = ?',
     [userId, jobId],
   );
+}
+
+/**
+ * v36 FIX-API (D1.1, the coordinator's decision on sec M2 = data D6): why a claim must not hand out a queued row
+ * because of its job's Tracker entry: the entry moved past Saved (`already_applied`, as before), or it was archived,
+ * removed from Saved Jobs (`cancelled`); null when the claim may go on (an entry at Saved, or none: a row queued before
+ * v2.0). Every archive path takes a not-started row out with its entry (applications/archive-saved.ts); this is the
+ * claims' own check, whatever wrote the archive.
+ */
+function entryBars(entry: { current_status: number; archived_at: string | null } | undefined): AutofillAgentReason | null {
+  if (!entry) return null;
+  if (entry.current_status !== STATUS.saved) return 'already_applied';
+  return entry.archived_at !== null ? 'cancelled' : null;
 }
 
 function taskOf(row: Pick<QueueRow, 'id' | 'job_id' | 'resume_id'>, job: JobFacts, url: string): AutofillAgentTask {
@@ -285,7 +298,8 @@ export async function ownRun(deps: Deps, userId: string, tokenId: string): Promi
 /**
  * Takes the account's oldest queued job for this browser (it is `running` from now, its attempts counted, the resume
  * of the tracker entry the one to attach), or null when none is queued. Each is checked again as it is taken: one the
- * tracker has past Saved by now is `skipped` (`already_applied`), one closed since is `failed` (`posting_closed`), one
+ * tracker has past Saved by now is `skipped` (`already_applied`), one removed from Saved Jobs (archived; v36 FIX-API)
+ * `skipped` (`cancelled`), one closed since is `failed` (`posting_closed`), one
  * whose posting the agent no longer fills is `failed` (`unsupported_site`), and the next is taken. A browser that has a
  * run already gets that run instead, so it never holds two (audit A5). jr7 7a: a queued job whose posting only the
  * Queue tab opens (queueCanOpen, not agentApplicationUrl) is the Queue tab's: it is left queued, untouched (the Queue
@@ -299,8 +313,8 @@ export async function claimQueued(deps: ClaimDeps, userId: string, tokenId: stri
  * v2.0 (API 8): GET /agent/next's claim with the daily auto-apply allowance (04-accounts-limits.md §1), in one
  * transaction: the browser's own run again (no new use), else, when the account's live reservations in the window are
  * under its limit, the oldest queued row the agent opens (claimQueued's checks), now running, with one use reserved;
- * at the limit nothing is taken and the rows stay queued. A `manual` row (Prepare & Queue's unsupported job) is never
- * taken. The task's resume is the queued kit's (the row's resume, frozen when Prepare & Queue queued it); a row queued
+ * at the limit nothing is taken and the rows stay queued. A `manual` row (Prepare's unsupported job) is never
+ * taken. The task's resume is the queued kit's (the row's resume, frozen when Prepare queued it); a row queued
  * before v2.0 takes the Tracker entry's, as before. `dailyLimit`: the counts after the claim. v3.0 D2 (11 §9.3): it
  * counts, then reserves, so the transaction starts with the person's lock.
  */
@@ -322,7 +336,8 @@ export async function claimNext(deps: ClaimDeps, userId: string, tokenId: string
         // jr7 7a: the Queue tab's alone, left as it is.
         if (job && url === null && queueCanOpen(job.apply_url)) continue;
         const entry = await entryOf(deps, userId, row.job_id);
-        if (entry && entry.current_status !== STATUS.saved) await finish('skipped', 'already_applied');
+        const barred = entryBars(entry); // v36 FIX-API (D1.1)
+        if (barred) await finish('skipped', barred);
         else if (!isOpen(t.dialect, job)) await finish('failed', 'posting_closed');
         else if (!url) await finish('failed', 'unsupported_site');
         else {
@@ -358,7 +373,7 @@ export const CLAIM_ORDER_SQL = (d: Dialect) => `SELECT id, job_id, resume_id, pr
          ORDER BY CASE WHEN prepared_by = user_id THEN 0 ELSE 1 END, coalesce(approved_at, created_at), created_at, ${d.seq()}`;
 
 /**
- * The resume a run attaches: the queued kit's (the row's resume, frozen when Prepare & Queue queued it, A30) for a row
+ * The resume a run attaches: the queued kit's (the row's resume, frozen when Prepare queued it, A30) for a row
  * a Prepare queued, unless it was deleted since; else the Tracker entry's, as before v2.0.
  */
 function kitResumeOf(
@@ -378,7 +393,13 @@ export interface RuleCandidate {
 /**
  * The next `limit` jobs the rule may weigh, in the order TailorIT first saw them: open, new (posted, else updated, else
  * first seen since the rule was turned on), on a board TailorIT reads (a link of a source other than an import), and
- * not tracked, queued, taken out of the queue by the person, hidden or of a hidden company.
+ * not tracked, queued, taken out of the queue by the person, hidden or of a hidden company. v36 INT-A (the
+ * coordinator's decision on IMPORTTIME's open item): "new" reads the time people see, the later of that date and
+ * jobs.reposted_at (an admin's import's time), so a job an admin imports is new at the import whatever its board's date.
+ * v36 FIX-API (D4, the final review's data D1): only jobs everyone sees: never one held for an admin's approval
+ * (`held_since`, which only its adders may save) nor a person's own (`owner_user_id`), so a save the account may not
+ * make never stops the rule. "New" stays "first seen since the rule was turned on": a held job approved later, or a
+ * known job an admin imports again, was first seen before the cursor and is not weighed.
  */
 export async function ruleCandidates(
   deps: Pick<AppDeps, 'db'>,
@@ -389,7 +410,8 @@ export async function ruleCandidates(
   return deps.db.all<RuleCandidate>(
     `SELECT j.id, j.first_seen_at, j.apply_url FROM jobs j
      WHERE j.active = ${deps.db.dialect.true} AND (j.first_seen_at > @at OR (j.first_seen_at = @at AND j.id > @jobId))
-       AND coalesce(j.posted_at, j.source_updated_at, j.first_seen_at) >= @enabledAt
+       AND j.held_since IS NULL AND j.owner_user_id IS NULL
+       AND GREATEST(coalesce(j.posted_at, j.source_updated_at, j.first_seen_at), j.reposted_at) >= @enabledAt
        AND EXISTS (SELECT 1 FROM job_source_links l JOIN job_sources s ON s.id = l.source_id
                    WHERE l.job_id = j.id AND s.kind NOT IN (${IMPORT_SOURCE_KINDS.map((kind) => `'${kind}'`).join(', ')}))
        AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.user_id = @userId AND a.job_id = j.id)
@@ -880,7 +902,8 @@ export async function openForTab(deps: ClaimDeps, userId: string, tokenId: strin
       const job = await jobFacts(deps, row.job_id);
       const entry = await entryOf(deps, userId, row.job_id);
       const url = job ? queueApplicationUrl(job.apply_url) : null;
-      if (entry && entry.current_status !== STATUS.saved) return finish('skipped', 'already_applied');
+      const barred = entryBars(entry); // v36 FIX-API (D1.1)
+      if (barred) return finish('skipped', barred);
       if (!isOpen(t.dialect, job)) return finish('failed', 'posting_closed');
       if (!url) return finish('failed', 'unsupported_site');
       const resumeId = kitResumeOf(row, entry);
@@ -919,8 +942,8 @@ export function tombstoneKeptFrom(deps: ClaimDeps): string {
 
 /**
  * A tombstone of each row taken out of the queue or replaced by a new one (kept QUEUE_TOMBSTONE_KEEP_DAYS), so a run
- * that reports a submission late still marks the job Applied. Older tombstones are pruned first. (v2.0: Prepare &
- * Queue's insert, prepared.ts, replaces a finished row this way too.) Call in the transaction that removes the rows.
+ * that reports a submission late still marks the job Applied. Older tombstones are pruned first. (v2.0: Prepare's
+ * insert, prepared.ts, replaces a finished row this way too.) Call in the transaction that removes the rows.
  */
 export async function tombstone(deps: ClaimDeps, userId: string, rows: readonly Removed[]): Promise<void> {
   if (rows.length === 0) return;
@@ -982,6 +1005,58 @@ export async function removeQueued(deps: ClaimDeps, userId: string, id: string):
     { label: 'removeQueued' },
   );
 }
+
+// v36 FIX-API (D1.2-D1.4, the coordinator's decision on sec M2 = data D6): an archive of a Saved entry (Unsave on
+// profiles, the Tracker's archive and bulk archive, Auto-apply's Remove, MCP's unsave_jobs) weighs its job's queue row
+// here (applications/archive-saved.ts calls these inside its transaction, after the owner's person lock: the claims'
+// own lock, so a claim and an archive never interleave).
+
+/** A job's queue row, as an archive of its Saved entry weighs it. */
+export type QueueRowOfJob = Removed & Pick<QueueRow, 'state'>;
+
+/** What an archive of a Saved entry does with its job's queue row. */
+export type QueueStand =
+  /** No row, or a finished one: the entry is archived as before (the row stays for Clear finished). */
+  | 'free'
+  /** Not started (queued, held for the owner's OK, or one to apply to by hand): taken out with the entry. */
+  | 'dequeue'
+  /** Running (the extension is applying to it now): the entry is left in Saved Jobs, the row as it is. */
+  | 'applying'
+  /** Not started, but the archive acts on a shared profile without Queue changes: both are left as they are. */
+  | 'locked';
+
+/** The account's queue rows of `jobIds`, by job (the queue keeps one row per account and job). */
+export async function queueRowsOfJobs(deps: Pick<AppDeps, 'db'>, userId: string, jobIds: readonly number[]): Promise<Map<number, QueueRowOfJob>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await deps.db.all<QueueRowOfJob>(
+    `SELECT id, job_id, resume_id, state FROM autofill_agent_queue
+     WHERE user_id = ? AND job_id = ANY(CAST(string_to_array(?, ',') AS bigint[]))`,
+    [userId, jobIds.join(',')],
+  );
+  return new Map(rows.map((row) => [Number(row.job_id), { ...row, job_id: Number(row.job_id) }]));
+}
+
+/** The stand of a Saved entry's queue row (`mayChangeQueue`: the owner's own profile, or a share with Queue changes). */
+export function queueStandOf(row: Pick<QueueRowOfJob, 'state'> | undefined, mayChangeQueue: boolean): QueueStand {
+  if (!row || (AUTOFILL_AGENT_FINISHED_STATES as readonly string[]).includes(row.state)) return 'free';
+  if (row.state === 'running') return 'applying';
+  return mayChangeQueue ? 'dequeue' : 'locked';
+}
+
+/**
+ * Takes not-started rows out of the queue with their archived entries, as Remove does (removeQueued): deleted (only
+ * while still `queued`), their jobs remembered as taken out (the rule never picks them again; Prepare clears that) and
+ * a tombstone each. Inside the archive's transaction.
+ */
+export async function dequeueRows(deps: ClaimDeps, userId: string, rows: readonly QueueRowOfJob[]): Promise<void> {
+  const gone: Removed[] = [];
+  for (const row of rows) {
+    const deleted = await deps.db.run(`${REMOVE_DELETE_SQL} AND state = 'queued'`, [row.id, userId]);
+    if (deleted.changes === 1) gone.push(row);
+  }
+  if (gone.length > 0) await dismiss(deps, userId, gone);
+}
+// end v36 FIX-API
 
 /** clearFinished's statement: the account, then each finished state. */
 export function clearFinishedSql(d: Dialect): string {

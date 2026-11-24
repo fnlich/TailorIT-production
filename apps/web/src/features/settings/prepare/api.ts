@@ -20,13 +20,13 @@ import {
 import { api } from '../../../lib/api';
 import { prepareKeys } from '../../prepare/api';
 
-// v2.0: Settings › Prepare & Queue's routes (docs/design/v2.0/05-prepare-flow.md, "Settings"; 06-filters-analysis.md,
+// v2.0: Settings › Prepare's routes (docs/design/v2.0/05-prepare-flow.md, "Settings"; 06-filters-analysis.md,
 // "The filter routes"). Their keys sit under ['prepare'], so whatever marks Prepare's reads stale reads these again.
 
 export const prepareSettingsKeys = {
   /**
    * P7's prepareKeys.settings itself (features/prepare/api.ts, v2.0 INT): a save here is set there at once, so the
-   * Prepare & Queue confirm sees "Ask before using AI" and the modes without a read.
+   * Prepare confirm sees "Ask before using AI" and the modes without a read.
    */
   settings: prepareKeys.settings,
   filters: ['prepare', 'filters'] as const,
@@ -58,7 +58,7 @@ export function fetchOwnPrepareFilters(signal?: AbortSignal): Promise<PrepareFil
 /**
  * v34 FANWEB (PLAN G3; FANOUT's PATCH): only the filters given change, on the tab's profile. The answer names what was
  * applied and the eligibility switches kept (no Sensitive answers' Change there); the filters as saved come back only
- * with Prepare & queue's See there.
+ * with Prepare's See there.
  */
 export function patchPrepareFilters(filters: PrepareFiltersPatch): Promise<PrepareFiltersPatchResponse> {
   return api.patch<PrepareFiltersPatchResponse>('/api/prepare/filters', { filters }, { schema: PrepareFiltersPatchResponseSchema });

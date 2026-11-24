@@ -32,13 +32,23 @@ import {
   type TrackerPayPeriod,
 } from '@tailorit/shared';
 import { nowIso, todayIso, type AppDeps } from '../../core/context';
-import type { DbQueries } from '../../core/db/types';
+import type { DbQueries, DbTx } from '../../core/db/types';
 import { notFound, validationFailed } from '../../core/http/errors';
 import { currentJobId } from '../jobs/store';
 import { countJobStat } from '../jobs/stats';
 import { jobVisibleTo } from '../jobs/visibility';
 import { writeAutoChoice } from '../resume-match/service';
+import { dequeueRows, queueRowsOfJobs, queueStandOf } from '../autofill/agent/queue'; // v36 FIX-API (D1); INT-2: dequeueRows, queueStandOf
 import { recordApplied, type ApplyContext } from './apply-records';
+import {
+  archiveSavedEntry,
+  countOutcome,
+  lockForArchive,
+  noQueueCounts,
+  nonZeroQueueCounts,
+  type ArchiveUnder,
+  type QueueCounts,
+} from './archive-saved'; // v36 FIX-API (D1)
 import { JOBS_OWN_TEXT } from './description';
 import type { ResumeChoice } from './resume-choice';
 import { cleanRichText, textToParagraphs } from './sanitize';
@@ -678,49 +688,127 @@ export async function clearStatusDate(
 
 /**
  * Archive (the Jobs page's un-save too) or restore. A Saved application of a job that comes back is due again
- * (`detail.resumeMatchPending`), unless the person chose its resume.
+ * (`detail.resumeMatchPending`), unless the person chose its resume. v36 FIX-API (D1): archiving a Saved entry whose
+ * job is in the auto-apply queue goes through archive-saved.ts (`under`: the share the request acts under, null on the
+ * owner's own): its not-started row is taken out with it (the answer's `dequeued: 1`), or the entry is left in Saved
+ * Jobs (`applying: 1`, `queueLocked: 1`); the fields are there only when not zero. A restore never queues anything.
  */
-export async function setArchived(deps: Deps, userId: string, id: string, archived: boolean): Promise<ApplicationDetail> {
+export async function setArchived(
+  deps: ApplyDeps,
+  userId: string,
+  id: string,
+  archived: boolean,
+  under: ArchiveUnder | null = null,
+): Promise<ApplicationDetail & Partial<QueueCounts>> {
   await loadOwnedRow(deps.db, userId, id);
   const now = nowIso(deps);
-  if (archived) await archiveRow(deps.db, userId, id, now);
-  else await restoreRow(deps.db, userId, id, now);
-  return getDetail(deps.db, userId, id);
+  const counts = noQueueCounts();
+  if (archived) {
+    // atomic: a savepoint when a caller's transaction is open (the demo seed archives inside its own).
+    await deps.db.atomic(
+      async (t) => {
+        const mayChangeQueue = await lockForArchive(deps, t, userId, under);
+        const row = await t.one<{ job_id: number | null; current_status: number; archived_at: string | null }>(
+          'SELECT job_id, current_status, archived_at FROM applications WHERE id = ? AND user_id = ?',
+          [id, userId],
+        );
+        // A Saved entry: its queue row decides; any other (or one that moved on meanwhile) is archived as before.
+        if (row && row.current_status === STATUS.saved && row.archived_at === null) {
+          const queued = row.job_id === null ? undefined : (await queueRowsOfJobs(deps, userId, [Number(row.job_id)])).get(Number(row.job_id));
+          const outcome = await archiveSavedEntry(deps, userId, id, queued, mayChangeQueue);
+          countOutcome(counts, outcome);
+          if (outcome !== 'moved') return;
+        }
+        await archiveRow(t, userId, id, now);
+      },
+      { label: 'archiveApplication' },
+    );
+  } else await restoreRow(deps.db, userId, id, now);
+  return { ...(await getDetail(deps.db, userId, id)), ...nonZeroQueueCounts(counts) };
 }
 
-export async function deleteApplication(deps: Deps, userId: string, id: string): Promise<void> {
+/** DELETE /api/applications/:id (the owner's own profile only): the entry, with its job's not-started queue row (deleteEntry). */
+export async function deleteApplication(deps: ApplyDeps, userId: string, id: string): Promise<void> {
   await loadOwnedRow(deps.db, userId, id);
-  await deps.db.run('DELETE FROM applications WHERE id = ? AND user_id = ?', [id, userId]);
+  await deps.db.atomic(
+    async (t) => {
+      await t.lockPerson(userId);
+      await deleteEntry(deps, t, userId, id);
+    },
+    { label: 'deleteApplication' },
+  );
+}
+
+/**
+ * v36 INT-2 (the coordinator's exact edit on FIX-API's open item; SP v36 FINAL-FIXES.md D1): deletes one of the
+ * account's Tracker entries with its job's not-started auto-apply queue row (queue.ts queueStandOf + dequeueRows, as an
+ * archive takes it out: deleted while still queued, dismissed, a tombstone). The claims read a queue row whose job has
+ * no entry as one queued before v2.0 and would hand it out: the extension applied to a job the person had just deleted.
+ * A running row is left; its run finishes as in v3.5. Inside the caller's transaction, after the person lock (the
+ * claims' own lock).
+ */
+async function deleteEntry(deps: ApplyDeps, t: DbTx, userId: string, id: string): Promise<void> {
+  const gone = await t.one<{ job_id: number | null }>('DELETE FROM applications WHERE id = ? AND user_id = ? RETURNING job_id', [id, userId]);
+  if (!gone || gone.job_id === null) return;
+  const jobId = Number(gone.job_id);
+  const row = (await queueRowsOfJobs(deps, userId, [jobId])).get(jobId);
+  if (row && queueStandOf(row, true) === 'dequeue') await dequeueRows(deps, userId, [row]);
 }
 
 /**
  * POST /api/applications/bulk (the Tracker's Select applications). Ids that are not the account's are skipped, not reported. With
- * `onlySaved` (Save all's Undo), archiving leaves alone, and does not count, applications that moved past Saved.
+ * `onlySaved` (a save's Undo), archiving leaves alone, and does not count, applications that moved past Saved.
+ * v36 FIX-API (D1): an archive of a Saved entry whose job is in the auto-apply queue goes through archive-saved.ts
+ * (`under`: the share the request acts under, null on the owner's own): taken out of the queue with it (counted in
+ * `affected` and `dequeued`), or left as it is (`applying`, `queueLocked`, not in `affected`). Those three fields are
+ * answered only for `archive`, and only when not zero (every other answer is as before). sec L3: an entry read at Saved
+ * that moved on meanwhile is archived only without `onlySaved`.
  */
-export async function bulkApplications(deps: ApplyDeps, userId: string, body: BulkApplicationsBody): Promise<number> {
+export async function bulkApplications(
+  deps: ApplyDeps,
+  userId: string,
+  body: BulkApplicationsBody,
+  under: ArchiveUnder | null = null,
+): Promise<{ affected: number } & Partial<QueueCounts>> {
   const now = nowIso(deps);
   const date = body.occurredOn ?? todayIso(deps);
   if (body.action === 'status') assertValidDate(deps, date);
   const ids = [...new Set(body.ids)];
-  return deps.db.tx(
+  const counts = noQueueCounts();
+  const affected = await deps.db.tx(
     async (t) => {
+      const mayChangeQueue = body.action === 'archive' ? await lockForArchive(deps, t, userId, under) : true;
+      if (body.action === 'delete') await t.lockPerson(userId); // v36 INT-2: deleteEntry takes queue rows out
       let affected = 0;
       for (const id of ids) {
-        const owned = await t.one<{ current_status: ApplicationStatus }>(
-          'SELECT current_status FROM applications WHERE id = ? AND user_id = ?',
+        const owned = await t.one<{ current_status: ApplicationStatus; archived_at: string | null; job_id: number | null }>(
+          'SELECT current_status, archived_at, job_id FROM applications WHERE id = ? AND user_id = ?',
           [id, userId],
         );
         if (!owned) continue;
         switch (body.action) {
-          case 'archive':
+          case 'archive': {
             if (body.onlySaved && owned.current_status !== STATUS.saved) continue;
+            if (owned.current_status === STATUS.saved && owned.archived_at === null) {
+              const jobId = owned.job_id === null ? null : Number(owned.job_id);
+              const queued = jobId === null ? undefined : (await queueRowsOfJobs(deps, userId, [jobId])).get(jobId);
+              const outcome = await archiveSavedEntry(deps, userId, id, queued, mayChangeQueue);
+              countOutcome(counts, outcome);
+              if (outcome === 'applying' || outcome === 'queue_locked') continue;
+              if (outcome === 'moved') {
+                if (body.onlySaved) continue;
+                await archiveRow(t, userId, id, now);
+              }
+              break;
+            }
             await archiveRow(t, userId, id, now);
             break;
+          }
           case 'unarchive':
             await restoreRow(t, userId, id, now);
             break;
           case 'delete':
-            await t.run('DELETE FROM applications WHERE id = ? AND user_id = ?', [id, userId]);
+            await deleteEntry(deps, t, userId, id); // v36 INT-2 (D1): with its job's not-started queue row
             break;
           case 'status': {
             const before = await loadEvents(t, id);
@@ -736,16 +824,48 @@ export async function bulkApplications(deps: ApplyDeps, userId: string, body: Bu
     },
     { label: 'bulkApplications' },
   );
+  return { affected, ...(body.action === 'archive' ? nonZeroQueueCounts(counts) : {}) };
 }
 
-export async function archiveAll(deps: Deps, userId: string): Promise<number> {
+/**
+ * POST /api/applications/archive-all. v36 FIX-API (D1): the Saved entries whose jobs are in the auto-apply queue go
+ * through archive-saved.ts as every archive does (`under`: the share the request acts under): taken out of the queue
+ * with them (`dequeued`), or left as they are (`applying`, `queueLocked`, not counted in `archived`); the three fields
+ * are answered only when not zero.
+ */
+export async function archiveAll(deps: ApplyDeps, userId: string, under: ArchiveUnder | null = null): Promise<{ archived: number } & Partial<QueueCounts>> {
   const now = nowIso(deps);
-  const result = await deps.db.run(
-    `UPDATE applications SET archived_at = ?, updated_at = ?, resume_match_due = ${deps.db.dialect.false}
-     WHERE user_id = ? AND archived_at IS NULL`,
-    [now, now, userId],
+  const counts = noQueueCounts();
+  const archived = await deps.db.atomic(
+    async (t) => {
+      const mayChangeQueue = await lockForArchive(deps, t, userId, under);
+      // The active Saved entries whose job has a queue row (finished ones included: they archive as before).
+      const queued = await t.all<{ id: string; job_id: number }>(
+        `SELECT a.id, a.job_id FROM applications a
+         WHERE a.user_id = ? AND a.archived_at IS NULL AND a.current_status = ${STATUS.saved}
+           AND EXISTS (SELECT 1 FROM autofill_agent_queue q WHERE q.user_id = a.user_id AND q.job_id = a.job_id)`,
+        [userId],
+      );
+      const rows = await queueRowsOfJobs(deps, userId, queued.map((entry) => Number(entry.job_id)));
+      let n = 0;
+      const left: string[] = [];
+      for (const entry of queued) {
+        const outcome = await archiveSavedEntry(deps, userId, entry.id, rows.get(Number(entry.job_id)), mayChangeQueue);
+        countOutcome(counts, outcome);
+        if (outcome === 'archived' || outcome === 'dequeued') n += 1;
+        if (outcome === 'applying' || outcome === 'queue_locked') left.push(entry.id);
+      }
+      // Every other active entry, as before (one that moved on meanwhile too); the ones left above stay as they are.
+      const result = await t.run(
+        `UPDATE applications SET archived_at = ?, updated_at = ?, resume_match_due = ${t.dialect.false}
+         WHERE user_id = ? AND archived_at IS NULL AND id NOT IN (SELECT value FROM ${t.dialect.jsonEach('?')})`,
+        [now, now, userId, JSON.stringify(left)],
+      );
+      return n + result.changes;
+    },
+    { label: 'archiveAll' },
   );
-  return result.changes;
+  return { archived, ...nonZeroQueueCounts(counts) };
 }
 
 /**
@@ -809,7 +929,7 @@ export async function importApplications(deps: Deps, userId: string, body: Track
   return { imported, skipped: errors.length, errors };
 }
 
-// ------------------------------------------------------------------------------------------------- Save all
+// ------------------------------------------------------------------------------------------------- a save of many jobs
 
 /** The most jobs `saveJobs` writes in one transaction. */
 export const SAVE_JOBS_CHUNK = 25;
@@ -1011,7 +1131,7 @@ async function saveChunk(
 }
 
 /**
- * Save all's writes (work package WP7 selects the jobs): each job is saved at Saved on `occurredOn` with the single
+ * A save of many jobs (the Select bar's Save, Copy to, MCP's save_jobs): each job is saved at Saved on `occurredOn` with the single
  * Save's prefill. A job with no application gets one, with its Saved event and TailorIT's best resume; one un-saved
  * earlier (archived while only Saved) comes back, its resume filled only when it has none; a job already tracked (an
  * active application, or Applied and later even when archived) or gone is skipped and left untouched. No AI work is

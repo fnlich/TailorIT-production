@@ -61,7 +61,7 @@ function Letters() {
         </li>
         <li>
           <Ui>Letter templates</Ui>: the built-in ones (some written for a particular field, listed first for it) and your
-          own. Prepare &amp; Queue places each letter it writes on the letter template your Autofill profile names, or on
+          own. Prepare places each letter it writes on the letter template your Autofill profile names, or on
           TailorIT&apos;s own layout when it names none.
         </li>
       </Bullets>

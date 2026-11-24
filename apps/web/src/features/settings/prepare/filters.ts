@@ -18,7 +18,7 @@ import {
 } from '@tailorit/shared/jobs';
 import { defaultTooLong, type TooLongText } from '../../../lib/constants';
 
-// v2.0: Settings › Prepare & Queue › Prepare filters, as a form (docs/design/v2.0/08-ui.md; 06-filters-analysis.md).
+// v2.0: Settings › Prepare › Prepare filters, as a form (docs/design/v2.0/08-ui.md; 06-filters-analysis.md).
 // Pure: the saved filters become the form's state and the form's state becomes PrepareFiltersSchema again, so the
 // tests read the mapping without a page. Lists keep the vocabulary's order, so a saved value and the same value
 // clicked in another order compare equal (the save bar shows only for a real change).

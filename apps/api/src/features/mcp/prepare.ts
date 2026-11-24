@@ -32,7 +32,7 @@ import {
 } from '../prepare/service';
 
 // v1.5 M, reworked for v2.0 P5 (docs/design/v2.0/05-prepare-flow.md, 07-mcp.md): the one place the MCP tools touch
-// Prepare & Queue (features/prepare, P2). It reads the person's `mcp` Prepares (prepare_jobs, read-only SQL on the
+// Prepare (features/prepare, P2). It reads the person's `mcp` Prepares (prepare_jobs, read-only SQL on the
 // table 0822 and 0827 made) and calls P2's service for everything that changes one: starting (startPrepare, mode
 // `mcp`), cancelling, finishing (finishIfComplete, which queues the job), and the kit's parts (the draft functions).
 // The MCP tools never write P2's tables themselves. `by` is always 'mcp': the kit's answers get the provenance `mcp`.
@@ -200,7 +200,7 @@ function service(deps: AppDeps): PrepareService {
   const prepare = deps.services.prepare;
   if (!prepare) {
     // v34 MCPDIR: what to do.
-    throw new AppError('internal', 'Prepare & Queue is not available on this TailorIT server: tell the person (its operator turns it on).');
+    throw new AppError('internal', 'Prepare is not available on this TailorIT server: tell the person (its operator turns it on).');
   }
   return prepare;
 }

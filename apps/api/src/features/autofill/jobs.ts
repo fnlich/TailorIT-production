@@ -23,6 +23,7 @@ import { holdNewJob, noteHeldAdd, type HeldAdder } from '../job-reviews/new-jobs
 import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
 import { readPageToSharedJob, type ImportRead } from '../jobs/add/page'; // v31 LINK; v35 INT-A: ImportRead
 import { readWaitsForAdmin, settleHeldAfterRead } from '../jobs/add/held'; // v31 FIX-LINK
+import { dateImported } from '../jobs/add/import-time'; // v36 IMPORTTIME
 import { REVIEW_HELD_SQL } from '../jobs/add/review-held'; // v31 FIX-LINK (a leaf: the SQL below is built at load)
 import { aliasValueHash } from './alias-key';
 import { jobPlaces, placesMeet } from './places';
@@ -68,7 +69,8 @@ import {
 // Tracker, Queue and Prepare, out of everyone's search until Admin › Review approves it. Each adder's review report row
 // is written before their tracker entry (saveToTracker → noteHeldAdd). Another account's add of a held posting lands on
 // it without reading the board again (heldJobOf, openHeldJobOf). The disabled source marked as Add job's still keeps the
-// posting's link; it is no discovery candidate until the job is approved.
+// posting's link; it is no discovery candidate until the job is approved (v36 SOURCES: discovery's link sweep skips held
+// jobs, and a board validation adopts stays off, waiting for an admin: nothing but an admin turns a source on).
 
 /** How long the board has to answer, the client's turn-taking and retries included (the extension waits 25 s). */
 export const ADD_JOB_FETCH_TIMEOUT_MS = 15_000;
@@ -144,7 +146,7 @@ async function boardSourceOrNew(
     const found = await boardSource(t, posting);
     if (found) return found;
     const name = n === 1 ? posting.board : `${posting.board} (${n})`;
-    const made = await insertSourceIfNameFree(t, { kind: posting.kind, name, config, enabled: false }, now);
+    const made = await insertSourceIfNameFree(t, { kind: posting.kind, name, config }, now);
     if (made) return made;
   }
 }
@@ -235,6 +237,8 @@ async function readAndStore(
     }
     // v31 FIX-LINK (BEH-4): a read that landed on a job the legacy pass holds settles it (jobs/add/held.ts).
     else if (!created) await settleHeldAfterRead(deps, t, link.job_id, { page: false, sourceEnabled: source.enabled, at: now });
+    // v36 IMPORTTIME (SP v36 PLAN.md I1): a job an admin's import read made is dated the import's (jobs/add/import-time.ts).
+    if (created && importRead) await dateImported(t, link.job_id, now);
     return { jobId: link.job_id, created };
   }, { label: 'autofill add job' });
 }

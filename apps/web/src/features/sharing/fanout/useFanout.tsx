@@ -16,8 +16,8 @@ import { useToast } from '../../../components/ui/Toast';
 import { ME_QUERY_KEY, fetchMe } from '../../../lib/auth';
 import { usePublicConstants, type PublicMessageKey } from '../../../lib/constants';
 import { fanoutKeys, fetchSavedOn } from './api';
-import { FANOUT_COPY } from './copy';
-import type { FanoutReport } from './results';
+import { FANOUT_COPY, NAMES_SHOWN } from './copy';
+import type { FanoutReport, ReportLine } from './results';
 import { fanoutProfiles, hasSharedProfiles, tabChoice, type FanoutProfile, type LabelOf } from './targets';
 
 // v34 FANWEB: the hooks every multi-profile part shares: the profiles an action offers (from the shell's list of shared
@@ -72,6 +72,47 @@ export interface ReportShow {
   element: ReactElement;
 }
 
+/**
+ * v36 FIX-WEB (ux M1): what a result's toast says under its title. With `toastLines`, each profile's line ("Ana Lopez:
+ * 1 removed, 2 applied: left as is") then the notes, up to NAMES_SHOWN profiles; past that, how many profiles, and the
+ * toast's button is Details (the alert, which holds every line and the Undo). Without, the description as before.
+ */
+export interface ToastView {
+  lines: ReportLine[];
+  notes: string[];
+  /** More profiles than a toast lists: the toast says how many and offers Details. */
+  many: boolean;
+}
+
+/** The toast's body of a result that no profile refused (pure: the tests read it). */
+export function toastView(report: FanoutReport): ToastView {
+  const notes = report.notes ?? (report.description ? [report.description] : []);
+  if (!report.toastLines) return { lines: [], notes: report.description ? [report.description] : [], many: false };
+  const lines = report.lines.filter((line) => line.ok);
+  if (lines.length > NAMES_SHOWN) return { lines: [], notes: [FANOUT_COPY.doneOnProfiles(lines.length), ...notes], many: true };
+  return { lines, notes, many: false };
+}
+
+/** The toast's body: each profile's line, then each note, a line apiece. */
+export function ToastLines({ view }: { view: ToastView }) {
+  if (view.lines.length === 0 && view.notes.length <= 1) return view.notes[0] ?? null;
+  return (
+    <span className="flex flex-col gap-0.5" data-fanout-toast="">
+      {view.lines.map((line) => (
+        <span key={line.profile} data-fanout-toast-line={line.profile}>
+          <span className="font-semibold text-foreground">{line.name}</span>
+          {`: ${line.text}`}
+        </span>
+      ))}
+      {view.notes.map((note) => (
+        <span key={note} data-fanout-toast-note="">
+          {note}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** The one message of a multi-profile result (a refused profile also reads the list of shared profiles again). */
 export function useFanoutReport(): ReportShow {
   const toast = useToast();
@@ -82,18 +123,35 @@ export function useFanoutReport(): ReportShow {
     (report: FanoutReport, undo?: () => void) => {
       const action = undo && report.done ? { label: FANOUT_COPY.undo, onClick: undo } : undefined;
       if (!report.refused) {
+        const view = toastView(report);
+        // v36 FIX-WEB (ux M1): past NAMES_SHOWN profiles the toast's one button opens every profile's line (and Undo).
+        const details = view.many
+          ? {
+              label: FANOUT_COPY.details,
+              onClick: () =>
+                showAlert({
+                  title: report.title,
+                  tone: 'info',
+                  message: <ReportLines report={report} lead={FANOUT_COPY.resultLeadDone} />,
+                  dismissLabel: FANOUT_COPY.ok,
+                  action: action ? { label: action.label, onAction: action.onClick } : undefined,
+                  dataAttributes: { 'data-fanout-details': String(report.lines.length) },
+                }),
+            }
+          : action;
         let id = '';
+        const description = view.lines.length > 0 || view.notes.length > 0 ? <ToastLines view={view} /> : undefined;
         id = toast.toast({
           type: report.done ? 'success' : 'info',
           title: report.title,
-          description: report.description ?? undefined,
-          timeout: action ? 10_000 : undefined,
-          action: action
+          description,
+          timeout: details ? 10_000 : undefined,
+          action: details
             ? {
-                label: action.label,
+                label: details.label,
                 onClick: () => {
                   toast.dismiss(id);
-                  action.onClick();
+                  details.onClick();
                 },
               }
             : undefined,
@@ -120,12 +178,14 @@ export function useFanoutReport(): ReportShow {
  * The alert's body: each profile's line, the refused ones first. v34 FIX-WEB (final review U-L2): "Not done on every
  * profile:" only when a profile refused; done everywhere with a switch kept, "Done, with exceptions:".
  */
-export function ReportLines({ report }: { report: FanoutReport }) {
+export function ReportLines({ report, lead }: { report: FanoutReport; lead?: string }) {
   const lines = [...report.lines].sort((a, b) => Number(a.ok) - Number(b.ok));
   const refusedSome = lines.some((line) => !line.ok);
   return (
     <span className="flex flex-col gap-1.5" data-fanout-report="">
-      <span data-fanout-lead={refusedSome ? 'refused' : 'kept'}>{refusedSome ? FANOUT_COPY.resultLead : FANOUT_COPY.resultLeadKept}</span>
+      <span data-fanout-lead={refusedSome ? 'refused' : lead ? 'done' : 'kept'}>
+        {refusedSome ? FANOUT_COPY.resultLead : (lead ?? FANOUT_COPY.resultLeadKept)}
+      </span>
       <span className="flex flex-col gap-1 text-[13px] leading-5">
         {lines.map((line) => (
           <span key={line.profile} data-fanout-line={line.profile} data-ok={line.ok ? 'true' : 'false'}>

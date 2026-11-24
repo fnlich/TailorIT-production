@@ -4,7 +4,7 @@ import { plainTextOf } from '../text';
 import { eligibilityOf, placeKeysOf, tsvectorOf, type PlaceRow } from './vectors';
 
 // v3.0 PG-SEARCH (11-database.md §5.6, §7.7): `projectJob` writes a job's one row of `job_search`, the table every
-// search reads (the Jobs page, Save all, MCP search_jobs and ai_search_jobs, the extension's job search), or deletes
+// search reads (the Jobs page, its count, MCP search_jobs and ai_search_jobs, the extension's job search), or deletes
 // it when the job is not searchable: closed, unverified for JOB_UNVERIFIED_HIDE_DAYS (`unverified_since`), or held
 // for review (`held_since`, 14 §9). Call it in the same transaction as every change that affects the row:
 //   - a job inserted, updated, closed, reopened, held, approved, verified again (ingest's store, the one close

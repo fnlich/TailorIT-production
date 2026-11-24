@@ -12,8 +12,7 @@ import { Menu, MenuContent, MenuTrigger } from '@/components/ui/Menu';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ArrowRightIcon, CheckIcon, ClockIcon, DotsThreeIcon, HeartIcon } from '@/components/ui/icons';
 import { ClosedBadge, isClosed } from '@/features/jobs/closed/ClosedBadge'; // v30 FIX-WEB (UX-10)
-import { VerificationBadge, useVerificationTitle } from '@/features/jobs/verification/VerificationBadge'; // v31 JOBSWEB
-import { verificationMark } from '@/features/jobs/verification/copy';
+import { VerificationBadge, useVerificationMark, useVerificationTitle } from '@/features/jobs/verification/VerificationBadge'; // v31 JOBSWEB; v36 JOBS
 import { RowCredit } from '@/features/jobs/credits/JobCredit'; // v30 FIX-WEB (REQ-1)
 import { creditOf } from '@/features/jobs/credits/credit';
 import { usePublicConstants } from '@/lib/constants';
@@ -28,7 +27,7 @@ import { ApplicationMenuItems, type ApplicationActions } from './ApplicationMenu
 export interface CardHandlers extends ApplicationActions {
   onToggleFavorite: (application: ApplicationSummary) => void;
   onToggleSelected: (application: ApplicationSummary, selected: boolean) => void;
-  /** Why this application cannot be selected now (Prepare & Queue jobs: not a saved job, or a draft already), or null. */
+  /** Why this application cannot be selected now (Prepare jobs: not a saved job, or a draft already), or null. */
   selectBlocked?: (application: ApplicationSummary) => string | null;
   /**
    * v2.0: a Saved entry's auto-apply marker (Draft for one in the queue, A30; Preparing, Filtered: …, Preparation
@@ -232,7 +231,7 @@ export function CardFace({
   profile?: CardProfile | null;
   profileSentenceId?: string;
 }) {
-  const held = verificationMark(application) !== null;
+  const held = useVerificationMark(application) !== null; // v36 JOBS (PLAN J7)
   const closed = isClosed(application);
   // v33 TRACKER (F1): every marker shows, Draft included (it no longer has a lane that says it).
   const showMarker = Boolean(marker);
@@ -346,7 +345,7 @@ export function ApplicationCard({
   const heldTitle = useVerificationTitle(application);
   const { t } = usePublicConstants();
   const marks = useId();
-  const held = verificationMark(application) !== null;
+  const held = useVerificationMark(application) !== null; // v36 JOBS (PLAN J7)
   const closed = isClosed(application);
   const marker = handlers.markerOf?.(application) ?? null;
   const profile = handlers.profileOf?.(application) ?? null;

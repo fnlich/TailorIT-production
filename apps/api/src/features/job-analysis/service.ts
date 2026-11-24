@@ -42,7 +42,7 @@ import { ADDED_BY_AUTOFILL } from '../ingest/types'; // v31 FIX-LINK (SEC-7)
 //
 // When Claude reads a job is AI_JOB_ANALYSIS's to say:
 //   - `ingest` (the default) and `saved`: the add-time backlog (./backlog.ts) has Claude read each added job (or each
-//     saved one) once. Opening, saving or "Save all" never queues anything: a view shows the best analysis so far,
+//     saved one) once. Opening or saving (one job or many) never queues anything: a view shows the best analysis so far,
 //     with "Refining..." while the backlog's task for that text runs;
 //   - `lazy`: the first view of a job without an AI analysis queues one, system-owned and deduplicated by the text's
 //     hash, on the background slot; each account starts at most JOB_ANALYSIS_PER_ACCOUNT_PER_HOUR new ones;

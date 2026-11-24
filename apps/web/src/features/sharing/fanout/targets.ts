@@ -44,6 +44,14 @@ export function boxName(perm: SharePermission, label: LabelOf): string {
   return `${label(row.label)} › ${label(column)}`;
 }
 
+/**
+ * v36 FIX-WEB (D1): a box's row alone ("Queue changes"): what an unsave on a shared profile needs to take a job out of
+ * its queue too.
+ */
+export function rowName(perm: SharePermission, label: LabelOf): string {
+  return label(rowOfPermission(perm).label);
+}
+
 /** Why a profile is off for an action: "Needs Job Tracker › Change." (the first box it lacks). */
 export function missingReason(profile: Pick<FanoutProfile, 'missing'>, label: LabelOf): string | null {
   const first = profile.missing[0];

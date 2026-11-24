@@ -213,7 +213,8 @@ These features are built and **off**. Each stays off until its setting is given;
 
 `DISCOVERY_VALIDATE_V2_KINDS_TODAY` is **on**: boards that discovery finds of the four kinds today's sources read
 (Greenhouse, Lever, Ashby, Workable) are checked with `INGEST_USER_AGENT`; set it to false to make them wait for
-`BOT_USER_AGENT` too.
+`BOT_USER_AGENT` too. A board that answers becomes a source that waits, off, until an administrator turns it on in
+Admin › Sources ("Waiting for an admin"): nothing turns a source on or runs it but an administrator.
 
 ## 8. Optional parts
 

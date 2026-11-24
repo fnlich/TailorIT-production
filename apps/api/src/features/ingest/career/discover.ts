@@ -16,6 +16,9 @@ import { isEmployerPlatformHost, isSharedPlatformHost } from './platforms'; // v
 // validation reads a candidate once through the career_site adapter (ctx.listingOnly) before it becomes a source
 // (config.ts careerSiteSourceOf). Where it stopped is kept in app_settings (CAREER_DISCOVERY_MARKER), so each job and
 // application is offered once.
+// v36 FIX-SRC (the final data review's D5; SP v36 PLAN S6, as discovery/links.ts): a held job (jobs.held_since: waiting
+// in Admin › Review), and a Tracker entry of one, offers nothing: its site becomes a candidate only once an admin
+// approves the job (job-reviews/decide.ts offers it then). The marker still moves past them.
 //
 // A career site is an employer's own host: an https or http page on a host TailorIT may keep as a site, not LinkedIn
 // or a refused job board, and not an ATS, job board or other shared platform's domain (companies/domain.ts
@@ -97,8 +100,9 @@ export async function discoverCareerSites(deps: AppDeps): Promise<number> {
   const at = nowIso(deps);
   let offered = 0;
   for (let batch = 0; batch < CAREER_DISCOVERY_BATCHES; batch += 1) {
-    const rows = await deps.db.all<{ id: number; apply_url: string }>(
-      'SELECT id, apply_url FROM jobs WHERE owner_user_id IS NOT NULL AND id > ? ORDER BY id LIMIT ?',
+    // v36 FIX-SRC: a held job offers nothing (see the top); the marker still moves past it.
+    const rows = await deps.db.all<{ id: number; apply_url: string | null }>(
+      'SELECT id, CASE WHEN held_since IS NULL THEN apply_url END AS apply_url FROM jobs WHERE owner_user_id IS NOT NULL AND id > ? ORDER BY id LIMIT ?',
       [marker.job, CAREER_DISCOVERY_BATCH],
     );
     if (rows.length === 0) break;
@@ -113,8 +117,11 @@ export async function discoverCareerSites(deps: AppDeps): Promise<number> {
     );
   }
   for (let batch = 0; batch < CAREER_DISCOVERY_BATCHES; batch += 1) {
-    const rows = await deps.db.all<{ seq: number; posting_url: string }>(
-      "SELECT seq, posting_url FROM applications WHERE seq > ? AND posting_url <> '' ORDER BY seq LIMIT ?",
+    // v36 FIX-SRC: an entry of a held job offers nothing (see the top); the marker still moves past it.
+    const rows = await deps.db.all<{ seq: number; posting_url: string | null }>(
+      `SELECT a.seq, CASE WHEN j.held_since IS NULL THEN a.posting_url END AS posting_url
+       FROM applications a LEFT JOIN jobs j ON j.id = a.job_id
+       WHERE a.seq > ? AND a.posting_url <> '' ORDER BY a.seq LIMIT ?`,
       [marker.application, CAREER_DISCOVERY_BATCH],
     );
     if (rows.length === 0) break;

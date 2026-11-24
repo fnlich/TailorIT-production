@@ -1,6 +1,5 @@
 'use client';
 
-import { UsersThreeIcon } from '@phosphor-icons/react/UsersThree';
 import { FANOUT_ALL, type FanoutTargets, type ProfileChoice } from '@tailorit/shared/sharing';
 import { clsx } from 'clsx';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -10,17 +9,19 @@ import { Button } from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { Dialog, DialogContent, DialogFooter } from '../../../components/ui/Dialog';
 import { BookmarkSimpleIcon, CaretDownIcon } from '../../../components/ui/icons';
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../../components/ui/Menu';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../../components/ui/Menu';
 import { Notice } from '../../../components/ui/Notice';
 import { Tooltip } from '../../../components/ui/Tooltip';
 import { userMessage } from '../../../lib/api';
 import { FANOUT_COPY, namesList } from './copy';
+import { ProfileMenuItems } from './ProfileSplitButton'; // v36 JOBS
 import { missingReason, targetsOf, type FanoutProfile, type LabelOf } from './targets';
 
 // v34 FANWEB (PLAN G4): the pieces of working on several profiles. ProfilesDialog chooses profiles (a box each, "All
 // profiles" over them, a profile its owner did not tick the box for off with the reason); SaveToMenu is the arrow half
 // of the split Save (each profile, All profiles, Choose profiles…); SavedOnChips is the "Saved on Ana · Ben" mark;
-// ApplyToChoice is the filters form's "Apply to: This profile | All profiles | Choose profiles…".
+// ApplyToChoice is the filters form's "Apply to: This profile | All profiles | Choose profiles…". v36 JOBS: SaveToMenu's
+// rows are ProfileMenuItems (ProfileSplitButton.tsx), in the list's order (You first), as before.
 
 /** The hint of a profile in a list: why it is off, that the job is saved there already, or that the tab is on it. */
 function hintOf(profile: FanoutProfile, label: LabelOf, savedOn?: ReadonlySet<ProfileChoice>): string | null {
@@ -211,7 +212,6 @@ export interface SaveToMenuProps {
 
 /** The arrow half of the split Save: each profile, All profiles, Choose profiles…. */
 export function SaveToMenu({ triggerLabel, profiles, label, savedOn, onPick, onChoose, disabled, look = 'button', className }: SaveToMenuProps) {
-  const anyOpen = profiles.some((profile) => profile.allowed && !savedOn?.has(profile.choice));
   return (
     <Menu>
       <Tooltip content={FANOUT_COPY.saveTo}>
@@ -230,29 +230,16 @@ export function SaveToMenu({ triggerLabel, profiles, label, savedOn, onPick, onC
         </MenuTrigger>
       </Tooltip>
       <MenuContent align="end" width="w-64" aria-label={FANOUT_COPY.saveToMenu}>
-        {profiles.map((profile) => (
-          <MenuItem
-            key={profile.choice}
-            icon={<BookmarkSimpleIcon size={16} />}
-            disabled={!profile.allowed || Boolean(savedOn?.has(profile.choice))}
-            hint={hintOf(profile, label, savedOn) ?? undefined}
-            onClick={() => onPick([profile.choice])}
-            data-save-to={profile.choice}
-          >
-            {/* v34 FIX-WEB (final review U-L4): a long owner's name wraps to a second line (two owners whose names start
-                alike are told apart), and the whole name is its tooltip. */}
-            <span className="line-clamp-2 whitespace-normal break-words" title={profile.label} data-save-to-name="">
-              {profile.label}
-            </span>
-          </MenuItem>
-        ))}
-        <MenuSeparator />
-        <MenuItem icon={<UsersThreeIcon size={16} />} disabled={!anyOpen} onClick={() => onPick(FANOUT_ALL)} data-save-to="all">
-          {FANOUT_COPY.allProfiles}
-        </MenuItem>
-        <MenuItem disabled={!anyOpen} onClick={onChoose} data-save-to="choose">
-          {FANOUT_COPY.chooseProfiles}
-        </MenuItem>
+        <ProfileMenuItems
+          profiles={profiles}
+          labelOf={label}
+          offReason={(profile) => (savedOn?.has(profile.choice) ? FANOUT_COPY.savedAlready : null)}
+          onPick={onPick}
+          onChoose={onChoose}
+          icon={<BookmarkSimpleIcon size={16} />}
+          order="list"
+          itemData="data-save-to"
+        />
       </MenuContent>
     </Menu>
   );

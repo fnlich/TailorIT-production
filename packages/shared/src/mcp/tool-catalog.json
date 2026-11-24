@@ -197,7 +197,7 @@
     },
     {
       "name": "prepare_filters",
-      "title": "Prepare & Queue filters",
+      "title": "Filters for Prepare",
       "annotations": {
         "openWorldHint": false,
         "readOnlyHint": true
@@ -345,7 +345,7 @@
     },
     {
       "name": "prepare_settings",
-      "title": "Prepare & Queue settings",
+      "title": "Settings for Prepare",
       "annotations": {
         "openWorldHint": false,
         "readOnlyHint": true
@@ -356,7 +356,7 @@
     },
     {
       "name": "prepare_start",
-      "title": "Start Prepare & Queue",
+      "title": "Start preparing jobs",
       "annotations": {
         "destructiveHint": true,
         "idempotentHint": false,
@@ -525,7 +525,7 @@
     },
     {
       "name": "set_prepare_settings",
-      "title": "Change Prepare & Queue settings",
+      "title": "Change Prepare settings",
       "annotations": {
         "destructiveHint": true,
         "idempotentHint": true,

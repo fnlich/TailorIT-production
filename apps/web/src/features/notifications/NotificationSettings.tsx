@@ -105,7 +105,7 @@ const PERSON_SCROLLS = ['wheel', 'touchstart', 'keydown', 'mousedown'] as const;
 
 /**
  * Scrolls to #`anchor` once its content is in, and keeps it there while the page grows above it (the account, the
- * profile and Prepare & Queue load on their own) for a moment, until the person scrolls, types or clicks.
+ * profile and Prepare load on their own) for a moment, until the person scrolls, types or clicks.
  */
 function useScrollToAnchor(anchor: string, ready: boolean) {
   useEffect(() => {

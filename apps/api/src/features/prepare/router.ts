@@ -14,12 +14,13 @@ import type { AppDeps } from '../../core/context';
 import { parseInput } from '../../core/http/validate';
 import { perAccountLimit, waitSentence } from '../autofill/auth'; // v34 FANOUT: waitSentence
 import { keyedRateLimit } from '../../core/rate-limit'; // v34 FANOUT
+import { adminApprovalForAdminsOnly } from '../jobs/add/approval-view'; // v36 FIX-API (sec L1)
 import { prepareAll, prepareAllPlan } from './all';
 import { applicationDraft, viewerOf } from './kit';
 import { prepareServiceOf } from './service';
 import { prepareSettingsOf, savePrepareSettings } from './settings';
 
-// Prepare & Queue's session routes (docs/design/v2.0/05-prepare-flow.md; the web pages only, never an extension token):
+// Prepare's session routes (docs/design/v2.0/05-prepare-flow.md; the web pages only, never an extension token):
 //   POST /api/prepare                 PrepareStartRequest {applicationIds, rebuild?} → 202 PrepareStartResponse (each
 //                                     job's outcome), or one error for the whole request
 //   GET  /api/prepare/settings        → PrepareSettings {letterMode, resumeMode, skipConfirm}
@@ -63,7 +64,7 @@ export function createPrepareRouter(deps: AppDeps): Router {
     res.status(202).json(answer);
   });
 
-  // v31 AUTO (D10): Prepare All. The start counts toward Prepare & Queue's own per-minute limit.
+  // v31 AUTO (D10): Prepare All. The start counts toward Prepare's own per-minute limit.
   router.get('/all', planLimit, async (req, res) => {
     const user = userOf(req);
     // v32 ADMINAPP (E7); v33 SHARE-5: the amounts by the signed-in person's role, the budget the payer's.
@@ -110,7 +111,7 @@ export function createPrepareRouter(deps: AppDeps): Router {
 /** Mounted at /api/applications, after the tracker's own routes: the "Prepared" tab's read. */
 export function createApplicationDraftRouter(deps: AppDeps): Router {
   const router = Router();
-  router.use('/:id/draft', requireUser);
+  router.use('/:id/draft', requireUser, adminApprovalForAdminsOnly); // v36 FIX-API (sec L1): its own, whatever the mount order
   router.get('/:id/draft', async (req, res) => {
     const id = parseInput(IdParam, req.params.id, 'application id');
     res.json(await applicationDraft(deps, userOf(req).id, id, viewerOf(req))); // v33 SHARE-5

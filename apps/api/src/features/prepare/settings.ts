@@ -12,13 +12,13 @@ import { constantsOf } from '../../core/constants/service';
 import { readAutofillProfile, setCoverLetterMode } from '../autofill/profile/repository';
 import { prepareUserSettings, writePrepareUserSettings } from './store';
 
-// Prepare & Queue's settings (GET and PUT /api/prepare/settings, docs/design/v2.0/05-prepare-flow.md):
+// Prepare's settings (GET and PUT /api/prepare/settings, docs/design/v2.0/05-prepare-flow.md):
 // - the cover-letter mode (A6): the autofill profile's documents.coverLetters, where the extension reads its document
 //   choices (00-overview.md, assumption 29: one source of truth); COVER_LETTER_MODE_DEFAULT before the person has a
 //   profile;
 // - the resume mode (DECISIONS A29): user_settings.prepare_resume_mode (0827); PREPARE_RESUME_MODE_DEFAULT before the
 //   person has a settings row, and the value a row made here starts with;
-// - "Don't show this again" of the Prepare & Queue confirm (A21): user_settings.skip_prepare_confirm.
+// - "Don't show this again" of the Prepare confirm (A21): user_settings.skip_prepare_confirm.
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
 

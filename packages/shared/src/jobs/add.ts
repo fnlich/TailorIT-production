@@ -158,7 +158,8 @@ export type AddJobResult = z.infer<typeof AddJobResultSchema>;
  * could not read it (`reason`), it is the viewer's own until it can.
  *
  * v32 ADMINAPP (E6): `admin_approved`, on a published job anyone sees: TailorIT could not read it, and an admin
- * approved it as it was captured (`checkedAt`: when; who is the admins' to see, never sent here).
+ * approved it as it was captured (`checkedAt`: when; who is the admins' to see, never sent here). v36 JOBS (PLAN J7):
+ * sent to administrators only (the signed-in role); everyone else gets no `verification` for such a job.
  */
 export const JobVerificationSchema = z.object({
   state: z.enum(['waiting_admin', 'private_unverified', 'admin_approved']),

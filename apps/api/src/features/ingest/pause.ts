@@ -6,7 +6,7 @@ import { refuse } from '../../core/http/refuse';
 import { notifyRunsControl, type RunsControlScope } from '../notifications/index'; // v31 RUNS (INT-1: NOTIFY's)
 import { RUNS_PAUSED_KEY, runsPaused, runsPausedState } from './pause-state';
 import { NEW_READ_KIND_OF } from './scheduler';
-import { requireIngest } from './service';
+import { requireIngest, RUNS_WHILE_OFF_KINDS } from './service';
 import { adminRun, adminSource, getSourceRecord, type AdminRunDetail, type AdminSource } from './sources';
 import { SCHEDULED_KINDS, UNRUN_KINDS } from './types';
 
@@ -135,6 +135,11 @@ export async function continueRun(deps: AppDeps, runId: number, actor: AdminActo
   if (!run) throw notFound('That run');
   if (run.status !== 'paused') throw refuse(deps, 'conflict', 'MSG_INGEST_RUN_NOT_PAUSED');
   if (await runsPaused(deps)) throw refuse(deps, 'conflict', 'MSG_INGEST_RUNS_PAUSED');
+  // v36 SOURCES (PLAN S5): a source that is off runs only once an admin turns it on (its pause stays as it is).
+  const source = await getSourceRecord(deps.db, run.sourceId);
+  if (source && (!source.enabled || !source.enabledAt) && !RUNS_WHILE_OFF_KINDS.includes(source.kind)) {
+    throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_OFF');
+  }
   // Continue on a run is "run it again now": the source's own pause goes with it.
   await deps.db.run('UPDATE job_sources SET paused_at = NULL, paused_by = NULL WHERE id = ? AND paused_at IS NOT NULL', [run.sourceId]);
   const quick = run.sourceKind === 'seed' || run.sourceKind === 'csv' || run.sourceKind === 'json';

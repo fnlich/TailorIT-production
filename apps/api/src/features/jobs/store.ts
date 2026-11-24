@@ -36,7 +36,7 @@ export async function loadLocations(deps: Pick<AppDeps, 'db'>, jobId: number): P
  * job it gave way to, so a stale id (the agent's task, the side panel's chosen job, a Jobs tab still open) reaches it.
  * Null when the viewer does not see the job asked for (none, or another account's job made from a page): its
  * superseded_by is never followed then, so where another account's page job went is never told (audit A3). The
- * autofill routes, the Jobs page's routes, Save, Save all and the cover letters all act on it (audit D4).
+ * autofill routes, the Jobs page's routes, Save (one job or many) and the cover letters all act on it (audit D4).
  */
 export async function currentJobId(deps: Pick<AppDeps, 'db'>, viewer: string, jobId: number): Promise<number | null> {
   let id = jobId;

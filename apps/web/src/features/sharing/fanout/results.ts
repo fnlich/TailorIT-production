@@ -35,6 +35,11 @@ export interface FanoutReport {
   refused: boolean;
   /** Something was done on at least one profile (Undo has something to undo). */
   done: boolean;
+  /**
+   * v36 FIX-WEB (ux M1): the toast lists each profile's line too ("Ana Lopez: 1 removed, 2 applied: left as is"), as the
+   * alert does; past NAMES_SHOWN profiles it says how many, and its Details opens the alert.
+   */
+  toastLines?: boolean;
 }
 
 export interface ReportOptions<T> {
@@ -57,6 +62,11 @@ export interface ReportOptions<T> {
    * job."); null says nothing of it (another part does).
    */
   nothing?: (result: T, name: string) => string | null;
+  /**
+   * v36 FIX-WEB (ux M1): the message lists each profile's line, in the toast too (FanoutReport.toastLines); a profile
+   * that did nothing is then said by its line alone (no `nothing` sentence beside it).
+   */
+  toastLines?: boolean;
 }
 
 type Result<T> = (T & { ok: true; profile: ProfileChoice; name: string }) | FanoutRefused;
@@ -102,9 +112,11 @@ export function fanoutReport<T>(answer: { results: readonly Result<T>[]; left: r
   const names = doneOn.map((result) => nameOf(profiles, result.profile, result.name));
   const okResults = answer.results.filter((result) => result.ok) as unknown as (T & { ok: true })[];
   // v34 FANWEB fix (spec M2): a profile that answered and did nothing is named too, with why.
-  const nothing = answer.results
-    .filter((result): result is T & { ok: true; profile: ProfileChoice; name: string } => result.ok && !options.did(result as T))
-    .map((result) => options.nothing?.(result as T, nameOf(profiles, result.profile, result.name)) ?? null);
+  const nothing = options.toastLines
+    ? []
+    : answer.results
+        .filter((result): result is T & { ok: true; profile: ProfileChoice; name: string } => result.ok && !options.did(result as T))
+        .map((result) => options.nothing?.(result as T, nameOf(profiles, result.profile, result.name)) ?? null);
   const parts = [leftOutText(answer.left, profiles, label), ...nothing, options.extra?.(okResults) ?? null].filter(
     (part): part is string => Boolean(part),
   );
@@ -116,5 +128,6 @@ export function fanoutReport<T>(answer: { results: readonly Result<T>[]; left: r
     lines,
     refused: answer.results.some((result) => !result.ok),
     done: doneOn.length > 0,
+    ...(options.toastLines ? { toastLines: true } : {}),
   };
 }

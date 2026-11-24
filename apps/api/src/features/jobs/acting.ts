@@ -9,19 +9,12 @@ import type { ActingSpec, ActingTable } from '../../core/feature'; // v33 SHARE-
 export const AI_SEARCH_ACTING: ActingSpec = 'tracker:view';
 
 // v33 SHARE-6 (PLAN F9; SP v33 PLAN-sharing.md §3 "Job Tracker": "applications, jobs with A's marks, saved searches";
-// "Change: save, add, ..., Save all"; §4 "Explicit changes"): the Jobs page on a shared profile is the jobs as the owner
+// "Change: save, add, ..."; §4 "Explicit changes"): the Jobs page on a shared profile is the jobs as the owner
 // sees them (their own jobs, their hidden and saved marks, their match): the Job Tracker's See. Opening a job never marks
 // it viewed for the owner (jobs-router.ts), and a lazy analysis it asks for counts in the actor's hour. Hiding a job is
 // the owner's mark (Change). A report goes to the administrators in the reporter's name (and counts in the reporter's
-// day): never on someone else's profile (the person reports from their own). Save all saves into the owner's tracker
-// (Change), its runs an hour counted for the actor (rateKeyOf); its confirm's numbers are a read. The saved searches are
-// the owner's (See to read, Change to keep one).
-
-/** /api/jobs/save-all. */
-export const SAVE_ALL_ACTING = {
-  'GET /preview': 'tracker:view',
-  'POST /': 'tracker:edit',
-} as const satisfies ActingTable;
+// day): never on someone else's profile (the person reports from their own). The saved searches are the owner's (See to
+// read, Change to keep one). v36 JOBS (PLAN J1): Save all (/api/jobs/save-all) is gone.
 
 /** /api/jobs: the list, the count, facets, matches, a job, its analysis, match and insights, hide, report. */
 export const JOBS_ACTING = {

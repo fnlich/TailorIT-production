@@ -74,7 +74,7 @@ async function sourceNamed(t: DbQueries, kind: 'csv' | 'json', name: string, con
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const found = await findSourceRecord(t, kind, name);
     if (found) return found;
-    const made = await insertSource(t, { kind, name, config, enabled: false }, at);
+    const made = await insertSource(t, { kind, name, config }, at);
     if (made) return made;
   }
   throw new Error('import: its source could not be made');
@@ -114,7 +114,7 @@ export async function sheetImportSource(t: DbQueries, sheet: JobImportSheetRef, 
   for (let n = 1; n < 50; n += 1) {
     const candidate = n === 1 ? name.slice(0, 100) : `${name.slice(0, 92)} (${n})`;
     if (await findSourceRecord(t, 'csv', candidate)) continue;
-    const made = await insertSource(t, { kind: 'csv', name: candidate, config, enabled: false }, at);
+    const made = await insertSource(t, { kind: 'csv', name: candidate, config }, at);
     if (made) return made;
   }
   throw new Error('import: the sheet source could not be made');

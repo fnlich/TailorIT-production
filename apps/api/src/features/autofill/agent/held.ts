@@ -12,7 +12,7 @@ import type { EndGrantScope } from '../../sharing/end-grant';
 // (features/auto-apply's routes, never while acting): "Approve all" and "Remove" send the newest row A saw (`through`),
 // so a job B queues meanwhile is never decided unseen. Ending the share removes them (endGrant's `queue` step), with,
 // when A stopped sharing and asked for it (remove_queued), the approved ones no extension took yet; taking `apply` (or
-// Prepare & queue's Change) away puts B's rows A never approved back on hold (endGrantQueueStep). Only this folder
+// Prepare's Change) away puts B's rows A never approved back on hold (endGrantQueueStep). Only this folder
 // touches the queue's table; every statement names the owner and the grant.
 // v33 INT-1 (SHARE-5's open item): only a live share's rows are listed, approved or removed (core/auth/grants.ts's one
 // live predicate, and the share must be the owner's). A share that ended (a stop, a leave, an expiry, an admin's
@@ -140,7 +140,7 @@ export async function reholdGrantQueueRows(deps: Deps, ownerId: string, grantId:
  * - The share ended (permissions null): its held rows go (nobody may prepare them on it any more). Only when the owner
  *   stopped sharing (cause `revoked`) and asked for it (remove_queued) do its other unclaimed rows go too (approved, or
  *   unheld under `apply`); after B left, an expiry or an admin's disable, the rows the owner approved stay theirs.
- * - A box taken away (permissions listed): `apply` or Prepare & queue's Change (`prepare:run`) away, its unheld rows
+ * - A box taken away (permissions listed): `apply` or Prepare's Change (`prepare:run`) away, its unheld rows
  *   the owner never approved go back on hold (nothing B prepares runs without the owner's OK); `prepare:run` away, its
  *   held rows then go (B can no longer prepare there; the approved ones stay). Any other box: nothing.
  */

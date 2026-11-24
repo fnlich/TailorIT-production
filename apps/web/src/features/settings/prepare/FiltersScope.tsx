@@ -12,7 +12,7 @@ import { FILTER_FIELD_LABEL } from './filters';
 import type { FieldMarks, PrepareFiltersFormState, SaveFiltersInput } from './PrepareFiltersForm';
 
 // v34 FANWEB (PLAN G3: "Apply to: This profile | choose profiles | All profiles"): where a Prepare filters form's
-// changes go, shared by Settings › Prepare & Queue and the Auto-apply page's Filters dialog. This profile: a PATCH of
+// changes go, shared by Settings › Prepare and the Auto-apply page's Filters dialog. This profile: a PATCH of
 // the filters changed. Several profiles: each filter has its "Apply" mark (a changed one is ticked; an unchanged one
 // ticked is sent as it is, so every profile can be set to a value the tab's profile has already), and the marked
 // filters go to every profile chosen in one request. Hidden while the person has no shared profile.

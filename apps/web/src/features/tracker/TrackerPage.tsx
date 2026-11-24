@@ -53,15 +53,24 @@ import {
 } from './data';
 import { DetailSheet } from './detail/DetailSheet';
 import { toastFailure } from './failure';
-import { prepareBlockReason, trackerMarker } from './draft';
+import { isDraft, prepareBlockReason, trackerMarker } from './draft';
 import { useArchivedColumn, useColumnPrefs, useDebouncedValue, useTrackerUrl } from './hooks';
 import { ListView, type ListEmptyKind } from './list/ListView';
 import { AllProfilesToggle } from './profiles/AllProfilesToggle';
 import { AllProfilesView } from './profiles/AllProfilesView';
 import { useTrackerScope, type TrackerScope } from './profiles/useTrackerProfiles';
 import { useTrackerFanout } from './profiles/fanout'; // v34 FANWEB
-import { FANOUT_COPY } from '../sharing/fanout/copy';
+import {
+  FANOUT_COPY,
+  QUEUE_COPY,
+  addQueueCounts,
+  archiveOneOutcome,
+  inQueueNote,
+  queueSentences,
+  type QueueCounts,
+} from '../sharing/fanout/copy';
 import { manageBarFocus, ProfilesDialog } from '../sharing/fanout/parts';
+import { useQueueWords } from '../sharing/fanout/useQueueWords'; // v36 FIX-WEB (D1)
 import { AddApplicationSheet } from './sheets/AddApplicationSheet';
 import {
   activeFilterCount,
@@ -104,7 +113,7 @@ function ZipProgressLine() {
  * v33 SHARE-9 (PLAN F9; SP v33 PLAN-sharing.md §8): `?profiles=all` shows the All profiles view (profiles/AllProfilesView)
  * once a profile shared with the person lets them see its Job Tracker ("All profiles" in the header switches). On a
  * shared profile the page offers only what its owner lets the person do (`can`): Change for adding, moving, archiving,
- * selecting and importing; Prepare for Prepare & Queue; Exports for the CSV and the zip.
+ * selecting and importing; Prepare's Change for Prepare jobs; Exports for the CSV and the zip.
  */
 function Tracker() {
   const [url, setUrl] = useTrackerUrl();
@@ -156,6 +165,8 @@ function SingleProfileTracker({
   const [prefs, setPrefs] = useColumnPrefs();
   const [archivedShown, setArchivedShown] = useArchivedColumn();
   const { t } = usePublicConstants();
+  // v36 FIX-WEB (D1): an archive of a Saved entry says what it did to the auto-apply queue.
+  const queueWords = useQueueWords();
   const addButton = useRef<HTMLButtonElement>(null);
   const prepare = usePrepareAndQueue();
   // v34 FANWEB (PLAN G2): Select › Copy to profiles… saves the selected entries' jobs on other profiles (as Saved).
@@ -165,7 +176,7 @@ function SingleProfileTracker({
   const retryRead = useRetryRead();
 
   const [selectMode, setSelectMode] = useState(false);
-  /** What the selection is for: Select applications' bulk actions, or Prepare & Queue jobs (v2.0). */
+  /** What the selection is for: Select applications' bulk actions, or Prepare jobs (v2.0). */
   const [selectPurpose, setSelectPurpose] = useState<'manage' | 'prepare'>('manage');
   const prepareMode = selectMode && selectPurpose === 'prepare';
   const [selection, setSelection] = useState<{ key: string; ids: ReadonlySet<string> }>(() => ({ key, ids: new Set() }));
@@ -221,7 +232,7 @@ function SingleProfileTracker({
         ? (listItems ?? [])
         : [];
   const loadedIds = loadedApplications.map((item) => item.id);
-  // Prepare & Queue jobs: only Saved entries with a job, not in the queue already, are chosen.
+  // Prepare jobs: only Saved entries with a job, not in the queue already, are chosen.
   const choosable = (item: ApplicationSummary) => prepareBlockReason(item) === null;
   const prepareIds = loadedApplications.filter(choosable).map((item) => item.id);
   const preparing = prepareIds.some((id) => prepare.pending.has(id));
@@ -247,7 +258,7 @@ function SingleProfileTracker({
     setUrl({ ...url, tab });
   };
 
-  /** Select applications or Prepare & Queue jobs: the cards and rows get their boxes; the chart has none, so the list shows. */
+  /** Select applications or Prepare jobs: the cards and rows get their boxes; the chart has none, so the list shows. */
   const startSelecting = (purpose: 'manage' | 'prepare') => {
     if (view === 'chart') setUrl({ ...url, view: 'list' });
     if (purpose !== selectPurpose) setSelected(new Set());
@@ -271,12 +282,19 @@ function SingleProfileTracker({
 
   const setArchived = async (application: ApplicationSummary, archived: boolean) => {
     try {
-      if (archived) await trackerApi.archive(application.id);
+      // v36 FIX-WEB (D1): what the archive did to the auto-apply queue; a Saved entry it left as it was says why.
+      let outcome: ReturnType<typeof archiveOneOutcome> | null = null;
+      if (archived) outcome = archiveOneOutcome(await trackerApi.archive(application.id), queueWords.box, queueWords.name);
       else await trackerApi.restore(application.id);
       void invalidateApplications(client);
+      if (outcome?.left) {
+        toast.toast({ type: 'info', title: QUEUE_COPY.notArchived, description: outcome.notes.join(' ') });
+        return;
+      }
       toast.toast({
         type: 'success',
         title: archived ? 'Application archived' : 'Application restored',
+        description: outcome && outcome.notes.length > 0 ? outcome.notes.join(' ') : undefined,
         action: {
           label: 'Undo',
           onClick: () => void setArchived(application, !archived),
@@ -314,7 +332,7 @@ function SingleProfileTracker({
     markerOf,
     // v33 SHARE-9: a shared profile without the Job Tracker's Change box: no drag, no Move to, no Archive, no heart.
     canEdit: canEdit ? undefined : () => false,
-    // The card menu's Prepare & Queue (Saved entries with a job).
+    // The card menu's Prepare (Saved entries with a job).
     onPrepare: actions.prepare
       ? (application) => prepare.prepare({ applicationIds: [application.id], names: namesOf([application]) })
       : undefined,
@@ -345,6 +363,8 @@ function SingleProfileTracker({
     const ids = [...selected].filter((id) => onScreen.has(id));
     const action = typeof kind === 'object' ? 'status' : kind;
     let affected = 0;
+    // v36 FIX-WEB (D1): an archive's queue counts, over every chunk.
+    let queue: QueueCounts = {};
     try {
       for (let start = 0; start < ids.length; start += BULK_CHUNK) {
         const answer = await trackerApi.bulk({
@@ -353,13 +373,15 @@ function SingleProfileTracker({
           ...(typeof kind === 'object' ? { status: kind.status, occurredOn: localToday() } : {}),
         });
         affected += answer.affected;
+        queue = addQueueCounts(queue, answer);
       }
     } finally {
       void invalidateApplications(client);
     }
     setSelected(new Set());
     const word = { archive: 'archived', unarchive: 'restored', delete: 'deleted', status: 'updated' }[action];
-    toast.success(`${affected} ${affected === 1 ? 'application' : 'applications'} ${word}`);
+    const notes = queueSentences(queue, queueWords.box, queueWords.name);
+    toast.success(`${affected} ${affected === 1 ? 'application' : 'applications'} ${word}`, notes.length > 0 ? notes.join(' ') : undefined);
   };
 
   const exportCsv = async () => {
@@ -427,7 +449,7 @@ function SingleProfileTracker({
     }
   };
 
-  /** "Prepare & Queue": the selection's Saved entries (only what is on screen); the selection clears once answered. */
+  /** "Prepare": the selection's Saved entries (only what is on screen); the selection clears once answered. */
   const prepareSelected = () => {
     const chosen = loadedApplications.filter((item) => choosable(item) && selected.has(item.id));
     prepare.prepare({
@@ -535,6 +557,11 @@ function SingleProfileTracker({
             allSelected={loadedIds.length > 0 && loadedIds.every((id) => selected.has(id))}
             onSelectAll={(on) => setSelected(on ? new Set(loadedIds) : new Set())}
             onBulk={bulk}
+            // v36 FIX-WEB (D1): Archive's question counts the chosen Saved entries in the auto-apply queue.
+            archiveNote={inQueueNote(
+              loadedApplications.filter((item) => selected.has(item.id) && isDraft(item)).length,
+              queueWords,
+            )}
             // v33 SHARE-9 fix (review): the zip only with Exports; Delete only on the person's own profile (F9).
             onBuildResumes={actions.buildResumes ? buildSelectedResumes : undefined}
             buildingResumes={buildingResumes}
@@ -681,9 +708,11 @@ function SingleProfileTracker({
         confirmLabel="Archive"
         tone="primary"
         onConfirm={async () => {
-          const { archived } = await trackerApi.archiveAll();
+          const { archived, ...queue } = await trackerApi.archiveAll();
           void invalidateApplications(client);
-          toast.success(`${archived} ${archived === 1 ? 'application' : 'applications'} archived`);
+          // v36 FIX-WEB (D1): what it did to the auto-apply queue, and the Saved entries it left there.
+          const notes = queueSentences(queue, queueWords.box, queueWords.name);
+          toast.success(`${archived} ${archived === 1 ? 'application' : 'applications'} archived`, notes.length > 0 ? notes.join(' ') : undefined);
         }}
       />
     </div>

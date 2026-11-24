@@ -21,7 +21,7 @@ import { resumeModeOf } from './settings';
 // v31 AUTO (decision D10): Prepare All, the Auto-apply page's button beside Filters and Select, and the filters
 // dialog's "Filter and Prepare". It prepares every saved job in To prepare (no Prepare yet, filtered, or preparation
 // failed; the job still open) that passes the person's saved filters now, newest saved first, within the caps that
-// already hold for Prepare & Queue:
+// already hold for Prepare:
 //   - one request's batch, PREPARE_BATCH_MAX;
 //   - the room left in the auto-apply queue, QUEUE_SIZE_MAX (a job whose finished row is replaced takes none);
 //   - in the `tailor` resume mode, the plan's resume storage (one new resume per job, counted conservatively: a kit
@@ -29,7 +29,7 @@ import { resumeModeOf } from './settings';
 // The server chooses the jobs. v31 FIX-AUTH (BEH-8): the plan names them (applicationIds) and the confirm sends them
 // back; POST takes only those, intersected with what still qualifies now (To prepare, open, passing, within the caps),
 // so jobs saved or changed while the confirm was open are never prepared unasked. What it leaves for later is said in words
-// (MSG_PREPARE_ALL_HELD_*). When nothing fits at all, it refuses as Prepare & Queue does: 409 MSG_PREPARE_QUEUE_FULL,
+// (MSG_PREPARE_ALL_HELD_*). When nothing fits at all, it refuses as Prepare does: 409 MSG_PREPARE_QUEUE_FULL,
 // or 403 resume_limit_reached. The taken jobs then go through startPrepare, whose checks still decide (the filters
 // again, the AI gate: 429 ai_usage_exhausted, 503 ai_unavailable; the resume room; the queue room). A daily budget
 // that runs out while the runner works ends the remaining Prepares failed with its message, as for any Prepare.
@@ -185,7 +185,7 @@ export async function prepareAllPlan(
 }
 
 /**
- * POST /api/prepare/all: Prepare & Queue the jobs `choose` takes of `confirmed`, the ones the confirm named (startPrepare,
+ * POST /api/prepare/all: Prepare the jobs `choose` takes of `confirmed`, the ones the confirm named (startPrepare,
  * mode `server`). Nothing passing: an empty answer. Passing jobs but no room at all: the cap's refusal for the whole
  * request.
  */

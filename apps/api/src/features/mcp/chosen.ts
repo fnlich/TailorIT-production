@@ -85,7 +85,7 @@ export interface ChosenContent {
 
 export const NO_CHOSEN_RESUME =
   'TailorIT has no resume to write this application from. Add a resume in Documents (or set your default resume), ' +
-  'then Prepare & Queue the job again.';
+  'then prepare the job again.';
 
 /** The chosen resume's content; refused when there is none. */
 export async function chosenContent(deps: AppDeps, userId: string, chosen: ChosenResume): Promise<ChosenContent> {

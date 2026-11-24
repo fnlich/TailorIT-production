@@ -7,7 +7,8 @@ import type { JobVerification } from '@tailorit/shared';
 // - `private_unverified`: TailorIT could not read its link, so it is the person's own, its words from their browser:
 //   LABEL_JOB_FROM_BROWSER, with MSG_JOB_ONLY_YOU_UNTIL_VERIFIED, and Retry read (POST /api/jobs/:id/verify).
 // - v32 INT-1 (E6, ADMINAPP's `admin_approved`): a job everyone sees that TailorIT could not read, published by an
-//   admin as it was captured: LABEL_JOB_APPROVED_BY_ADMIN, its "?" MSG_JOB_APPROVED_BY_ADMIN.
+//   admin as it was captured: LABEL_JOB_APPROVED_BY_ADMIN, its "?" MSG_JOB_APPROVED_BY_ADMIN. v36 JOBS (PLAN J7): shown
+//   to admins only (VerificationBadge.tsx useVerificationMark; the API sends the state to admins alone).
 
 /**
  * Which mark an item's job carries: its own (unverified), waiting for an admin, approved by an admin (everyone sees it,

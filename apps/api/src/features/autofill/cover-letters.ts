@@ -42,7 +42,7 @@ import type { AttachedFile } from './resumes';
 // extension):
 //   - with a job: the tracker entry's letter for it (applications.cover_letter_id), then the account's other letters
 //     with that job or entry, newest first, then its letters with no job for the entry's or the job's company and
-//     title (one written before the job was added); while Prepare & Queue has the job queued, the kit's letter first
+//     title (one written before the job was added); while Prepare has the job queued, the kit's letter first
 //     and never one written from another resume than the kit's (v2.0, A29/A30); without one (a posting TailorIT does
 //     not have): its letters with no job for the request's company and title, so a second form of the posting finds
 //     the first one's letter. A
@@ -156,7 +156,7 @@ async function lettersForJob(deps: Pick<AppDeps, 'db' | 'now'>, userId: string, 
   );
   const application = entry ? { id: entry.id, companyName: entry.company_name, jobTitle: entry.title } : null;
   const job = await jobNames(deps, jobId);
-  // v20 P3 (A30): while Prepare & Queue has the job queued, its frozen kit's letter (the draft's) comes first.
+  // v20 P3 (A30): while Prepare has the job queued, its frozen kit's letter (the draft's) comes first.
   // v20 FIX-B (BEH-2): and no letter written from another resume than the kit's is offered then (A29): a kit with no
   // letter never hands over an earlier kit's; a letter is then written from the kit's resume (the one attached).
   const kit = await deps.db.one<{ resume_id: string | null; cover_letter_id: string | null }>(

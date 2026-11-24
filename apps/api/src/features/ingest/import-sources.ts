@@ -24,7 +24,8 @@ import { IngestError } from './types';
 // Either way the run and the source are noted (job_source_import_finds): Admin › Runs lists the run's Sources found,
 // and its Enable all / Disable all act on the ones it made. A Found-by-import source runs only once an admin switches it
 // on (PATCH /api/admin/sources/:id, the selection's or the filter's Enable, or the run's Enable all): discovery's
-// validation never switches it on (it is no link keeper: discovery/offer.ts), and nothing else switches sources on.
+// validation never switches it on (it is no link keeper: discovery/offer.ts), and v3.6 made that true of every source
+// (SP v36 PLAN S1: only an admin's action turns a source on, through sources.ts enableSources).
 // A board of a company that opted out still becomes a source, off: the opt-out gate keeps it off and unread.
 
 /** The kinds of board an import may find (a board TailorIT reads in full). */
@@ -135,7 +136,8 @@ export async function rememberImportBoard(
          WHERE id = ? AND NOT enabled RETURNING id`,
         [JSON.stringify(merged), at, keeper.id],
       );
-      // Switched on meanwhile (by an admin, or discovery's adoption): it reads the board now; look again.
+      // Switched on meanwhile (by an admin: v36 SOURCES, nothing else turns a source on): it reads the board now; look
+      // again.
       if (!adopted) continue;
       await noteFind(t, input.runId, keeper.id, true, at);
       return { sourceId: keeper.id, created: true };
@@ -143,7 +145,7 @@ export async function rememberImportBoard(
     const label = n === 1 ? name : `${name} (${n})`;
     const made = await t.one<{ id: number }>(
       `INSERT INTO ${NEW_SOURCE_COLUMNS} VALUES (${NEW_SOURCE_PLACEHOLDERS}) ON CONFLICT(kind, name) DO NOTHING RETURNING id`,
-      newSourceValues({ kind: input.kind, name: label, config, enabled: false }, at),
+      newSourceValues({ kind: input.kind, name: label, config }, at),
     );
     // Null: another source holds the name (another board's, or this board's made by an import at the same moment: the
     // next look finds it).

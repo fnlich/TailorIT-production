@@ -46,6 +46,43 @@ const SearchText = z.string().trim().max(200, messageError('MSG_TEXT_TOO_LONG', 
 export const ADMIN_SOURCE_SORTS = ['next_run', 'last_run', 'name', 'open_jobs', 'failures'] as const;
 export type AdminSourceSort = (typeof ADMIN_SOURCE_SORTS)[number];
 
+// v36 SOURCES (PLAN S1, S7, S8) ------------------------------------------------------------------------------------
+/**
+ * Admin › Sources' on/off filter: every source, those on, those off, or those waiting for an admin (off, found by
+ * discovery or an admin's import, and never turned on by an admin: AdminSourceRow `waitingForAdmin`).
+ */
+export const ADMIN_SOURCE_ENABLED_FILTERS = ['all', 'enabled', 'disabled', 'waiting'] as const;
+export type AdminSourceEnabledFilter = (typeof ADMIN_SOURCE_ENABLED_FILTERS)[number];
+/**
+ * The parts of v3.6's one-time notice (migration 0060 turned off the sources discovery had switched on): all of them,
+ * those untouched since found, or those changed since (maybe by an admin). v36 FIX-SRC (coordinator decision D6): or
+ * those an admin added from Admin › Candidates › Add boards (discovered_via `admin`), which the other two parts leave out.
+ */
+export const ADMIN_SOURCE_TURNED_OFF_PARTS = ['all', 'untouched', 'changed', 'candidates'] as const;
+export type AdminSourceTurnedOffPart = (typeof ADMIN_SOURCE_TURNED_OFF_PARTS)[number];
+/**
+ * GET /api/admin/sources/turned-off: the notice, while no admin dismissed it (null otherwise, and on a server 0060 turned
+ * nothing off). Counts of the sources it names, and of those still off.
+ */
+export const AdminSourcesTurnedOffSchema = z.object({
+  notice: z
+    .object({
+      /** When 0060 turned them off. */
+      at: IsoDateTime,
+      untouched: z.number().int().nonnegative(),
+      changed: z.number().int().nonnegative(),
+      /** Of each part, how many are still off (an admin may have turned some on since). */
+      untouchedOff: z.number().int().nonnegative(),
+      changedOff: z.number().int().nonnegative(),
+      /** v36 FIX-SRC (D6): the boards an admin added from Admin › Candidates (not counted in `untouched` or `changed`). */
+      candidates: z.number().int().nonnegative(),
+      candidatesOff: z.number().int().nonnegative(),
+    })
+    .nullable(),
+});
+export type AdminSourcesTurnedOff = z.infer<typeof AdminSourcesTurnedOffSchema>;
+// end v36 SOURCES
+
 /**
  * Admin › Sources' filters (a query string, or the body of Enable all / Disable all): search (name or host) and lists
  * ([] is any). v35 ADMIN (PLAN H6): an import's records are no source (ADMIN_SOURCE_LIST_KINDS: no csv or json kind),
@@ -58,11 +95,14 @@ export const AdminSourcesFilterSchema = z.object({
   terms: adminQueryList(z.enum(JOB_SOURCE_TERMS_STATUSES), JOB_SOURCE_TERMS_STATUSES.length),
   robots: adminQueryList(z.enum(JOB_SOURCE_ROBOTS_STATUSES), JOB_SOURCE_ROBOTS_STATUSES.length),
   discoveredVia: adminQueryList(z.enum(JOB_SOURCE_FOUND_VIA), JOB_SOURCE_FOUND_VIA.length),
-  enabled: z.enum(['all', 'enabled', 'disabled']).default('all'),
+  /** v36 SOURCES (PLAN S8): `waiting`, found and never turned on by an admin (ADMIN_SOURCE_ENABLED_FILTERS). */
+  enabled: z.enum(ADMIN_SOURCE_ENABLED_FILTERS).default('all'),
   /** Only sources failing now (a failure in their last run, or the failing tier). */
   failing: AdminQueryFlagSchema,
   host: HostSchema.optional(),
   companyId: z.coerce.number().int().positive().optional(),
+  /** v36 SOURCES (PLAN S7): only the sources v3.6 turned off (the notice's), all of them or one part; absent: any. */
+  turnedOff: z.enum(ADMIN_SOURCE_TURNED_OFF_PARTS).optional(),
 });
 export type AdminSourcesFilter = z.infer<typeof AdminSourcesFilterSchema>;
 
@@ -123,6 +163,15 @@ export const AdminSourceRowSchema = z.object({
   // end v31 RUNS
   /** v35 ADMIN (PLAN H7): switched on, but it cannot run now, and why; null (or absent) when it is off or can run. */
   waiting: JobSourceWaitingSchema.nullable().optional(),
+  // v36 SOURCES (PLAN S1, S8): who last turned it on and when (job_sources.enabled_at, enabled_by), and whether it waits
+  // for an admin (off, found by discovery or an import, never turned on). Absent from a server before v3.6.
+  /** When an admin last turned it on; null when no admin ever did. */
+  enabledAt: IsoDateTime.nullable().optional(),
+  /** That admin's email; null when it is not known (an account deleted since, or a source on before v3.6). */
+  enabledBy: z.string().nullable().optional(),
+  /** Off, found by discovery or an admin's import, and never turned on: "Waiting for an admin". */
+  waitingForAdmin: z.boolean().optional(),
+  // end v36 SOURCES
 });
 export type AdminSourceRow = z.infer<typeof AdminSourceRowSchema>;
 
@@ -289,6 +338,8 @@ export const AdminRunSourceSchema = z.object({
   lastRunAt: IsoDateTime.nullable(),
   pausedAt: IsoDateTime.nullable().optional(),
   waiting: JobSourceWaitingSchema.nullable().optional(),
+  /** v36 INT-A: off, found (by this import or discovery) and never turned on by an admin: "Waiting for an admin". */
+  waitingForAdmin: z.boolean().optional(),
 });
 export type AdminRunSource = z.infer<typeof AdminRunSourceSchema>;
 export const AdminRunSourcesSchema = z.object({
@@ -412,6 +463,11 @@ export const JobSourceCandidateSchema = z.object({
   sourceOpenJobs: z.number().int().nonnegative().nullable().optional(),
   openLifeDays: z.number().nonnegative().nullable().optional(),
   // end v30 S2
+  /**
+   * v36 SOURCES (PLAN S2, S8): the source it became waits for an admin (off, never turned on): validation makes every
+   * source off. Null (or absent) when it became none.
+   */
+  sourceWaiting: z.boolean().nullable().optional(),
 });
 export type JobSourceCandidate = z.infer<typeof JobSourceCandidateSchema>;
 
@@ -427,7 +483,19 @@ export type AdminCandidatesQuery = z.infer<typeof AdminCandidatesQuerySchema>;
 
 /** The candidate funnel: candidates by status and by how they were found, and today's validations. */
 export const CandidateFunnelSchema = z.object({
-  byStatus: z.array(z.object({ status: z.enum(JOB_SOURCE_CANDIDATE_STATUSES), count: z.number().int().nonnegative() })),
+  byStatus: z.array(
+    z.object({
+      status: z.enum(JOB_SOURCE_CANDIDATE_STATUSES),
+      count: z.number().int().nonnegative(),
+      /**
+       * v36 FIX-SRC (the final ux review's L7): of `count`, the candidates whose source waits for an admin (off, never
+       * turned on: AdminSourceRow `waitingForAdmin`) and those whose source is on. Sent for every status (0 where no
+       * candidate has a source); absent from a server before it.
+       */
+      sourcesWaiting: z.number().int().nonnegative().optional(),
+      sourcesOn: z.number().int().nonnegative().optional(),
+    }),
+  ),
   byVia: z.array(z.object({ discoveredVia: z.enum(JOB_SOURCE_DISCOVERED_VIA), count: z.number().int().nonnegative() })),
   validatedToday: z.number().int().nonnegative(),
   // v30 S2: whether validation reads now (and why not), the day's cap, the measure owner question 17 waits for, and

@@ -99,8 +99,11 @@ export interface SearchArgs {
 
 type Deps = Pick<AppDeps, 'db' | 'now'>;
 
-/** The posting's time: its own date, else when TailorIT first saw it (the Jobs page's "posted"). */
-const POSTED = 'COALESCE(j.posted_at, j.first_seen_at)';
+/**
+ * The posting's time: its own date, else when TailorIT first saw it (the Jobs page's "posted"); v36 IMPORTTIME: an
+ * admin's import's time when later (jobs.reposted_at), as the Jobs page and search's posted_sort read it.
+ */
+const POSTED = 'GREATEST(COALESCE(j.posted_at, j.first_seen_at), j.reposted_at)';
 const YEARS = '(SELECT ja.required_years FROM job_analyses ja WHERE ja.id = j.analysis_id)';
 
 /** A filter whose unknowns the answer counts: its condition, and the condition of "does not say". */

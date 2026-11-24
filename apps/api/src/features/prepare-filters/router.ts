@@ -80,7 +80,7 @@ export function createPrepareFiltersRouter(deps: AppDeps, service: PrepareFilter
         actorId: actorOf(req).id,
         changeEligibility: holds(req, 'sensitive:edit'),
         seeEligibility: holds(req, 'sensitive:view'),
-        // The FANOUT review's sharing 1: the filters only with Prepare & queue's See, as the GET.
+        // The FANOUT review's sharing 1: the filters only with Prepare's See, as the GET.
         seeFilters: holds(req, 'prepare:view'),
       },
       body.filters,

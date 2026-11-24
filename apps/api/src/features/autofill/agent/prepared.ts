@@ -30,7 +30,7 @@ export interface PreparedRowInput {
   // v33 SHARE-5 (PLAN F9 "Prepare and the queue"; SP v33 PLAN-sharing.md §5, §6): a job someone the profile is shared
   // with (B) prepared names them (prepared_by: who prepared it; the owner's own when absent) and the grant (required
   // then). The insert decides the rest from the grant itself, read live and locked in its transaction (the SHARE-5
-  // review's decision 4: it fails closed): no live grant with Prepare & queue's Change, nothing is written
+  // review's decision 4: it fails closed): no live grant with Prepare's Change, nothing is written
   // (profile_ended); the row waits for the owner's OK (awaiting_owner) unless the grant holds `apply`; it never takes the
   // owner's last SHARING_QUEUE_RESERVE queue places ('full' sooner); and without Queue changes (`queue:edit`) it never
   // replaces a finished row it did not prepare under that grant ('kept': the decision 8; a replace is a Remove).

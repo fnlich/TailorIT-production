@@ -13,7 +13,7 @@ export function setupSnippets(token: string | null, endpoint = mcpEndpointUrl())
 }
 
 /**
- * "How it works", in the owner's words of decision 5. v2.0 fix (UX-5): Prepare & Queue as v2.0 runs it over MCP
+ * "How it works", in the owner's words of decision 5. v2.0 fix (UX-5): Prepare as v2.0 runs it over MCP
  * (docs/design/v2.0/07-mcp.md): the saved filters first, then the jobs that pass, with the person's resume setting;
  * a job is queued once its parts are saved; custom instructions add to TailorIT's and never change its rules.
  */

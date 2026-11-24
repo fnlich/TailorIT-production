@@ -33,7 +33,7 @@ import { usePublicConstants, type PublicMessageKey } from '../../lib/constants';
 // v31 AUTO: the owner's "Filters Option in Auto Apply should be implement like dialog (not move to new page). And In
 // dialog, there will be `Only Filter`, and `Filter and Prepare` buttons." The Prepare filters as a dialog over the page
 // that needs them (the Auto-apply page's Filters button, "Change filters" in a filtered row's popover and in the result
-// toast; the Tracker's toast too): the same form as Settings › Prepare & Queue (PrepareFiltersForm) without its save
+// toast; the Tracker's toast too): the same form as Settings › Prepare (PrepareFiltersForm) without its save
 // bar, a live count "38 of 52 saved jobs pass" (the preview, no AI), and the footer:
 //   Cancel              closes; nothing is saved;
 //   Only Filter         saves the filters (when changed) and closes; the Saved jobs' labels and the count follow;

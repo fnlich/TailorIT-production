@@ -16,9 +16,7 @@ import { CompanyLogo } from '../CompanyLogo';
 import { CardCredit } from '../credits/JobCredit'; // v30 S4
 import { cardLocationLine, cardSalary } from '../format';
 import { rowAge } from './age'; // v35 OPSWEB
-import { VerificationBadge } from '../verification/VerificationBadge'; // v31 JOBSWEB
-import { verificationMark } from '../verification/copy';
-import { saveBlockReason } from './useSaveSelected';
+import { VerificationBadge, useVerificationMark } from '../verification/VerificationBadge'; // v31 JOBSWEB; v36 JOBS
 import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
 import { SaveToMenu, SavedOnChips } from '../../sharing/fanout/parts'; // v34 FANWEB
 import type { FanoutProfile, LabelOf } from '../../sharing/fanout/targets'; // v34 FANWEB
@@ -62,7 +60,7 @@ export interface JobCardProps {
   saveTo?: RowSaveTo;
   /** v34 FANWEB: where the job is saved ("Saved on Ana · Ben" names the other profiles). */
   savedOn?: SavedOnJob;
-  /** Choosing jobs to save (v2.0): the row shows its box. */
+  /** Choosing jobs (v2.0; v36 JOBS, PLAN J3: every row, saved and applied ones too): the row shows its box. */
   selectable?: boolean;
   checked?: boolean;
   onToggleChecked?: (job: JobListItem, checked: boolean) => void;
@@ -139,7 +137,7 @@ const QUICK = 'sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opa
  * only you, approved by an admin) and a source's credit add a line under it. In a narrow list (below 30 rem: the split
  * at 1024-1279 px, a phone; the list card is a size container) the title takes up to two lines and line 2 splits in
  * two (company and place with the match at its end; pay, kind and age), the Applied mark under them. The open job's
- * row is tinted with a denim edge. While jobs are chosen to save, a box sits before the monogram.
+ * row is tinted with a denim edge. While jobs are chosen (to save or unsave), a box sits before the monogram.
  */
 export const JobCard = memo(function JobCard({
   job,
@@ -166,8 +164,7 @@ export const JobCard = memo(function JobCard({
   // Full time is what a job is unless it says otherwise: the row names the other kinds (Contract, Part-Time, ...).
   const kind = job.employmentType && job.employmentType !== 'full_time' ? EMPLOYMENT_TYPE_LABEL[job.employmentType] : '';
   const saveLabel = job.saved ? `Remove ${job.title} from saved jobs` : `Save ${job.title}`;
-  const blocked = selectable ? saveBlockReason(job) : null;
-  const marked = verificationMark(job) !== null;
+  const marked = useVerificationMark(job) !== null; // v36 JOBS (PLAN J7): "Approved by an admin" for admins only
   const markId = useId();
   const canApply = Boolean(onApply) && job.active && !job.appliedOn;
   const hasWhen = Boolean(salary || kind || age);
@@ -190,7 +187,8 @@ export const JobCard = memo(function JobCard({
     <li
       data-job-card={job.id}
       className={clsx(
-        'group relative flex scroll-mt-[calc(var(--spacing-topbar)_+_56px)] items-start gap-3 py-3.5 pr-3 pl-4 transition-colors duration-100 sm:pr-4',
+        // v36 JOBS (PLAN J8): beside the details the rows scroll in their own card (no top bar to clear: lg:scroll-mt-0).
+        'group relative flex scroll-mt-[calc(var(--spacing-topbar)_+_56px)] items-start gap-3 py-3.5 pr-3 pl-4 transition-colors duration-100 sm:pr-4 lg:scroll-mt-0',
         // The open job: a denim edge on a denim-soft row.
         selected
           ? 'bg-primary-soft before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary before:content-[""]'
@@ -198,28 +196,16 @@ export const JobCard = memo(function JobCard({
       )}
       data-selected={selected ? '' : undefined}
     >
-      {selectable &&
-        (blocked === null ? (
-          <span className="relative z-10 flex self-center">
-            <Checkbox
-              checked={checked}
-              aria-label={`Select ${job.title} at ${job.company.name}`}
-              onCheckedChange={(next) => onToggleChecked?.(job, next)}
-            />
-          </span>
-        ) : (
-          // Saved or applied to already: the box cannot be ticked, and says why.
-          <Tooltip content={blocked}>
-            <span className="relative z-10 flex self-center" data-not-selectable="">
-              <Checkbox
-                checked={false}
-                disabled
-                aria-label={`${job.title} at ${job.company.name}: ${blocked}`}
-                onCheckedChange={() => undefined}
-              />
-            </span>
-          </Tooltip>
-        ))}
+      {selectable && (
+        // v36 JOBS (PLAN J3): every row can be chosen; Save leaves a saved job as it is, Unsave an applied one.
+        <span className="relative z-10 flex self-center">
+          <Checkbox
+            checked={checked}
+            aria-label={`Select ${job.title} at ${job.company.name}`}
+            onCheckedChange={(next) => onToggleChecked?.(job, next)}
+          />
+        </span>
+      )}
       {/* On the open job's tinted row the monogram keeps its tile (a white ground under its denim-soft one). */}
       <CompanyLogo name={job.company.name} url={job.company.logoUrl} size={36} className={clsx('mt-0.5', selected && 'ring-1 ring-primary-200')} />
       <div className="min-w-0 flex-1">

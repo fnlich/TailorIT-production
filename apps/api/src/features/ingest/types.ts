@@ -211,6 +211,8 @@ export interface SourceRecord {
   discoveredVia?: string | null;
   /** v31 RUNS: an admin paused it (no run starts until Continue); null while it is not paused. */
   pausedAt?: string | null;
+  /** v36 SOURCES: when an admin last turned it on (job_sources.enabled_at); null when no admin ever did. */
+  enabledAt?: string | null;
 }
 
 export interface RawCompany {

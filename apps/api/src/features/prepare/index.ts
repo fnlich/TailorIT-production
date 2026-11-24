@@ -5,7 +5,7 @@ import { createApplicationDraftRouter, createPrepareRouter } from './router';
 import { createPrepareService, endGrantPrepareStep, prepareServiceOf, registerPrepareService } from './service';
 import { registerEndGrantStep } from '../sharing/end-grant'; // v33 SHARE-5
 
-// Prepare & Queue (v2.0, docs/design/v2.0/05-prepare-flow.md; DECISIONS A29, A30): one Prepare of one saved job at a
+// Prepare (v2.0, docs/design/v2.0/05-prepare-flow.md; DECISIONS A29, A30): one Prepare of one saved job at a
 // time (prepare_jobs, 0822), its kit in the application's draft (application_drafts): the resume by the person's resume
 // mode (default, similar, tailor), the cover letter by their letter mode (required, always) and answers to the job's
 // known questions, the letter and the answers written from the kit's resume. The kit is queued (insertPreparedRow) when
@@ -14,7 +14,7 @@ import { registerEndGrantStep } from '../sharing/end-grant'; // v33 SHARE-5
 // The kit reaches the extension through the lookup's `draftReady` and POST /api/autofill/forms/known's `drafts`
 // (known.ts), and its documents as the application's.
 
-// v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §6 "endGrant"): ending a share (or taking away Prepare & queue's Change,
+// v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §6 "endGrant"): ending a share (or taking away Prepare's Change,
 // or Their own AI) cancels the Prepares it allowed that are not over (access_ended).
 registerEndGrantStep('prepares', endGrantPrepareStep);
 

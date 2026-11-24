@@ -23,7 +23,7 @@ import { AI_OUTAGE_WAIT_MS, setAsideAiTexts } from './store';
 //   default: only while someone has a job of it at Saved, those first, oldest saved first; `all`: in the order below;
 //   `off`: never). Every reading here is a server cost (chargeTo null).
 // - Order: newest first_seen_at first; jobs first seen before this release (app_settings job_ai_backlog_since,
-//   recorded on first start) after every newer one. Opening, saving or "Save all" never queue a job or move it up.
+//   recorded on first start) after every newer one. Opening or saving (one job or many) never queue a job or move it up.
 // - Cost: a step walks idx_jobs_ai_backlog (migration 0403; the PostgreSQL baseline's partial index of the live jobs)
 //   in that order and stops at CANDIDATES_PER_STEP, so it reads a few index entries while there is work near the top,
 //   and every live job's entry only when there is none; it reads a text only for a job Claude still has to read. After

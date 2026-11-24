@@ -5,9 +5,10 @@ import { clsx } from 'clsx';
 import { Badge } from '@/components/ui/Badge';
 import { HelpTip } from '@/components/ui/HelpTip';
 import { EyeSlashIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { useIsAdmin } from '@/lib/auth'; // v36 JOBS
 import { usePublicConstants } from '@/lib/constants';
 import { HeldBadge } from '../detail/held/HeldNotice';
-import { verificationMark } from './copy';
+import { verificationMark, type VerificationMark } from './copy';
 
 // v31 JOBSWEB: a list row's mark of a job others do not see (./copy.ts): v3.0's "Waiting for approval" for a job an
 // admin approves next, and "From your browser, not verified" for the person's own job TailorIT could not read, its
@@ -68,6 +69,17 @@ export function ApprovedJobBadge({ className, sentenceId }: { className?: string
   );
 }
 
+/**
+ * v36 JOBS (PLAN J7; SP v36 REQUEST.md: "`Approved by an admin` badge will be shown for only admin"): the mark this
+ * viewer sees. "Approved by an admin" only for an administrator (the API sends that state to admins alone too); a
+ * person's own marks (their unread job, a job waiting for an admin) as before.
+ */
+export function useVerificationMark(item: { held?: boolean; verification?: JobVerification }): VerificationMark {
+  const admin = useIsAdmin();
+  const mark = verificationMark(item);
+  return mark === 'approved' && !admin ? null : mark;
+}
+
 /** The mark of a job or a tracker entry: nothing for a job everyone sees as TailorIT read it. */
 export function VerificationBadge({
   held,
@@ -80,7 +92,7 @@ export function VerificationBadge({
   className?: string;
   sentenceId?: string;
 }) {
-  const mark = verificationMark({ held, verification });
+  const mark = useVerificationMark({ held, verification });
   if (mark === 'private') return <PrivateJobBadge className={className} sentenceId={sentenceId} />;
   if (mark === 'held') return <HeldBadge held className={className} sentenceId={sentenceId} />;
   if (mark === 'approved') return <ApprovedJobBadge className={className} sentenceId={sentenceId} />;
@@ -90,7 +102,7 @@ export function VerificationBadge({
 /** The words a card adds to its accessible name for its mark (empty for a job everyone sees). */
 export function useVerificationTitle(item: { held?: boolean; verification?: JobVerification }): string {
   const { t } = usePublicConstants();
-  const mark = verificationMark(item);
+  const mark = useVerificationMark(item);
   if (mark === 'private') return t('LABEL_JOB_FROM_BROWSER');
   if (mark === 'held') return t('MSG_JOB_HELD_TITLE');
   if (mark === 'approved') return t('LABEL_JOB_APPROVED_BY_ADMIN');

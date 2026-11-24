@@ -123,3 +123,11 @@ export function useAuth(): AuthState {
 export function useAccount(): Account | null {
   return useAuth().account;
 }
+
+/**
+ * v36 JOBS (PLAN J7): whether the signed-in person (the actor: never a shared profile's owner) is an administrator;
+ * false while it loads, and without an auth provider (a part drawn on its own: the tests, the dev kit's previews).
+ */
+export function useIsAdmin(): boolean {
+  return useContext(AuthContext)?.isAdmin ?? false;
+}

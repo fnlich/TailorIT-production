@@ -20,7 +20,8 @@ import { RUNS_PAUSED_SQL } from './pause-state'; // v31 RUNS
 // retired, 12 §8.6, §13).
 //
 // Each source has a cadence tier and a next_run_at. The worker (worker.ts, the `ingest:worker` process) asks every
-// DUE_TICK_MS for the due sources (idx_job_sources_due: enabled, due, allowed by their terms and robots.txt, not leased),
+// DUE_TICK_MS for the due sources (idx_job_sources_due: enabled, due, allowed by their terms and robots.txt, not leased;
+// v36 SOURCES: and turned on by an admin, enabled_at, which migration 0060's CHECK already holds of every enabled row),
 // most important first, and starts them: at most INGEST_HOSTS_IN_FLIGHT hosts at once, one source per host at a time
 // (each host is also paced per request: http.ts and hosts.ts). A source whose host is held waits for the hold's end
 // instead of failing. Each run takes the source's lease (lease_until, INGEST_LEASE_MINUTES: service.ts), so two workers
@@ -216,13 +217,15 @@ export interface DueSource {
  * v30 S5: takes the constants' deps (runnableKinds reads SITE_READER_CAREER_PAGES).
  * v30 FIX-A (SEC-2, BEH-3): never a source of a company that opted out (opt-out-gate.ts), whatever its enabled flag.
  * v31 RUNS: none while every run is paused, and never a source an admin paused (pause-state.ts).
+ * v36 SOURCES (SP v36 PLAN S5): only a source an admin turned on (enabled_at; the CHECK of migration 0060 holds it of
+ * every enabled row, and this holds even without it).
  */
 export async function dueSources(deps: ConstantDeps, limit = DUE_BATCH): Promise<DueSource[]> {
   const kinds = runnableKinds(deps);
   if (kinds.length === 0) return [];
   return deps.db.all<DueSource>(
     `SELECT s.id, s.kind, s.host FROM job_sources s
-     WHERE s.enabled AND s.next_run_at <= CAST(@now AS timestamptz)
+     WHERE s.enabled AND s.enabled_at IS NOT NULL AND s.next_run_at <= CAST(@now AS timestamptz)
        AND s.terms_status IN ('allowed', 'allowed_with_conditions') AND s.robots_status IN ('allowed', 'not_applicable')
        AND (s.lease_until IS NULL OR s.lease_until < CAST(@now AS timestamptz))
        AND s.kind = ANY(string_to_array(@kinds, ','))
@@ -244,7 +247,8 @@ export async function postponeHeldSources(deps: Pick<AppDeps, 'db' | 'now'>): Pr
     await deps.db.run(
       `UPDATE job_sources s SET next_run_at = h.hold_until + CAST(@after AS integer) * interval '1 millisecond'
        FROM crawl_hosts h
-       WHERE h.host = s.host AND h.hold_until > CAST(@now AS timestamptz) AND s.enabled AND s.next_run_at < h.hold_until`,
+       WHERE h.host = s.host AND h.hold_until > CAST(@now AS timestamptz) AND s.enabled AND s.enabled_at IS NOT NULL
+         AND s.next_run_at < h.hold_until`,
       { now: nowIso(deps), after: AFTER_HOLD_MS },
     )
   ).changes;
@@ -289,7 +293,8 @@ export function readerRobotsOf(deps: ConstantDeps): (host: string) => Promise<Pi
  * Gives sources their robots.txt verdict (12 §12.1: robots_status, for the paths each reads): those never judged first,
  * then the oldest verdicts past ROBOTS_VERDICT_MAX_AGE_MS, at most ROBOTS_REFRESH_BATCH per pass. Each host's file is read
  * once (assertRobotsAllow: kept in site_robots for every process); a held host waits; a source whose adapter names no
- * paths stays unchecked (it never runs). Answers how many verdicts were written.
+ * paths stays unchecked (it never runs). Answers how many verdicts were written. v36 SOURCES (PLAN S5): only sources an
+ * admin turned on (a source waiting for an admin reads no robots.txt).
  */
 export async function refreshRobotsStatuses(
   deps: ConstantDeps,
@@ -312,7 +317,7 @@ export async function refreshRobotsStatuses(
   if (kinds.length === 0) return 0;
   const rows = await db.all<SourceRow>(
     `SELECT * FROM job_sources
-     WHERE enabled AND host IS NOT NULL AND kind = ANY(string_to_array(@kinds, ','))
+     WHERE enabled AND enabled_at IS NOT NULL AND host IS NOT NULL AND kind = ANY(string_to_array(@kinds, ','))
        AND robots_status <> 'not_applicable' -- v30 S4: a keyed API's terms govern (12 §1: USAJOBS), never its robots.txt
        AND (robots_status = 'unchecked' OR robots_checked_at IS NULL OR robots_checked_at < CAST(@stale AS timestamptz))
      ORDER BY robots_checked_at NULLS FIRST, id LIMIT @limit`,

@@ -179,7 +179,7 @@ async function pageSource(t: DbQueries, now: string): Promise<SourceRecord> {
   if (found) return found;
   const made = await insertSourceIfNameFree(
     t,
-    { kind: 'page', name: PAGE_SOURCE_NAME, config: { addedBy: ADDED_BY_AUTOFILL }, enabled: false, deactivateMissing: false },
+    { kind: 'page', name: PAGE_SOURCE_NAME, config: { addedBy: ADDED_BY_AUTOFILL }, deactivateMissing: false },
     now,
   );
   const source = made ?? (await firstSourceOfKind(t, 'page'));

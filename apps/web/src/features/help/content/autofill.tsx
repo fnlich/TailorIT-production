@@ -15,7 +15,7 @@ function Profile() {
     <>
       <P>
         <AppPage href="/settings/autofill">Autofill</AppPage> (the account menu) holds what the extension fills into
-        applications and what Prepare &amp; Queue writes answers from. Its <Ui>Profile</Ui> tab goes step by step:{' '}
+        applications and what Prepare writes answers from. Its <Ui>Profile</Ui> tab goes step by step:{' '}
         {WIZARD_STEPS.map((step) => step.title).join(', ')}.
       </P>
       <Bullets>

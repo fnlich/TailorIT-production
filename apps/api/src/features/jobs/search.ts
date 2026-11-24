@@ -15,14 +15,14 @@ import type { DbQueries } from '../../core/db/types';
 import { personLocation } from '../prepare-filters/person';
 import { decodeCursor, encodeCursor, type OrderMode } from './cursor';
 import { buildSearchQuery, rankSql } from './fts';
-import { APPLICATION_JOIN, SUMMARY_COLUMNS, toListItem, type JobListItem, type SummaryRow } from './rows';
+import { APPLICATION_JOIN, SUMMARY_COLUMNS, postedRuleOf, toListItem, type JobListItem, type PostedRule, type SummaryRow } from './rows'; // v36 IMPORTTIME: postedRuleOf, PostedRule
 import { placeKeyOf, remoteKeyOf } from './search-projection/vectors';
 import { searchRowVisibleTo } from './visibility';
 
 // GET /api/jobs: the Jobs page's list, on the search projection (`job_search s`, 11-database.md §5.6, §7): one
 // statement per page (keyset-paginated, 21 rows) plus one capped COUNT for "Found N jobs". Every value reaches the
-// database as a bound parameter; only fixed SQL fragments are concatenated. Save all (save-all.ts) reads the same
-// matches through `countJobs` and `matchingJobIds`: the same filters and order.
+// database as a bound parameter; only fixed SQL fragments are concatenated. `countJobs` and `matchingJobIds` read the
+// same matches (the same filters and order: the All filters dialog's count, and the search's parity tests).
 // v3.0 PG-SEARCH: on PostgreSQL only. A search reads job_search's rows (one per open, verified, unheld job: the
 // projection decides "active"), never jobs or the text, until it shows a page:
 //   - words: `s.title_tsv @@ query` (the folded tokens of fts.ts); "Most relevant" ranks them with ts_rank inside the
@@ -164,6 +164,8 @@ export interface SearchScope {
    * reads it once per scope). Absent: every part unknown, so every job passes.
    */
   applicant?: () => Promise<ApplicantPlace>;
+  /** v36 IMPORTTIME: how a job an admin's import dated reads (rows.ts PostedRule; its default when absent). */
+  postedRule?: PostedRule;
 }
 
 /** The scope of a search by `userId` now, with the admin's current caps (read at the moment of use). */
@@ -175,7 +177,8 @@ export function searchScopeOf(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now
     now: deps.now(),
     countCap: constants.get('JOB_SEARCH_COUNT_CAP'),
     relevanceWindow: constants.get('SEARCH_RELEVANCE_WINDOW'),
-    // v30 WEB-JOBS: once per scope (Save all's preview counts twice with one scope).
+    postedRule: postedRuleOf(constants), // v36 IMPORTTIME
+    // v30 WEB-JOBS: once per scope (a scope may count more than once).
     applicant: () => (applicant ??= personLocation(deps, userId)),
   };
 }
@@ -287,7 +290,7 @@ const TRACKED_SQL = `EXISTS (SELECT 1 FROM applications ap WHERE ap.user_id = @u
       AND (ap.archived_at IS NULL OR ap.current_status >= ${STATUS.applied}))`;
 
 export interface MatchOptions {
-  /** Only the matches Save all can save: jobs the viewer does not track (never tracked, or un-saved). */
+  /** Only the matches the viewer does not track (never tracked, or un-saved). */
   untrackedOnly?: boolean;
 }
 
@@ -299,7 +302,7 @@ interface Matching {
 }
 
 /**
- * What every read of the matches shares (the page, its count, Save all's selection): WHERE and parameters. v30
+ * What every read of the matches shares (the page, its count, the ids in order): WHERE and parameters. v30
  * WEB-JOBS: async, as "Jobs I can apply to" reads the person's place first.
  */
 async function matchingSql(query: JobsQuery, scope: SearchScope, options: MatchOptions = {}): Promise<Matching> {
@@ -380,8 +383,8 @@ const SIZE_IDS: ReadonlySet<string> = new Set(COMPANY_SIZE_IDS);
  * v30 WEB-JOBS: one card, its company with the profile's industry and size when known (13 §2). An unknown value is
  * left out, so a card without them reads as before.
  */
-function cardOf(row: PageRow): JobListItem {
-  const item = toListItem(row);
+function cardOf(row: PageRow, rule?: PostedRule): JobListItem {
+  const item = toListItem(row, rule); // v36 IMPORTTIME: rule
   const industry = row.company_industry?.trim() || null;
   const sizeBucket = row.company_size_bucket && SIZE_IDS.has(row.company_size_bucket) ? (row.company_size_bucket as CompanySizeId) : null;
   return {
@@ -390,12 +393,12 @@ function cardOf(row: PageRow): JobListItem {
   };
 }
 
-function pageOf(rows: PageRow[], total: number | undefined, order: Ordering): JobsPage {
+function pageOf(rows: PageRow[], total: number | undefined, order: Ordering, rule?: PostedRule): JobsPage {
   const hasMore = rows.length > JOBS_PAGE_SIZE;
   const pageRows = hasMore ? rows.slice(0, JOBS_PAGE_SIZE) : rows;
   const last = pageRows[pageRows.length - 1];
   return {
-    items: pageRows.map(cardOf),
+    items: pageRows.map((row) => cardOf(row, rule)), // v36 IMPORTTIME: rule
     ...(total !== undefined ? { total } : {}),
     ...(hasMore && last ? { nextCursor: encodeCursor({ mode: order.mode, key: last.sort_key, id: last.id }) } : {}),
   };
@@ -435,12 +438,12 @@ export async function searchJobs(db: DbQueries, query: JobsQuery, scope: SearchS
     if (match.words && isQuerySyntaxError(error)) return { items: [], total: 0 };
     throw error;
   }
-  return pageOf(rows, total, order);
+  return pageOf(rows, total, order, scope.postedRule); // v36 IMPORTTIME
 }
 
 /**
  * "Found N jobs" alone (the All filters dialog's "Show N jobs" button), capped as the page's. With `untrackedOnly`,
- * only the matches Save all can save.
+ * only the matches the viewer does not track.
  */
 export async function countJobs(db: DbQueries, query: JobsQuery, scope: SearchScope, options: MatchOptions = {}): Promise<number> {
   const match = await matchingSql(query, scope, options);

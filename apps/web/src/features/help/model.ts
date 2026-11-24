@@ -39,7 +39,7 @@ export interface ShownSection {
   whole: boolean;
 }
 
-/** Lower case, accents and punctuation away, so "Prepare & Queue" and "prepare queue" meet. */
+/** Lower case, accents and punctuation away, so "Settings › Prepare" and "settings prepare" meet. */
 export function searchWords(text: string): string[] {
   return text
     .normalize('NFKD')

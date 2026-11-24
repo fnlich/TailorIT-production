@@ -65,6 +65,11 @@ import {
 } from './service';
 import { emptyStatusCounts, getDetail, loadOwnedRow, loadQuestions } from './store';
 import { trackerEntryOfLink } from '../jobs/add/tracker'; // v31 LINK
+import { adminApprovalForAdminsOnly } from '../jobs/add/approval-view'; // v36 JOBS
+import type { ArchiveUnder } from './archive-saved'; // v36 FIX-API (D1)
+
+/** v36 FIX-API (D1.4): the share an archive acts under (its Queue changes decide what leaves the queue); null: own. */
+const archiveUnderOf = (req: Request): ArchiveUnder | null => (req.acting ? { grantId: req.acting.grantId, actorId: actorOf(req).id } : null);
 
 // Job tracker applications (/api/applications). Owned by work package T (see docs/ARCHITECTURE.md §6).
 //
@@ -141,6 +146,7 @@ function filterOf(query: {
 export function createApplicationsRouter(deps: AppDeps): Router {
   const router = Router();
   router.use(requireUser);
+  router.use(adminApprovalForAdminsOnly); // v36 JOBS (PLAN J7): "Approved by an admin" for admins only
   /** Wakes the resume match worker: an application may be due (it does nothing before the worker starts). */
   const wakeMatcher = () => deps.services.resumeMatch?.nudge();
 
@@ -221,13 +227,13 @@ export function createApplicationsRouter(deps: AppDeps): Router {
   router.post('/bulk', async (req, res) => {
     const body = parseInput(BulkApplicationsBodySchema, req.body, 'request');
     if (body.action === 'delete' && isActing(req)) throw ownProfileOnly(); // v33 SHARE-9 fix: a grantee never deletes (F9)
-    const affected = await bulkApplications(deps, userOf(req).id, body);
+    const answer = await bulkApplications(deps, userOf(req).id, body, archiveUnderOf(req)); // v36 FIX-API (D1)
     if (body.action === 'unarchive' || (body.action === 'status' && body.status === STATUS.saved)) wakeMatcher();
-    res.json({ affected });
+    res.json(answer);
   });
 
   router.post('/archive-all', async (req, res) => {
-    res.json({ archived: await archiveAll(deps, userOf(req).id) });
+    res.json(await archiveAll(deps, userOf(req).id, archiveUnderOf(req))); // v36 FIX-API (D1)
   });
 
   // The list view (Active or Archived), searched, filtered and sorted, a page at a time.
@@ -324,7 +330,7 @@ export function createApplicationsRouter(deps: AppDeps): Router {
   });
 
   router.post('/:id/archive', async (req, res) => {
-    res.json(await setArchived(deps, userOf(req).id, idOf(req), true));
+    res.json(await setArchived(deps, userOf(req).id, idOf(req), true, archiveUnderOf(req))); // v36 FIX-API (D1)
   });
 
   router.post('/:id/restore', async (req, res) => {

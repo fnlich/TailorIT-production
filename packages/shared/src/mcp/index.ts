@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { messageError } from '../constants/public/defaults';
 import { PUBLIC_CONSTANT_SPECS } from '../constants/public/specs';
 
-// v1.5 (work package M; v2.0: Prepare & Queue, v1.5's Prebuild renamed): Prepare with the person's own AI. TailorIT's
+// v1.5 (work package M; v2.0: Prepare, v1.5's Prebuild renamed): Prepare with the person's own AI. TailorIT's
 // MCP server (Streamable HTTP at POST /mcp on the API, http://127.0.0.1:4100/mcp) lets an AI client the person runs on
 // their own plan (Claude Code, another MCP client) write the tailored resumes, cover letters and answers of the kits
 // their `mcp` Prepares wait for; TailorIT checks facts and scores and stores the kits. The client authenticates with a personal MCP token made in Settings › Integrations › "Your own AI

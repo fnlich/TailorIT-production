@@ -98,7 +98,7 @@ export const MCP_TOOL_ACCESS = {
   own_ai_context: { perm: 'documents:edit', write: false },
   own_ai_save: { perm: 'documents:edit', write: true },
   add_job: { perm: 'tracker:edit', write: true },
-  // v34 MCPFAN (PLAN G5 and its G8 addendum): the Prepare filters, read (Prepare & queue's See, as the web's GET) and
+  // v34 MCPFAN (PLAN G5 and its G8 addendum): the Prepare filters, read (Prepare's See, as the web's GET) and
   // changed (Job settings' Change, as the web's PATCH; the eligibility switches also Sensitive answers' Change).
   prepare_filters: { perm: 'prepare:view', write: false },
   set_prepare_filters: { perm: 'settings:edit', write: true },

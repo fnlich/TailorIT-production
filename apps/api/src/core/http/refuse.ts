@@ -9,7 +9,7 @@ import { AppError, type AppErrorLimitFields } from './errors';
 // own: it throws refuse(...). The status comes from the code (ERROR_STATUS), as for every AppError.
 //
 //   throw refuse(deps, 'conflict', 'MSG_SAVED_SEARCHES_MAX', { max });
-//   throw refuse(deps, 'rate_limited', 'MSG_SAVE_ALL_PER_HOUR', { max, minutes }, { retryAfterSeconds });
+//   throw refuse(deps, 'validation_failed', 'MSG_FANOUT_TOO_MANY_JOBS', { max }, { fields: { jobIds: words } });
 //   throw refuse(deps, 'resume_limit_reached', 'MSG_LIMIT_RESUMES', { limit }, { subscribe: true });
 //
 // core/accounts/refusals.ts keeps the account limits' refusals (they add the reset time and the buttons); they are

@@ -18,6 +18,7 @@ import {
 } from '@tailorit/shared';
 import { z } from 'zod';
 import { actorOf, holds, isActing, requireUser, userOf } from '../../core/auth/guards'; // v33 SHARE-6: actorOf, isActing; FIX-2: holds
+import { constantsOf } from '../../core/constants/service'; // v36 IMPORTTIME
 import type { AppDeps } from '../../core/context';
 import { AppError, notFound, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -29,9 +30,10 @@ import { jobGlance } from './glance'; // v33 JOBDETAIL
 import { rowMatches } from './matches'; // v31 FIX-JOBS
 import { sanitizeDescription } from './html';
 import { reportJob } from './report';
-import { experienceLevelsOf, toJobDetail } from './rows';
+import { experienceLevelsOf, postedRuleOf, toJobDetail } from './rows'; // v36 IMPORTTIME: postedRuleOf
 import { countJobs, searchJobs, searchScopeOf } from './search';
 import { plainTextOf } from './text'; // v33 JOBDETAIL
+import { adminApprovalForAdminsOnly } from './add/approval-view'; // v36 JOBS
 import {
   hiddenState,
   loadDetailRow,
@@ -97,6 +99,7 @@ const FacetParam = z.enum(JOB_FACETS);
 export function createJobsRouter(deps: AppDeps): Router {
   const router = Router();
   router.use(requireUser);
+  router.use(adminApprovalForAdminsOnly); // v36 JOBS (PLAN J7): "Approved by an admin" for admins only
 
   // The list: every filter of the page (the URL's own keys), 21 per page, "Found N jobs".
   router.get('/', async (req, res) => {
@@ -137,7 +140,7 @@ export function createJobsRouter(deps: AppDeps): Router {
     const jobId = (await requireJob(deps, jobIdOf(req), user.id)).id;
     const row = await loadDetailRow(deps, user.id, jobId);
     const descriptionHtml = sanitizeDescription(row.description_html);
-    const detail = toJobDetail(row, await loadLocations(deps, jobId), descriptionHtml, await hiddenState(deps, user.id, jobId, row.company_id));
+    const detail = toJobDetail(row, await loadLocations(deps, jobId), descriptionHtml, await hiddenState(deps, user.id, jobId, row.company_id), postedRuleOf(constantsOf(deps))); // v36 IMPORTTIME: postedRuleOf
     // v33 SHARE-6 (PLAN-sharing §4 "Explicit changes"): someone working on a shared profile never marks the owner's job
     // viewed (the owner's "new" marks stay theirs).
     if (!isActing(req)) await markViewed(deps, user.id, jobId);

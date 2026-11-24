@@ -1,5 +1,6 @@
 'use client';
 
+import { HourglassIcon } from '@phosphor-icons/react/Hourglass'; // v36 SOURCES
 import {
   JOB_SOURCE_DISCOVERED_VIA_LABEL,
   JOB_SOURCE_FOUND_VIA,
@@ -22,9 +23,11 @@ import {
   FILTER_KINDS,
   SOURCE_ENABLED_LABEL,
   SOURCE_SORT_OPTIONS,
+  TURNED_OFF_LABEL,
   activeFilterCount,
   foundByImportOnly,
   toggledIn,
+  waitingOnly,
   type SourceEnabledFilter,
   type SourceFilters,
 } from './filters';
@@ -66,7 +69,7 @@ export function ChoiceMenu<V extends string>({
   );
 }
 
-const ENABLED_VALUES: readonly SourceEnabledFilter[] = ['all', 'enabled', 'disabled'];
+const ENABLED_VALUES: readonly SourceEnabledFilter[] = ['all', 'enabled', 'disabled', 'waiting']; // v36 SOURCES: waiting
 
 export function SourceFiltersBar({
   filters,
@@ -150,6 +153,21 @@ export function SourceFiltersBar({
         >
           Found by import
         </Chip>
+        {/* v36 SOURCES (PLAN S8): the sources discovery or an import found that wait, off, for an admin, one click. */}
+        <Chip
+          icon={<HourglassIcon size={16} />}
+          selected={waitingOnly(filters)}
+          onClick={() => onChange({ enabled: waitingOnly(filters) ? 'all' : 'waiting' })}
+          className="h-9"
+        >
+          Waiting for an admin
+        </Chip>
+        {/* v36 SOURCES (PLAN S7): the notice's filter, while on. */}
+        {filters.turnedOff && (
+          <Chip tone="tint" onRemove={() => onChange({ turnedOff: null })} removeLabel="Show every source, not only those v3.6 turned off">
+            {TURNED_OFF_LABEL[filters.turnedOff]}
+          </Chip>
+        )}
         {filters.host && (
           <Chip tone="tint" onRemove={() => onChange({ host: null })} removeLabel={`Show every host, not only ${filters.host}`}>
             Host: {filters.host}

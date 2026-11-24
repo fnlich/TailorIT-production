@@ -25,9 +25,11 @@ import {
   type JobSourceRun,
   type JobSourceWaiting,
 } from '@tailorit/shared';
+import { constantDefault } from '@tailorit/shared/constants'; // v36 SOURCES
 import { decodeCursor, encodeCursor, likeText, Where } from '../../core/admin/index';
 import { careerHostOfConfig } from './career/config'; // v30 S5
 import { optedOutSourceSql, optedOutSources } from './opt-out-gate'; // v30 FIX-A; v35 ADMIN: optedOutSourceSql
+import { turnedOffSql } from './turned-off'; // v36 SOURCES
 import type { DbQueries, SqlParams } from '../../core/db/types';
 import { validationFailed } from '../../core/http/errors';
 import { isWorkdayHost } from './adapters/workday'; // v30 S3
@@ -90,6 +92,9 @@ export interface SourceRow {
   // v31 RUNS: an admin's pause of the source (job_sources.paused_at, paused_by: a users.id).
   paused_at?: string | null;
   paused_by?: string | null;
+  // v36 SOURCES (migration 0060): when an admin last turned it on, and who (a users.id; null once that account is gone).
+  enabled_at?: string | null;
+  enabled_by?: string | null;
 }
 
 /** A flag column as read (boolean on PostgreSQL) as a boolean. */
@@ -142,6 +147,7 @@ export function toSourceRecord(row: SourceRow): SourceRecord {
     aiInput: row.ai_input ?? true,
     discoveredVia: row.discovered_via ?? null,
     pausedAt: row.paused_at ?? null, // v31 RUNS
+    enabledAt: row.enabled_at ?? null, // v36 SOURCES
   };
 }
 
@@ -186,11 +192,14 @@ export async function findSheetSource(db: DbQueries, spreadsheetId: string, gid:
 
 // ------------------------------------------------------------------------------------------------- a new source
 
+/**
+ * A source to add. v36 SOURCES (PLAN S1): it has no `enabled`: every new source is made off and not due, and only an
+ * admin's action turns one on (enableSources, below).
+ */
 export interface NewSource {
   kind: SourceKind;
   name: string;
   config: Record<string, unknown>;
-  enabled?: boolean;
   deactivateMissing?: boolean;
 }
 
@@ -300,36 +309,69 @@ export const NO_ROBOTS_KINDS: readonly string[] = [
   'usajobs',
 ];
 
-/** The columns a new source's row is made with (newSourceValues' order): autofill/sources.ts makes rows the same way. */
+/**
+ * The columns a new source's row is made with (newSourceValues' order): autofill/sources.ts makes rows the same way.
+ * v36 SOURCES (PLAN S1): `enabled` and `next_run_at` are not among them: a new row takes the columns' defaults, off
+ * (migration 0060) and not due.
+ */
 export const NEW_SOURCE_COLUMNS =
-  'job_sources(kind, name, config, enabled, deactivate_missing, host, terms_status, terms_url, terms_checked_at, ' +
-  'robots_status, next_run_at, created_at, updated_at)';
+  'job_sources(kind, name, config, deactivate_missing, host, terms_status, terms_url, terms_checked_at, robots_status, ' +
+  'created_at, updated_at)';
 /** NEW_SOURCE_COLUMNS' placeholders. */
-export const NEW_SOURCE_PLACEHOLDERS = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+export const NEW_SOURCE_PLACEHOLDERS = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
 
 /** The values of a new source's row, in NEW_SOURCE_COLUMNS' order. */
 export function newSourceValues(source: NewSource, now: string) {
   const terms = KIND_TERMS[source.kind];
-  const enabled = source.enabled !== false;
   return [
     source.kind,
     source.name,
     JSON.stringify(source.config),
-    // Flags bound as booleans (decision K).
-    enabled,
-    // An upload adds jobs; a later upload of another file must not close the first one's.
+    // Flags bound as booleans (decision K). An upload adds jobs; a later upload of another file must not close the
+    // first one's.
     source.deactivateMissing ?? !['csv', 'json'].includes(source.kind),
     hostOf(source.kind, source.config),
     terms?.status ?? 'unchecked',
     terms?.url ?? null,
     terms ? now : null,
     NO_ROBOTS_KINDS.includes(source.kind) ? 'not_applicable' : 'unchecked',
-    // A kind the worker runs is due at once (once its robots.txt verdict is in: scheduler.ts).
-    enabled && SCHEDULED_KINDS.includes(source.kind) ? now : null,
     now,
     now,
   ];
 }
+
+// v36 SOURCES (PLAN S1) ------------------------------------------------------------------------------------- "on"
+
+/** The admin an enable records (job_sources.enabled_by): the signed-in administrator's account. */
+export interface EnablingAdmin {
+  id: string;
+}
+
+/**
+ * The one writer of "on" (PLAN S1): turns the sources that are off on, recording when (enabled_at) and the admin
+ * (enabled_by), and makes a kind the worker runs due now (a source turned on runs at its next look). Only the admin
+ * routes call it (router.ts: the switch, Add source with "Turn on now"; through bulkSources: bulk Enable, Enable all, an
+ * import run's Enable all); v36-source-fence.test.ts fails on any other code that writes `enabled = true`. A kind that
+ * is never run is never turned on. `admin` is null only where no account exists (tests' fixtures); every route passes
+ * the signed-in admin. Answers the ids it turned on.
+ * v36 FIX-SRC (the final data review's D2): a career site turned on loses Add job's mark (config `addedBy`), which a
+ * keeper discovery adopted keeps while it waits: its pages are its own runs' from then on (the scheduler's), never the
+ * weekly page re-read's (jobs/add/recheck.ts), also if an admin turns it off again.
+ */
+export async function enableSources(db: DbQueries, ids: readonly number[], admin: EnablingAdmin | null, now: string): Promise<number[]> {
+  if (ids.length === 0) return [];
+  const rows = await db.all<{ id: number }>(
+    `UPDATE job_sources SET enabled = true, enabled_at = CAST(@now AS timestamptz), enabled_by = @by, updated_at = CAST(@now AS timestamptz),
+       config = CASE WHEN kind = 'career_site' THEN config - 'addedBy' ELSE config END,
+       next_run_at = CASE WHEN kind = ANY(string_to_array(@scheduled, ','))
+         THEN LEAST(COALESCE(next_run_at, CAST(@now AS timestamptz)), CAST(@now AS timestamptz)) ELSE next_run_at END
+     WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[])) AND NOT enabled AND NOT (kind = ANY(string_to_array(@unrun, ',')))
+     RETURNING id`,
+    { now, by: admin?.id ?? null, ids: ids.join(','), scheduled: SCHEDULED_KINDS.join(','), unrun: UNRUN_KINDS.join(',') },
+  );
+  return rows.map((row) => Number(row.id));
+}
+// end v36 SOURCES
 
 /**
  * Adds the source, or answers null when its kind and name are taken (UNIQUE(kind, name): two requests adding one name at
@@ -530,6 +572,8 @@ type ListedRow = SourceRow & {
   company_name: string | null;
   /** v31 RUNS: the email of the admin who paused it. */
   paused_by_email?: string | null;
+  /** v36 SOURCES: the email of the admin who last turned it on. */
+  enabled_by_email?: string | null;
   cadence_hours: number | null;
   terms_url: string | null;
   terms_note: string | null;
@@ -538,9 +582,23 @@ type ListedRow = SourceRow & {
 };
 
 const LISTED_COLUMNS =
-  's.*, c.name AS company_name, extract(epoch from s.cadence) / 3600 AS cadence_hours, pu.email AS paused_by_email';
-// v31 RUNS: the admin who paused a source (paused_by: a users.id), by their email.
-const LISTED_FROM = 'job_sources s LEFT JOIN companies c ON c.id = s.company_id LEFT JOIN users pu ON pu.id = s.paused_by';
+  's.*, c.name AS company_name, extract(epoch from s.cadence) / 3600 AS cadence_hours, pu.email AS paused_by_email, ' +
+  'eu.email AS enabled_by_email';
+// v31 RUNS: the admin who paused a source (paused_by: a users.id), by their email. v36 SOURCES: and the admin who last
+// turned it on (enabled_by).
+const LISTED_FROM =
+  'job_sources s LEFT JOIN companies c ON c.id = s.company_id LEFT JOIN users pu ON pu.id = s.paused_by ' +
+  'LEFT JOIN users eu ON eu.id = s.enabled_by';
+
+/**
+ * v36 SOURCES (PLAN S8): a source waiting for an admin: off, found by discovery or an admin's import, and never turned
+ * on by an admin (Admin › Sources' "Waiting for an admin"). Discovery makes every source this way.
+ */
+export function isWaitingForAdmin(source: Pick<SourceRecord, 'enabled' | 'enabledAt' | 'discoveredVia'>): boolean {
+  return !source.enabled && !source.enabledAt && Boolean(source.discoveredVia);
+}
+/** isWaitingForAdmin in SQL, on the job_sources row `s`. */
+export const WAITING_FOR_ADMIN_SQL = '(NOT s.enabled AND s.enabled_at IS NULL AND s.discovered_via IS NOT NULL)';
 
 /** Each source's job counts and latest run, for the rows of one page (read through job_source_links' key and the runs index). */
 async function extrasOf(db: DbQueries, ids: readonly number[]) {
@@ -595,6 +653,10 @@ function toAdminRow(row: ListedRow, at: string, waiting: JobSourceWaiting | null
     pausedAt: source.pausedAt ?? null,
     pausedBy: source.pausedAt ? (row.paused_by_email ?? null) : null,
     waiting, // v35 ADMIN
+    // v36 SOURCES
+    enabledAt: source.enabledAt ?? null,
+    enabledBy: source.enabledAt ? (row.enabled_by_email ?? null) : null,
+    waitingForAdmin: isWaitingForAdmin(source),
   };
 }
 
@@ -675,7 +737,11 @@ export function sourcesWhere(filter: AdminSourcesFilter): Where {
   if (filter.discoveredVia.length) {
     where.add("s.discovered_via = ANY(string_to_array(@via, ','))", { via: listParam(filter.discoveredVia) });
   }
-  if (filter.enabled !== 'all') where.add(filter.enabled === 'enabled' ? 's.enabled' : 'NOT s.enabled');
+  // v36 SOURCES (PLAN S8): `waiting`, found and never turned on (WAITING_FOR_ADMIN_SQL).
+  if (filter.enabled !== 'all') {
+    where.add(filter.enabled === 'enabled' ? 's.enabled' : filter.enabled === 'waiting' ? WAITING_FOR_ADMIN_SQL : 'NOT s.enabled');
+  }
+  if (filter.turnedOff) where.add(turnedOffSql(filter.turnedOff)); // v36 SOURCES (PLAN S7): the notice's sources
   if (filter.failing) where.add("(s.consecutive_failures > 0 OR s.tier = 'failing')");
   if (filter.host) where.add('s.host = @host', { host: filter.host });
   if (filter.companyId) where.add('s.company_id = @companyId', { companyId: filter.companyId });
@@ -801,7 +867,6 @@ const SKIP_WORDS = {
   already_enabled: 'It is on already.',
   already_disabled: 'It is off already.',
   never_run: 'This kind of source is never run, so it cannot be turned on or run.',
-  disabled: 'It is off: turn it on first.',
   terms: 'Its terms do not allow automated access yet.',
   robots: "Its host's robots.txt does not allow it (or has not been read yet).",
   not_scheduled: 'This kind of source runs only by hand (Run now).',
@@ -821,9 +886,12 @@ export async function bulkSources(
   db: DbQueries,
   body: AdminSourcesBulkBody,
   now: string,
-  optedOutWords: string = SKIP_WORDS.opted_out,
-  pausedWords: string = SKIP_WORDS.paused, // v31 RUNS
+  words: BulkWords, // v31 RUNS, v36 SOURCES: one object (an opt-out's and a pause's words)
+  admin: EnablingAdmin | null, // v36 SOURCES: the admin an enable records
 ): Promise<{ ids: number[]; body: AdminSourcesBulkResult }> {
+  const optedOutWords = words.optedOut ?? SKIP_WORDS.opted_out;
+  const pausedWords = words.paused ?? SKIP_WORDS.paused;
+  const offWords = words.off ?? (constantDefault('MSG_INGEST_SOURCE_OFF') as string); // v36 SOURCES
   // v30 FIX-A (SEC-2, BEH-3): enable and run now skip a source whose company opted out (opt-out-gate.ts).
   const optedOut = body.action === 'disable' ? new Set<number>() : await optedOutSources(db, body.ids);
   const rows = new Map(
@@ -835,11 +903,12 @@ export async function bulkSources(
   const chosen: number[] = [];
   for (const id of body.ids) {
     const source = rows.get(id);
-    const skip = (why: keyof typeof SKIP_WORDS) =>
+    // v36 SOURCES: `disabled` (it is off) says MSG_INGEST_SOURCE_OFF's words, as Run now's refusal does.
+    const skip = (why: keyof typeof SKIP_WORDS | 'disabled') =>
       results.push({
         id,
         outcome: 'skipped',
-        message: why === 'opted_out' ? optedOutWords : why === 'paused' ? pausedWords : SKIP_WORDS[why],
+        message: why === 'opted_out' ? optedOutWords : why === 'paused' ? pausedWords : why === 'disabled' ? offWords : SKIP_WORDS[why],
       });
     if (!source) skip('gone');
     else if ((JOB_SOURCE_IMPORT_KINDS as readonly string[]).includes(source.kind)) skip('import'); // v35 ADMIN
@@ -859,17 +928,21 @@ export async function bulkSources(
     else if (source.pausedAt) skip('paused'); // v31 RUNS: run now waits for Continue
     else chosen.push(id);
   }
-  if (chosen.length > 0) {
+  let changed = chosen;
+  if (chosen.length > 0 && body.action === 'enable') {
+    // v36 SOURCES (PLAN S1): through the one writer of "on", recording the admin; a source turned on is due at once (a
+    // kind the worker runs). One turned on meanwhile is on already.
+    const turned = new Set(await enableSources(db, chosen, admin, now));
+    for (const id of chosen) {
+      results.push(turned.has(id) ? { id, outcome: 'done' } : { id, outcome: 'skipped', message: SKIP_WORDS.already_enabled });
+    }
+    changed = chosen.filter((id) => turned.has(id));
+  } else if (chosen.length > 0) {
     const sql =
-      body.action === 'enable'
-        ? // A source turned on is due at once (a kind the worker runs).
-          `UPDATE job_sources SET enabled = true, updated_at = @now, next_run_at = CASE WHEN kind = ANY(string_to_array(@scheduled, ','))
-             THEN LEAST(COALESCE(next_run_at, CAST(@now AS timestamptz)), CAST(@now AS timestamptz)) ELSE next_run_at END
-           WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))`
-        : body.action === 'disable'
-          ? "UPDATE job_sources SET enabled = false, updated_at = @now WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))"
-          : "UPDATE job_sources SET next_run_at = CAST(@now AS timestamptz) WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))";
-    await db.run(sql, { now, ids: chosen.join(','), scheduled: SCHEDULED_KINDS.join(',') });
+      body.action === 'disable'
+        ? "UPDATE job_sources SET enabled = false, updated_at = @now WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))"
+        : "UPDATE job_sources SET next_run_at = CAST(@now AS timestamptz) WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[]))";
+    await db.run(sql, { now, ids: chosen.join(',') });
     for (const id of chosen) results.push({ id, outcome: 'done' });
   }
   // In the request's order.
@@ -877,7 +950,7 @@ export async function bulkSources(
   results.sort((a, b) => order.get(a.id as number)! - order.get(b.id as number)!);
   const counts: AdminSourcesBulkResult['counts'] = {};
   for (const result of results) counts[result.outcome] = (counts[result.outcome] ?? 0) + 1;
-  return { ids: chosen, body: { results, counts } };
+  return { ids: changed, body: { results, counts } };
 }
 
 // v35 ADMIN (PLAN H6) ------------------------------------------------------------------------------- "all" and imports
@@ -886,6 +959,8 @@ export async function bulkSources(
 export interface BulkWords {
   optedOut?: string;
   paused?: string;
+  /** v36 SOURCES: run now on a source that is off (MSG_INGEST_SOURCE_OFF). */
+  off?: string;
 }
 
 /**
@@ -914,6 +989,7 @@ async function bulkInPages(
   action: AdminSourceAllAction,
   now: string,
   words: BulkWords,
+  admin: EnablingAdmin | null, // v36 SOURCES
   next: (after: number) => Promise<number[]>,
 ): Promise<{ result: AdminSourcesAllResult; changed: number }> {
   const counts: AdminSourcesAllResult['counts'] = {};
@@ -923,7 +999,7 @@ async function bulkInPages(
     const ids = await next(after);
     if (ids.length === 0) break;
     matched += ids.length;
-    const done = await bulkSources(db, { action, ids }, now, words.optedOut, words.paused);
+    const done = await bulkSources(db, { action, ids }, now, words, admin);
     changed += done.ids.length;
     for (const [outcome, n] of Object.entries(done.body.counts)) {
       const key = outcome as keyof AdminSourcesAllResult['counts'];
@@ -944,9 +1020,10 @@ export async function sourcesAll(
   action: AdminSourceAllAction,
   filter: AdminSourcesFilter,
   now: string,
-  words: BulkWords = {},
+  words: BulkWords,
+  admin: EnablingAdmin | null, // v36 SOURCES: the admin an enable records
 ): Promise<{ result: AdminSourcesAllResult; changed: number }> {
-  return bulkInPages(db, action, now, words, async (after) => {
+  return bulkInPages(db, action, now, words, admin, async (after) => {
     const where = sourcesWhere(filter);
     where.add('s.id > @after', { after });
     const rows = await db.all<{ id: number }>(`SELECT s.id FROM job_sources s ${where.sql()} ORDER BY s.id LIMIT @limit`, {
@@ -995,6 +1072,7 @@ export async function runSources(db: DbQueries, runId: number, waiting?: Sources
       lastRunAt: source.lastRunAt,
       pausedAt: source.pausedAt ?? null,
       waiting: reasons.get(source.id) ?? null,
+      waitingForAdmin: isWaitingForAdmin(source), // v36 INT-A: Sources found says so, as Admin › Sources does
     };
   });
   const made = items.filter((item) => item.created);
@@ -1010,10 +1088,11 @@ export async function runSourcesAll(
   runId: number,
   action: AdminSourceAllAction,
   now: string,
-  words: BulkWords = {},
+  words: BulkWords,
+  admin: EnablingAdmin | null, // v36 SOURCES: the admin an enable records
 ): Promise<{ result: AdminSourcesAllResult; changed: number } | null> {
   if (!(await importRunOf(db, runId))) return null;
-  return bulkInPages(db, action, now, words, async (after) =>
+  return bulkInPages(db, action, now, words, admin, async (after) =>
     (
       await db.all<{ source_id: number }>(
         'SELECT source_id FROM job_source_import_finds WHERE run_id = ? AND created AND source_id > ? ORDER BY source_id LIMIT ?',

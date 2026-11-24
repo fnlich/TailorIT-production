@@ -5,12 +5,13 @@ import type { AppDeps } from '../../../core/context';
 import { aiUnavailableError } from '../../../core/accounts/refusals';
 import { bulkApplications } from '../../applications/service';
 import { resolveTargets, runOn, targetHolds, type FanoutActor, type FanoutAnswer, type FanoutOptions } from './targets';
+import { underOf } from './unsave'; // v36 FIX-API (D1)
 
 // v34 FANOUT (PLAN G1, G4 "Tracker"): the Job Tracker's All profiles view's bulk actions, each card on its own profile:
 // a move to a stage, Archive (`onlySaved`: an Undo of a Save to leaves entries moved past Saved alone), Restore (the
 // Tracker's bulk, applications/service.ts bulkApplications: never Delete) with
-// that profile's Job Tracker Change, and Prepare & Queue (the Prepare service's start, mode `server`) with its Prepare &
-// queue Change. A Prepare on a shared profile keeps every rule of one started there: A pays (payerOfGrant under the
+// that profile's Job Tracker Change, and Prepare (the Prepare service's start, mode `server`) with its Prepare
+// Change. A Prepare on a shared profile keeps every rule of one started there: A pays (payerOfGrant under the
 // grant: A's AI budget and Prepares an hour), the owner's last queue and resume places are kept (SHARING_QUEUE_RESERVE,
 // SHARING_RESUME_RESERVE), at most SHARING_WAITING_PER_GRANT wait, and what A prepares waits for the owner's OK unless
 // the share has Apply without my OK (startPrepare and insertPreparedRow decide each from the grant itself). At most
@@ -21,6 +22,10 @@ type Deps = AppDeps;
 /** One profile's bulk outcome (FanoutBulkResult's ok fields). */
 export interface BulkOnTarget {
   affected: number;
+  /** v36 FIX-API (D1): `archive` only, when not zero: what the archive did with the auto-apply queue. */
+  dequeued?: number;
+  applying?: number;
+  queueLocked?: number;
   outcomes?: PrepareStartResponse['results'];
 }
 
@@ -66,15 +71,21 @@ export async function bulkOnProfiles(
     async (target): Promise<BulkOnTarget> => {
       const ids = byProfile.get(target.profile) ?? [];
       if (body.action !== 'prepare') {
-        const affected = await bulkApplications(deps, target.ownerId, {
-          ids,
-          action: body.action,
-          ...(body.status !== undefined ? { status: body.status } : {}),
-          ...(body.occurredOn !== undefined ? { occurredOn: body.occurredOn } : {}),
-          ...(body.onlySaved ? { onlySaved: true } : {}),
-        });
-        if (affected > 0 && (body.action === 'unarchive' || body.status === STATUS.saved)) wake = true;
-        return { affected };
+        // v36 FIX-API (D1): an archive acts under the target's share (its Queue changes decide what leaves the queue).
+        const answer = await bulkApplications(
+          deps,
+          target.ownerId,
+          {
+            ids,
+            action: body.action,
+            ...(body.status !== undefined ? { status: body.status } : {}),
+            ...(body.occurredOn !== undefined ? { occurredOn: body.occurredOn } : {}),
+            ...(body.onlySaved ? { onlySaved: true } : {}),
+          },
+          underOf(actor, target),
+        );
+        if (answer.affected > 0 && (body.action === 'unarchive' || body.status === STATUS.saved)) wake = true;
+        return answer;
       }
       const prepare = deps.services.prepare;
       if (!prepare) throw aiUnavailableError(deps);

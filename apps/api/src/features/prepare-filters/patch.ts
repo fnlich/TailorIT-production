@@ -27,7 +27,7 @@ import { checkFilters, ensureUserSettingsRow, filterSettingsOf, saveFilterSettin
 //   switches and the qualification filter) given in the patch is not changed and is reported as kept, whatever its saved
 //   value (a report that depended on it would tell someone without Sensitive answers' See what it is);
 // - `changed` is every field given and applied (never compared with the saved values: the FANOUT review's sharing 1);
-//   the filters themselves are answered only with Prepare & queue's See there (`seeFilters`), as the GET is;
+//   the filters themselves are answered only with Prepare's See there (`seeFilters`), as the GET is;
 // - the custom filter's text written on SOMEONE ELSE's profile (the writer is not the owner) is screened as text
 //   written for another person's AI is (assertFilterTextScreened: the one function INT points at MCPDIR's fenced-data
 //   check); refused as a whole (validation_failed on the field). The owner's own words are theirs, as in v3.3: MCP's
@@ -38,7 +38,7 @@ import { checkFilters, ensureUserSettingsRow, filterSettingsOf, saveFilterSettin
 // - the merged filters are checked as the PUT checks them (a custom filter that is on needs its text, of at most
 //   CUSTOM_FILTER_PROMPT_MAX_CHARS); nothing is written, and the revision stays, when no saved value changes.
 // v34 MCPFAN (the MCPFAN security review, L4): someone who may change the filters there but not read them (Job settings'
-// Change without Prepare & queue's See) has the custom filter part judged on the patch alone (checkPatchAlone), before
+// Change without Prepare's See) has the custom filter part judged on the patch alone (checkPatchAlone), before
 // anything is read: a refusal that depended on the saved filters (the text there, the switch's state) would tell them.
 
 type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
@@ -53,7 +53,7 @@ export interface FiltersPatchWho {
   changeEligibility: boolean;
   /** Sensitive answers' See: the answer shows the eligibility switches as saved (else as off). */
   seeEligibility: boolean;
-  /** Prepare & queue's See: the answer shows the filters at all (else null). */
+  /** Prepare's See: the answer shows the filters at all (else null). */
   seeFilters: boolean;
 }
 
@@ -170,7 +170,7 @@ async function writeLocked<R>(
 /**
  * PATCH /api/prepare/filters's and the fan-out's change of `who.ownerId`'s filters: screened, merged in one locked
  * transaction, saved when a saved value changed (filters_revision + 1). Answers what was applied and kept, and the
- * filters as the GET reads them for `who` (null without Prepare & queue's See).
+ * filters as the GET reads them for `who` (null without Prepare's See).
  */
 export async function patchFilterSettings(
   deps: Deps,
@@ -181,7 +181,7 @@ export async function patchFilterSettings(
 ): Promise<PrepareFiltersPatchResponse> {
   // v34 FIX-API (the final sharing review, L2): the PATCH checks only what it changes: words equal to the stored ones
   // (the owner's own, sent back with the switch turned on) are theirs and never screened, compared in the locked
-  // transaction, as the PUT compares them. Without Prepare & queue's See the text is judged alone, whatever is stored
+  // transaction, as the PUT compares them. Without Prepare's See the text is judged alone, whatever is stored
   // (a refusal that depended on the stored words would tell them: the MCPFAN security review's L4).
   const textRefusal =
     patch.custom?.prompt !== undefined && who.actorId !== who.ownerId && !options.screened

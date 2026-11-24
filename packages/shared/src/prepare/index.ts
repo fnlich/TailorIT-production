@@ -20,8 +20,8 @@ import { IsoDate, IsoDateTime } from '../core/list';
 import { JobVerificationSchema } from '../jobs/add'; // v31 INT-2
 import { JobCreditSchema } from '../jobs/dto'; // v30 FIX-B
 
-// v2.0: Prepare & Queue (docs/design/v2.0/05-prepare-flow.md), which replaces v1.5's Prebuild. A job reaches the
-// auto-apply queue only through Prepare & Queue on a saved job (a Tracker entry at Saved with a job): the prepare
+// v2.0: Prepare (docs/design/v2.0/05-prepare-flow.md), which replaces v1.5's Prebuild. A job reaches the
+// auto-apply queue only through Prepare on a saved job (a Tracker entry at Saved with a job): the prepare
 // filters, then the tailored resume, the cover letter (by the person's letter mode) and answers to the job's known
 // questions, then the queue row, inserted when the required parts are ready. One `prepare_jobs` row per Prepare of one
 // saved job (0822); its parts are kept in the application's draft (application_drafts), the "kit". Two modes: `server`
@@ -118,7 +118,7 @@ export type CoverLetterMode = AutofillCoverLetterMode;
  */
 export const PREPARE_RESUME_MODES = ['default', 'similar', 'tailor'] as const;
 export type PrepareResumeMode = (typeof PREPARE_RESUME_MODES)[number];
-/** Each mode's words (constants): Settings › Prepare & Queue's choices, and the mode a prepared kit used. */
+/** Each mode's words (constants): Settings › Prepare's choices, and the mode a prepared kit used. */
 export const PREPARE_RESUME_MODE_LABELS = {
   default: 'LABEL_RESUME_MODE_DEFAULT',
   similar: 'LABEL_RESUME_MODE_SIMILAR',
@@ -280,7 +280,7 @@ export type PrepareAllResponse = z.infer<typeof PrepareAllResponseSchema>;
 
 /**
  * GET and PUT /api/prepare/settings: the letter mode (the profile's documents.coverLetters), the resume mode
- * (user_settings.prepare_resume_mode, v20 A29) and "Don't show this again" of the Prepare & Queue confirm
+ * (user_settings.prepare_resume_mode, v20 A29) and "Don't show this again" of the Prepare confirm
  * (user_settings.skip_prepare_confirm).
  */
 export const PrepareSettingsSchema = z.object({
@@ -477,7 +477,7 @@ export const SAVED_JOB_SUPPORT = ['agent', 'tab', 'manual'] as const;
 export type SavedJobSupport = (typeof SAVED_JOB_SUPPORT)[number];
 
 /**
- * A saved job's marker (05's state table), from its newest Prepare and its queue row: `none` (Prepare & Queue),
+ * A saved job's marker (05's state table), from its newest Prepare and its queue row: `none` (Prepare),
  * `filtered` ("Filtered: <reason>"), `preparing`, `prepare_failed`, `prepared` (ready, not queued), `queued`,
  * `not_applied` (its run failed, was skipped or needs the person).
  */

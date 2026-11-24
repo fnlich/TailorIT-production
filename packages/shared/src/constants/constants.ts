@@ -163,12 +163,12 @@ function filterLabel(label: string, text: string) {
 }
 
 // v20 A29
-/** The words of one choice of a setting (Settings › Prepare & Queue's resume mode). */
+/** The words of one choice of a setting (Settings › Prepare's resume mode). */
 /* @__NO_SIDE_EFFECTS__ */
 function choiceLabel(label: string, text: string) {
   return {
     ...message(label, text, [] as const, LABEL_MAX),
-    help: "A choice's words in Settings › Prepare & Queue.",
+    help: "A choice's words in Settings › Prepare.",
   } as const;
 }
 // end v20 A29
@@ -357,11 +357,11 @@ export const CONSTANTS = {
     help: 'USD per million tokens by model, used only when the CLI reports no cost ("*" prices any other model).',
   },
 
-  // Prepare & Queue (§1, §3).
+  // Prepare (§1, §3).
   PREPARE_BATCH_MAX: {
     kind: 'int', default: 100, adminEditable: true, public: true, group: 'prepare', min: 1, max: 500,
-    label: 'Prepare & Queue batch',
-    help: 'The most saved jobs one Prepare & Queue takes.',
+    label: 'Prepare batch',
+    help: 'The most saved jobs prepared in one request (Prepare All, or Prepare on several selected jobs).',
   },
   PREPARE_MCP_STALE_DAYS: {
     kind: 'int', default: 7, adminEditable: true, public: true /* v34 FIX-COPY: the guide says it */, group: 'prepare', min: 1, max: 90,
@@ -399,8 +399,9 @@ export const CONSTANTS = {
   // Jobs and search (§10).
   SAVE_BATCH_MAX: {
     kind: 'int', default: 100, adminEditable: true, public: true, group: 'jobs', min: 1, max: 500,
-    label: 'Save all batch',
-    help: 'The most jobs one Save all saves (was SAVE_ALL_LIMIT).',
+    // v36 JOBS (PLAN J1): Save all is gone; the constant caps every save (and unsave) request.
+    label: 'Jobs saved per request',
+    help: 'The most jobs one save or unsave request takes (Select on the Jobs page, Copy to profiles, MCP save_jobs).',
   },
   AI_SEARCH_TEXT_MAX_CHARS: {
     kind: 'int', default: 300, adminEditable: true, public: true, group: 'jobs', min: 20, max: 1000,
@@ -503,7 +504,7 @@ export const CONSTANTS = {
   ),
   // end v20 P10
 
-  // v20 A29 (DECISIONS A29): the Prepare & Queue resume mode. 'default': the person's default resume as it is;
+  // v20 A29 (DECISIONS A29): the Prepare resume mode. 'default': the person's default resume as it is;
   // 'similar': their most similar existing resume (rule-based, no AI); 'tailor': a new tailored resume (v1.5's
   // behaviour). The letter and the answers are written from the resume the mode chose.
   PREPARE_RESUME_MODE_DEFAULT: {
@@ -514,7 +515,7 @@ export const CONSTANTS = {
   },
   MSG_PREPARE_NO_RESUME: message(
     'Prepare: no resume',
-    'Add a resume first: Prepare & Queue needs one.',
+    'Add a resume first: Prepare needs one.',
   ),
   LABEL_RESUME_MODE_DEFAULT: choiceLabel('Resume mode: default', 'Only my default resume'),
   // v20 A30: the owner's words, best-matched.
@@ -547,7 +548,7 @@ export const CONSTANTS = {
   MSG_CREDIT_CONTACT: message('Buy extra credit', 'Please contact the admin to purchase extra credit.'),
   MSG_CONTACT_EMAIL_MISSING: message('No contact email', 'The admin has not set a contact email yet.'),
   MSG_PREPARE_CONFIRM: message(
-    'Prepare & Queue confirm',
+    'Prepare confirm',
     'This may use a lot of your AI. Continue?',
   ),
   MSG_PREPARE_CONFIRM_DONT_SHOW: message("Confirm's checkbox", "Don't show this again", [], LABEL_MAX),
@@ -575,7 +576,7 @@ export const CONSTANTS = {
   ),
   MSG_PREPARE_INTERRUPTED: message(
     'Prepare: interrupted by the update',
-    'An update stopped this: Prepare & Queue it again.',
+    'An update stopped this: prepare it again.',
   ),
   MSG_PREPARE_NEEDS_COPY: message(
     'Prepare: needs an editable copy',
@@ -591,7 +592,7 @@ export const CONSTANTS = {
   MSG_PREPARE_FAILED: message('Prepare: failed', 'Something went wrong while this job was prepared.'),
   MSG_DIRECT_QUEUE_REMOVED: message(
     'Direct queueing removed',
-    'Save the job, then Prepare & Queue it on Auto-apply.',
+    'Save the job, then prepare it on Auto-apply.',
   ),
   MSG_CUSTOM_FILTER_PENDING: message(
     'Custom filter pending',
@@ -922,11 +923,7 @@ export const CONSTANTS = {
     label: 'Saved searches per account',
     help: 'Saved searches (the Jobs toolbar bookmark) one account may keep.',
   },
-  SAVE_ALL_RUNS_PER_HOUR: {
-    kind: 'int', default: 20, adminEditable: true, public: false, group: 'jobs', min: 1, max: 1000,
-    label: 'Save all runs per hour',
-    help: 'Times one account may run Save all in any sliding hour.',
-  },
+  // v36 JOBS (PLAN J1): SAVE_ALL_RUNS_PER_HOUR is gone with Save all (a stored override of it is ignored, with a warning).
   JOB_SOURCE_RUN_KEEP_DAYS: {
     kind: 'int', default: 90, adminEditable: true, public: false, group: 'retention', min: 1, max: 3650,
     label: 'Ingest run history (days)', // v30 FIX-A (REQ-6): the runs themselves, not only their logs
@@ -1062,18 +1059,9 @@ export const CONSTANTS = {
     ['max'],
   ),
   // end v30 ST1
-  // v30 ST3: the constants audit's keys deferred to their adoption (Save all, the auto-apply queue's job states, two
-  // autofill refusals), read by the autofill and jobs features, and the sign-in refusal that shares their words
-  // (MSG_SIGN_IN_CODE_USED).
-  MSG_SAVE_ALL_PER_HOUR: message(
-    'Save all: too often',
-    'Save all runs {max} {max|time|times} an hour: try again in {minutes} {minutes|minute|minutes}.',
-    ['max', 'minutes'],
-  ),
-  MSG_SAVE_ALL_BUSY: message(
-    'Save all: busy',
-    'Save all is still working: try again in a moment.',
-  ),
+  // v30 ST3: the constants audit's keys deferred to their adoption (the auto-apply queue's job states, two autofill
+  // refusals), read by the autofill and jobs features, and the sign-in refusal that shares their words
+  // (MSG_SIGN_IN_CODE_USED). v36 JOBS (PLAN J1): MSG_SAVE_ALL_PER_HOUR and MSG_SAVE_ALL_BUSY are gone with Save all.
   MSG_AUTOFILL_LETTER_TOO_LARGE: message(
     'Autofill: letter PDF too large',
     "This cover letter's PDF is over {max_mb} MB, too large to attach.",
@@ -1208,7 +1196,8 @@ export const CONSTANTS = {
   DISCOVERY_VALIDATE_V2_KINDS_TODAY: {
     kind: 'bool', default: true, adminEditable: true, public: false, group: 'jobs',
     label: "Validate v2.0 boards with today's identity",
-    help: "Whether discovery reads found Greenhouse, Lever, Ashby and Workable boards with today's User-Agent before BOT_USER_AGENT is set.",
+    // v36 SOURCES: a validated board becomes a source that waits, off, for an admin.
+    help: "Whether found Greenhouse, Lever, Ashby and Workable boards are checked before BOT_USER_AGENT is set; one that answers waits for an admin.",
   },
   // REV-SEC SEC-2, REV-BEH BEH-3: a company's opt-out is a gate on its sources.
   MSG_INGEST_SOURCE_OPTED_OUT: message(
@@ -1424,7 +1413,8 @@ export const CONSTANTS = {
   DISCOVERY_VALIDATIONS_PER_DAY: {
     kind: 'int', default: 20_000, adminEditable: true, public: false, group: 'jobs', min: 0, max: 1_000_000,
     label: 'Board validations per day',
-    help: 'Found boards and career sites read once a day to test them before they become sources.',
+    // v36 SOURCES: a validated board becomes a source that waits, off, for an admin.
+    help: 'Found boards and career sites checked a day; a board that answers becomes a source that stays off until an admin turns it on.',
   },
   DISCOVERY_PROBES_PER_HOST_PER_DAY: {
     kind: 'int', default: 0, adminEditable: true, public: false, group: 'jobs', min: 0, max: 100_000,
@@ -2093,9 +2083,9 @@ export const CONSTANTS = {
     'Sharing: row Documents, what it covers',
     'Your resumes, letters and templates; Change lets them edit, upload and tailor, never your email or phone.',
   ),
-  LABEL_SHARING_ROW_PREPARE: message('Sharing: row Prepare & queue', 'Prepare & queue', [] as const, LABEL_MAX),
+  LABEL_SHARING_ROW_PREPARE: message('Sharing: row Prepare', 'Prepare', [] as const, LABEL_MAX),
   MSG_SHARING_ROW_PREPARE_TIP: message(
-    'Sharing: row Prepare & queue, what it covers',
+    'Sharing: row Prepare, what it covers',
     'Your Auto-apply panes, kits and filters; Change lets them prepare jobs for your queue.',
   ),
   LABEL_SHARING_ROW_QUEUE: message('Sharing: row Queue changes', 'Queue changes', [] as const, LABEL_MAX),
@@ -2601,6 +2591,16 @@ export const CONSTANTS = {
     label: 'Approved jobs stay in search (days)',
     help: 'A job an admin approved as captured leaves search after this many days, unless approved again or TailorIT reads it.',
   },
+  // v36 IMPORTTIME (SP v36 PLAN.md I1 refined, the owner's addendum 2): a job an admin's import brings in shows the
+  // import's time (its board's own date kept for this rule only): "Reposted" when the board posted it more than this many
+  // days before the import, "Posted" when later or unknown (a link TailorIT could not read). v36 FIX-SRC (the final
+  // reviews' data D7 = ux L9): public, so the help guide reads the admin's value (help/content/jobs.tsx).
+  ADMIN_IMPORT_REPOSTED_AFTER_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: true, group: 'jobs', min: 0, max: 365,
+    label: 'Imported jobs read "Reposted" after (days)',
+    help: 'Imported jobs show the import time: Reposted if the board posted it more than this many days before, else Posted.',
+  },
+  // end v36 IMPORTTIME
   MSG_NOTIFY_JOB_APPROVED_TITLE: message(
     'Notification: job approved by an admin (title)',
     'Approved by an admin: {title} at {company}',
@@ -2905,6 +2905,19 @@ export const CONSTANTS = {
     'You have no rows left to import today: import again in 24 hours.',
   ),
   // end v35 FIX-WEB
+  // v36 SOURCES (SP v36 PLAN S5): Run now and a run's Continue on a source that is off (the words bulk Run now already
+  // gives such a source); Admin › Sources shows them as Run now's tip while the source is off.
+  MSG_INGEST_SOURCE_OFF: message('Source off: no run starts', 'It is off: turn it on first.'),
+  // end v36 SOURCES
+  // v36 APPLYAPI (SP v36 PLAN A3): Share All (the Auto-apply page) shares every job in Saved on one profile to others,
+  // at most this many a press (the newest saved first); the start refuses more (@tailorit/shared/sharing share-all.ts).
+  SHARE_ALL_MAX: {
+    kind: 'int', default: 500, adminEditable: true, public: true, group: 'jobs', min: 1, max: 2000,
+    label: 'Share All batch',
+    help: 'The most saved jobs one Share All shares to other profiles; the newest saved go first.',
+  },
+  MSG_SHARE_ALL_TOO_MANY: message('Share All: too many jobs at once', 'Share at most {max} saved jobs at once.', ['max'] as const),
+  // end v36 APPLYAPI
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

@@ -70,13 +70,13 @@ export function queueSitesText(
 // The page --------------------------------------------------------------------------------------------------------
 
 export const PAGE_TITLE = 'Auto-apply';
-export const PAGE_LEAD = 'Save jobs, then Prepare & Queue them, and TailorIT applies to the ready ones for you.';
+export const PAGE_LEAD = 'Save jobs, then Prepare them, and TailorIT applies to the ready ones for you.';
 export const HOW_TITLE = 'How auto-apply works';
 
 /** The "How auto-apply works" popover's paragraphs. */
 export function howItWorks(): string[] {
   return [
-    "Prepare & Queue makes each job's kit (resume, letter, answers), then queues it.",
+    "Prepare makes each job's kit (resume, letter, answers), then queues it.",
     `The extension's Run auto-apply takes ready jobs on ${agentSitesText()}, one at a time. Its Queue tab also opens ` +
       `jobs on ${queueSitesText()}.`,
     'A hand marks a job to apply to yourself: copy the kit, apply, then Mark as applied.',
@@ -150,7 +150,7 @@ export function savedMarker(item: Pick<SavedJobItem, 'marker' | 'label' | 'reaso
   return { ...style, label: label ?? '' };
 }
 
-/** A Saved row's action: Prepare & Queue, Cancel while preparing, View in queue once queued; none otherwise. */
+/** A Saved row's action: Prepare, Cancel while preparing, View in queue once queued; none otherwise. */
 export type SavedAction = 'prepare' | 'cancel' | 'view_in_queue';
 export function savedAction(item: Pick<SavedJobItem, 'marker' | 'prepareId' | 'queueId'>): SavedAction | null {
   switch (item.marker) {
@@ -168,7 +168,7 @@ export function savedAction(item: Pick<SavedJobItem, 'marker' | 'prepareId' | 'q
 }
 
 /**
- * Whether a Saved row can be chosen in select mode: one whose action is Prepare & Queue. v30 FIX-WEB (REV-UX UX-10): not
+ * Whether a Saved row can be chosen in select mode: one whose action is Prepare. v30 FIX-WEB (REV-UX UX-10): not
  * a job that closed (FIX-B's optional `closed`): nobody can apply to it.
  */
 export const selectableSaved = (item: Pick<SavedJobItem, 'marker' | 'prepareId' | 'queueId'>) =>
@@ -451,7 +451,7 @@ export const ACTION_LABEL: Record<QueueAction, string> = {
   open_job: 'Open job page',
   mark_applied: 'Mark as applied',
   dismiss: 'Dismiss',
-  prepare: 'Prepare & Queue',
+  prepare: 'Prepare',
 };
 
 /** The kit line's chip (v20 A29): which resume the prepared item uses. Null for a row queued before v2.0. */
@@ -586,4 +586,5 @@ export function postingHref(url: string | null | undefined): string | null {
 }
 
 /** The Mark as applied confirm's words. */
-export const MARK_APPLIED_CONFIRM = "It moves to Applied and leaves Saved Jobs. It doesn't count toward your daily limit.";
+// v36 FIX-WEB (ux L8): "saved jobs" in sentences, as everywhere on the page.
+export const MARK_APPLIED_CONFIRM = "It moves to Applied and leaves saved jobs. It doesn't count toward your daily limit.";

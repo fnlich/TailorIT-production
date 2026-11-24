@@ -40,7 +40,7 @@ export interface PrepareStartOptions {
 }
 
 /**
- * P2 (05-prepare-flow.md): Prepare & Queue. `deps.services.prepare`, set by features/prepare.
+ * P2 (05-prepare-flow.md): Prepare. `deps.services.prepare`, set by features/prepare.
  * (v1.5's run-based runner stays at deps.services.prepareRunner until P2 replaces it.)
  */
 export interface PrepareService {
@@ -124,7 +124,7 @@ export interface AiSearchService {
 
 declare module './context' {
   interface AppServices {
-    /** v2.0, P2: Prepare & Queue. */
+    /** v2.0, P2: Prepare. */
     prepare?: PrepareService;
     /** v2.0, P4: the prepare filters. */
     prepareFilters?: PrepareFilterService;

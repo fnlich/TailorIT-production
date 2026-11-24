@@ -96,7 +96,7 @@ import {
 } from './store';
 import type { PrepareService, PrepareStartOptions } from '../../core/seams';
 
-// Prepare & Queue (v2.0, docs/design/v2.0/05-prepare-flow.md; DECISIONS A29, A30): one Prepare of one saved job (a
+// Prepare (v2.0, docs/design/v2.0/05-prepare-flow.md; DECISIONS A29, A30): one Prepare of one saved job (a
 // Tracker entry at Saved with a job) at a time, its kit kept in the application's draft, the queue row inserted when
 // the kit is ready. This module holds:
 // - startPrepare, POST /api/prepare's and MCP prepare_start's service, its checks in the order the request gives:
@@ -498,7 +498,7 @@ export async function startPrepare(
     return all;
   }, {});
   deps.log.debug(
-    `[prepare] account ${userId} Prepare & Queue (${mode}, ${resumeMode}, letters ${letterMode}` +
+    `[prepare] account ${userId} Prepare (${mode}, ${resumeMode}, letters ${letterMode}` +
       `${request.rebuild ? ', rebuild' : ''}${grantee ? `, started by account ${payerId} on a share` : ''}): ` +
       Object.entries(counts).map(([outcome, n]) => `${n} ${outcome}`).join(', '),
   );
@@ -599,7 +599,7 @@ export async function cancelPrepare(
   const row = await deps.db.tx(async () => {
     const found = await getPrepare(deps.db, userId, prepareId);
     if (!found) throw notFound('That Prepare');
-    // v33 SHARE-5 (PLAN-sharing.md §3: Change of Prepare & queue cancels "Prepares B started"): someone the profile is
+    // v33 SHARE-5 (PLAN-sharing.md §3: Change of Prepare cancels "Prepares B started"): someone the profile is
     // shared with cancels only the Prepares they started there.
     if (options.actorId !== undefined && options.actorId !== userId && startedByOf(found) !== options.actorId) {
       throw profileNotShared();

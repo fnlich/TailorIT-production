@@ -1,19 +1,9 @@
-import {
-  searchParamsToJobsQuery,
-  type AddJobResult,
-  type ApplicationStatus,
-  type JobAddOrigin,
-  type SaveAllPreview,
-  type SaveAllResponse,
-  type SavedJobRef,
-} from '@tailorit/shared';
+import { type AddJobResult, type ApplicationStatus, type JobAddOrigin, type SavedJobRef } from '@tailorit/shared';
 import {
   PROFILE_SELF,
   type FanoutAddJobBody,
   type FanoutCopySavedAnswer,
   type FanoutCopySavedBody,
-  type FanoutSaveAllBody,
-  type FanoutSaveAllPreviewQuery,
   type FanoutSaveJobsBody,
   type FanoutSavedOn,
   type ProfileChoice,
@@ -27,18 +17,16 @@ import { assertValidDate, saveJobs } from '../../applications/service';
 import { addJobByLink, type LinkRead } from '../../jobs/add/pipeline';
 import { takeAddSlot } from '../../jobs/add/limits';
 import { addInFlightOf, addJobResultOf } from '../../jobs/add/router';
-import type { SaveAll } from '../../jobs/save-all';
 import { currentJobId } from '../../jobs/store';
 import { sqlTextArray } from '../rows';
 import { countOn, fanOut, isTarget, resolveTargets, runOn, type FanoutActor, type FanoutAnswer, type FanoutOptions } from './targets';
 
 // v34 FANOUT (PLAN G1, G2): saved jobs on several profiles. Each runs the single-profile service once per target, with
 // the target's owner as whose data and A (the signed-in person) as who acts:
-// - saveJobsOnProfiles: the tracker's Save (applications/service.ts saveJobs, Save all's writes): each job at Saved, the
-//   owner's best resume chosen there, no AI; a job the owner does not see (jobVisibleTo: another person's own job, a job
-//   held for review only others track, gone) is not_found there;
-// - saveAllOnProfiles (and its preview): Save all (jobs/save-all.ts) of the same list query on each target, as that
-//   owner's own list;
+// - saveJobsOnProfiles: the tracker's Save (applications/service.ts saveJobs): each job at Saved, the owner's best resume
+//   chosen there, no AI; a job the owner does not see (jobVisibleTo: another person's own job, a job held for review only
+//   others track, gone) is not_found there;
+// (v36 JOBS: Save all to profiles is gone; unsave.ts is the Select bar's Unsave.)
 // - addByLinkOnProfiles: Add job's pipeline (jobs/add/pipeline.ts) on each target, one of A's adds an hour when a target
 //   is usable; a link TailorIT cannot read is read once per request (the pipeline's knownRead);
 // - copySavedJobs: the jobs of Tracker entries of one or several profiles saved on the targets (the job only);
@@ -71,7 +59,7 @@ async function trackedJobs(deps: Deps, ownerId: string, jobIds: readonly number[
 }
 
 /**
- * Saves `jobIds` at Saved on `ownerId`'s profile, as the tracker's Save does (Save all's writes). Each job asked counts
+ * Saves `jobIds` at Saved on `ownerId`'s profile, as the tracker's Save does (saveJobs). Each job asked counts
  * once: saved (new), restored (un-saved earlier), already tracked, not found (one the owner does not see), or not
  * reached (the save stopped part-way before it).
  */
@@ -133,47 +121,6 @@ export async function saveJobsOnProfiles(
     ...options,
     wrote: savedSome,
   });
-}
-
-/** The list query of Save all to profiles: the Jobs list's query string, a cursor ignored. */
-const listQueryOf = (search: string) => ({ ...searchParamsToJobsQuery(search), cursor: undefined });
-
-/**
- * POST /api/profiles/jobs/save-all: Save all of the list query `body.search` on every target, each as its owner's list
- * (their jobs, marks and tracker; at most SAVE_BATCH_MAX each). The route's limiter counts the request as one of A's
- * SAVE_ALL_RUNS_PER_HOUR when a profile ran (router.ts); Save all running already on a profile is that profile's
- * refusal (conflict).
- */
-export async function saveAllOnProfiles(
-  deps: Deps,
-  saveAll: SaveAll,
-  actor: FanoutActor,
-  body: FanoutSaveAllBody,
-  options: FanoutOptions = {},
-): Promise<FanoutAnswer<SaveAllResponse>> {
-  const query = listQueryOf(body.search);
-  const date = dayOf(deps, body.occurredOn);
-  return fanOut(deps, actor, body.targets, ['tracker:edit'], (target) => saveAll.run(target.ownerId, query, date), {
-    ...options,
-    wrote: (value) => value.items.length > 0,
-  });
-}
-
-/**
- * GET /api/profiles/jobs/save-all/preview: Save all's confirm numbers on every target (a read). v34 FANWEB fix (both
- * FANWEB reviews): the targets are resolved with the save's own box (the Job Tracker's Change), so the preview answers
- * the profiles the save will run on, and 'all' names the others in `left` as the save does (a share with the Job
- * Tracker's See only reads the same numbers on its own tab: no new disclosure either way).
- */
-export async function saveAllPreviewOnProfiles(
-  deps: Deps,
-  saveAll: SaveAll,
-  actor: FanoutActor,
-  query: FanoutSaveAllPreviewQuery,
-  options: FanoutOptions = {},
-): Promise<FanoutAnswer<SaveAllPreview>> {
-  const list = listQueryOf(query.search);
-  return fanOut(deps, actor, query.targets, ['tracker:edit'], (target) => saveAll.preview(target.ownerId, list), { ...options, action: 'read' });
 }
 
 /**

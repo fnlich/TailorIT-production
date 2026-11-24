@@ -55,12 +55,12 @@ function FirstSteps() {
         education, experience and the answers forms ask for. The extension fills applications from it.
       </li>
       <li>
-        <Ui>Check how jobs are prepared</Ui> (<AppPage href="/settings#prepare">Settings › Prepare &amp; Queue</AppPage>): the
-        resume setting, cover letters and your Prepare filters decide what Prepare &amp; Queue makes, and for which jobs.
+        <Ui>Check how jobs are prepared</Ui> (<AppPage href="/settings#prepare">Settings › Prepare</AppPage>): the
+        resume setting, cover letters and your Prepare filters decide what Prepare makes, and for which jobs.
       </li>
       <li>
         <Ui>Install and connect the extension</Ui> (<AppPage href="/settings/autofill?tab=extension">Autofill › Extension</AppPage>
-        ), then <Ui>Prepare &amp; Queue</Ui> your saved jobs on <AppPage href="/auto-apply">Auto-apply</AppPage>.
+        ), then <Ui>Prepare</Ui> your saved jobs on <AppPage href="/auto-apply">Auto-apply</AppPage>.
       </li>
       <li>
         <Ui>Connect your AI</Ui> if you like (<AppPage href="/settings/integrations">Integrations</AppPage>), and ask it

@@ -381,7 +381,7 @@ function warnPeekFailed(deps: Pick<AppDeps, 'log'>, jobId: number, error: unknow
 
 /**
  * `analysisForJob` without a single write or AI task: the service's `peek` (the same answer as `get`), else the
- * stored or computed fallback. For passes over many jobs (the resume chooser, Save all) and the extension's lookup.
+ * stored or computed fallback. For passes over many jobs (the resume chooser, a save of many jobs) and the extension's lookup.
  * Null when the job does not exist. `quiet`: a failure is logged without the job's id or the error's text, only its
  * name (the extension's lookup promises that nothing records which postings a person opens).
  */

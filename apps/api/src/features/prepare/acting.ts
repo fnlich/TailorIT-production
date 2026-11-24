@@ -1,10 +1,10 @@
 import type { ActingTable } from '../../core/feature';
 
-// v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §3, §4, §6): what each Prepare & Queue route does when a request names a
-// shared profile. B prepares A's saved jobs with Prepare & queue's Change (`prepare:run`: Prepare, Prepare All and its
+// v33 SHARE-5 (PLAN F9; SP v33 PLAN-sharing.md §3, §4, §6): what each Prepare route does when a request names a
+// shared profile. B prepares A's saved jobs with Prepare's Change (`prepare:run`: Prepare, Prepare All and its
 // plan, cancelling the Prepares B started); B pays (payerOf: B's AI budget, B's Prepares an hour) within B's room on A's
 // profile (A's last queue and resume places are kept). The Prepare settings are Job settings. The Tracker's "Prepared"
-// tab (a kit) is Prepare & queue's See.
+// tab (a kit) is Prepare's See.
 export const PREPARE_ACTING = {
   'POST /': 'prepare:run',
   'GET /all': 'prepare:run',

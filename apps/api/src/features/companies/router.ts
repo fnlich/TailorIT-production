@@ -2,11 +2,14 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { CompanyJobsQuerySchema } from '@tailorit/shared';
 import { requireUser, userOf } from '../../core/auth/guards';
+import { constantsOf } from '../../core/constants/service'; // v36 IMPORTTIME
 import { nowIso, type AppDeps } from '../../core/context';
 import { notFound } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
+import { postedRuleOf } from '../jobs/rows'; // v36 IMPORTTIME
 import { companyVisibleTo } from '../jobs/visibility';
 import { companyJobs, companyPage } from './page';
+import { adminApprovalForAdminsOnly } from '../jobs/add/approval-view'; // v36 JOBS
 
 // v30 ST3: the company checks moved here unchanged from store.ts, so this router imports nothing of the jobs store.
 // v3.0 D2-C: through the async client. v30 E0-API: moved from features/jobs/companies-router.ts into the companies
@@ -47,6 +50,7 @@ export async function setCompanyHidden(deps: Pick<AppDeps, 'db' | 'now'>, userId
 export function createCompaniesRouter(deps: AppDeps): Router {
   const router = Router();
   router.use(requireUser);
+  router.use(adminApprovalForAdminsOnly); // v36 JOBS (PLAN J7): "Approved by an admin" for admins only
 
   router.get('/:id', async (req, res) => {
     res.json(await companyPage(deps, companyIdOf(req), userOf(req).id));
@@ -54,7 +58,7 @@ export function createCompaniesRouter(deps: AppDeps): Router {
 
   router.get('/:id/jobs', async (req, res) => {
     const query = parseInput(CompanyJobsQuerySchema, req.query, 'query');
-    res.json(await companyJobs(deps, companyIdOf(req), userOf(req).id, query));
+    res.json(await companyJobs(deps, companyIdOf(req), userOf(req).id, query, postedRuleOf(constantsOf(deps)))); // v36 IMPORTTIME
   });
 
   router.post('/:id/hide', async (req, res) => {

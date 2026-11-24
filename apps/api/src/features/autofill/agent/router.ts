@@ -57,8 +57,8 @@ import { patchAgentSettings } from './rule-patch'; // v34 FANOUT
 //                                        state but submitted) marks the job Applied (POST /applied's way, with the
 //                                        run's resume); 404 for another account's row, 409 for another result of a
 //                                        row not running, or of a run another browser took that is still connected
-//   POST   /agent/queue                  v2.0: 409 conflict, MSG_DIRECT_QUEUE_REMOVED (A4: jobs are queued by Prepare &
-//                                        Queue alone); kept one release for an older open page
+//   POST   /agent/queue                  v2.0: 409 conflict, MSG_DIRECT_QUEUE_REMOVED (A4: jobs are queued by Prepare
+//                                        alone); kept one release for an older open page
 //   POST   /agent/queue/:id/applied      v2.0 Settings → 204: Mark as applied (the manual flow): the job Applied, the row
 //                                        submitted (`manual` when no run took it), never counted toward the daily limit
 //   GET    /agent/queue                  Settings, or (v1.5 Q2) a token (agent:run) with ?state=&cursor=&limit= →
@@ -102,7 +102,7 @@ const sameRule = (a: StoredAgentSettings, b: StoredAgentSettings) =>
  * queued, let go nor hidden), in the order TailorIT first saw them, each whose application page the agent fills
  * (agentCanApply) and whose keyword match with the account's best resume for it (bestResumes, read-only, never AI;
  * scored as the lookup's match) is at least `minMatch` becomes a Saved Tracker entry, with that resume as TailorIT's
- * choice (origin auto), as the Jobs page's Save makes it. The person then Prepares & Queues it. The settings are read
+ * choice (origin auto), as the Jobs page's Save makes it. The person then prepares it. The settings are read
  * again after the chooser's wait: a rule turned off or changed meanwhile saves nothing (the next ask weighs under the
  * new one). Each job is weighed once: the cursor moves past the jobs weighed, but stops before one the chooser did not
  * reach within its budget, and before all of them when the account has no resume (they are weighed once it has one).
@@ -141,8 +141,14 @@ async function ruleSaves(deps: AppDeps, userId: string, settings: StoredAgentSet
       // A job tracked meanwhile (the person saved it, or a second ask) keeps its entry as it is.
       const tracked = await deps.db.one('SELECT 1 FROM applications WHERE user_id = ? AND job_id = ?', [userId, job.id]);
       if (!tracked) {
-        await createApplication(deps, userId, { jobId: job.id, status: STATUS.saved }, { matchedResume: choice });
-        saved += 1;
+        try {
+          await createApplication(deps, userId, { jobId: job.id, status: STATUS.saved }, { matchedResume: choice });
+          saved += 1;
+        } catch (error) {
+          // v36 FIX-API (D4, data D1): a job the account may not save (held, someone's own, gone since it was read) is
+          // weighed, not saved: the cursor moves past it, so it never stops the rule or the extension's GET /agent/next.
+          if (!(error instanceof AppError) || error.code !== 'not_found') throw error;
+        }
       }
     }
     weighed = job;
@@ -242,7 +248,7 @@ export function createAutofillAgentRouter(deps: AppDeps): Router {
 
   // v2.0 (A4): no path queues a job directly any more; kept one release so an older open page hears why.
   router.post('/agent/queue', allow('session'), pageLimit, (req) => {
-    deps.log.debug(`[autofill] account ${userOf(req).id} asked to queue jobs directly: refused (Prepare & Queue)`);
+    deps.log.debug(`[autofill] account ${userOf(req).id} asked to queue jobs directly: refused (Prepare)`);
     throw refuse(deps, 'conflict', 'MSG_DIRECT_QUEUE_REMOVED');
   });
 

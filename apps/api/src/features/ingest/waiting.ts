@@ -29,7 +29,9 @@ import { SCHEDULED_KINDS, type SourceKind } from './types';
 //   host_held          its host is held (a Retry-After, the breaker, a bot check, an admin), until when.
 // Each clears by itself (a daily robots.txt verdict, a hold's end; the worker looks every DUE_TICK_MS) or by the admin's
 // own change, and the source then runs at once on its schedule: next_run_at stays in the past while it waits (a source
-// turned on is due now: sources.ts bulkSources, router.ts patchSource), so no Run now is needed.
+// turned on is due now: sources.ts enableSources, the one writer of "on" since v3.6), so no Run now is needed. A source
+// that is off never waits here: v3.6's "Waiting for an admin" (sources.ts isWaitingForAdmin) is a source discovery or an
+// import found that no admin turned on yet.
 
 /** A source as its waiting reason reads it (a SourceRecord's fields, or a listed row's). */
 export interface WaitingSource {

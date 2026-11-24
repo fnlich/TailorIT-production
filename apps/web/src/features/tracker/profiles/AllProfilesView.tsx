@@ -80,11 +80,11 @@ const NO_WANTED: Readonly<Record<string, number>> = {};
 const NO_SELECTION: ReadonlySet<string> = new Set();
 
 // v34 FANWEB (PLAN G4: "the All profiles view gains Select and bulk actions (Copy to, Move to a stage, Archive,
-// Prepare & Queue) that run on each card's own profile, plus Prepare all profiles"): Select applications and Prepare &
-// Queue jobs are in the view's menu again; the selection may hold cards of every profile and each action is one request
+// Prepare) that run on each card's own profile, plus Prepare all profiles"): Select applications and Prepare
+// jobs are in the view's menu again; the selection may hold cards of every profile and each action is one request
 // (POST /api/profiles/applications/bulk, each card on its own profile). A card whose profile is shared to see only is
 // left out of Move, Archive and Restore (and named in the result); Copy to takes any card (it only reads the job);
-// Prepare & Queue takes only cards of profiles the person may prepare (the others' boxes say why). Archive and Restore
+// Prepare takes only cards of profiles the person may prepare (the others' boxes say why). Archive and Restore
 // have Undo; Prepare asks first (it uses the person's AI). Never Delete (a person who was shared a profile archives).
 
 /** The cards of a profile's read, for knowing which profile a card belongs to. */
@@ -241,6 +241,7 @@ export function AllProfilesView({
     showLane: (status) => {
       if (view === 'board' && !visible.includes(status)) setPrefs(showColumn(prefs, status));
     },
+    queueBox: t('LABEL_SHARING_ROW_QUEUE'), // v36 FIX-WEB (D1)
   });
 
   const markerOf = (application: ApplicationSummary): MarkerView | null => trackerMarker(application, markers.get(application.id), t);
@@ -253,7 +254,7 @@ export function AllProfilesView({
           ...(archivedShown ? (archived.items ?? []) : []),
         ]
       : (list.items ?? []);
-  /** Why a card cannot be chosen for Prepare & Queue: its profile's box, or the card itself (not Saved, queued already). */
+  /** Why a card cannot be chosen for Prepare: its profile's box, or the card itself (not Saved, queued already). */
   const prepareBlocked = (application: ApplicationSummary): string | null => {
     const owner = ownerOf(application);
     if (!owner) return null;
@@ -533,7 +534,7 @@ export function AllProfilesView({
         onEditConsumed={() => undefined}
         onClose={() => setUrl({ ...url, app: null, edit: false })}
       />
-      {/* v34 FANWEB: Copy to profiles…, Prepare & Queue's confirm, Prepare all profiles, the results. */}
+      {/* v34 FANWEB: Copy to profiles…, Prepare's confirm, Prepare all profiles, the results. */}
       <ProfilesDialog
         open={copying !== null}
         onOpenChange={(open) => !open && setCopying(null)}

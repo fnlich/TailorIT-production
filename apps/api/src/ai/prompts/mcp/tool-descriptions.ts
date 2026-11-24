@@ -68,7 +68,7 @@ export const MCP_TOOL_DESCRIPTIONS = {
   // features/mcp/q1-tools.ts (v1.5 Q1; prepare_prompt's is mcpPreparePromptDescription, it names a number)
   // v34 MCPDIR (PLAN G8 addendum): the read and the write are separate tools.
   prepare_settings:
-    'Reads the Prepare & Queue settings (changes nothing): reviseRounds, mode, customInstructions (with any waiting ' +
+    'Reads the Prepare settings (changes nothing): reviseRounds, mode, customInstructions (with any waiting ' +
     "for the person's OK), letterMode and resumeMode.",
   set_prepare_settings:
     "Changes the person's own settings they asked to change: reviseRounds (resume revision rounds, " +
@@ -127,7 +127,7 @@ export const MCP_TOOL_DESCRIPTIONS = {
     "Saves verdicts on filter_jobs' custom.pending jobs, judged against custom.prompt; verdicts on other jobs are " +
     'ignored.',
   prepare_start:
-    "Starts Prepare & Queue with the person's own AI for every job of a filter_jobs runId (or jobIds/applicationIds " +
+    "Starts a Prepare with the person's own AI for every job of a filter_jobs runId (or jobIds/applicationIds " +
     'the person named) that passes the saved filters, run again by TailorIT; a complete kit is queued for auto-apply at ' +
     "once. Every passing job starts: leaving one out is the person's call. rebuild: true redoes ready kits.",
   ai_search_jobs:
@@ -211,7 +211,7 @@ export const MCP_ARG_DESCRIPTIONS = {
 
 /** The MCP prompts' descriptions (prompts/list), and the description of a prompt's answer (prompts/get). */
 export const MCP_PROMPT_DESCRIPTIONS = {
-  prepare_all: "TailorIT's instructions, then the first call to Prepare & Queue the saved jobs that pass.",
+  prepare_all: "TailorIT's instructions, then the first call to prepare the saved jobs that pass.",
   analyze: 'The keyword analysis prompt, for one job.',
   review: "The keyword review prompt, after the job's analysis is saved.",
   tailor: "The resume tailoring prompt, with the job's keyword plan.",
@@ -219,7 +219,7 @@ export const MCP_PROMPT_DESCRIPTIONS = {
   write_cover_letter: 'The cover letter prompt, for one job.',
   write_answers: 'The job\'s open questions, with the applicant\'s facts and TailorIT\'s answer rules.',
   /** prepare_all's answer. */
-  prepare_all_answer: 'Prepare & Queue with your own AI',
+  prepare_all_answer: 'Prepare with your own AI',
 } as const;
 
 /** A step prompt's answer: "<prompt> for job <id>". */

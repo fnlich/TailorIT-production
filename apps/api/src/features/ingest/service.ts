@@ -101,6 +101,13 @@ export const SUSPECT_REREAD_MS = 60 * 60_000;
 /** The process kinds' run triggers, for recoverInterrupted at each one's start. */
 export const API_TRIGGERS: readonly RunTrigger[] = ['manual', 'upload', 'startup'];
 export const WORKER_TRIGGERS: readonly RunTrigger[] = ['schedule'];
+/**
+ * v36 SOURCES (SP v36 PLAN S5): the kinds that run while off: an admin's import record (csv, json: its upload, or Run
+ * now on it) and the dev-only demo jobs (`seed`). No admin turns them on: they are no source Admin › Sources lists, and
+ * neither reads an outside host. Every other source runs (schedule, Run now, a run's Continue) only once an admin
+ * turned it on.
+ */
+export const RUNS_WHILE_OFF_KINDS: readonly SourceKind[] = ['csv', 'json', 'seed'];
 
 export interface SourceTestResult {
   ok: boolean;
@@ -810,7 +817,10 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
     }
   }
 
-  /** The checks before a run: no run of it here, a source that exists and is ever run, an identity it may read with. */
+  /**
+   * The checks before a run: no run of it here, a source that exists and is ever run, an identity it may read with.
+   * v36 SOURCES (PLAN S5): and one an admin turned on (enabled, with enabled_at), but a kind that runs while off.
+   */
   function checkRunnable(source: SourceRecord | null): SourceRecord {
     if (!source) throw notFound('That job source');
     if (UNRUN_KINDS.includes(source.kind)) {
@@ -819,6 +829,9 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
           ? 'TailorIT reads Workday postings one at a time, never a whole Workday site: this source cannot be run.'
           : 'TailorIT never reads job pages again: the jobs added from them keep the text the person saw.',
       );
+    }
+    if ((!source.enabled || !source.enabledAt) && !RUNS_WHILE_OFF_KINDS.includes(source.kind)) {
+      throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_OFF'); // v36 SOURCES
     }
     // v30 FIX-A (REQ-5): a career site (made by hand or by discovery) runs only while "Read career pages" is on.
     if (source.kind === 'career_site' && !careerPagesOn(deps)) throw validationFailed(new CareerPagesOffError().message);
@@ -1052,7 +1065,7 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         name: 'test',
         config,
         companyId: null,
-        enabled: true,
+        enabled: false, // v36 SOURCES: a Test's record is never stored, and an adapter's read never asks
         deactivateMissing: false,
         lastRunAt: null,
         lastSuccessAt: null,
