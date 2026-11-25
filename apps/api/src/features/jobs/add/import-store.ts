@@ -39,7 +39,9 @@ import type { SourceRecord } from '../../ingest/types';
 import { notify } from '../../notifications/index';
 import type { ParsedImportRow } from './import-rows';
 import { rowProblemText } from './import-rows';
-import { LISTED } from './verification'; // v35 FIX-STORE (ux M4): a row's heldIn
+import { listedSql } from './verification'; // v35 FIX-STORE (ux M4): a row's heldIn; v37 REVIEW (R5): listedSql
+import { holdOf, laneOfHost } from '../../ingest/hosts'; // v37 FIX-REV (REVIEW361-ux L9); v37 INT-2a: laneOfHost
+import { timeForPeople } from './verdict'; // v37 FIX-REV (L9)
 import type { LinkQueueOrigin } from './queue';
 
 // v35 IMPORT (SP v35 PLAN.md H1, H2, H6): an import and its rows (migration 0057's job_imports, job_import_rows).
@@ -682,19 +684,54 @@ function outcomeMessage(
   return label;
 }
 
+/**
+ * v37 FIX-REV (REVIEW361-ux L9): the words of each waiting row whose read is due later (the link queue reads it again
+ * after a site's pause, or after a failure for now): why and when, "Waiting: Workday asked us to slow down; TailorIT
+ * reads the link again after 8:03 PM Pacific Time." while the site (all of Workday; v37 INT-2a: any lane, by its
+ * platform's name) asked TailorIT to slow down, else
+ * "Waiting: TailorIT reads the link again after 8:03 PM Pacific Time.". A row due now stays "Waiting". By row number.
+ */
+async function waitingTexts(
+  deps: Deps,
+  rows: ReadonlyArray<{ row_number: number; result: JobImportRowResult; next_at: string | Date | null; queue_host: string | null }>,
+): Promise<Map<number, string>> {
+  const texts = new Map<number, string>();
+  const now = deps.now();
+  const holds = new Map<string, Awaited<ReturnType<typeof holdOf>>>();
+  const constants = constantsOf(deps);
+  const label = JOB_IMPORT_ROW_RESULT_LABEL.queued;
+  for (const row of rows) {
+    if (row.result !== 'queued' || row.next_at === null) continue;
+    const next = new Date(row.next_at).toISOString();
+    if (Date.parse(next) <= now.getTime()) continue;
+    const host = row.queue_host ?? '';
+    if (host && !holds.has(host)) holds.set(host, await holdOf(deps.db, host, now.toISOString()));
+    const hold = host ? holds.get(host) : null;
+    // v37 INT-2a: any lane of FIX-LANE's registry (Workday's in v3.6.1) says its platform's name, and its breaker reads
+    // as a slow-down, as Workday's did.
+    const lane = host ? laneOfHost(host) : null;
+    const slowDown = hold && (hold.reason === 'retry_after' || (lane !== null && hold.reason === 'breaker'));
+    const until = hold && Date.parse(hold.until) > Date.parse(next) ? hold.until : next;
+    const time = timeForPeople(deps, until);
+    const why = slowDown
+      ? constants.message('MSG_JOB_IMPORT_ROW_PAUSED', { site: lane?.name ?? host, time })
+      : constants.message('MSG_JOB_IMPORT_ROW_LATER', { time });
+    texts.set(Number(row.row_number), `${label}: ${why}`);
+  }
+  return texts;
+}
+
 /** v35 FIX-STORE (the ux review's M4): where a row's job waits for an admin's review now (JobImportRowOutcome.heldIn). */
 type JobImportHeldIn = 'unverified' | 'new_job' | null;
 
 /**
  * The SQL of a results row's `heldIn` (row `r`), read from the reviews as they are now, not from its result: a pending
  * New jobs review of its job (a held read, or a rejected one a re-import reopened: FIX-PIPE's D4) is `new_job`; else a
- * note Review › Couldn't verify lists (verification.ts LISTED; none while EXT_NEW_PAGE_JOBS_REVIEW is off, as the list) is
- * `unverified`; else null.
+ * note Review › Couldn't verify lists (verification.ts listedSql, as the list: v37 REVIEW (R5) an admin import's rows
+ * whatever EXT_NEW_PAGE_JOBS_REVIEW says) is `unverified`; else null.
  */
 function heldInSql(deps: Deps): string {
-  const listed = constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')
-    ? `WHEN EXISTS (SELECT 1 FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE v.job_id = r.job_id AND ${LISTED}) THEN 'unverified'`
-    : '';
+  const listed = `WHEN EXISTS (SELECT 1 FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE v.job_id = r.job_id AND ${listedSql(deps)}) THEN 'unverified'`;
   return `CASE WHEN r.job_id IS NULL THEN NULL
     WHEN EXISTS (SELECT 1 FROM job_reviews hr WHERE hr.job_id = r.job_id AND hr.kind = 'new_job' AND hr.state = 'pending') THEN 'new_job'
     ${listed} ELSE NULL END`;
@@ -737,14 +774,18 @@ export async function importDetail(
     repeats_row: number | null;
     job_id: number | null;
     held_in: JobImportHeldIn;
+    next_at: string | Date | null; // v37 FIX-REV (L9): its queued read's next time
+    queue_host: string | null;
   }>(
-    `SELECT r.row_number, r.url, r.details, r.result, r.reason, r.repeats_row, r.job_id, ${heldInSql(deps)} AS held_in
-     FROM job_import_rows r
+    `SELECT r.row_number, r.url, r.details, r.result, r.reason, r.repeats_row, r.job_id, ${heldInSql(deps)} AS held_in,
+       q.next_at, q.host AS queue_host
+     FROM job_import_rows r LEFT JOIN job_link_queue q ON q.id = r.queue_id
      WHERE r.import_id = ? AND r.row_number > ?${results.length > 0 ? ` AND r.result IN (${deps.db.dialect.list(results.length)})` : ''}
      ORDER BY r.row_number LIMIT ?`,
     [row.id, after, ...results, JOB_IMPORT_RESULTS_PAGE + 1],
   );
   const page = rows.slice(0, JOB_IMPORT_RESULTS_PAGE);
+  const waiting = await waitingTexts(deps, page); // v37 FIX-REV (L9)
   const items: JobImportRowOutcome[] = page.map((item) => {
     const details = jsonOf(item.details) ?? {};
     const text = (key: string) => (typeof details[key] === 'string' ? (details[key] as string) : null);
@@ -758,7 +799,7 @@ export async function importDetail(
       heldIn: item.held_in === 'unverified' || item.held_in === 'new_job' ? item.held_in : null,
       title: text('title'),
       company: text('company'),
-      message: outcomeMessage(deps, item, row.kind === 'admin'),
+      message: waiting.get(Number(item.row_number)) ?? outcomeMessage(deps, item, row.kind === 'admin'),
     };
   });
   return {

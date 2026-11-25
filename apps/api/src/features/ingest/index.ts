@@ -41,6 +41,9 @@ export const ingestFeature: Feature = {
   ],
   async start(deps) {
     const service = requireIngest(deps);
+    // v37 LANE (SP v37 PLAN W5): this is the API process (the worker runs no start hook): Add job and its kin are people
+    // waiting, so their reads go ahead of the worker's on the Workday lane.
+    service.readForPeople();
     // The API's own runs a stopped API left (Run now, uploads, the seed at start), and any whose lease ran out.
     await service.recoverInterrupted({ triggers: API_TRIGGERS });
     return async () => {

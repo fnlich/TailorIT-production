@@ -2,7 +2,7 @@ import { constantsOf } from '../../core/constants/service';
 import type { AppDeps } from '../../core/context';
 import type { DbTx } from '../../core/db/types';
 import { companyOf, likelyDuplicates } from './checks';
-import { queueCheck } from './closed'; // v31 LINK
+import { queueCheck, settleReviewsOfClosedJob } from './closed'; // v31 LINK; v37 INT-A: settleReviewsOfClosedJob
 import { approveReview, rejectReview, type FollowUp } from './decide';
 import { reviewById, type ReviewTally } from './store';
 import { ADDED_BY_AUTOFILL, ROW_SOURCE_KINDS } from '../ingest/types'; // v31 FIX-LINK (D12)
@@ -13,7 +13,10 @@ import { ADDED_BY_AUTOFILL, ROW_SOURCE_KINDS } from '../ingest/types'; // v31 FI
 //   (`gone` approves, `live` rejects: decided by `server_check`); where it could not (`unreadable`, `not_possible`), at
 //   least EXT_AUTO_CLOSE_MIN_REPORTERS distinct trusted accounts within EXT_REPORT_WINDOW_DAYS, one of them with a strong
 //   signal or a person's own word, approve it (`auto`). Weak signals count toward the number, never alone. While the
-//   check is queued (or none was made) nothing is decided;
+//   check is queued (or none was made) nothing is decided. v37 CLOSED (SP v37 PLAN.md C6): a `gone` re-check approves
+//   the report whatever the switch says (TailorIT's own read confirmed it: the job closes, decided by `server_check`
+//   with MSG_REVIEW_CLOSED_CONFIRMED, under Decided); the switch still decides the `live` rejection and the reporters'
+//   rule, and unconfirmed reports wait for an admin as before;
 // - a new job read from an ATS (EXT_AUTO_APPROVE_NEW_ATS; held only while NEW_JOBS_ADMIN_APPROVAL is on, v31 LINK):
 //   approved once TailorIT read the posting again itself (v31 LINK: the re-check queue's `live`, queued by the rule)
 //   and its checks pass: still open, its company not opted out, no likely duplicate; otherwise it stays for the admin;
@@ -41,8 +44,16 @@ export async function autoDecide(deps: AppDeps, t: DbTx, reviewId: number, tally
   const constants = constantsOf(deps);
   const at = now.toISOString();
   if (review.kind === 'closed') {
+    // v37 CLOSED (C6): confirmed gone by TailorIT's own read: closed and decided by the server, switch or not.
+    if (review.check_state === 'gone') {
+      const followUps = await approveReview(deps, t, review, { by: 'server_check', userId: null, note: constants.message('MSG_REVIEW_CLOSED_CONFIRMED') }, at);
+      // v37 INT-A (C2/C6 with REVIEW's counts): the job it closed leaves every lane, as an import's close does: its New
+      // jobs review and other closed reports decided by the server, its notes with no adder gone (closed.ts).
+      const job = await t.one<{ active: boolean }>('SELECT active FROM jobs WHERE id = ?', [review.job_id]);
+      if (job && !job.active) await settleReviewsOfClosedJob(deps, t, review.job_id, at);
+      return followUps;
+    }
     if (!constants.get('EXT_AUTO_APPROVE_CLOSED')) return [];
-    if (review.check_state === 'gone') return approveReview(deps, t, review, { by: 'server_check', userId: null }, at);
     if (review.check_state === 'live') {
       await rejectReview(t, review, { by: 'server_check', userId: null }, at);
       return [];

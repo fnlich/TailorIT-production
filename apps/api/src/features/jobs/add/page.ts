@@ -18,6 +18,7 @@ import { sharedAddress } from './address';
 import { readWaitsForAdmin, settleHeldAfterRead } from './held';
 import { dateImported } from './import-time'; // v36 IMPORTTIME
 import { linkRejected } from './verification';
+import { isWorkdayPageHost, pauseOfHold, type LinkRead, type ReadPause } from './verdict'; // v37 CLOSED (C1, C3, C4); v37 INT-A pauseOfHold
 
 // v31 LINK (D3, docs/design/v3.1/21-jobs-from-links.md §4): an added job's own page, read once by TailorIT for its
 // schema.org JobPosting, when no ATS API reads the posting. The read goes through the shared reader (core/seams
@@ -45,11 +46,8 @@ import { linkRejected } from './verification';
 //     (or the read is an admin's approval: `approved`); a read that lands on a job the legacy pass holds settles it
 //     (held.ts: BEH-4).
 
-/** What reading an added job's page came to. */
-export type PageJobRead =
-  | { kind: 'shared'; jobId: number; created: boolean; held: boolean }
-  | { kind: 'closed' }
-  | { kind: 'unreadable'; reason: JobVerifyReason };
+/** What reading an added job's page came to (v37 CLOSED: a LinkRead, a held host's read with its pause). */
+export type PageJobRead = LinkRead;
 
 const unreadable = (reason: JobVerifyReason): PageJobRead => ({ kind: 'unreadable', reason });
 
@@ -61,13 +59,25 @@ class PageRefusal extends Error {
   }
 }
 
-/** The reader's answer for the page: its JobPosting, or why there is none. Outside any transaction. */
+/**
+ * The reader's answer for the page: its JobPosting, or why there is none. Outside any transaction. v37 CLOSED (C1, C3,
+ * C4): a robots.txt that could not be read is a failure for now (`unavailable`), only its disallow is lasting (`robots`);
+ * a held host's refusal, and a 429's, carry the pause (until when, the host); a Workday host is never read as a page
+ * (its posting is read from its JSON: workday.ts), so its link that names no posting is `no_posting` with no request.
+ */
 export async function readJobPage(
   deps: AppDeps,
   url: string,
-): Promise<{ kind: 'posting'; posting: JobPostingData; finalUrl: string } | { kind: 'closed' } | { kind: 'unreadable'; reason: JobVerifyReason }> {
+): Promise<{ kind: 'posting'; posting: JobPostingData; finalUrl: string } | { kind: 'closed' } | { kind: 'unreadable'; reason: JobVerifyReason; pause?: ReadPause }> {
+  const host = new URL(url).hostname.toLowerCase();
+  if (isWorkdayPageHost(host)) return { kind: 'unreadable', reason: 'no_posting' }; // v37 CLOSED (C4)
   const result = await siteReader.read(deps, { url, purpose: 'add_page', accept: 'html' });
   if (!result.ok) {
+    // v37 CLOSED (C3): a host held, or a 429, says until when. v37 INT-A: a held host's pause is the one helper's
+    // (verdict.ts pauseOfHold): a host held after its 429 (`retry_after`) asked TailorIT to slow down.
+    const pause = (slowDown: boolean): { pause?: ReadPause } => (result.retryAt ? { pause: { until: result.retryAt, site: host, slowDown } } : {});
+    const heldPause = (): { pause?: ReadPause } =>
+      result.retryAt ? { pause: pauseOfHold({ until: result.retryAt, reason: result.holdReason ?? 'admin' }, host) } : {};
     switch (result.refusal) {
       case 'switch_off':
       case 'identity_placeholder':
@@ -75,13 +85,15 @@ export async function readJobPage(
       case 'opted_out':
         return { kind: 'unreadable', reason: 'opted_out' };
       case 'robots':
-        return { kind: 'unreadable', reason: 'robots' };
+        // v37 CLOSED (C1): an unreachable robots.txt (the reader answers it with a time to ask again) is a failure for now.
+        return result.retryAt ? { kind: 'unreadable', reason: 'unavailable' } : { kind: 'unreadable', reason: 'robots' };
       case 'blocked':
-        return { kind: 'unreadable', reason: 'blocked' };
+        return { kind: 'unreadable', reason: 'blocked', ...(result.status === 429 ? pause(true) : {}) };
       case 'failed':
         if (result.status === 404 || result.status === 410) return { kind: 'closed' };
         return { kind: 'unreadable', reason: 'unavailable' };
       case 'held':
+        return { kind: 'unreadable', reason: 'unavailable', ...heldPause() };
       default:
         return { kind: 'unreadable', reason: 'unavailable' };
     }

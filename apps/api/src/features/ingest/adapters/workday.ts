@@ -1,5 +1,5 @@
 import { COUNTRIES, parseLocations, type ParsedLocation, type WorkArrangement } from '@tailorit/shared';
-import { unsafeWorkdaySegment, WORKDAY_PATH_MAX, type WorkdayPostingRef } from '@tailorit/shared/autofill';
+import { unsafeWorkdaySegment, WORKDAY_PATH_MAX, type AddablePosting, type WorkdayPostingRef } from '@tailorit/shared/autofill';
 import type { IngestHttp } from '../http';
 import { assertRobotsAllow } from '../robots';
 import { IngestError, type RawPosting } from '../types';
@@ -36,15 +36,23 @@ export function workdayTenant(input: string): string {
 /** On myworkdaysite.com the tenant sits in the path, before the site. */
 const onSharedHost = (host: string) => host.endsWith('.myworkdaysite.com');
 
-/** The posting's own page: https://<host>[/recruiting/<tenant>]/<site>/job/<location>/<slug>_<reqId>. */
+// v37 CLOSED (SP v37 PLAN.md C4): a posting's link may name no location (`location` ''): Workday's own
+// /<site>/details/<slug>_<reqId> (its search pages' links) or /<site>/job/<slug>_<reqId>. Its read is the posting's JSON
+// without the location, /wday/cxs/<tenant>/<site>/job/<slug>_<reqId> (Workday answers it as the located one; a
+// /details/ path in the JSON read answers 406), and its page the /details/ one (workdayLinkPosting below; the shared
+// lookup's addablePosting, hash-pinned by the extension's contract, reads located links only).
+
+/** The posting's own page: https://<host>[/recruiting/<tenant>]/<site>/job/<location>/<slug>_<reqId> (no location: /details/). */
 function pagePath(ref: WorkdayRef): string {
   const prefix = onSharedHost(ref.host) ? `/recruiting/${ref.tenant}` : '';
+  if (!ref.location) return `${prefix}/${ref.site}/details/${ref.posting}`; // v37 CLOSED (C4)
   return `${prefix}/${ref.site}/job/${ref.location}/${ref.posting}`;
 }
 
-/** The read's path: /wday/cxs/<tenant>/<site>/job/<location>/<slug>_<reqId> (location and name as the page writes them). */
+/** The read's path: /wday/cxs/<tenant>/<site>/job/[<location>/]<slug>_<reqId> (location and name as the page writes them). */
 function cxsPath(ref: WorkdayRef): string {
-  return `/wday/cxs/${encodeURIComponent(ref.tenant)}/${encodeURIComponent(ref.site)}/job/${ref.location}/${ref.posting}`;
+  const located = ref.location ? `${ref.location}/` : ''; // v37 CLOSED (C4): no location, none in the read
+  return `/wday/cxs/${encodeURIComponent(ref.tenant)}/${encodeURIComponent(ref.site)}/job/${located}${ref.posting}`;
 }
 
 /** The posting's JSON address. */
@@ -210,6 +218,67 @@ export function workdayPosting(answer: Json, ref: WorkdayRef, companyName: strin
 /** A posting read: found (with the company Workday names, when the source names none), or gone. */
 export type WorkdayAnswer = { found: true; raw: RawPosting; listedCompany?: string } | { found: false };
 
+/** A tenant's own Workday host (its first label the tenant; never www or a bare wd<n>). */
+const WORKDAY_TENANT_HOST = /^(?!(?:www|wd\d{1,3})\.)([a-z0-9-]+)\.(?:wd\d{1,3}\.)?myworkdayjobs\.com$/;
+/** A locale segment, read as one only where a site follows it (as the shared lookup reads Workday's addresses). */
+const WORKDAY_LOCALE = /^[a-z]{2,3}(?:-[a-z0-9]{2,4})?$/i;
+/** A tenant or a career site as Workday's addresses write them. */
+const WORKDAY_NAME = /^[A-Za-z0-9_-]+$/;
+/** What may follow a location-less posting: nothing (the posting) or its Apply choice. */
+const WORKDAY_LINK_PAGES: ReadonlySet<string> = new Set(['', 'apply', 'apply/applyManually', 'apply/autofillWithResume', 'apply/useMyLastApplication']);
+
+/** A path segment decoded once and encoded again one way (a ',' and its '%2C' are one), or null. */
+function foldedSegment(segment: string): string | null {
+  try {
+    return encodeURIComponent(decodeURIComponent(segment));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * v37 CLOSED (C4): the posting a Workday link names WITHOUT a location, as Add job reads it: <host>/[<locale>/]<site>/
+ * details/<slug>_<reqId> or <host>/[<locale>/]<site>/job/<slug>_<reqId> (and /recruiting/<tenant>/<site>/... on
+ * wd<n>.myworkdaysite.com), then nothing or the posting's Apply pages. Null for any other address (a located posting is
+ * the shared lookup's: addablePosting), a segment that would change the read's path, or a path over WORKDAY_PATH_MAX.
+ */
+export function workdayLinkPosting(address: string): AddablePosting | null {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' || url.port !== '') return null;
+  const host = url.hostname.toLowerCase();
+  const own = WORKDAY_TENANT_HOST.exec(host);
+  const shared = /^wd\d{1,3}\.myworkdaysite\.com$/.test(host);
+  if (!own && !shared) return null;
+  let parts = url.pathname.split('/').filter((part) => part !== '');
+  const siteAt = own ? 0 : 2;
+  // A first segment shaped like a locale is one only where the posting's shape follows it.
+  const shaped = (rest: string[]) => (own ? rest[siteAt + 1] === 'details' || rest[siteAt + 1] === 'job' : rest[0] === 'recruiting');
+  if (parts[0] !== undefined && WORKDAY_LOCALE.test(parts[0]) && shaped(parts.slice(1))) parts = parts.slice(1);
+  let tenant: string;
+  if (own) {
+    tenant = own[1]!;
+  } else {
+    const [recruiting, named, ...rest] = parts;
+    if (recruiting !== 'recruiting' || named === undefined || !WORKDAY_NAME.test(named)) return null;
+    tenant = named.toLowerCase();
+    parts = rest;
+  }
+  const [site, kind, posting, ...rest] = parts;
+  if (site === undefined || !WORKDAY_NAME.test(site) || (kind !== 'details' && kind !== 'job') || posting === undefined) return null;
+  if (!WORKDAY_LINK_PAGES.has(rest.join('/'))) return null;
+  const folded = foldedSegment(posting);
+  const match = folded === null ? null : /^(.+)_([^_]+)$/.exec(folded);
+  if (!folded || !match || unsafeWorkdaySegment(folded)) return null;
+  const ref = { host, site, location: '', posting: folded };
+  if (pagePath({ ...ref, tenant, reqId: match[2]! }).length > WORKDAY_PATH_MAX) return null;
+  return { kind: 'workday', board: tenant, externalId: match[2]!, region: 'global', workday: ref };
+}
+
 /** Workday's own hosts (a tenant's on myworkdayjobs.com, the shared wd<n>.myworkdaysite.com): its reads stay on them. */
 export const isWorkdayHost = (host: string) =>
   /^[a-z0-9-]+\.(?:wd\d{1,3}\.)?myworkdayjobs\.com$/.test(host) || /^wd\d{1,3}\.myworkdaysite\.com$/.test(host);
@@ -248,7 +317,8 @@ export async function readWorkdayPosting(
   companyName: string | null,
   signal?: AbortSignal,
 ): Promise<WorkdayAnswer> {
-  if (unsafeWorkdaySegment(ref.location) || unsafeWorkdaySegment(ref.posting) || pagePath(ref).length > WORKDAY_PATH_MAX) {
+  // v37 CLOSED (C4): a posting with no location ('') has none to check.
+  if ((ref.location !== '' && unsafeWorkdaySegment(ref.location)) || unsafeWorkdaySegment(ref.posting) || pagePath(ref).length > WORKDAY_PATH_MAX) {
     throw new IngestError('TailorIT does not read a Workday posting from this address.');
   }
   // Workday reads its career sites' names in any case, so a rule written in one case keeps the others out too.

@@ -40,6 +40,7 @@ import { refreshAfterFanoutSave, useFanoutChoices } from '../../sharing/fanout/u
 //                          see it, "From your browser, not verified")  Back | Save for me only
 //                        - their own job                             Open the job | Add another
 //   refused              closed, not a job link, rejected            Try another link | Close
+//                        v37: the site asked TailorIT to slow down   Close (a warning: try again at the time said)
 // The job is saved to the person's Job Tracker by the server.
 // v35 IMPORTWEB (SP v35 SPECS-W2.md IMPORTWEB §3; PLAN H1, H2): three tabs, One link | File | Google Sheet. One link keeps
 // the flow above and offers "Add details (optional)" up front (Company, Job title, Description, Rate, Location): used
@@ -278,7 +279,12 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
       <div className="mt-5 flex flex-col" data-add-job-outcome={view.tone}>
         <OutcomeNotice view={view} also={step.also} />
         <DialogFooter>
-          {view.next === 'retry' ? (
+          {view.next === 'later' ? (
+            // v37 FIX-REV (REVIEW361-ux L10): the site asked TailorIT to slow down: nothing to change, try again later.
+            <Button ref={nextRef} onClick={onClose}>
+              {ADD_JOB_COPY.close}
+            </Button>
+          ) : view.next === 'retry' ? (
             <>
               <Button variant="outline" onClick={onClose}>
                 {ADD_JOB_COPY.close}

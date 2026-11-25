@@ -18,7 +18,7 @@ import {
   type UnverifiedLinksResponse,
   type UnverifiedVersion,
 } from '@tailorit/shared/jobs';
-import { REVIEW_LANE_LABEL, REVIEW_LANES, type ReviewLane } from '@tailorit/shared/reviews';
+import { REVIEW_LANE_LABEL, REVIEW_PAGE_LANES, REVIEW_PAGE_SIZE, type ReviewPageLane } from '@tailorit/shared/reviews';
 import { z } from 'zod';
 import { api } from '@/lib/api';
 import { relativeTime } from '@/lib/format';
@@ -72,8 +72,8 @@ export function unverifiedFilterFromAddress(params: { get(name: string): string 
   return Number.isInteger(run) && run > 0 ? { from: 'imports', runId: run } : ALL_UNVERIFIED;
 }
 
-/** A page of the list (the server's cap is 100). */
-export const UNVERIFIED_PAGE_SIZE = 50;
+/** A page of the list (the server's cap). v37 REVIEW (R1): 100, the lanes' page, loaded as you scroll. */
+export const UNVERIFIED_PAGE_SIZE = REVIEW_PAGE_SIZE;
 
 // v35 FIX-WEB (the final review's S6): the lane's count (the header's) reads `count`; Approve all / Reject all read the
 // whole answer (UnverifiedCountSchema: `upTo`, what was counted) and send `upTo` back, so they decide nothing beyond it.
@@ -150,13 +150,13 @@ export function fetchUnverifiedDetail(jobId: number, signal?: AbortSignal): Prom
 
 // The lanes ------------------------------------------------------------------------------------------------------------
 
-/** The Review page's lanes: the review queue's three and "Couldn't verify". */
-export type AdminReviewLane = ReviewLane | 'unverified';
-export const ADMIN_REVIEW_LANES: readonly AdminReviewLane[] = [...REVIEW_LANES, 'unverified'];
+/** The Review page's lanes: the review queue's three and "Couldn't verify" (v37 REVIEW: shared REVIEW_PAGE_LANES). */
+export type AdminReviewLane = ReviewPageLane;
+export const ADMIN_REVIEW_LANES: readonly AdminReviewLane[] = REVIEW_PAGE_LANES;
 export const ADMIN_REVIEW_LANE_LABEL: Record<AdminReviewLane, string> = { ...REVIEW_LANE_LABEL, unverified: "Couldn't verify" };
 
 /** Whether a lane is one of the review queue's (the shared routes), not "Couldn't verify". */
-export function isQueueLane(lane: AdminReviewLane): lane is ReviewLane {
+export function isQueueLane(lane: AdminReviewLane): lane is Exclude<AdminReviewLane, 'unverified'> {
   return lane !== 'unverified';
 }
 
@@ -197,12 +197,15 @@ export function unverifiedMetaLine(row: Pick<UnverifiedLink, 'adders' | 'firstAd
   return parts.join(' · ');
 }
 
-/** The lane's empty state: the list is off, or nothing waits. */
+/**
+ * The lane's empty state: the list is off, or nothing waits. v37 REVIEW (R5): while the switch is off the lane still
+ * lists an admin import's held jobs; empty, it says people's links are not listed.
+ */
 export function unverifiedEmptyText(listOn: boolean | null): { title: string; description: string } {
   if (listOn === false) {
     return {
-      title: 'This list is off',
-      description: "Turn on the switch above to list the links TailorIT couldn't read, so you can approve, read again or reject them.",
+      title: "People's links are not listed",
+      description: "Turn on the switch above to list the links people added that TailorIT couldn't read. Your imports' jobs are listed either way.",
     };
   }
   return {
@@ -311,7 +314,7 @@ export function rowOriginText(row: Pick<UnverifiedLink, 'from' | 'importName' | 
 /** "1,240 jobs". */
 const jobsText = (count: number) => `${count.toLocaleString('en-US')} ${count === 1 ? 'job' : 'jobs'}`;
 
-/** The confirm of Approve selected / Reject selected, and of Approve all / Reject all (with the filter's count). */
+/** The confirm of the bar's Approve / Reject, on the chosen rows or on "Select all N" (with the filter's count). */
 export function unverifiedBulkConfirm(action: 'approve' | 'reject', count: number, all: boolean): { title: string; description: string; confirm: string } {
   const verb = action === 'approve' ? 'Approve' : 'Reject';
   return {
@@ -340,7 +343,18 @@ export interface UnverifiedOutcome {
   /** The last answer's words ("Approved 1,240 jobs. 3 could not be approved."), or a request's failure. */
   message: string;
   items: UnverifiedBulkResult['items'];
+  /** v37 FIX-REV (REVIEW361-ux L6): the admin stopped it after a turn. */
+  stopped?: boolean;
 }
+
+/**
+ * v37 FIX-REV (REVIEW361-ux M2): the line under the list switch while it is off: the lane is not empty then (an admin
+ * import's jobs are always listed), so the switch does not look broken.
+ */
+export const LIST_OFF_NOTE = "Off: only jobs from admins' imports are listed here.";
+
+/** v37 FIX-REV (REVIEW361-ux L3): the bar's words, as every other lane's bar says them. */
+export const UNVERIFIED_BAR_WORDS = { approve: 'Approve', reject: 'Reject', cancel: 'Cancel' } as const;
 
 /**
  * Approve all / Reject all: the request again while rows are `left` and the last request did something (the hour's
@@ -349,17 +363,30 @@ export interface UnverifiedOutcome {
 export async function runUnverifiedAll(
   send: () => Promise<UnverifiedBulkResult>,
   onTurn: (sofar: UnverifiedOutcome) => void = () => undefined,
-  maxTurns = 40,
+  maxTurns = 200, // v37 REVIEW (R3): each request works ADMIN_BULK_ALL_SECONDS (v3.5: 150 s and 40 turns)
+  stop: () => boolean = () => false, // v37 FIX-REV (REVIEW361-ux L6): true after a turn ends it there
 ): Promise<UnverifiedOutcome> {
   let done = 0;
   let last: UnverifiedBulkResult | null = null;
+  let stopped = false;
   for (let turn = 0; turn < maxTurns; turn += 1) {
     last = await send();
     done += last.done;
     onTurn({ action: last.action, done, skipped: last.skipped, left: last.left, message: last.message, items: [] });
     if (last.left === 0 || last.done === 0) break;
+    if (stop()) {
+      stopped = true;
+      break;
+    }
   }
-  return { action: last!.action, done, skipped: last!.skipped, left: last!.left, message: allLine(last!.action, done, last!.skipped, last!.left, last!), items: [] };
+  const message = stopped ? stoppedLine(last!.action, done, last!.left) : allLine(last!.action, done, last!.skipped, last!.left, last!);
+  return { action: last!.action, done, skipped: last!.skipped, left: last!.left, message, items: [], ...(stopped ? { stopped } : {}) };
+}
+
+/** v37 FIX-REV (L6): "Stopped: approved 200 jobs. 60 still wait." */
+function stoppedLine(action: 'approve' | 'reject', done: number, left: number): string {
+  const verb = action === 'approve' ? 'approved' : 'rejected';
+  return `Stopped: ${verb} ${jobsText(done)}.${left > 0 ? ` ${left.toLocaleString('en-US')} still wait.` : ''}`;
 }
 
 /** One line for an "all" that took several requests (the server's own words when it took one). */

@@ -25,6 +25,7 @@ import { newInFlight, type InFlight } from '../../autofill/jobs'; // v34 FANOUT:
 import { takeAddSlot } from './limits';
 import { approveUnverifiedJob } from './approve'; // v32 ADMINAPP (E6)
 import { addJobByLink, verifyJob, type AddJobByLinkOutcome } from './pipeline';
+import { pauseMessage } from './verdict'; // v37 CLOSED (C3)
 import { batchProgress } from './queue';
 import { listUnverifiedLinks } from './verification';
 import { addJobImportRoutes } from './import-router'; // v35 IMPORT
@@ -60,8 +61,18 @@ type Deps = Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>;
  * unread is "only you", not "couldn't read" again).
  */
 export function addJobResultOf(deps: Deps, outcome: AddJobByLinkOutcome, retry = false): AddJobResult {
-  const key =
-    outcome.state === 'private_unverified'
+  // v37 CLOSED (C3): a read while the site (every Workday site) paused TailorIT says when to try again; every other
+  // answer is as before (no `pause` field in any answer).
+  if (outcome.pause) {
+    const { pause, ...rest } = outcome;
+    return { ...rest, message: pauseMessage(deps, pause) };
+  }
+  // v37 FIX-REV (REVIEW361-ux M5): a Retry read that found the posting closed closed the person's own job (pipeline.ts
+  // verifyJob, C5): it says so ("This posting has closed, so TailorIT marked the job closed."), not that nothing was added.
+  const retryClosed = retry && outcome.state === 'refused' && outcome.reason === 'closed';
+  const key = retryClosed
+    ? 'MSG_JOB_RETRY_CLOSED'
+    : outcome.state === 'private_unverified'
       ? outcome.needsDetails
         ? 'MSG_JOB_ADD_NEEDS_DETAILS'
         : retry

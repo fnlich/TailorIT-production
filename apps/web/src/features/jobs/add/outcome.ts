@@ -73,8 +73,11 @@ export interface AddOutcomeView {
   why: string | null;
   /** The job to open ("Open the job"): published, waiting for an admin, or the person's own. */
   jobId: number | null;
-  /** The next step: open the job, type the details (title and company) for a job of one's own, or try another link. */
-  next: 'open' | 'details' | 'retry';
+  /**
+   * The next step: open the job, type the details (title and company) for a job of one's own, or try another link; v37
+   * FIX-REV (REVIEW361-ux L10): `later`, nothing wrong with the link (the site asked TailorIT to slow down): Close.
+   */
+  next: 'open' | 'details' | 'retry' | 'later';
 }
 
 /** A reason's words (each reason's message is a public constant). */
@@ -106,6 +109,12 @@ export function addOutcomeView(result: AddJobResult, t: MessageRenderer): AddOut
       return { tone: 'warning', title: t('LABEL_JOB_FROM_BROWSER'), body: result.message, why: extra, jobId: result.jobId, next: 'open' };
     }
     case 'refused':
+      // v37 INT-A: refused for now while the site (every Workday site) asked TailorIT to slow down (CLOSED's C3, the
+      // only `refused` with `unavailable`): its message says when to try again. v37 FIX-REV (REVIEW361-ux L10): nothing
+      // is wrong with the link: a warning, and Close (not "Try another link").
+      if (result.reason === 'unavailable') {
+        return { tone: 'warning', title: 'Try again later', body: result.message, why: null, jobId: null, next: 'later' };
+      }
       return {
         tone: 'error',
         title: result.reason === 'closed' ? 'This posting has closed' : "This link can't be added",

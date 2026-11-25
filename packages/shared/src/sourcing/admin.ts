@@ -396,6 +396,26 @@ export const AdminHostRowSchema = z.object({
   failingSources: z.number().int().nonnegative(),
   /** Its registrable domain is on the opt-out list: neither reader reads it. */
   optedOut: z.boolean(),
+  // v37 LANE (SP v37 PLAN W10): a lane's row paces many hosts. `label` names it ("Workday (all sites)": every Workday
+  // site takes its turns there; its failures in a row are its 429s in a row, its sources every Workday source);
+  // `lane` names the lane a host's requests take their turns on (a Workday site's). Absent from a server before v3.6.1.
+  label: z.string().optional(),
+  lane: z.string().optional(),
+  // v37 FIX-LANE (SP v37 FIXES-361 D3, F6): a lane's pace adapts to its platform's 429s. On the lane's row:
+  // `minIntervalMs` is its gap now, `easesAt` when that gap next halves (null at its least gap, `leastGapMs`),
+  // `consecutiveFailures` its 429s in the last `windowMinutes`, and `breakerAfter` of them hold the whole lane for
+  // `breakerMinutes`. On a lane's site's row: the lane's pause or hold now (`laneHoldUntil`, `laneHoldReason`).
+  // `platform` (on both) names the lane's platform in a sentence ("Workday": "all of Workday"); the lanes are the API's
+  // registry (features/ingest/hosts.ts), only Workday's in v3.6.1.
+  platform: z.string().optional(),
+  easesAt: IsoDateTime.nullable().optional(),
+  leastGapMs: z.number().int().nonnegative().optional(),
+  windowMinutes: z.number().int().positive().optional(),
+  breakerAfter: z.number().int().positive().optional(),
+  breakerMinutes: z.number().int().positive().optional(),
+  laneHoldUntil: IsoDateTime.nullable().optional(),
+  laneHoldReason: z.enum(CRAWL_HOST_HOLD_REASONS).nullable().optional(),
+  // end v37 LANE
 });
 export type AdminHostRow = z.infer<typeof AdminHostRowSchema>;
 

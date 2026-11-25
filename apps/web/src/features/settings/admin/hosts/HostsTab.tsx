@@ -1,6 +1,6 @@
 'use client';
 
-import { AdminHostRowSchema, CRAWL_HOST_HOLD_LABEL, type AdminHost, type AdminHostRow } from '@tailorit/shared/sourcing';
+import { AdminHostRowSchema, type AdminHost, type AdminHostRow } from '@tailorit/shared/sourcing';
 import { keepPreviousData, useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useSearchParams } from 'next/navigation';
@@ -18,11 +18,32 @@ import { useAdminLink } from '../sources/links';
 import { formatCount } from '../sources/sources';
 import { fetchHostsPage, hostKeys, type AdminHostsPage, type HostFilters, type HostShow } from './api';
 import { HostSheet } from './HostSheet';
-import { clockText, holdLeftText, isHeld, lastStatusText, paceText, sourcesText } from './hosts';
+import {
+  clockText,
+  failuresLabel,
+  gapText,
+  holdLeftText,
+  holdLine,
+  holdReasonText,
+  hostName,
+  isHeld,
+  isLaneRow,
+  lanePaused,
+  lastStatusText,
+  platformOf,
+  rowSourcesText,
+} from './hosts';
 
 // v30 S1-WEB: Admin › Hosts (docs/design/part2/12-job-sourcing.md §9.2, §9.4, §9.8): every host the readers pace
 // (crawl_hosts), server-paged and searched, held or failing ones on their own; a host's sheet shows its pace, hold,
 // failures and robots.txt with the content signals, and holds or releases it. SCH's stub, built.
+// v37 LANE (SP v37 PLAN W10): every Workday site takes its turns on one lane, shown first as one row, "Workday (all
+// sites)": its gap (the Workday gap constant), its pause (a 429 pauses all of Workday) and its end, its 429s,
+// its last answer and its Workday sources; Hold and Release work on it as on a host.
+// v37 FIX-LANE (SP v37 FIXES-361 D3, F6; the ux review's M3): the lane's gap as it adapts ("…, easing back at 4:10 PM"),
+// its 429s in the window; a held row says its hold in its host cell (at 390 px the Hold column is past the table's
+// sideways scroll, and a tip is no way in for a keyboard or a finger); a Workday site paused with all of Workday says so.
+// v37 FIX-LANE (the generic lane): every lane the server registers is such a row; its words name its platform.
 
 /** Whether Admin › Hosts is built: the registry draws it once true. */
 export const HOSTS_TAB_READY = true;
@@ -89,21 +110,32 @@ export function HostsTab() {
         <button type="button" onClick={() => openRow(host)} className="block min-w-0 max-w-full rounded-control text-left">
           {/* v30 FIX-WEB (REV-UX UX-9): the name is the visible words after a hidden verb (Label in Name). */}
           <span className="sr-only">Open </span>
-          <span className="block truncate font-semibold hover:underline">{host.host}</span>
-          <span className="block truncate text-[13px] text-muted-foreground">{sourcesText(host)}</span>
+          <span className="block truncate font-semibold hover:underline">{hostName(host)}</span>
+          <span className="block truncate text-[13px] text-muted-foreground">
+            {rowSourcesText(host)}
+            {isLaneRow(host) ? ', one request at a time' : host.lane ? `, on ${host.lane}` : ''}
+          </span>
+          {holdLine(host, now) && (
+            <span className="block text-[13px] text-warning-ink" data-host-hold-line="">
+              {holdLine(host, now)}
+            </span>
+          )}
         </button>
       ),
     },
-    { key: 'pace', header: 'Pace', className: 'w-52', cell: (host) => <span className="text-[13px]">{paceText(host.minIntervalMs)}</span> },
+    { key: 'pace', header: 'Pace', className: 'w-52', cell: (host) => <span className="text-[13px]">{gapText(host, now)}</span> },
     {
       key: 'hold',
       header: 'Hold',
       className: 'w-56',
       cell: (host) =>
         isHeld(host, now) && host.holdUntil ? (
-          <Tooltip content={`${host.holdReason ? CRAWL_HOST_HOLD_LABEL[host.holdReason] : 'Held'}, until ${clockText(host.holdUntil, now)}`}>
+          <Tooltip content={`${holdReasonText(host)}, until ${clockText(host.holdUntil, now)}`}>
             <Badge tone={host.holdReason === 'admin' ? 'neutral' : 'warning'}>{holdLeftText(host.holdUntil, now)}</Badge>
           </Tooltip>
+        ) : lanePaused(host, now) && host.laneHoldUntil ? (
+          // v37 FIX-LANE (M3): a Workday site waits with all of Workday (a lane's site with all of its platform).
+          <Badge tone="warning">{`Paused with ${platformOf(host)} until ${clockText(host.laneHoldUntil, now)}`}</Badge>
         ) : (
           <span className="text-muted-foreground">Not held</span>
         ),
@@ -113,7 +145,13 @@ export function HostsTab() {
       header: 'Failures in a row',
       className: 'w-36',
       numeric: true,
-      cell: (host) => <span className={clsx(host.consecutiveFailures > 0 && 'text-danger')}>{host.consecutiveFailures}</span>,
+      cell: (host) => (
+        <span className={clsx(host.consecutiveFailures > 0 && 'text-danger')}>
+          {host.consecutiveFailures}
+          {/* v37 LANE: the lane's failures are Workday's 429 answers (v37 FIX-LANE: in its window). */}
+          {isLaneRow(host) && <span className="sr-only"> ({failuresLabel(host)})</span>}
+        </span>
+      ),
     },
     { key: 'last', header: 'Last answer', className: 'w-28 tabular-nums', cell: (host) => lastStatusText(host.lastStatus) },
     {
@@ -129,7 +167,7 @@ export function HostsTab() {
   return (
     <AdminResourceTab
       title="Hosts"
-      description="One request at a time per host, its pace apart; a failing or blocking host is held."
+      description="One request at a time per host, its pace apart (a platform's sites share one lane, as Workday's do); a failing or blocking host is held."
       actions={<IconButton label="Refresh the hosts" icon={<ArrowsClockwiseIcon size={16} />} variant="outline" onClick={() => void hosts.refetch()} />}
       lead={
         <div className="mb-4 flex flex-wrap items-center gap-3" role="search" aria-label="Find hosts">

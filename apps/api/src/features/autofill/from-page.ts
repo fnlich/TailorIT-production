@@ -18,6 +18,8 @@ import { sightPublishedPageJob } from '../job-reviews/new-jobs'; // v30 X1-API
 import { noteUnverified } from '../jobs/add/verification'; // v31 LINK
 import { noticeVerification } from '../jobs/add/notify'; // v31 LINK
 import { readPageToSharedJob, type PageJobRead } from '../jobs/add/page'; // v31 LINK
+import { offerBoardOfClosedLink } from '../jobs/add/closed-link'; // v37 CLOSED (C7)
+import { workdayLinkPosting } from '../ingest/adapters/workday'; // v37 CLOSED (C4)
 import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
 import { aliasValueHash } from './alias-key';
 import { jobPlaces, placeKey, placesMeet, type Place } from './places';
@@ -513,7 +515,8 @@ export async function addFromPage(
   if (problem) throw new AppError('unsupported', problem);
   const kind: AtsKind | null = page.employer?.ats?.kind ?? page.ats?.kind ?? null;
   const fromEmployer = addablePosting(page.employer?.ats ?? null);
-  const posting = fromEmployer ?? addablePosting(page.ats);
+  // v37 CLOSED (C4): the page's own Workday link without a location reads the posting's JSON too.
+  const posting = fromEmployer ?? addablePosting(page.ats) ?? (page.ats ? null : workdayLinkPosting(request.url));
   // The ATS posting read for the page, as postingIdentityOf names it.
   const postingId = postingIdentityOf((fromEmployer ? page.employer?.ats : page.ats)?.canonical[0]);
   // The ATS posting a page job made now is made with: the employer's link's (read or not, alive or not), else the page's.
@@ -561,6 +564,10 @@ export async function addFromPage(
       created = read.created;
       via = 'ats';
     } catch (error) {
+      // v37 CLOSED (C7): a closed posting's board is offered to discovery (a candidate waiting for an admin).
+      if (error instanceof AppError && error.code === 'not_found') {
+        await offerBoardOfClosedLink(deps, fromEmployer ? (request.employerUrl ?? request.url) : request.url, 'extension');
+      }
       if (fromEmployer && !page.ats && isGonePosting(error)) {
         // The employer's posting is gone (closed, or off its board's list) while the page still shows the job (U11): the
         // page's text stands in, and the dead link is no identity, alias or Apply link: the page's own address is.

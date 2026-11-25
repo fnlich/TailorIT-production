@@ -16,11 +16,13 @@ import { noteProblem } from './copy';
 export type BulkAction = 'approve' | 'reject' | 'resolved' | 'dismissed';
 
 const TITLE: Record<BulkAction, string> = { approve: 'Approve', reject: 'Reject', resolved: 'Resolve', dismissed: 'Dismiss' };
-const WHAT: Record<BulkAction, string> = {
+/** What each decision does (v37 FIX-REV: exported for its test). */
+export const WHAT: Record<BulkAction, string> = {
   approve: "A closed link closes as if its own read found it gone; a new job joins everyone's job search.",
   reject: 'Closed links stay open; new jobs stay with the people who added them.',
-  resolved: 'The flags are marked resolved.',
-  dismissed: 'The flags are dismissed.',
+  // v37 FIX-REV (REVIEW361-ux L8): what each decision does, before it does it; the job is never touched.
+  resolved: 'Each flag is marked resolved; its job is not changed.',
+  dismissed: 'Each flag is marked dismissed; its job is not changed.',
 };
 
 export function BulkDialog({

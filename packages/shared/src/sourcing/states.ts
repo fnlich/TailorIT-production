@@ -140,9 +140,20 @@ export const JOB_SOURCE_RUN_ERROR_CODES = [
   'invalid',
   'interrupted',
   'error',
+  'workday_paused', // v37 FIX-LANE
 ] as const;
 export type JobSourceRunErrorCode = (typeof JOB_SOURCE_RUN_ERROR_CODES)[number];
+/**
+ * v37 FIX-LANE (SP v37 FIXES-361 F7): the code of a run that met Workday's pause (or an admin's hold of all of Workday)
+ * before it read its postings: it ends Partial with this code, never Failed, and runs again after the pause. Another
+ * platform's lane writes `<platform>_paused` (the API's hosts.ts laneWaitingCodeOf), said RUN_WAITING_FOR_LANE_LABEL
+ * until it has words of its own here.
+ */
+export const RUN_WAITING_FOR_WORKDAY = 'workday_paused' satisfies JobSourceRunErrorCode;
+/** v37 FIX-LANE: a lane's waiting run whose code has no words of its own (any `<platform>_paused`). */
+export const RUN_WAITING_FOR_LANE_LABEL = "Waiting for its platform's pause";
 export const JOB_SOURCE_RUN_ERROR_LABEL: Record<JobSourceRunErrorCode, string> = {
+  workday_paused: 'Waiting for Workday',
   held: 'Its host is held',
   identity: "Waiting for TailorIT's bot identity",
   refused: 'A host TailorIT never reads',
@@ -155,11 +166,16 @@ export const JOB_SOURCE_RUN_ERROR_LABEL: Record<JobSourceRunErrorCode, string> =
   error: 'Something went wrong',
 };
 
-/** A run's error code in words: "HTTP 429" for `http_429`, the label of a known code, else the code itself. */
+/**
+ * A run's error code in words: "HTTP 429" for `http_429`, the label of a known code, a lane's waiting run's words (v37
+ * FIX-LANE), else the code itself.
+ */
 export function runErrorLabel(code: string): string {
   const http = /^http_(\d{3})$/.exec(code);
   if (http) return `HTTP ${http[1]}`;
-  return (JOB_SOURCE_RUN_ERROR_LABEL as Record<string, string>)[code] ?? code;
+  const known = (JOB_SOURCE_RUN_ERROR_LABEL as Record<string, string>)[code];
+  if (known) return known;
+  return /^[a-z0-9]+(?:_[a-z0-9]+)*_paused$/.test(code) ? RUN_WAITING_FOR_LANE_LABEL : code; // v37 FIX-LANE
 }
 
 // v35 ADMIN (PLAN H7): why a switched-on source does not run now. Each one clears by itself (the worker looks at every

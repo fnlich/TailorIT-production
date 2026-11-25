@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   DAY_MS,
+  HOUR_MS,
   JOB_VERIFY_REASONS,
   linkKey,
   MINUTE_MS,
@@ -14,13 +15,15 @@ import type { AppDeps } from '../../../core/context';
 import type { DailyStep } from '../../../core/feature';
 import { ROW_SOURCE_KINDS } from '../../ingest/types';
 import { sharedAddress } from './address';
-import { settleLegacyJob, TRANSIENT_REASONS } from './legacy';
+import { settleLegacyJob } from './legacy';
+import { TRY_LATER_REASONS } from './verdict'; // v37 CLOSED (C1): the verdict's try-later reasons (legacy.ts's set)
 import { outsideWorkPaused } from './pause';
-import { settleRecheck } from './recheck';
+import { settleRecheckRead } from './recheck'; // v37 CLOSED (C1): the re-check's verdict
 import { addJobByLink, isAddableLink } from './pipeline';
 import { settleImportLink } from './import-pipeline'; // v35 IMPORT
 import { recordQueueOutcome, repairImportRows, type QueueOutcome } from './import-store'; // v35 IMPORT; v35 FIX-STORE: repairImportRows
 import type { DbQueries } from '../../../core/db/types'; // v35 FIX-STORE
+import { laneKeyOf, laneSql, registeredLanes } from '../../ingest/hosts'; // v37 LANE (W8): Workday links on the one Workday lane; v37 INT-A laneSql; v37 FIX-LANE the lanes
 
 // v31 LINK (docs/design/v3.1/21-jobs-from-links.md §5): the links an import (a CSV or JSON file, a Google Sheet's tab,
 // the free_tailor lake) or an admin's add (POST /api/admin/jobs/add) queues for TailorIT's own read. Only the link is
@@ -42,6 +45,14 @@ import type { DbQueries } from '../../../core/db/types'; // v35 FIX-STORE
 //   - an import's run (a file, a Sheet, the lake) queues only a link with no read lately (BEH-5): one with no job, or
 //     whose job no server read saw within JOB_PAGE_RECHECK_DAYS, and that no queued read of the source settled since;
 //   - every link is kept in its shared form (address.ts, SEC-2).
+// v37 CLOSED (SP v37 PLAN.md C3, "try later never becomes Review"):
+//   - a read made while its site (or every Workday site: the LANE package's lane) paused TailorIT is read again when the
+//     pause ends, its try given back (no attempt used while the site is paused);
+//   - an import's link (an admin's add, a file, a sheet, a paste, a person's import) that failed for now is read again
+//     with the growing wait for LINK_QUEUE_RETRY_HOURS from its queueing, the last read at that hour (LINK_QUEUE_ATTEMPTS
+//     no longer bounds it); only then does its row go to Review (or Needs a title and company). The other origins (the
+//     lake, the legacy pass, the re-checks) keep LINK_QUEUE_ATTEMPTS;
+//   - a queued read waits up to LINK_QUEUE_READ_TIMEOUT_MS for its turn (import-pipeline.ts), a person's Add job 15 s.
 
 /**
  * Where a queued link came from (job_link_queue.origin). v31 LINK2: `legacy` (a job stored before v3.1 from what a row
@@ -50,8 +61,33 @@ import type { DbQueries } from '../../../core/db/types'; // v35 FIX-STORE
  */
 export type LinkQueueOrigin = 'admin' | 'import' | 'sheets' | 'ft_lake' | 'legacy' | 'recheck';
 
-/** How long a claimed link is the pass's before another pass may take it again. */
+/** How long a claimed link is the pass's before another pass may take it again (at least; see linkQueueLeaseMs). */
 export const LINK_QUEUE_LEASE_MS = 10 * MINUTE_MS;
+/** v37 FIX-LANE (the ux review's M6): the room a claim keeps past its links' own read budgets. */
+export const LINK_QUEUE_LEASE_MARGIN_MS = MINUTE_MS;
+
+/**
+ * v37 FIX-LANE (M6): how long a pass's claim lasts: its lane's links are read one after the other, each allowed
+ * LINK_QUEUE_READ_TIMEOUT_MS (its wait for the site's turn included), so the claim outlasts LINK_QUEUE_PER_HOST of them
+ * plus a margin, and never less than LINK_QUEUE_LEASE_MS: no later pass takes a link still being read, whatever an
+ * admin sets either constant to.
+ */
+export function linkQueueLeaseMs(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>): number {
+  const constants = constantsOf(deps);
+  return Math.max(
+    LINK_QUEUE_LEASE_MS,
+    constants.get('LINK_QUEUE_PER_HOST') * constants.get('LINK_QUEUE_READ_TIMEOUT_MS') + LINK_QUEUE_LEASE_MARGIN_MS,
+  );
+}
+
+/**
+ * v37 FIX-LANE (SP v37 FIXES-361 F3): which lanes a pass reads. The worker runs a pass per registered lane
+ * (ingest/hosts.ts registeredLanes: the Workday lane's, one request at a time to all of Workday, its pace adapting to
+ * Workday's 429s: it can be slow) and one of every other host, side by side, so a slow lane never holds up the links of
+ * the other boards. A lane's pass is named by its key (`workday.lane`); `all` (one pass of every lane) is a single
+ * call's (tests, a one-off).
+ */
+export type LinkQueueLanes = 'all' | 'others' | (string & {});
 /** v31 LINK2: how long a legacy job's read waits while page reads are not set up here. */
 export const LEGACY_WAIT_MS = DAY_MS;
 /** v31 FIX-LINK (BEH-3): a legacy job's read is tried this many times LINK_QUEUE_ATTEMPTS (days, with the growing wait). */
@@ -193,6 +229,8 @@ interface DueRow {
   host: string;
   origin: LinkQueueOrigin;
   attempts: number;
+  /** v37 CLOSED (C3): when the link was queued (an import's tries run for LINK_QUEUE_RETRY_HOURS from it). */
+  created_at: string | Date;
   /** v31 LINK2: the job a `legacy` or `recheck` read is for. */
   for_job_id: number | null;
   // v35 IMPORT (migration 0057): an import's row: its fields, the person's profile and grant, who queued it, its import.
@@ -208,23 +246,28 @@ interface DueRow {
  * v31 FIX-LINK (BEH-6): the due links of one pass, the hosts taken in turn: the `hosts` hosts whose first due link comes
  * first (an admin's or an import's before a legacy or a weekly read, then the oldest), up to `perHost` links of each in
  * the same order. One statement, whatever one host's backlog (v31 LINK took the hosts from the 160 oldest rows alone).
+ * v37 INT-A (LANE's W8 with CLOSED's lease note): a host is its lane (ingest/hosts.ts laneSql: every Workday host is the
+ * one Workday lane), so a pass takes at most `perHost` Workday links whatever the tenants, read one after the other:
+ * LINK_QUEUE_PER_HOST x LINK_QUEUE_READ_TIMEOUT_MS stays within the claim's lease (v37 FIX-LANE: linkQueueLeaseMs).
  */
-export const DUE_BY_HOST_SQL = `WITH due AS (
-    SELECT id, host, next_at, CASE WHEN origin IN (${BACKGROUND_ORIGINS.map((origin) => `'${origin}'`).join(', ')}) THEN 1 ELSE 0 END AS later,
-           row_number() OVER (PARTITION BY host ORDER BY CASE WHEN origin IN (${BACKGROUND_ORIGINS.map((origin) => `'${origin}'`).join(', ')}) THEN 1 ELSE 0 END, next_at, id) AS n
+export const dueByHostSql = () => `WITH due AS (
+    SELECT id, ${laneSql('host')} AS lane, next_at, CASE WHEN origin IN (${BACKGROUND_ORIGINS.map((origin) => `'${origin}'`).join(', ')}) THEN 1 ELSE 0 END AS later,
+           row_number() OVER (PARTITION BY ${laneSql('host')} ORDER BY CASE WHEN origin IN (${BACKGROUND_ORIGINS.map((origin) => `'${origin}'`).join(', ')}) THEN 1 ELSE 0 END, next_at, id) AS n
     FROM job_link_queue
     WHERE state <> 'done' AND next_at <= ? AND (state = 'queued' OR lease_until < ?)
-  ), hosts AS (
-    SELECT host FROM due WHERE n = 1 ORDER BY later, next_at, id LIMIT ?
+      AND (CAST(? AS text) = 'all' OR (CAST(? AS text) = 'others' AND ${laneSql('host')} = host)
+        OR (${laneSql('host')} <> host AND ${laneSql('host')} = CAST(? AS text))) -- v37 FIX-LANE (F3): a lane's pass, or the others'
+  ), lanes AS (
+    SELECT lane FROM due WHERE n = 1 ORDER BY later, next_at, id LIMIT ?
   )
-  SELECT d.id FROM due d JOIN hosts h ON h.host = d.host WHERE d.n <= ? ORDER BY d.later, d.next_at, d.id`;
+  SELECT d.id FROM due d JOIN lanes l ON l.lane = d.lane WHERE d.n <= ? ORDER BY d.later, d.next_at, d.id`;
 
 /**
- * One pass of the queue: the due links (a lease that ran out counts as due), the hosts in turn (DUE_BY_HOST_SQL), at
+ * One pass of the queue: the due links (a lease that ran out counts as due), the hosts in turn (dueByHostSql), at
  * most LINK_QUEUE_PER_PASS hosts, up to LINK_QUEUE_PER_HOST links of each; each claimed, read (addJobByLink, or LINK2's
  * legacy and recheck reads) and settled. Answers how many were read.
  */
-export async function workLinkQueue(deps: AppDeps, max?: number): Promise<number> {
+export async function workLinkQueue(deps: AppDeps, max?: number, options: { lanes?: LinkQueueLanes } = {}): Promise<number> {
   // v31 RUNS' Pause all holds the worker's outside work (pause.ts).
   if (await outsideWorkPaused(deps)) return 0;
   await repairNow(deps); // v35 FIX-STORE (D2, D3)
@@ -232,22 +275,25 @@ export async function workLinkQueue(deps: AppDeps, max?: number): Promise<number
   const hosts = max ?? constants.get('LINK_QUEUE_PER_PASS');
   const now = deps.now();
   const at = now.toISOString();
-  const due = await deps.db.all<{ id: number }>(DUE_BY_HOST_SQL, [at, at, hosts, constants.get('LINK_QUEUE_PER_HOST')]);
+  const lanes = options.lanes ?? 'all'; // v37 FIX-LANE (F3)
+  const due = await deps.db.all<{ id: number }>(dueByHostSql(), [at, at, lanes, lanes, lanes, hosts, constants.get('LINK_QUEUE_PER_HOST')]);
   const ids = due.map((row) => Number(row.id));
   if (ids.length === 0) return 0;
-  const lease = new Date(now.getTime() + LINK_QUEUE_LEASE_MS).toISOString();
+  const lease = new Date(now.getTime() + linkQueueLeaseMs(deps)).toISOString(); // v37 FIX-LANE (M6)
   const claimed = await deps.db.all<DueRow>(
     `UPDATE job_link_queue SET state = 'working', lease_until = ?, attempts = attempts + 1
      WHERE id IN (SELECT CAST(value AS bigint) FROM ${deps.db.dialect.jsonEach('?')})
        AND state <> 'done' AND (state = 'queued' OR lease_until < ?)
-     RETURNING id, url, host, origin, attempts, for_job_id, details, user_id, grant_id, added_by, source_id, import_id`,
+     RETURNING id, url, host, origin, attempts, created_at, for_job_id, details, user_id, grant_id, added_by, source_id, import_id`,
     [lease, JSON.stringify(ids), at],
   );
-  // The hosts at once; one host's links one after the other, in the order taken.
+  // The hosts at once; one host's links one after the other, in the order taken. v37 LANE (SP v37 PLAN W8): every
+  // Workday host's links on the one Workday lane (ingest/hosts.ts laneKeyOf), one after the other.
   const order = new Map(ids.map((id, at) => [id, at]));
   const byHost = new Map<string, DueRow[]>();
   for (const row of [...claimed].sort((a, b) => (order.get(Number(a.id)) ?? 0) - (order.get(Number(b.id)) ?? 0))) {
-    byHost.set(row.host, [...(byHost.get(row.host) ?? []), row]);
+    const lane = laneKeyOf(row.host); // v37 LANE
+    byHost.set(lane, [...(byHost.get(lane) ?? []), row]);
   }
   let read = 0;
   await Promise.all(
@@ -282,6 +328,16 @@ export function retryWaitMs(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' 
   return Math.min(LINK_QUEUE_RETRY_MAX_MS, base * 2 ** Math.max(0, Math.min(attempts - 1, 20)));
 }
 
+/**
+ * v37 CLOSED (C3): the end of an import's link's tries: LINK_QUEUE_RETRY_HOURS after it was queued (ms since the epoch),
+ * or null for the other origins (their tries are counted: attemptsOf).
+ */
+export function retryWindowEnd(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>, row: Pick<DueRow, 'origin' | 'created_at'>): number | null {
+  if (!isImportOrigin(row.origin)) return null;
+  const queued = new Date(row.created_at).getTime();
+  return Number.isFinite(queued) ? queued + constantsOf(deps).get('LINK_QUEUE_RETRY_HOURS') * HOUR_MS : null;
+}
+
 /** The tries a queued link gets (BEH-3): LINK_QUEUE_ATTEMPTS, a legacy job's LEGACY_ATTEMPTS_FACTOR times as many. */
 export function attemptsOf(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>, origin: LinkQueueOrigin): number {
   const attempts = constantsOf(deps).get('LINK_QUEUE_ATTEMPTS');
@@ -309,7 +365,10 @@ async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
   let reason: JobVerifyReason | null;
   let jobId: number | null;
   let imported: QueueOutcome | null = null; // v35 IMPORT
-  const lastTry = row.attempts >= attemptsOf(deps, row.origin);
+  // v37 CLOSED (C3): an import's link is read again until its window ends; the end of a site's pause (`until`).
+  const windowEnd = retryWindowEnd(deps, row);
+  const lastTry = windowEnd !== null ? deps.now().getTime() >= windowEnd : row.attempts >= attemptsOf(deps, row.origin);
+  let until: string | null = null;
   try {
     if (row.origin === 'legacy' && row.for_job_id !== null) {
       // v31 LINK2: a job stored before v3.1 from what a row or a browser said (legacy.ts). v31 FIX-LINK (BEH-3): a
@@ -318,19 +377,25 @@ async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
       state = outcome.state;
       reason = outcome.reason;
       jobId = outcome.jobId;
+      until = outcome.until ?? null; // v37 INT-A: a paused read's try given back (as the other origins')
     } else if (row.origin === 'recheck' && row.for_job_id !== null) {
       // v31 LINK2: a job read from its page, read again (recheck.ts).
-      const checked = await settleRecheck(deps, Number(row.for_job_id), row.url);
-      state = checked === 'live' ? 'published' : checked === 'closed' ? 'refused' : 'private_unverified';
-      reason = checked === 'closed' ? 'closed' : checked === 'unreadable' ? 'unavailable' : null;
+      const checked = await settleRecheckRead(deps, Number(row.for_job_id), row.url);
+      state = checked.state === 'live' ? 'published' : checked.state === 'closed' ? 'refused' : 'private_unverified';
+      reason = checked.state === 'closed' ? 'closed' : null;
       jobId = Number(row.for_job_id);
-      // An unreadable page is read again at the next interval, not retried now (the check time moved).
-      if (checked === 'unreadable') reason = null;
+      // An unreadable page is read again at the next interval, not retried now (the check time moved). v37 CLOSED (C1):
+      // a read that failed for now (try later) is read again soon, after the site's pause when it paused TailorIT.
+      if (checked.state === 'later') {
+        reason = 'unavailable';
+        until = checked.until ?? null;
+      }
     } else if (row.origin === 'ft_lake') {
-      const outcome = await addJobByLink(deps, { url: row.url, userId: null, origin: 'ft_lake' });
+      const outcome = await addJobByLink(deps, { url: row.url, userId: null, origin: 'ft_lake', timeoutMs: constantsOf(deps).get('LINK_QUEUE_READ_TIMEOUT_MS') });
       state = outcome.state;
       reason = outcome.reason;
       jobId = outcome.jobId;
+      until = outcome.pause?.until ?? null; // v37 CLOSED (C3)
     } else {
       // v35 IMPORT (SP v35 PLAN.md H2, H5): an admin's links and every import's rows (import-pipeline.ts): the row's
       // fields and profile decide what an unreadable link and a job TailorIT has come to; each import row waiting on this
@@ -340,12 +405,13 @@ async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
         state = 'private_unverified';
         reason = settled.reason;
         jobId = null;
+        until = settled.until ?? null; // v37 CLOSED (C3)
       } else {
         imported = settled;
         state = legacyStateOf(settled);
         // A result reached is final: never tried again for a reason it carries (an unreadable link vouched for).
         reason =
-          settled.reason !== null && isVerifyReason(settled.reason) && !TRANSIENT_REASONS.has(settled.reason as JobVerifyReason)
+          settled.reason !== null && isVerifyReason(settled.reason) && !TRY_LATER_REASONS.has(settled.reason as JobVerifyReason)
             ? (settled.reason as JobVerifyReason)
             : null;
         jobId = settled.jobId;
@@ -369,13 +435,17 @@ async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
     ]);
     return;
   }
-  // BEH-3: a read that failed for now is tried again, a little later each time.
-  if (reason !== null && TRANSIENT_REASONS.has(reason) && !lastTry) {
-    await deps.db.run("UPDATE job_link_queue SET state = 'queued', lease_until = NULL, next_at = ?, reason = ? WHERE id = ?", [
-      new Date(now.getTime() + retryWaitMs(deps, row.attempts)).toISOString(),
-      reason,
-      row.id,
-    ]);
+  // BEH-3: a read that failed for now is tried again, a little later each time. v37 CLOSED (C3): after a site's pause
+  // with its try given back; an import's link at most at the end of its window (its last read).
+  if (reason !== null && TRY_LATER_REASONS.has(reason) && !lastTry) {
+    const paused = until !== null && Date.parse(until) > now.getTime();
+    let next = paused ? Date.parse(until!) : now.getTime() + retryWaitMs(deps, row.attempts);
+    if (!paused && windowEnd !== null) next = Math.min(next, Math.max(windowEnd, now.getTime()));
+    await deps.db.run(
+      `UPDATE job_link_queue SET state = 'queued', lease_until = NULL, next_at = ?, reason = ?,
+         attempts = CASE WHEN ? THEN GREATEST(attempts - 1, 0) ELSE attempts END WHERE id = ?`,
+      [new Date(next).toISOString(), reason, paused, row.id],
+    );
     return;
   }
   const markDone = (t: DbQueries) =>
@@ -440,22 +510,30 @@ function legacyStateOf(outcome: QueueOutcome): JobAddState {
   }
 }
 
-/** The worker hook: a pass every LINK_QUEUE_TICK_MS (read at start), never two at once. */
+/**
+ * The worker hook: a pass every LINK_QUEUE_TICK_MS (read at start), never two at once. v37 FIX-LANE (F3): a pass per
+ * lane and one of every other host (LinkQueueLanes), each never two at once, so none waits for another.
+ */
 export function startLinkQueueWorker(deps: AppDeps): () => void {
-  let running = false;
-  const pass = async () => {
-    if (running) return;
-    running = true;
-    try {
-      const read = await workLinkQueue(deps);
-      if (read > 0) deps.log.debug(`[job-links] ${read} queued link(s) read`);
-    } catch (error) {
-      deps.log.warn('[job-links] a pass of the link queue failed; the next one runs on time', error instanceof Error ? error.name : 'unknown');
-    } finally {
-      running = false;
-    }
+  const passOf = (lanes: LinkQueueLanes) => {
+    let running = false;
+    return async () => {
+      if (running) return;
+      running = true;
+      try {
+        const read = await workLinkQueue(deps, undefined, { lanes });
+        if (read > 0) deps.log.debug(`[job-links] ${read} queued link(s) read`);
+      } catch (error) {
+        deps.log.warn('[job-links] a pass of the link queue failed; the next one runs on time', error instanceof Error ? error.name : 'unknown');
+      } finally {
+        running = false;
+      }
+    };
   };
-  const timer = setInterval(() => void pass(), constantsOf(deps).get('LINK_QUEUE_TICK_MS'));
+  const passes = [...registeredLanes().map((lane) => passOf(lane.key)), passOf('others')];
+  const timer = setInterval(() => {
+    for (const pass of passes) void pass();
+  }, constantsOf(deps).get('LINK_QUEUE_TICK_MS'));
   timer.unref?.();
   return () => clearInterval(timer);
 }

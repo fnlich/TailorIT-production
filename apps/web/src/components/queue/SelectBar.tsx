@@ -13,6 +13,8 @@ import { Tooltip } from '../ui/Tooltip';
 // selected/deselected)"): a second way to select every row, `selectAllAs: 'button'`: one button that says Select All,
 // or Deselect All once every row is selected (the Saved pane, where it loads the remaining pages first); the actions then
 // wrap onto a second line where they do not fit. The box stays the default (Admin › Review).
+// v37 REVIEW (SP v37 PLAN.md R3): the button's own words (`selectAllWords`): Admin › Review's lanes say "Select all 340"
+// (every item the lane's filter matches, loaded or not) and "Deselect all".
 
 export interface SelectBarProps {
   /** The toolbar's name ("Selected saved jobs"). */
@@ -36,6 +38,13 @@ export interface SelectBarProps {
   allSelected?: boolean;
   /** The button waits (the rows not loaded yet are being read). */
   selectAllBusy?: boolean;
+  /** v37 REVIEW: the button's words (default SELECT_ALL_WORDS). */
+  selectAllWords?: { select: string; deselect: string };
+  /**
+   * v37 FIX-REV (REVIEW361-ux L5): what the count is, said after it ("99 selected · the rows loaded so far"): the
+   * selection changed scope (a row unticked under "Select all N").
+   */
+  note?: string | null;
 }
 
 /** v36 APPLYWEB: the select-all button's words. */
@@ -51,6 +60,8 @@ export function SelectBar({
   selectAllAs = 'box',
   allSelected,
   selectAllBusy = false,
+  selectAllWords = SELECT_ALL_WORDS,
+  note = null,
 }: SelectBarProps) {
   const all = allSelected ?? (selected > 0 && selected === selectable);
   const button = selectAllAs === 'button';
@@ -75,7 +86,7 @@ export function SelectBar({
             onClick={() => onSelectAll(!all)}
             data-select-all={all ? 'deselect' : 'select'}
           >
-            {all ? SELECT_ALL_WORDS.deselect : SELECT_ALL_WORDS.select}
+            {all ? selectAllWords.deselect : selectAllWords.select}
           </Button>
         </Tooltip>
       ) : (
@@ -88,7 +99,8 @@ export function SelectBar({
         />
       )}
       <span className="text-sm font-medium text-foreground" aria-live="polite">
-        {selected} selected
+        {selected.toLocaleString('en-US')} selected
+        {note && <span className="font-normal text-muted-foreground" data-select-note="">{` · ${note}`}</span>}
       </span>
       <div className={clsx('ml-auto flex items-center gap-2', button ? 'flex-wrap justify-end' : 'max-sm:w-full')}>{children}</div>
     </div>

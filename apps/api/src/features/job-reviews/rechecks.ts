@@ -15,6 +15,21 @@ import { recountReview, reviewById } from './store';
 // history, and lets the automatic rules decide (auto.ts): in manual mode the answer is only recorded. A failed read is
 // recorded `unreadable`. The worker hook runs a pass every RECHECK_PASS_EVERY_MS (the API process until S1-API's
 // worker process exists); a review decided while its read was under way keeps its decision.
+// v37 INT-A (SP v37 PLAN W4, CLOSED's open item): a read that has to wait (its host held, every Workday site paused, or
+// nothing sent: recheckPosting's `retryAt`) is no answer: nothing is recorded (no check, no budget, no check time moved,
+// so no automatic rule decides on it) and the review stays queued; this process asks again after `retryAt`, reading the
+// other queued reviews meanwhile.
+
+/** v37 INT-A: the reviews whose read waits, per app (review id -> when to ask again, ms). */
+const WAITING = new WeakMap<object, Map<number, number>>();
+function waitingOf(deps: object): Map<number, number> {
+  let waiting = WAITING.get(deps);
+  if (!waiting) {
+    waiting = new Map();
+    WAITING.set(deps, waiting);
+  }
+  return waiting;
+}
 
 /** How often the worker runs a pass. */
 export const RECHECK_PASS_EVERY_MS = 30_000;
@@ -36,14 +51,22 @@ async function readsToday(deps: AppDeps): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Re-checks one queued review (see above); answers false when the budget is spent or nothing is queued. */
-async function checkOne(deps: AppDeps): Promise<boolean> {
-  if ((await readsToday(deps)) >= constantsOf(deps).get('EXT_RECHECKS_PER_DAY')) return false;
+/**
+ * Re-checks one queued review (see above); answers null when the budget is spent or nothing is queued, `waits` when its
+ * read has to wait (v37 INT-A: nothing recorded).
+ */
+async function checkOne(deps: AppDeps): Promise<'checked' | 'waits' | null> {
+  if ((await readsToday(deps)) >= constantsOf(deps).get('EXT_RECHECKS_PER_DAY')) return null;
+  const waiting = waitingOf(deps);
+  const nowMs = deps.now().getTime();
+  for (const [id, until] of waiting) if (until <= nowMs) waiting.delete(id);
   const next = await deps.db.one<QueuedReview>(
     `SELECT id, job_id, link_source_id, link_source_job_id FROM job_reviews WHERE state = 'pending' AND check_state = 'queued'
+       AND id NOT IN (SELECT CAST(value AS bigint) FROM ${deps.db.dialect.jsonEach('?')})
      ORDER BY checked_at NULLS FIRST, id LIMIT 1`,
+    [JSON.stringify([...waiting.keys()])],
   );
-  if (!next) return false;
+  if (!next) return null;
   const link =
     next.link_source_id !== null && next.link_source_job_id !== null
       ? { sourceId: next.link_source_id, sourceJobId: next.link_source_job_id }
@@ -55,6 +78,11 @@ async function checkOne(deps: AppDeps): Promise<boolean> {
     // Never the error's own text (it can hold the posting's address).
     deps.log.warn('[job-reviews] a re-check failed; recorded as unreadable', error instanceof Error ? error.name : 'unknown');
     result = { state: 'unreadable', checkedAt: deps.now().toISOString(), link: null, sourceMadeDue: false };
+  }
+  // v37 INT-A (W4): a read that has to wait is asked again after its hold; nothing recorded.
+  if (result.retryAt) {
+    waiting.set(next.id, Math.max(Date.parse(result.retryAt), nowMs + 1));
+    return 'waits';
   }
   const now = deps.now();
   const followUps = await deps.db.tx(
@@ -87,7 +115,7 @@ async function checkOne(deps: AppDeps): Promise<boolean> {
     { label: 'review re-check' },
   );
   await runFollowUps(deps, followUps);
-  return true;
+  return 'checked';
 }
 
 /**
@@ -96,7 +124,12 @@ async function checkOne(deps: AppDeps): Promise<boolean> {
  */
 export async function runRecheckPass(deps: AppDeps, max = RECHECKS_PER_PASS): Promise<number> {
   let checked = 0;
-  while (checked < max && !(await runsPaused(deps)) && (await checkOne(deps))) checked += 1;
+  // v37 INT-A: a review whose read waits takes a step too (at most `max` a pass), never a check.
+  for (let steps = 0; steps < max && !(await runsPaused(deps)); steps += 1) {
+    const done = await checkOne(deps);
+    if (done === null) break;
+    if (done === 'checked') checked += 1;
+  }
   return checked;
 }
 

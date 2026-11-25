@@ -1,5 +1,6 @@
 import {
   linkKey,
+  REVIEW_PAGE_SIZE, // v37 REVIEW
   type JobAddOrigin,
   type JobVerification,
   type JobVerifyReason,
@@ -131,20 +132,23 @@ export async function linkRejected(db: DbQueries, url: string): Promise<boolean>
 /**
  * The SQL of a job's verification fields beside a job row `j` (the DTOs' `verification`): its held time and its row.
  * v32 ADMINAPP (E6): and when an admin approved it as captured (job_admin_approvals, by its key: one row at most).
+ * v37 FIX-REV (REVIEW361-ux M5): a person's own job that has closed is no job to verify (it shows Closed, with no
+ * "not verified" mark and no Retry read): no verification.
  */
 export function verificationColumns(alias = 'j'): string {
-  return `CASE WHEN ${alias}.owner_user_id IS NOT NULL THEN (SELECT json_build_object('reason', v.reason, 'checkedAt', v.checked_at)
-      FROM job_verifications v WHERE v.job_id = ${alias}.id) END AS verification_json, ${alias}.owner_user_id IS NOT NULL AS owned_job,
+  return `CASE WHEN ${alias}.owner_user_id IS NOT NULL AND ${alias}.active THEN (SELECT json_build_object('reason', v.reason, 'checkedAt', v.checked_at)
+      FROM job_verifications v WHERE v.job_id = ${alias}.id) END AS verification_json,
+    (${alias}.owner_user_id IS NOT NULL AND ${alias}.active) AS owned_job,
     (SELECT aa.approved_at FROM job_admin_approvals aa WHERE aa.job_id = ${alias}.id) AS admin_approved_at`;
 }
 
 /**
  * The SQL of one JSON value holding a job row `j`'s verification fields (an entry's column: one subquery per entry):
- * null for a job everyone sees.
+ * null for a job everyone sees. v37 FIX-REV (M5): null for a person's own job that has closed.
  */
 export function verificationRowSql(alias = 'j'): string {
-  return `CASE WHEN ${alias}.owner_user_id IS NOT NULL THEN json_build_object('owned', true, 'v', (SELECT json_build_object('reason', v.reason,
-      'checkedAt', v.checked_at) FROM job_verifications v WHERE v.job_id = ${alias}.id))
+  return `CASE WHEN ${alias}.owner_user_id IS NOT NULL THEN CASE WHEN ${alias}.active THEN json_build_object('owned', true,
+      'v', (SELECT json_build_object('reason', v.reason, 'checkedAt', v.checked_at) FROM job_verifications v WHERE v.job_id = ${alias}.id)) END
     WHEN ${alias}.held_since IS NOT NULL THEN json_build_object('held', ${alias}.held_since)
     ELSE (SELECT json_build_object('approved', aa.approved_at) FROM job_admin_approvals aa WHERE aa.job_id = ${alias}.id) END`;
 }
@@ -254,13 +258,15 @@ const LINK_APPROVED = `EXISTS (SELECT 1 FROM job_admin_approvals la JOIN jobs lj
  * The SQL condition of a "Couldn't verify" row (verification `v`, its job `j`). v31 FIX-LINK (SEC-8): a link a
  * rejection covers (its reason `rejected`) is not listed either. v32 FIX-API: an adder's own job only while no approval
  * of its link is published (SB-1: the adders keep their own jobs after one); a job an admin published whose approval ran
- * out and left search (SB-4: its note kept with no adder), to be approved again, read again or rejected.
+ * out and left search (SB-4: its note kept with no adder), to be approved again, read again or rejected. v37 REVIEW
+ * (SP v37 PLAN.md R5: "never lists a closed job"): never a job that is closed (`j.active`) nor one TailorIT's last read
+ * of its link found closed (its reason `closed`: nothing to approve, verify or reject there).
  */
 export const LISTED = `((j.owner_user_id = v.user_id AND NOT ${LINK_APPROVED})
          OR (v.user_id IS NULL AND j.owner_user_id IS NULL AND j.held_since IS NOT NULL)
          OR (v.user_id IS NULL AND j.owner_user_id IS NULL AND j.held_since IS NULL AND j.unverified_since IS NOT NULL
              AND EXISTS (SELECT 1 FROM job_admin_approvals xa WHERE xa.job_id = j.id)))
-       AND j.superseded_by IS NULL AND j.active AND v.reason NOT IN ('unreadable_host', 'rejected')
+       AND j.superseded_by IS NULL AND j.active AND v.reason NOT IN ('unreadable_host', 'rejected', 'closed')
        AND NOT EXISTS (SELECT 1 FROM job_link_rejections r WHERE r.url_key = v.url_key)`;
 
 /**
@@ -276,6 +282,17 @@ export interface UnverifiedFilter {
 
 /** v35 IMPORT: a note `v` of an admin import's job (made from its row: no adder, origin `import`). */
 export const FROM_IMPORT_SQL = "v.user_id IS NULL AND v.origin = 'import'";
+
+/**
+ * v37 REVIEW (SP v37 PLAN.md R5): the condition of a row Couldn't verify lists now (verification `v`, its job `j`):
+ * LISTED, and while "List links TailorIT couldn't verify" (EXT_NEW_PAGE_JOBS_REVIEW) is off, an admin import's rows
+ * alone. The switch is about people's links; an admin's import held its jobs for an admin, so they are always listed (and
+ * counted, approved, read again and rejected) whatever it says. The list, its count, its "all", the bell's count, the
+ * import results' heldIn and an approval all read it.
+ */
+export function listedSql(deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>): string {
+  return constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW') ? LISTED : `${LISTED} AND (${FROM_IMPORT_SQL})`;
+}
 
 /** v35 IMPORT: the filter's condition (after the LISTED condition) and its values. */
 export function unverifiedFilterSql(filter: UnverifiedFilter): { sql: string; params: Array<string | number> } {
@@ -294,15 +311,17 @@ export function unverifiedFilterSql(filter: UnverifiedFilter): { sql: string; pa
   return { sql: parts.length ? ` AND ${parts.join(' AND ')}` : '', params };
 }
 
-/** GET /api/admin/jobs/unverified/count: the links the list holds (0 while EXT_NEW_PAGE_JOBS_REVIEW is off). */
+/**
+ * GET /api/admin/jobs/unverified/count: the links the list holds. v37 REVIEW (R5): while EXT_NEW_PAGE_JOBS_REVIEW is
+ * off, an admin import's (listedSql).
+ */
 export async function countUnverifiedLinks(
   deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
   filter: UnverifiedFilter = {}, // v35 IMPORT: the From filter
 ): Promise<{ count: number }> {
-  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { count: 0 };
   const where = unverifiedFilterSql(filter);
   const row = await deps.db.one<{ n: number }>(
-    `SELECT count(DISTINCT v.url_key)::int AS n FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${LISTED}${where.sql}`,
+    `SELECT count(DISTINCT v.url_key)::int AS n FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${listedSql(deps)}${where.sql}`,
     where.params,
   );
   return { count: Number(row?.n ?? 0) };
@@ -310,19 +329,19 @@ export async function countUnverifiedLinks(
 
 /**
  * v31 INT-1: NOTIFY's hourly Review summary (notifications/housekeeping.ts summarizeReviewItems): the "Couldn't verify"
- * links new to the list since `since`, and all the list holds; both 0 while EXT_NEW_PAGE_JOBS_REVIEW is off (the list
- * is empty). v31 FIX-LINK (BEH-7): a link arrives when its first note was made (created_at), never when a Retry read
- * or a queued retry checked it again (checked_at moves), so an old link is never announced twice.
+ * links new to the list since `since`, and all the list holds. v37 REVIEW (R5): while EXT_NEW_PAGE_JOBS_REVIEW is off,
+ * an admin import's (listedSql), as the list. v31 FIX-LINK (BEH-7): a link arrives when its first note was made
+ * (created_at), never when a Retry read or a queued retry checked it again (checked_at moves), so an old link is never
+ * announced twice.
  */
 export async function unverifiedLinkCounts(
   deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
   since: string,
 ): Promise<{ arrived: number; pending: number }> {
-  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { arrived: 0, pending: 0 };
   const row = await deps.db.one<{ arrived: number; pending: number }>(
     `SELECT count(*) FILTER (WHERE x.first_listed > CAST(? AS timestamptz))::int AS arrived, count(*)::int AS pending
        FROM (SELECT v.url_key, min(v.created_at) AS first_listed
-               FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${LISTED} GROUP BY v.url_key) x`,
+               FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${listedSql(deps)} GROUP BY v.url_key) x`,
     [since],
   );
   return { arrived: Number(row?.arrived ?? 0), pending: Number(row?.pending ?? 0) };
@@ -368,15 +387,16 @@ function readCursor(cursor: string | undefined): [string, string] | null {
 /**
  * Admin › Review's "Couldn't verify" list (GET /api/admin/jobs/unverified): one row per link TailorIT could not read
  * that some account keeps as its own open job, newest check first; never a site TailorIT never reads (LinkedIn, the
- * refused boards: no read could ever verify them) or a link an admin rejected. Empty while EXT_NEW_PAGE_JOBS_REVIEW
- * ("List links TailorIT couldn't verify") is off.
+ * refused boards: no read could ever verify them) or a link an admin rejected. While EXT_NEW_PAGE_JOBS_REVIEW ("List
+ * links TailorIT couldn't verify") is off: v37 REVIEW (R5) an admin import's rows alone (listedSql; before, none).
+ * v37 REVIEW (R1): REVIEW_PAGE_SIZE (100) a page by default.
  */
 export async function listUnverifiedLinks(
   deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'>,
   query: { cursor?: string; limit?: number } & UnverifiedFilter, // v35 IMPORT: the From filter
 ): Promise<UnverifiedLinksResponse> {
-  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { items: [], nextCursor: null };
-  const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
+  const limit = Math.min(Math.max(query.limit ?? REVIEW_PAGE_SIZE, 1), REVIEW_PAGE_SIZE);
+  const listed = listedSql(deps); // v37 REVIEW (R5)
   const after = readCursor(query.cursor);
   const where = unverifiedFilterSql(query);
   // v32 ADMINAPP (E6): with the row's job as captured (its title and company), what Approve publishes. v32 FIX-API
@@ -396,7 +416,7 @@ export async function listUnverifiedLinks(
          min(v.created_at) AS first_added_at, count(*)::int AS adders, sum(v.attempts)::int AS attempts,
          bool_or(${FROM_IMPORT_SQL}) AS from_import, bool_or(v.user_id IS NOT NULL) AS from_add
        FROM job_verifications v JOIN jobs j ON j.id = v.job_id
-       WHERE ${LISTED}${where.sql}
+       WHERE ${listed}${where.sql}
        GROUP BY v.url_key
        ${after ? 'HAVING (max(v.checked_at), v.url_key) < (CAST(? AS timestamptz), ?)' : ''}
        ORDER BY max(v.checked_at) DESC, v.url_key DESC LIMIT ?) g

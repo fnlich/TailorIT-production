@@ -5,10 +5,9 @@ import type { AddJobResult } from '@tailorit/shared';
 import { useToast } from '@/components/ui/Toast';
 import { userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
-import { reasonText } from '../add/outcome';
 import { retryJobRead } from '../add/api';
 import { jobsKeys } from '../api';
-import { RETRY_READ_COPY } from './copy';
+import { RETRY_READ_COPY, retryReadAnswer } from './copy';
 
 /** The tracker's React Query keys all start with 'tracker'. */
 const TRACKER_KEY = ['tracker'] as const;
@@ -25,15 +24,9 @@ export function useRetryRead({ onRead }: { onRead?: (jobId: number) => void } = 
   const mutation = useMutation({
     mutationFn: (jobId: number) => retryJobRead(jobId),
     onSuccess: (result: AddJobResult) => {
-      if (result.state === 'published' || result.state === 'waiting_admin') {
-        toast.success(result.state === 'published' ? RETRY_READ_COPY.published : t('MSG_JOB_HELD_TITLE'), result.message);
-        if (result.jobId !== null) onRead?.(result.jobId);
-      } else if (result.state === 'private_unverified') {
-        const why = reasonText(result.reason, t);
-        toast.info(RETRY_READ_COPY.stillPrivate, why && why !== result.message ? `${result.message} ${why}` : result.message);
-      } else {
-        toast.error(RETRY_READ_COPY.refused, result.message);
-      }
+      const answer = retryReadAnswer(result, t);
+      toast[answer.tone](answer.title, answer.body);
+      if (answer.read && result.jobId !== null) onRead?.(result.jobId);
     },
     onError: (error) => toast.error(RETRY_READ_COPY.failed, userMessage(error)),
     onSettled: () =>

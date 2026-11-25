@@ -11,6 +11,7 @@ import { noticeVerification } from './notify';
 import { isAddableLink, readLink } from './pipeline';
 import { queueJobLinks } from './queue';
 import { noteUnverified } from './verification';
+import { TRY_LATER_REASONS } from './verdict'; // v37 INT-A: the verdict's try-later reasons (was TRANSIENT_REASONS here)
 
 // v31 LINK2 (21-jobs-from-links.md §9; the coordinator's decision of 2026-11-17): the shared jobs stored before v3.1
 // from what a person or a file said, never from TailorIT's own read: an import's rows (CSV, JSON, a Google Sheet, the
@@ -47,8 +48,6 @@ import { noteUnverified } from './verification';
 const MARK = 'v31:legacy-links';
 /** The source kinds whose jobs were stored from what a row or a browser said (ingest/types.ts, the store reads it too). */
 export const LEGACY_KINDS = ROW_SOURCE_KINDS;
-/** v31 FIX-LINK (BEH-3): the reasons a read failed for now (tried again), never a lasting answer about the job. */
-export const TRANSIENT_REASONS: ReadonlySet<JobVerifyReason> = new Set(['unavailable', 'blocked']);
 /** Jobs one batch of the pass holds and queues. */
 const LEGACY_BATCH = 500;
 
@@ -208,6 +207,8 @@ export interface LegacyOutcome {
   reason: JobVerifyReason | null;
   /** v31 FIX-LINK (BEH-3): the read failed for now and the job is left as it was: the queue reads it again later. */
   retry?: boolean;
+  /** v37 INT-A: the read met a site's pause (every Workday site's): the queue reads it again then, its try given back. */
+  until?: string;
 }
 
 /** A settled job's state as it is now (another read settled it first: an add's, an admin's Retry read). */
@@ -252,8 +253,11 @@ export async function settleLegacyJob(
   // and its read waits (the queue asks again a day later), rather than being called unreadable.
   if (read.reason === 'not_set_up') return { state: 'private_unverified', jobId, reason: 'not_set_up' };
   // BEH-3: a failure for now is no answer about the job: read again later; on the last try it is listed, still held.
-  if (TRANSIENT_REASONS.has(read.reason)) {
-    if (!options.final) return { state: 'private_unverified', jobId, reason: read.reason, retry: true };
+  // v37 INT-A: the try-later reasons are the verdict's (verdict.ts TRY_LATER_REASONS), a pause's end carried.
+  if (TRY_LATER_REASONS.has(read.reason)) {
+    if (!options.final) {
+      return { state: 'private_unverified', jobId, reason: read.reason, retry: true, ...(read.pause ? { until: read.pause.until } : {}) };
+    }
     await noteUnverified(deps.db, { jobId, userId: null, url, origin: 'legacy', reason: read.reason }, at);
     return { state: 'private_unverified', jobId, reason: read.reason };
   }

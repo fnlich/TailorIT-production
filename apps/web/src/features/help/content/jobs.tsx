@@ -157,8 +157,10 @@ function AddJob() {
         <li>
           <Ui>One link</Ui>: paste a posting&apos;s link. <Ui>Add details</Ui> (optional) takes its company, title, description,
           rate and location: TailorIT uses them only when it cannot read the link, and the rate only when the posting names no
-          pay. A link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read.
-          You can add {get('JOB_ADDS_PER_HOUR')} links an hour.
+          pay. A link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read
+          (a Retry read that finds the posting closed marks that job closed). When the site has asked TailorIT to slow down (Workday
+          sites often do), Add job says when to try again and keeps nothing. You can add {get('JOB_ADDS_PER_HOUR')} links an
+          hour.
         </li>
         <li>
           <Ui>File</Ui> (.csv, .tsv, .txt, .json or .xlsx) or <Ui>{sheet}</Ui> (share it with TailorIT&apos;s reader address
@@ -190,6 +192,11 @@ function AddJob() {
           company, so nothing was kept. <Ui>Download these rows</Ui> saves them as a CSV file: fill them in and import it again.
         </li>
         <li>
+          <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.queued}</Ui>: the posting&apos;s site failed for now or asked TailorIT to slow down.
+          TailorIT reads the link again later, for up to {get('LINK_QUEUE_RETRY_HOURS')} hours, before the row comes to its
+          result; the row says why and when it is read next.
+        </li>
+        <li>
           <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.closed}</Ui>: the posting has closed. <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.failed}</Ui>: not a
           job link TailorIT may read (a site it never reads, a row over the day&apos;s limit), with why.{' '}
           <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.repeated}</Ui>: the same link as a row above it.
@@ -213,8 +220,8 @@ function Report() {
       </li>
       <li>
         Choose what is wrong ({reasons.join('; ')}) and add anything that helps. TailorIT checks a job reported closed
-        before it leaves the search; an admin reviews the rest. The company&apos;s card has its own report for wrong company
-        details.
+        before it leaves the search; an admin reviews the rest. A report on a job that closes meanwhile is settled with it.
+        The company&apos;s card has its own report for wrong company details.
       </li>
     </Steps>
   );

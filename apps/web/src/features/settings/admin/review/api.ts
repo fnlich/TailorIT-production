@@ -8,6 +8,7 @@ import {
   AdminReviewListSchema,
   AdminReviewReportersSchema,
   AdminReviewRowSchema,
+  REVIEW_PAGE_SIZE, // v37 REVIEW (R1)
   type AdminFlag,
   type AdminFlagBulkBody,
   type AdminFlagDecisionBody,
@@ -30,6 +31,8 @@ import { api } from '@/lib/api';
 
 // v30 X1-WEB: Admin › Review's requests (docs/design/part2/14-extension-reports.md §6), in CT's contracts
 // (@tailorit/shared/reviews). X1-API builds the routes; INT-3 renames a path here, in one place, if it must.
+// v37 REVIEW (SP v37 PLAN.md R1, R3): each page is REVIEW_PAGE_SIZE (100) rows; the "all" routes of every lane are
+// all.ts's.
 
 /** The routes, in one place. */
 export const REVIEW_ROUTES = {
@@ -42,6 +45,11 @@ export const REVIEW_ROUTES = {
   flags: '/api/admin/flags',
   flag: (id: number) => `/api/admin/flags/${id}`,
   flagsBulk: '/api/admin/flags/bulk',
+  // v37 REVIEW (R3): "Select all N", then a decision on every item the lane's filter matches.
+  reviewsAll: '/api/admin/reviews/all',
+  reviewsAllCount: '/api/admin/reviews/all/count',
+  flagsAll: '/api/admin/flags/all',
+  flagsAllCount: '/api/admin/flags/all/count',
 } as const;
 
 /** The query a lane's list reads: its state filter, a search and the page's cursor. */
@@ -69,7 +77,7 @@ export const reviewKeys = {
   unverifiedDetail: (jobId: number) => ['admin', 'review', 'unverified', 'detail', jobId] as const,
 };
 
-const query = ({ state, q, cursor, from, importRunId }: ReviewListQuery) => ({ state, q: q.trim() || undefined, cursor, from, importRunId });
+const query = ({ state, q, cursor, from, importRunId }: ReviewListQuery) => ({ state, q: q.trim() || undefined, cursor, from, importRunId, limit: REVIEW_PAGE_SIZE });
 
 /** GET /api/admin/reviews: one page of the Closed links or New jobs lane, and every lane's count. */
 export function fetchReviews(lane: JobReviewKind, list: ReviewListQuery, signal?: AbortSignal): Promise<AdminReviewList> {

@@ -7,6 +7,7 @@ import { careerPagesOn } from './career/switch';
 import { optedOutSources } from './opt-out-gate';
 import { runsPaused } from './pause-state';
 import { NEW_READ_KIND_OF, runnableKinds } from './scheduler';
+import { laneKeyOf } from './hosts'; // v37 LANE
 import { SCHEDULED_KINDS, type SourceKind } from './types';
 
 // v35 ADMIN (PLAN H7): why a switched-on source does not run now, for Admin › Sources' rows and sheet and an import
@@ -62,7 +63,8 @@ export interface WaitingContext {
 /** Reads what the reasons of these sources need (one statement for their hosts' holds, one for their opt-outs). */
 export async function waitingContextOf(deps: WaitingDeps, sources: readonly WaitingSource[]): Promise<WaitingContext> {
   const on = sources.filter((source) => source.enabled && SCHEDULED_KINDS.includes(source.kind as SourceKind));
-  const hosts = [...new Set(on.map((source) => source.host).filter((host): host is string => Boolean(host)))];
+  // v37 LANE (W1): a Workday source's host is held while its own row or the Workday lane is.
+  const hosts = [...new Set(on.flatMap((source) => (source.host ? [source.host, laneKeyOf(source.host)] : [])))];
   const held = new Map<string, string>();
   if (hosts.length > 0) {
     const rows = await deps.db.all<{ host: string; hold_until: string }>(
@@ -106,7 +108,8 @@ export function waitingOf(source: WaitingSource, context: WaitingContext): JobSo
   if (robots === 'unchecked') return { reason: 'robots_pending' };
   if (robots === 'disallowed') return { reason: 'robots_disallowed' };
   if (robots === 'error') return { reason: 'robots_unreadable' };
-  const holdUntil = source.host ? context.held.get(source.host) : undefined;
+  const holds = source.host ? [context.held.get(source.host), context.held.get(laneKeyOf(source.host))] : [];
+  const holdUntil = holds.filter((until): until is string => Boolean(until)).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   if (holdUntil) return { reason: 'host_held', until: holdUntil };
   return null;
 }

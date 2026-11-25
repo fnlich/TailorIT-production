@@ -2,6 +2,7 @@ import {
   ADMIN_REVIEW_CHECKS_MAX,
   JOB_REPORT_REASON_LABEL,
   reviewGroupOf,
+  reviewStateBase, // v37 REVIEW
   type AdminFlag,
   type AdminReviewCheck,
   type AdminReviewCounts,
@@ -24,7 +25,9 @@ import type { DbQueries, SqlParam } from '../../core/db/types';
 import { sanitizeDescription } from '../jobs/html';
 import { readJobText } from '../jobs/text';
 import { boardOfJob, companyOf, likelyDuplicates } from './checks';
+import { REVIEW_LANE_FROM, reviewLaneCounts } from './counts'; // v37 REVIEW
 import { pageJobsOf } from './decide';
+import { FLAG_RESOLVED_WITH_JOB } from './settle'; // v37 FIX-REV (D1)
 import { REVIEW_COLUMNS, type ReviewRow } from './store';
 import { trustedSql, trustParams } from './trust';
 
@@ -69,7 +72,10 @@ const LANE_SELECT = (sort: string) =>
      LEFT JOIN job_source_runs ir ON ir.id = r.import_run_id LEFT JOIN job_sources iso ON iso.id = ir.source_id
      LEFT JOIN job_imports ji ON ji.run_id = r.import_run_id`;
 
-/** The sort key of a state filter's list (newest first). */
+/**
+ * The sort key of a state filter's list (newest first). v37 REVIEW (R2): Waiting by its newest report, as Needs review
+ * and Checking.
+ */
 function sortOf(state: AdminReviewsQuery['state']): string {
   if (state === 'decided') return 'r.decided_at';
   if (state === 'all') return 'COALESCE(r.decided_at, r.last_reported_at)';
@@ -117,14 +123,12 @@ function toRow(deps: Deps, row: LaneRow, today: string): AdminReviewRow {
   };
 }
 
-/** Each lane's items needing a decision: pending reviews of each kind, open flags. */
+/**
+ * Each lane's items needing a decision: pending reviews of each kind, open flags. v37 REVIEW (R2): read as the lanes
+ * list them (counts.ts), so each count is what its Waiting list shows, Checking rows included.
+ */
 export async function reviewCounts(db: DbQueries): Promise<AdminReviewCounts> {
-  const row = await db.one<{ closed: number; new_job: number; flags: number }>(
-    `SELECT (SELECT count(*) FROM job_reviews WHERE kind = 'closed' AND state = 'pending') AS closed,
-       (SELECT count(*) FROM job_reviews WHERE kind = 'new_job' AND state = 'pending') AS new_job,
-       (SELECT count(*) FROM job_reports WHERE status = 'open') AS flags`,
-  );
-  return { closed: row?.closed ?? 0, newJob: row?.new_job ?? 0, flags: row?.flags ?? 0 };
+  return reviewLaneCounts(db);
 }
 
 /**
@@ -133,7 +137,8 @@ export async function reviewCounts(db: DbQueries): Promise<AdminReviewCounts> {
  */
 export function reviewsWhere(deps: Pick<Deps, 'db'>, filter: AdminReviewsFilter): Where {
   const where = new Where().add('r.kind = @lane', { lane: filter.lane });
-  if (filter.state === 'needs_review') where.add("r.state = 'pending' AND r.check_state <> 'queued'");
+  if (filter.state === 'waiting') where.add("r.state = 'pending'"); // v37 REVIEW (R2): needs review and checking
+  else if (filter.state === 'needs_review') where.add("r.state = 'pending' AND r.check_state <> 'queued'");
   else if (filter.state === 'checking') where.add("r.state = 'pending' AND r.check_state = 'queued'");
   else if (filter.state === 'decided') where.add("r.state <> 'pending'");
   const d = deps.db.dialect;
@@ -146,14 +151,33 @@ export function reviewsWhere(deps: Pick<Deps, 'db'>, filter: AdminReviewsFilter)
   return where;
 }
 
-/** GET /api/admin/reviews: one lane's page (see above). */
+/**
+ * v37 REVIEW (R2): whether a lane's filter narrows its view (a search, New jobs' From filter or one import, or Needs
+ * review / Checking within Waiting): its header then says "12 of 340".
+ */
+export function narrowsView(filter: Pick<AdminReviewsFilter, 'state' | 'q' | 'from' | 'importRunId'> & { lane?: AdminReviewsFilter['lane'] }): boolean {
+  const fromFilter = filter.lane !== 'closed' && ((filter.from !== undefined && filter.from !== 'all') || filter.importRunId !== undefined);
+  return Boolean(filter.q) || fromFilter || reviewStateBase(filter.state) !== filter.state;
+}
+
+/**
+ * GET /api/admin/reviews: one lane's page (see above). v37 REVIEW (R2, R3): with the rows the query matches (`total`),
+ * those a decision can take (`decidable`), and the view's rows without its search or From filter (`unfiltered`).
+ */
 export async function listReviews(deps: Deps, query: AdminReviewsQuery): Promise<AdminReviewList> {
   const sort = sortOf(query.state);
   const where = reviewsWhere(deps, query);
-  const counted = await deps.db.one<{ n: number }>(
-    `SELECT count(*) AS n FROM job_reviews r JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id ${where.sql()}`,
+  const counted = await deps.db.one<{ n: number; decidable: number }>(
+    `SELECT count(*) AS n, count(*) FILTER (WHERE r.state = 'pending') AS decidable ${REVIEW_LANE_FROM} ${where.sql()}`,
     where.params as Record<string, SqlParam>,
   );
+  const total = Number(counted?.n ?? 0);
+  let unfiltered = total;
+  if (narrowsView(query)) {
+    const base = reviewsWhere(deps, { lane: query.lane, state: reviewStateBase(query.state) });
+    const row = await deps.db.one<{ n: number }>(`SELECT count(*) AS n ${REVIEW_LANE_FROM} ${base.sql()}`, base.params as Record<string, SqlParam>);
+    unfiltered = Number(row?.n ?? 0);
+  }
   if (query.cursor) {
     const after = afterCursor(query.cursor, { sortColumn: sort, idColumn: 'r.id', staleMessage: STALE });
     where.add(after.sql, after.params);
@@ -164,7 +188,7 @@ export async function listReviews(deps: Deps, query: AdminReviewsQuery): Promise
   );
   const today = dayKeyAt(deps);
   const page = pageOf(rows, query.limit, (last) => ({ c: last.sort_at, id: last.id }), (row) => toRow(deps, row, today));
-  return { ...page, counts: await reviewCounts(deps.db), total: counted?.n ?? 0 };
+  return { ...page, counts: await reviewCounts(deps.db), total, decidable: Number(counted?.decidable ?? 0), unfiltered };
 }
 
 async function laneRow(db: DbQueries, id: number): Promise<LaneRow | undefined> {
@@ -322,6 +346,8 @@ export const FLAG_SELECT =
   'LEFT JOIN users rb ON rb.id = r.resolved_by';
 
 export function toFlag(row: FlagRow): AdminFlag {
+  // v37 FIX-REV (SP v37 FIXES-361.md D1): a flag the server resolved because its job closed (settle.ts) names no resolver.
+  const jobClosed = row.status === 'resolved' && row.resolved_by === FLAG_RESOLVED_WITH_JOB;
   return {
     id: row.id,
     status: row.status,
@@ -330,8 +356,9 @@ export function toFlag(row: FlagRow): AdminFlag {
     details: row.details,
     createdAt: row.created_at,
     resolvedAt: row.resolved_at,
-    resolvedBy: row.resolver_email ?? row.resolved_by,
+    resolvedBy: jobClosed ? null : (row.resolver_email ?? row.resolved_by),
     reporter: { id: row.user_id, email: row.email, name: row.user_name },
     job: jobRef(row),
+    ...(jobClosed ? { jobClosed: true } : {}),
   };
 }

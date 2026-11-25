@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type FocusEvent, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type RefObject } from 'react';
 // Relative, not '@/': the web tests draw the panes that use these hooks.
 import { useMediaQuery } from '../../lib/useMediaQuery';
 
@@ -48,6 +48,44 @@ export function useRowFocus<T extends HTMLElement>(
     });
   };
   return [ref, { onFocus, onBlur }];
+}
+
+/** v37 FIX-REV: where a confirm gives focus back when it closes (useConfirmReturn). */
+export interface ConfirmReturn {
+  /** The control that opens the confirm was just pressed: focus goes back to it on Cancel. */
+  remember: () => void;
+  /** The confirm finished its work: the caller moves focus once the page is drawn again (its opener may be gone). */
+  finished: () => void;
+  /** ConfirmDialog's `finalFocus`. */
+  finalFocus: () => HTMLElement | boolean;
+}
+
+/**
+ * v37 FIX-REV (REVIEW361-ux M1): a confirm opened from a bar (Admin › Review's "all" decisions) gives focus back to the
+ * control that opened it on Cancel (it was `finalFocus={() => false}`: focus fell to the page, past a long list), and
+ * leaves it to the caller after it finished (the bar has gone by then; the caller focuses what replaced it).
+ */
+export function useConfirmReturn(): ConfirmReturn {
+  const opener = useRef<HTMLElement | null>(null);
+  const done = useRef(false);
+  return useMemo(
+    () => ({
+      remember: () => {
+        const active = document.activeElement;
+        opener.current = active instanceof HTMLElement && active !== document.body ? active : null;
+        done.current = false;
+      },
+      finished: () => {
+        done.current = true;
+      },
+      finalFocus: () => {
+        if (done.current) return false;
+        const element = opener.current;
+        return element?.isConnected ? element : true;
+      },
+    }),
+    [],
+  );
 }
 
 /** Whether the person asked for less motion (no flashes, fades or pulsing dot). */

@@ -6,8 +6,8 @@ import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/types';
 import { ADAPTERS } from './adapters/index';
 import { isDefinedAdapter, missingOutsideKey } from './adapters/define';
-import { HostHeldError, type IngestHttp } from './http';
-import { createHostGate, createRobotsStore } from './hosts'; // v30 FIX-A (SEC-7)
+import { HostHeldError, nothingSent, type IngestHttp } from './http';
+import { createHostGate, createRobotsStore, laneSql, onLaneSql, sameLaneSql } from './hosts'; // v30 FIX-A (SEC-7); v37 LANE; v37 FIX-LANE (any lane)
 import { hostRobots, robotsVerdict, type StoredRobots } from './robots';
 import { toSourceRecord, type SourceRow } from './sources';
 import { SCHEDULED_KINDS, type SourceKind } from './types';
@@ -41,6 +41,12 @@ import { RUNS_PAUSED_SQL } from './pause-state'; // v31 RUNS
 // Before a source is first due, its robots.txt verdict must be in (robots_status `unchecked` is never due):
 // refreshRobotsStatuses reads each host's file once (shared by every process for 24 hours: site_robots) and gives every
 // source of that host its verdict for the paths its adapter reads (defineAdapter's robotsPaths), again each day.
+//
+// v37 LANE (SP v37 PLAN W1, W4, W6, W7): a Workday source's host is held while its own row or the Workday lane is
+// (hosts.ts laneSql: every Workday host's turns are the lane's), so a paused lane postpones every Workday source past
+// the pause; one Workday source runs at a time (worker.ts takes the lane as their in-flight key, and a Workday source
+// is not due while another one holds an unexpired lease: the API's Run now and Test too); and a robots.txt read that
+// sent nothing (a held lane, a turn's wait that ran out) gives no verdict, never a day-long `error`.
 
 /** How often the worker looks for due sources (it is also woken at once when a run ends). */
 export const DUE_TICK_MS = 15_000;
@@ -229,7 +235,9 @@ export async function dueSources(deps: ConstantDeps, limit = DUE_BATCH): Promise
        AND s.terms_status IN ('allowed', 'allowed_with_conditions') AND s.robots_status IN ('allowed', 'not_applicable')
        AND (s.lease_until IS NULL OR s.lease_until < CAST(@now AS timestamptz))
        AND s.kind = ANY(string_to_array(@kinds, ','))
-       AND NOT EXISTS (SELECT 1 FROM crawl_hosts h WHERE h.host = s.host AND h.hold_until > CAST(@now AS timestamptz))
+       AND NOT EXISTS (SELECT 1 FROM crawl_hosts h WHERE h.host IN (s.host, ${laneSql('s.host')}) AND h.hold_until > CAST(@now AS timestamptz))
+       AND NOT (${onLaneSql('s.host')} AND EXISTS (SELECT 1 FROM job_sources o
+         WHERE o.id <> s.id AND o.lease_until > CAST(@now AS timestamptz) AND ${sameLaneSql('o.host', 's.host')})) -- v37 LANE (W6); v37 FIX-LANE: per lane
        AND NOT ${optedOutSourceSql('s')}
        AND s.paused_at IS NULL AND NOT ${RUNS_PAUSED_SQL}
      ORDER BY s.priority DESC, s.next_run_at
@@ -240,15 +248,17 @@ export async function dueSources(deps: ConstantDeps, limit = DUE_BATCH): Promise
 
 /**
  * The enabled sources of held hosts wait for the hold's end (next_run_at moved past it), so the due queue's look never
- * fills with sources it cannot start. Answers how many moved.
+ * fills with sources it cannot start. Answers how many moved. v37 LANE: a Workday source waits for its lane's pause too
+ * (the later of the two holds).
  */
 export async function postponeHeldSources(deps: Pick<AppDeps, 'db' | 'now'>): Promise<number> {
   return (
     await deps.db.run(
-      `UPDATE job_sources s SET next_run_at = h.hold_until + CAST(@after AS integer) * interval '1 millisecond'
-       FROM crawl_hosts h
-       WHERE h.host = s.host AND h.hold_until > CAST(@now AS timestamptz) AND s.enabled AND s.enabled_at IS NOT NULL
-         AND s.next_run_at < h.hold_until`,
+      `UPDATE job_sources s SET next_run_at = x.until + CAST(@after AS integer) * interval '1 millisecond'
+       FROM (SELECT s2.id, max(h.hold_until) AS until FROM job_sources s2
+             JOIN crawl_hosts h ON h.host IN (s2.host, ${laneSql('s2.host')}) AND h.hold_until > CAST(@now AS timestamptz)
+             WHERE s2.enabled AND s2.enabled_at IS NOT NULL GROUP BY s2.id) x
+       WHERE s.id = x.id AND s.next_run_at < x.until`,
       { now: nowIso(deps), after: AFTER_HOLD_MS },
     )
   ).changes;
@@ -353,7 +363,8 @@ export async function refreshRobotsStatuses(
       }
     } catch (error) {
       if (options.signal?.aborted) break;
-      if (error instanceof HostHeldError) continue;
+      // v37 LANE (W7): a held host or lane, or a read that sent nothing (its turn's wait ran out): no verdict now.
+      if (error instanceof HostHeldError || nothingSent(error)) continue;
       // An unreadable file (429, a 5xx, no answer): "not now", so every source of the host says `error`.
       robots = { status: 'unreachable', rules: null };
     }

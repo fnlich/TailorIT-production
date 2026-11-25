@@ -1,4 +1,6 @@
-import type { JobVerification } from '@tailorit/shared';
+import type { AddJobResult, JobVerification } from '@tailorit/shared';
+import type { MessageRenderer } from '@/lib/messages';
+import { reasonText } from '../add/outcome';
 
 // v31 JOBSWEB (docs/design/v3.1/21-jobs-from-links.md §6): a job others do not see says so wherever its person meets it
 // (the Jobs card and detail, the Tracker's card and row, the Saved pane):
@@ -33,6 +35,28 @@ export const RETRY_READ_COPY = {
   published: 'Now everyone can see this job',
   stillPrivate: 'Still only yours',
   refused: "This job can't be shared",
+  // v37 FIX-REV (REVIEW361-ux M5): a Retry read that found the posting closed closed the person's own job.
+  closed: 'Job closed',
   failed: "TailorIT couldn't try again right now",
   checked: 'Last tried',
 } as const;
+
+/**
+ * What a Retry read came to, as its toast says it: read now (everyone sees it, or an admin approves it next: `read`, the
+ * shared job opens), still only the person's (why), or refused. v37 FIX-REV (REVIEW361-ux M5): a posting found closed
+ * is an answer, not an error: TailorIT closed the person's own job (it stays in their list, Closed, with no "not
+ * verified" mark and no Retry read).
+ */
+export function retryReadAnswer(
+  result: Pick<AddJobResult, 'state' | 'reason' | 'message'>,
+  t: MessageRenderer,
+): { tone: 'success' | 'info' | 'error'; title: string; body: string; read: boolean } {
+  if (result.state === 'published') return { tone: 'success', title: RETRY_READ_COPY.published, body: result.message, read: true };
+  if (result.state === 'waiting_admin') return { tone: 'success', title: t('MSG_JOB_HELD_TITLE'), body: result.message, read: true };
+  if (result.state === 'refused' && result.reason === 'closed') return { tone: 'info', title: RETRY_READ_COPY.closed, body: result.message, read: false };
+  if (result.state === 'private_unverified') {
+    const why = reasonText(result.reason, t);
+    return { tone: 'info', title: RETRY_READ_COPY.stillPrivate, body: why && why !== result.message ? `${result.message} ${why}` : result.message, read: false };
+  }
+  return { tone: 'error', title: RETRY_READ_COPY.refused, body: result.message, read: false };
+}

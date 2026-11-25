@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  REVIEW_STATE_DEFAULT,
   type AdminFlag,
   type AdminReviewCounts,
   type AdminReviewRow,
@@ -14,7 +15,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'; // v32 ADMINAPP (E6)
 import { EmptyState } from '@/components/ui/EmptyState';
-import { HelpTip } from '@/components/ui/HelpTip'; // v35 OPSWEB
 import { CheckIcon, ShieldCheckIcon, XIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { SearchPill } from '@/components/ui/SearchPill';
@@ -22,11 +22,10 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
-import { ShowMoreButton } from '@/components/admin';
 import { userMessage } from '@/lib/api';
 import { focusLater, focusSoon } from '@/lib/focusLater';
 import { useNow } from '@/lib/useNow';
-import { Pane, SelectBar } from '../../../../components/queue';
+import { ListEnd, Pane, SelectBar, useConfirmReturn, useLoadOnScroll } from '../../../../components/queue'; // v37 FIX-REV: useConfirmReturn
 import {
   bulkFlags,
   bulkReviews,
@@ -39,6 +38,8 @@ import {
   reviewKeys,
   type ReviewListQuery,
 } from './api';
+import { LOADED_ROWS_NOTE, allLine, allProgressText, allScopeOf, fetchAllCount, runAllTurns, selectAllTip, selectAllWords, sendAll, type AllLane } from './all'; // v37 REVIEW; v37 FIX-REV: LOADED_ROWS_NOTE
+import { AllDialog, type AllAsk } from './AllDialog'; // v37 REVIEW
 import { AutoApproveStrip } from './AutoApprove';
 import { BulkDialog, type BulkAction } from './BulkDialog';
 import {
@@ -50,12 +51,11 @@ import {
   chunkIds,
   decidedText,
   emptyText,
-  groupFlagRows,
-  groupReviewRows,
-  laneCount,
   laneFromAddress,
+  laneHeadCount,
   laneLabel,
   mergeBulkAnswers,
+  openingLane,
   REVIEW_POLL_MS,
   REVIEW_SEARCH_DEBOUNCE_MS,
   rowName,
@@ -63,41 +63,41 @@ import {
   stateFilterLabel,
   stateFiltersOf,
   stateForLane,
+  viewNarrowed,
   type BulkAnswer,
   type BulkRowResult,
-  type RowGroup,
 } from './copy';
 import { FlagRowView, ReviewRowView, type FlagChange } from './ReviewRows';
 import { ReviewSheet } from './ReviewSheet';
 import { UnverifiedLane } from './UnverifiedLane'; // v31 ADMINWEB
 import { ADMIN_REVIEW_LANE_LABEL, ADMIN_REVIEW_LANES, fetchUnverifiedCount, filteredHeadCount, isQueueLane, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
-import {
-  NEW_JOB_WAYS,
-  decideNewJobsAll,
-  fetchNewJobsAllCount,
-  fetchRecentImports,
-  fromOptions,
-  newJobAllFilter,
-  newJobFilterFromAddress,
-  newJobFilterOf,
-  newJobFilterQuery,
-  newJobFromValue,
-  newJobsAllLine,
-  runNewJobsAll,
-  type NewJobFilter,
-} from './from'; // v35 OPSWEB
+import { NEW_JOB_WAYS, fetchRecentImports, fromOptions, newJobFilterFromAddress, newJobFilterOf, newJobFilterQuery, newJobFromValue, type NewJobFilter } from './from'; // v35 OPSWEB
 
 // v30 X1-WEB: Admin › Review's queue (docs/design/part2/14-extension-reports.md §6.2), on components/queue like the
 // Auto-apply page's Queue pane: the lane tabs (a select at phone width) with their counts, the state filter, a search,
-// the auto-approve strip, the rows in their groups, a select mode with its action bar (one request per 100 rows, each
-// row saying what happened), the evidence sheet, one polite live region, and a read every 30 s while the tab is
-// visible, paused while an action is in flight.
+// the auto-approve strip, the rows, a select mode with its action bar (one request per 100 rows, each row saying what
+// happened), the evidence sheet, one polite live region, and a read every 30 s while the tab is visible, paused while
+// an action is in flight.
 // v31 ADMINWEB: a fourth lane, "Couldn't verify" (UnverifiedLane: LINK's links TailorIT could not read, Retry read and
 // Reject only); its count comes from GET /api/admin/jobs/unverified/count, and the other lanes' counts from the counts
-// route while it is open.
+// route.
 // v32 ADMINAPP (E6, the owner's "admin should be able to approve manually"): Couldn't verify's rows lead with Approve;
 // a v3.0 page review's Approve asks first, then approves it as captured when TailorIT still cannot read its page
 // (`captured`: the job is published as the reporters' browsers captured it, marked "Approved by an admin").
+// v37 REVIEW (SP v37 PLAN.md R1-R4, the owner's "admin currently can't see the whole jobs for review"):
+//   - R1: every lane loads as you scroll, 100 rows a page (components/queue ListEnd: "Loading more...", an error with
+//     Try again, "All 340 shown"); no Load more button. The rows are one list in the server's order.
+//   - R2: a lane opens on Waiting (needs review and checking, a "Checking" tag on the rows TailorIT is checking), which
+//     is what its count counts; the header says the list's total, "12 of 340" while a search, the From filter or Needs
+//     review / Checking narrows it.
+//   - R3: the select bar's "Select all 340" takes every item the filter matches, loaded or not; its Approve / Reject
+//     (Resolve / Dismiss on Flags) then run on the server for all of them (all.ts, AllDialog: the count, the progress,
+//     one result line). New jobs' own Approve all / Reject all buttons went: "Select all N" does it on every lane.
+//   - R4: with no lane in the address, Review opens on the first lane with items (as the admins' bell links).
+// v37 FIX-REV (SP v37 FIXES-361.md, REVIEW361-ux): the "all" confirm gives focus back to the bar's action on Cancel (M1)
+// and can be stopped after a turn (L6); unticking a row under "Select all N" says the selection is the rows loaded so
+// far (L5); Try again at the list's end keeps focus (L2); the phone selects are 44 px (L1); New jobs' Select sits on
+// the From line (L7).
 
 /** `value`, once it has stayed the same for `delay` ms. */
 function useSettled(value: string, delay: number): string {
@@ -123,6 +123,8 @@ const AFTER_SELECT_MODE = [
 ];
 /** After the empty state's button went: the search box, else the first row's action. */
 const AFTER_EMPTY = [`${PANE} input[type="search"]`, `${PANE} li [data-row-action]`];
+/** v37 REVIEW (R1): a lane's rows, as the list's keyboard look-ahead finds them. */
+const ROWS = 'li[data-review-row], li[data-flag-row]';
 
 export function ReviewPane({
   onCounts,
@@ -137,12 +139,15 @@ export function ReviewPane({
   const toast = useToast();
   const now = useNow();
 
-  const [lane, setLane] = useState<AdminReviewLane>(() => laneFromAddress(searchParams.get('tab'), searchParams.get('lane')));
-  const [state, setState] = useState<ReviewStateFilter>('needs_review');
+  // v37 REVIEW (R4): the address's lane, else (null) the first lane with items once the counts are read.
+  const [pickedLane, setPickedLane] = useState<AdminReviewLane | null>(() => laneFromAddress(searchParams.get('tab'), searchParams.get('lane')));
+  const [state, setState] = useState<ReviewStateFilter>(REVIEW_STATE_DEFAULT);
   const [search, setSearch] = useState('');
   const q = useSettled(search.trim(), REVIEW_SEARCH_DEBOUNCE_MS);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  // v37 REVIEW (R3): "Select all N": every item the filter matches, loaded or not (a decision then runs on the server).
+  const [allMode, setAllMode] = useState(false);
   const [busy, setBusy] = useState<ReadonlySet<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkAction, setBulkAction] = useState<BulkAction | null>(null);
@@ -151,16 +156,35 @@ export function ReviewPane({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [capturing, setCapturing] = useState<{ row: AdminReviewRow; note: string } | null>(null); // v32 ADMINAPP (E6)
   const [live, setLive] = useState('');
-  // v35 OPSWEB (PLAN H3): New jobs' From filter (`run=` in the address: one import), and its Approve all / Reject all.
+  // v35 OPSWEB (PLAN H3): New jobs' From filter (`run=` in the address: one import).
   const [newJobFilter, setNewJobFilter] = useState<NewJobFilter>(() => newJobFilterFromAddress(searchParams));
-  const [allAsk, setAllAsk] = useState<'approve' | 'reject' | null>(null);
+  const [allAsk, setAllAsk] = useState<AllAsk | null>(null);
   const [allProgress, setAllProgress] = useState<string | null>(null);
+  // v37 FIX-REV (REVIEW361-ux M1, L5, L6): where the "all" confirm gives focus back; whether a row was unticked under
+  // "Select all N" (the selection is the loaded rows now); Stop pressed while "all" works.
+  const allReturn = useConfirmReturn();
+  const [loadedOnly, setLoadedOnly] = useState(false);
+  const stopAll = useRef(false);
+  const [stopping, setStopping] = useState(false);
   // v35 FIX-WEB (L5): Couldn't verify's From filter's count, while one is on (the header reads "2 of 7").
   const [unverifiedFiltered, setUnverifiedFiltered] = useState<number | null>(null);
   const inFlight = busy.size > 0 || bulkBusy || allAsk !== null;
 
+  // v31 ADMINWEB: the counts route (the admin nav's, so one cache) and Couldn't verify's count. v37 REVIEW (R4): read on
+  // every lane: they choose the lane Review opens on.
+  const countsRoute = useQuery({ queryKey: reviewKeys.counts, queryFn: ({ signal }) => fetchReviewCounts(signal), refetchInterval: REVIEW_POLL_MS });
+  const unverifiedCount = useQuery({ queryKey: reviewKeys.unverifiedCount, queryFn: ({ signal }) => fetchUnverifiedCount(signal), refetchInterval: REVIEW_POLL_MS });
+  const unverified = unverifiedCount.data ?? null;
+  const opening = openingLane(pickedLane, countsRoute.data, unverified, countsRoute.isError || unverifiedCount.isError);
+  useEffect(() => {
+    if (pickedLane === null && opening !== null) setPickedLane(opening);
+  }, [pickedLane, opening]);
+  const lane: AdminReviewLane = opening ?? 'closed';
+  const laneKnown = opening !== null;
+
   const newJobs = lane === 'new_job';
   const fromKey = newJobs ? newJobFromValue(newJobFilter) : 'all';
+  const fromFiltered = newJobs && fromKey !== 'all';
   const list: ReviewListQuery = { state, q, ...(newJobs ? newJobFilterQuery(newJobFilter) : {}) };
   const poll = inFlight ? false : REVIEW_POLL_MS;
   const reviewLane: JobReviewKind = lane === 'new_job' ? 'new_job' : 'closed';
@@ -171,7 +195,7 @@ export function ReviewPane({
     queryFn: ({ pageParam, signal }) => fetchReviews(reviewLane, { ...list, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor,
-    enabled: reviewing,
+    enabled: laneKnown && reviewing,
     refetchInterval: poll,
   });
   const flags = useInfiniteQuery({
@@ -179,38 +203,50 @@ export function ReviewPane({
     queryFn: ({ pageParam, signal }) => fetchFlags({ ...list, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor,
-    enabled: lane === 'flags',
+    enabled: laneKnown && lane === 'flags',
     refetchInterval: poll,
   });
-  // v31 ADMINWEB: the counts route (the admin nav's, so one cache) while "Couldn't verify" is open; its own count beside.
-  const countsRoute = useQuery({ queryKey: reviewKeys.counts, queryFn: ({ signal }) => fetchReviewCounts(signal), enabled: unverifiedLane, refetchInterval: REVIEW_POLL_MS });
-  const unverifiedCount = useQuery({ queryKey: reviewKeys.unverifiedCount, queryFn: ({ signal }) => fetchUnverifiedCount(signal), refetchInterval: REVIEW_POLL_MS });
-  const unverified = unverifiedCount.data ?? null;
-  // v35 OPSWEB: the recent imports New jobs' From filter offers; the filter's count, read when Approve all asks.
+  // v35 OPSWEB: the recent imports New jobs' From filter offers.
   const imports = useQuery({ queryKey: ['admin', 'imports', 'recent'], queryFn: ({ signal }) => fetchRecentImports(signal), enabled: newJobs, staleTime: 60_000 });
-  const allFilter = newJobAllFilter(newJobFilter, state, q);
+  // v37 REVIEW (R3): what "Select all N" decides, and its count (read when the confirm opens; its `upTo` goes back).
+  const allLane: AllLane = lane === 'flags' ? 'flags' : reviewLane;
+  const scope = allScopeOf(allLane, state, q, newJobFilter);
   const allCount = useQuery({
-    queryKey: ['admin', 'review', 'all-count', allFilter],
-    queryFn: ({ signal }) => fetchNewJobsAllCount(allFilter, signal),
+    queryKey: ['admin', 'review', 'all-count', scope],
+    queryFn: ({ signal }) => fetchAllCount(scope, signal),
     enabled: allAsk !== null,
     staleTime: 0,
     gcTime: 0,
   });
-  const allPending = allCount.data?.pending; // v35 FIX-WEB (S6): the count; its `upTo` goes with the requests
   const active = lane === 'flags' ? flags : reviews;
-  const counts = unverifiedLane
-    ? (countsRoute.data ?? reviews.data?.pages[0]?.counts ?? flags.data?.pages[0]?.counts)
-    : (active.data?.pages[0]?.counts ?? (lane === 'flags' ? reviews : flags).data?.pages[0]?.counts);
+  const counts = active.data?.pages[0]?.counts ?? countsRoute.data ?? (lane === 'flags' ? reviews : flags).data?.pages[0]?.counts;
   useEffect(() => onCounts(counts, unverified), [counts, unverified, onCounts]);
 
   const reviewRows = useMemo(() => (lane === 'flags' ? [] : (reviews.data?.pages.flatMap((page) => page.items) ?? [])), [lane, reviews.data]);
   const flagRows = useMemo(() => (lane === 'flags' ? (flags.data?.pages.flatMap((page) => page.items) ?? []) : []), [lane, flags.data]);
   const loaded = active.data !== undefined;
+  const firstPage = active.data?.pages[0];
+  const pages = active.data?.pages.length ?? 0;
   const rowCount = lane === 'flags' ? flagRows.length : reviewRows.length;
   const decidable = lane === 'flags' ? flagRows.filter((flag) => flag.status === 'open').map((flag) => flag.id) : reviewRows.filter((row) => row.state === 'pending').map((row) => row.id);
-  const chosen = decidable.filter((id) => selected.has(id));
+  // v37 REVIEW (R3): every item the filter matches that a decision can take, loaded or not.
+  const decidableTotal = firstPage?.decidable ?? decidable.length;
+  const chosen = allMode ? decidable : decidable.filter((id) => selected.has(id));
+  const chosenCount = allMode ? decidableTotal : chosen.length;
+  const decidableIds = new Set(decidable);
+  const isChosen = (id: number) => (allMode ? decidableIds.has(id) : selected.has(id));
 
-  // Focus stays in the list when a decided row leaves it (the Needs review view drops it): it goes to the row now in its
+  const loader = useLoadOnScroll(
+    {
+      hasNextPage: Boolean(active.hasNextPage),
+      isFetchingNextPage: active.isFetchingNextPage,
+      isFetchNextPageError: active.isFetchNextPageError,
+      fetchNextPage: active.fetchNextPage,
+    },
+    ROWS,
+  );
+
+  // Focus stays in the list when a decided row leaves it (the Waiting view drops it): it goes to the row now in its
   // place, else to the pane's first control. While focus is still on that row (its new action, or the sheet's
   // trigger given back), it waits; once the person moved focus elsewhere, it lets go.
   const focusAt = useRef<{ id: number; index: number } | null>(null);
@@ -226,7 +262,7 @@ export function ReviewPane({
     }
     focusAt.current = null;
     const pane = listRef.current;
-    const rows = pane?.querySelectorAll<HTMLElement>('li[data-review-row], li[data-flag-row]') ?? [];
+    const rows = pane?.querySelectorAll<HTMLElement>(ROWS) ?? [];
     const row = rows.length > 0 ? rows[Math.min(want.index, rows.length - 1)] : null;
     const target = row
       ? (row.querySelector<HTMLElement>('[data-row-action]') ?? row.querySelector<HTMLElement>('button'))
@@ -235,17 +271,24 @@ export function ReviewPane({
   }, [reviewRows, flagRows, inFlight, sheetOpen]);
 
   const focusAfter = (id: number) => {
-    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>('li[data-review-row], li[data-flag-row]') ?? [])];
+    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>(ROWS) ?? [])];
     const index = Math.max(0, rows.findIndex((row) => row.dataset.reviewRow === String(id) || row.dataset.flagRow === String(id)));
     focusAt.current = { id, index };
   };
 
+  /** v37 REVIEW (R3): the selection goes (a lane, filter or search changed; the select mode ended). */
+  const clearSelection = () => {
+    setSelected(new Set());
+    setAllMode(false);
+    setLoadedOnly(false);
+  };
+
   const changeLane = (next: AdminReviewLane) => {
     if (next === lane) return;
-    setLane(next);
+    setPickedLane(next);
     setState((current) => stateForLane(next, current));
     setSelectMode(false);
-    setSelected(new Set());
+    clearSelection();
     setOutcomes(new Map());
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', 'review');
@@ -253,35 +296,18 @@ export function ReviewPane({
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
-  // v35 OPSWEB: Approve all / Reject all of New jobs: requests continued with `after` until done, one result line.
-  const runAll = async (decision: 'approve' | 'reject') => {
-    const verb = decision === 'approve' ? 'Approved' : 'Rejected';
-    try {
-      // v35 FIX-WEB (S6): the count's `upTo` goes back with every request: nothing past what the confirm counted.
-      const upTo = allCount.data?.upTo;
-      const outcome = await runNewJobsAll({ decision, filter: allFilter, ...(upTo ? { upTo } : {}) }, decideNewJobsAll, (sofar) => {
-        const decided = (decision === 'approve' ? sofar.counts.approved : sofar.counts.rejected) ?? 0;
-        setAllProgress(`${verb} ${decided.toLocaleString('en-US')} so far...`);
-      });
-      const line = newJobsAllLine(outcome);
-      setLive(line);
-      if ((outcome.counts.failed ?? 0) > 0) toast.error(line, outcome.failures[0]?.message);
-      else toast.success(line);
-      setAllAsk(null);
-      focusSoon(AFTER_SELECT_MODE);
-    } catch (error) {
-      throw new Error(userMessage(error));
-    } finally {
-      setAllProgress(null);
-      refresh();
-    }
-  };
-
   const changeState = (next: ReviewStateFilter) => {
     setState(next);
-    setSelected(new Set());
+    clearSelection();
     setOutcomes(new Map());
   };
+
+  useEffect(() => {
+    // v37 REVIEW (R3): a new search takes another set of items: "Select all N" never carries over to it.
+    setAllMode(false);
+    setSelected(new Set());
+    setLoadedOnly(false);
+  }, [q]);
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: reviewKeys.all });
   const markBusy = (id: number, on: boolean) =>
@@ -357,6 +383,11 @@ export function ReviewPane({
     }
   };
 
+  const endSelectMode = () => {
+    setSelectMode(false);
+    clearSelection();
+  };
+
   const runBulk = async (action: BulkAction, note: string) => {
     const ids = chosen;
     setBulkAction(null);
@@ -381,8 +412,7 @@ export function ReviewPane({
     setLive(summary);
     if ((merged.counts.failed ?? 0) > 0) toast.error(summary, 'The rows that failed say why.');
     else toast.success(summary);
-    setSelectMode(false);
-    setSelected(new Set());
+    endSelectMode();
     setBulkBusy(false);
     refresh();
     // v30 FIX-WEB (UX-4): the bar went with the select mode: focus back to Select (or the first row still to decide),
@@ -390,15 +420,80 @@ export function ReviewPane({
     focusSoon(AFTER_SELECT_MODE);
   };
 
-  const toggle = (id: number, on: boolean) =>
+  // v37 REVIEW (R3): a decision on every item "Select all N" took: requests continued with `after` until done (the
+  // count's `upTo` with each), the progress in the confirm, then one result line.
+  const runAll = async (ask: AllAsk, note: string) => {
+    try {
+      const upTo = allCount.data?.upTo;
+      const outcome = await runAllTurns(
+        ask.action,
+        (after) => sendAll(scope, ask.action, { ...(after !== undefined ? { after } : {}), ...(upTo ? { upTo } : {}), ...(note ? { note } : {}) }),
+        (sofar) => setAllProgress(allProgressText(sofar)),
+        undefined,
+        () => stopAll.current, // v37 FIX-REV (L6)
+      );
+      const line = allLine(ask.lane, outcome);
+      setLive(line);
+      if ((outcome.counts.failed ?? 0) > 0) toast.error(line, outcome.failures[0]?.message);
+      else if (outcome.stopped) toast.info(line);
+      else toast.success(line);
+      allReturn.finished(); // v37 FIX-REV (M1): the bar goes; focus goes to Select (below)
+      setAllAsk(null);
+      endSelectMode();
+      setOutcomes(new Map());
+      focusSoon(AFTER_SELECT_MODE);
+    } catch (error) {
+      throw new Error(userMessage(error));
+    } finally {
+      setAllProgress(null);
+      setStopping(false);
+      refresh();
+    }
+  };
+
+  /** The bar's decision: on every item the filter matches ("Select all N"), else on the chosen rows. */
+  const ask = (action: BulkAction) => {
+    if (allMode) {
+      allReturn.remember(); // v37 FIX-REV (M1): Cancel gives focus back to this action
+      stopAll.current = false;
+      setAllAsk({ lane: allLane, action });
+    } else setBulkAction(action);
+  };
+
+  const toggle = (id: number, on: boolean) => {
+    if (allMode) {
+      // v37 REVIEW (R3): unticking one row of "all" keeps the other rows shown. v37 FIX-REV (REVIEW361-ux L5): the bar
+      // says so: the selection is the rows loaded so far now, not every row the filter matches.
+      setAllMode(false);
+      setLoadedOnly(true);
+      setSelected(new Set(decidable.filter((other) => other !== id || on)));
+      return;
+    }
     setSelected((current) => {
       const next = new Set(current);
       if (on) next.add(id);
       else next.delete(id);
       return next;
     });
+  };
 
   const filters = stateFiltersOf(lane);
+  const selectButton = !selectMode ? (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="max-sm:h-11"
+      disabled={decidableTotal === 0}
+      data-review-select=""
+      onClick={() => {
+        setSelectMode(true);
+        // v30 FIX-WEB (UX-4): the bar replaces the button: focus goes to its first control (v37: Select all N).
+        focusLater(`${SELECT_BAR(lane !== 'flags')} [data-select-all]`, `${SELECT_BAR(lane !== 'flags')} button`);
+      }}
+    >
+      Select
+    </Button>
+  ) : null;
   const controls = (
     <div className="flex flex-col gap-3">
       <SegmentedControl
@@ -410,7 +505,7 @@ export function ReviewPane({
       />
       <Select
         aria-label="Review lane"
-        className="w-full sm:hidden"
+        className="w-full sm:hidden max-sm:h-11"
         size="lg"
         value={lane}
         onValueChange={changeLane}
@@ -422,10 +517,19 @@ export function ReviewPane({
           <SegmentedControl
             aria-label="Show reviews"
             size="sm"
-            listClassName="max-sm:h-11"
+            className="max-sm:hidden"
             value={state}
             onValueChange={changeState}
             items={filters.map((value) => ({ value, label: stateFilterLabel(value) }))}
+          />
+          {/* v37 REVIEW (R2): five filters do not fit a phone's width as tabs: a select there, as the lanes. */}
+          <Select
+            aria-label="Show reviews"
+            className="w-full sm:hidden max-sm:h-11"
+            size="lg"
+            value={state}
+            onValueChange={changeState}
+            options={filters.map((value) => ({ value, label: stateFilterLabel(value) }))}
           />
           <SearchPill
             value={search}
@@ -434,7 +538,7 @@ export function ReviewPane({
             placeholder="Search title or company"
             className="w-full sm:ml-auto sm:w-64 max-sm:h-11"
           />
-          {/* v35 OPSWEB (PLAN H3): New jobs' From filter, and Approve all / Reject all for it. */}
+          {/* v35 OPSWEB (PLAN H3): New jobs' From filter. */}
           {newJobs && (
             <div className="flex w-full flex-wrap items-center gap-2" data-new-jobs-tools="">
               {/* v35 FIX-WEB (L6): a visible "From" beside the select (two "All"s read apart). */}
@@ -449,92 +553,84 @@ export function ReviewPane({
                   value={newJobFromValue(newJobFilter)}
                   onValueChange={(value) => {
                     setNewJobFilter(newJobFilterOf(value));
-                    setSelected(new Set());
+                    clearSelection();
                     setOutcomes(new Map());
                   }}
                   options={fromOptions(NEW_JOB_WAYS, imports.data?.items ?? [], newJobFilter.runId)}
                 />
               </span>
-              {decidable.length > 0 && state !== 'decided' && (
-                <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
-                  <Button variant="outline" size="sm" className="max-sm:h-11" icon={<CheckIcon size={14} weight="bold" aria-hidden="true" />} aria-haspopup="dialog" onClick={() => setAllAsk('approve')}>
-                    Approve all
-                  </Button>
-                  <Button variant="outline" size="sm" className="max-sm:h-11" icon={<XIcon size={14} weight="bold" aria-hidden="true" />} aria-haspopup="dialog" onClick={() => setAllAsk('reject')}>
-                    Reject all
-                  </Button>
-                  <HelpTip label="Approve all and Reject all">Every new job the From filter, the search and the view match, shown or not.</HelpTip>
-                </span>
-              )}
+              {/* v37 FIX-REV (REVIEW361-ux L7): Select on the From line (it dropped to a line of its own under From). */}
+              {selectButton}
             </div>
           )}
-          {!selectMode && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="max-sm:h-11"
-              disabled={decidable.length === 0}
-              data-review-select=""
-              onClick={() => {
-                setSelectMode(true);
-                // v30 FIX-WEB (UX-4): the bar replaces the button: focus goes to its first control.
-                focusLater(`${SELECT_BAR(lane !== 'flags')} [role="checkbox"]`, `${SELECT_BAR(lane !== 'flags')} button`);
-              }}
-            >
-              Select
-            </Button>
-          )}
+          {!newJobs && selectButton}
         </div>
       )}
     </div>
   );
 
-  // v35 FIX-WEB (L5): "2 of 7" beside the title while Couldn't verify's From filter is on.
-  const filteredHead = unverifiedLane ? filteredHeadCount(unverifiedFiltered, unverified) : null;
+  // v37 REVIEW (R2): the header's count: what the list can show; "12 of 340" while the view is narrowed. v35 FIX-WEB
+  // (L5): "2 of 7" while Couldn't verify's From filter is on.
+  const head = unverifiedLane
+    ? (() => {
+        const text = filteredHeadCount(unverifiedFiltered, unverified);
+        return { count: text === null ? unverified : null, text };
+      })()
+    : laneHeadCount(firstPage, viewNarrowed(state, q, fromFiltered));
 
-  const footer = selectMode && !unverifiedLane ? (
-    <SelectBar
-      aria-label={reviewing ? 'Approve or reject the selected reviews' : 'Resolve or dismiss the selected flags'}
-      selected={chosen.length}
-      selectable={decidable.length}
-      selectAllLabel={reviewing ? 'Select every review shown that needs a decision' : 'Select every open flag shown'}
-      onSelectAll={(on) => setSelected(on ? new Set(decidable) : new Set())}
-    >
-      <Button
-        size="sm"
-        className="max-sm:h-11 max-sm:flex-1"
-        icon={<CheckIcon size={14} weight="bold" aria-hidden="true" />}
-        disabled={chosen.length === 0}
-        loading={bulkBusy}
-        onClick={() => setBulkAction(reviewing ? 'approve' : 'resolved')}
-      >
-        {reviewing ? 'Approve' : 'Resolve'}
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        className="max-sm:h-11 max-sm:flex-1"
-        icon={<XIcon size={14} weight="bold" aria-hidden="true" />}
-        disabled={chosen.length === 0 || bulkBusy}
-        onClick={() => setBulkAction(reviewing ? 'reject' : 'dismissed')}
-      >
-        {reviewing ? 'Reject' : 'Dismiss'}
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="max-sm:h-11"
-        disabled={bulkBusy}
-        onClick={() => {
-          setSelectMode(false);
+  const footer =
+    selectMode && !unverifiedLane ? (
+      <SelectBar
+        aria-label={reviewing ? 'Approve or reject the selected reviews' : 'Resolve or dismiss the selected flags'}
+        selected={chosenCount}
+        selectable={decidableTotal}
+        selectAllLabel={selectAllTip(allLane)}
+        onSelectAll={(on) => {
           setSelected(new Set());
-          focusLater(...AFTER_SELECT_MODE); // v30 FIX-WEB (UX-4)
+          setAllMode(on);
+          setLoadedOnly(false);
         }}
+        selectAllAs="button"
+        allSelected={allMode || (decidableTotal > 0 && chosen.length === decidableTotal)}
+        selectAllWords={selectAllWords(decidableTotal)}
+        note={loadedOnly ? LOADED_ROWS_NOTE : null}
       >
-        Cancel
-      </Button>
-    </SelectBar>
-  ) : undefined;
+        <Button
+          size="sm"
+          className="max-sm:h-11 max-sm:flex-1"
+          icon={<CheckIcon size={14} weight="bold" aria-hidden="true" />}
+          disabled={chosenCount === 0}
+          loading={bulkBusy}
+          aria-haspopup="dialog"
+          onClick={() => ask(reviewing ? 'approve' : 'resolved')}
+        >
+          {reviewing ? 'Approve' : 'Resolve'}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="max-sm:h-11 max-sm:flex-1"
+          icon={<XIcon size={14} weight="bold" aria-hidden="true" />}
+          disabled={chosenCount === 0 || bulkBusy}
+          aria-haspopup="dialog"
+          onClick={() => ask(reviewing ? 'reject' : 'dismissed')}
+        >
+          {reviewing ? 'Reject' : 'Dismiss'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="max-sm:h-11"
+          disabled={bulkBusy}
+          onClick={() => {
+            endSelectMode();
+            focusLater(...AFTER_SELECT_MODE); // v30 FIX-WEB (UX-4)
+          }}
+        >
+          Cancel
+        </Button>
+      </SelectBar>
+    ) : undefined;
 
   let body: ReactNode;
   if (active.isError && !loaded) {
@@ -603,10 +699,10 @@ export function ReviewPane({
       />
     );
   } else {
-    const groups: RowGroup<AdminReviewRow | AdminFlag>[] = lane === 'flags' ? groupFlagRows(flagRows, now) : groupReviewRows(reviewRows);
+    const things = lane === 'flags' ? 'flags' : lane === 'new_job' ? 'new jobs' : 'closed links';
     body = (
       <>
-        {active.isError && (
+        {active.isRefetchError && (
           <Notice
             tone="warning"
             className="mx-4 mt-3 sm:mx-5"
@@ -620,78 +716,72 @@ export function ReviewPane({
             What is shown may be out of date.
           </Notice>
         )}
-        {groups.map(({ group, title, rows }) => (
-          <section key={group} aria-labelledby={`review-group-${group}`} data-review-group={group}>
-            <h3
-              id={`review-group-${group}`}
-              className="flex items-center gap-2 border-y border-border bg-surface-low px-4 py-1.5 text-xs leading-5 font-semibold text-muted-foreground sm:px-5"
-            >
-              <span>{title}</span>
-              <span className="tabular-nums">{rows.length}</span>
-            </h3>
-            <ul className="divide-y divide-divider-soft" aria-labelledby={`review-group-${group}`}>
-              {lane === 'flags'
-                ? (rows as AdminFlag[]).map((flag) => (
-                    <FlagRowView
-                      key={flag.id}
-                      flag={flag}
-                      now={now}
-                      selectMode={selectMode}
-                      checked={selected.has(flag.id)}
-                      onChecked={(on) => toggle(flag.id, on)}
-                      busy={busy.has(flag.id) || (bulkBusy && selected.has(flag.id))}
-                      outcome={rowOutcomeText(outcomes.get(flag.id))}
-                      onChange={(change) => void changeFlag(flag, change)}
-                    />
-                  ))
-                : (rows as AdminReviewRow[]).map((row) => (
-                    <ReviewRowView
-                      key={row.id}
-                      row={row}
-                      now={now}
-                      selectMode={selectMode}
-                      checked={selected.has(row.id)}
-                      onChecked={(on) => toggle(row.id, on)}
-                      busy={busy.has(row.id) || (bulkBusy && selected.has(row.id))}
-                      outcome={rowOutcomeText(outcomes.get(row.id))}
-                      onDecide={(decision) => void decide(row, decision)}
-                      {...(retriesRead(row) ? { onRetry: () => void retry(row) } : {})}
-                      onOpen={() => {
-                        setSheetRow(row);
-                        setSheetOpen(true);
-                      }}
-                    />
-                  ))}
-            </ul>
-          </section>
-        ))}
-        {/* v30 FIX-WEB (UX-4): focus stays on Load more while the next page loads; after the last, on the last row. */}
-        <ShowMoreButton
-          hasMore={active.hasNextPage}
-          loading={active.isFetchingNextPage}
-          onMore={() => void active.fetchNextPage()}
-          afterLast={[`${PANE} li[data-review-row]:last-of-type [data-row-action]`, `${PANE} li[data-flag-row]:last-of-type [data-row-action]`]}
-          variant="ghost"
-          size="sm"
-          className="flex justify-center p-3"
-        >
-          Load more
-        </ShowMoreButton>
+        {/* v37 REVIEW (R1): one list in the server's order, the next page read as its end comes near (or focus nears it). */}
+        <div onFocusCapture={loader.onFocusCapture} data-review-list="">
+          <ul className="divide-y divide-divider-soft" aria-label={ADMIN_REVIEW_LANE_LABEL[lane]}>
+            {lane === 'flags'
+              ? flagRows.map((flag) => (
+                  <FlagRowView
+                    key={flag.id}
+                    flag={flag}
+                    now={now}
+                    selectMode={selectMode}
+                    checked={isChosen(flag.id)}
+                    onChecked={(on) => toggle(flag.id, on)}
+                    busy={busy.has(flag.id) || (bulkBusy && selected.has(flag.id))}
+                    outcome={rowOutcomeText(outcomes.get(flag.id))}
+                    onChange={(change) => void changeFlag(flag, change)}
+                  />
+                ))
+              : reviewRows.map((row) => (
+                  <ReviewRowView
+                    key={row.id}
+                    row={row}
+                    now={now}
+                    selectMode={selectMode}
+                    checked={isChosen(row.id)}
+                    onChecked={(on) => toggle(row.id, on)}
+                    busy={busy.has(row.id) || (bulkBusy && selected.has(row.id))}
+                    outcome={rowOutcomeText(outcomes.get(row.id))}
+                    onDecide={(decision) => void decide(row, decision)}
+                    {...(retriesRead(row) ? { onRetry: () => void retry(row) } : {})}
+                    onOpen={() => {
+                      setSheetRow(row);
+                      setSheetOpen(true);
+                    }}
+                  />
+                ))}
+          </ul>
+          <ListEnd
+            sentinel={loader.sentinel}
+            list={{
+              hasNextPage: Boolean(active.hasNextPage),
+              isFetchingNextPage: active.isFetchingNextPage,
+              isFetchNextPageError: active.isFetchNextPageError,
+              fetchNextPage: active.fetchNextPage,
+            }}
+            things={things}
+            shown={rowCount}
+            pages={pages}
+            error={userMessage(active.error, `More ${things} didn't load.`)}
+            rows={ROWS}
+          />
+        </div>
       </>
     );
   }
 
   return (
     <>
-      <div ref={listRef} data-review-pane="">
+      <div ref={listRef} data-review-pane="" data-review-lane={laneKnown ? lane : undefined}>
         <Pane
           id={PANE_TITLE_ID}
           title={ADMIN_REVIEW_LANE_LABEL[lane]}
-          count={filteredHead !== null ? null : unverifiedLane ? unverified : loaded ? laneCount(counts, lane) : null}
+          count={!laneKnown ? null : head.count}
           status={
-            filteredHead !== null ? (
+            laneKnown && head.text !== null ? (
               <span className="num text-sm text-muted-foreground" data-pane-count="" data-pane-count-filtered="">
-                {filteredHead}
+                {head.text}
               </span>
             ) : undefined
           }
@@ -699,7 +789,18 @@ export function ReviewPane({
           scroll={false}
           footer={footer}
         >
-          {isQueueLane(lane) ? (
+          {!laneKnown ? (
+            <ul aria-busy="true" aria-label="Loading the review queue" className="divide-y divide-divider-soft">
+              {Array.from({ length: 3 }, (_unused, index) => (
+                <li key={index} aria-hidden="true" className="flex min-h-20 items-start gap-3 px-5 py-3">
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <Skeleton className="h-3.5 w-1/2" />
+                    <Skeleton className="h-3 w-1/3" />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : isQueueLane(lane) ? (
             <>
               <AutoApproveStrip lane={lane} />
               {body}
@@ -736,47 +837,23 @@ export function ReviewPane({
           if (asked) void decide(asked.row, 'approve', asked.note, true);
         }}
       />
-      {/* v35 OPSWEB: "Approve 1,240 jobs?" with the server's count; the requests' progress while it works. */}
-      <ConfirmDialog
-        open={allAsk !== null}
-        onOpenChange={(open) => {
-          if (open || allProgress !== null) return;
-          setAllAsk(null);
+      {/* v37 REVIEW (R3): "Approve 340 jobs?" with the server's count; the requests' progress while it works. */}
+      <AllDialog
+        ask={allAsk}
+        count={allCount.data?.pending}
+        countError={allCount.isError ? allCount.error : null}
+        progress={allProgress}
+        onCancel={() => setAllAsk(null)}
+        onConfirm={async (note) => {
+          if (allAsk) await runAll(allAsk, note);
         }}
-        tone={allAsk === 'reject' ? 'destructive' : 'primary'}
-        title={
-          allPending !== undefined
-            ? `${allAsk === 'reject' ? 'Reject' : 'Approve'} ${allPending.toLocaleString('en-US')} ${allPending === 1 ? 'job' : 'jobs'}?`
-            : `${allAsk === 'reject' ? 'Reject' : 'Approve'} every new job shown?`
-        }
-        description={
-          allCount.isError
-            ? `The jobs could not be counted. ${userMessage(allCount.error)}`
-            : allPending === undefined
-              ? 'Counting the jobs...'
-              : allPending === 0
-                ? 'Nothing to decide: no new job matches now.'
-                : allAsk === 'reject'
-                  ? 'None of them is published; their links are remembered as rejected.'
-                  : 'Each is published for everyone to find. TailorIT works through them in turns and says when it is done.'
-        }
-        confirmLabel={
-          allPending ? `${allAsk === 'reject' ? 'Reject' : 'Approve'} ${allPending.toLocaleString('en-US')} ${allPending === 1 ? 'job' : 'jobs'}` : allAsk === 'reject' ? 'Reject all' : 'Approve all'
-        }
-        busyLabel={allAsk === 'reject' ? 'Rejecting...' : 'Approving...'}
-        confirmDisabled={!allPending}
-        focusCancel
-        finalFocus={() => false}
-        onConfirm={async () => {
-          if (allAsk) await runAll(allAsk);
+        finalFocus={allReturn.finalFocus}
+        onStop={() => {
+          stopAll.current = true;
+          setStopping(true);
         }}
-      >
-        {allProgress && (
-          <p className="text-[13px] text-muted-foreground" role="status" data-new-jobs-progress="">
-            {allProgress}
-          </p>
-        )}
-      </ConfirmDialog>
+        stopping={stopping}
+      />
       <BulkDialog
         action={bulkAction}
         count={chosen.length}

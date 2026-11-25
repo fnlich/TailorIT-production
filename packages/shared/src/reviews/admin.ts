@@ -4,10 +4,10 @@ import { IsoDateTime } from '../core/list';
 import { JOB_REPORT_REASONS } from '../jobs/taxonomy';
 import { JOB_SOURCE_KINDS } from '../sourcing/kinds';
 import {
+  ADMIN_PAGE_MAX, // v37 REVIEW
   adminBulkIds,
   adminBulkResultSchema,
   AdminCursorSchema,
-  AdminPageSizeSchema,
 } from './bulk';
 import {
   JOB_REVIEW_CHECK_STATES,
@@ -22,6 +22,8 @@ import {
   JOB_REVIEW_VIA,
   NEW_JOB_FROM_FILTERS,
   REVIEW_GROUPS,
+  REVIEW_PAGE_SIZE, // v37 REVIEW
+  REVIEW_STATE_DEFAULT, // v37 REVIEW
   REVIEW_STATE_FILTERS,
 } from './enums';
 
@@ -55,7 +57,8 @@ export type ReviewJobRef = z.infer<typeof ReviewJobRefSchema>;
  */
 export const AdminReviewsFilterSchema = z.object({
   lane: z.enum(JOB_REVIEW_KINDS),
-  state: z.enum(REVIEW_STATE_FILTERS).default('needs_review'),
+  // v37 REVIEW (R2): Waiting by default (every pending review, what the lane's count counts).
+  state: z.enum(REVIEW_STATE_FILTERS).default(REVIEW_STATE_DEFAULT),
   q: z.string().trim().max(200, messageError('MSG_TEXT_TOO_LONG', { max: 200 })).optional(),
   /** Absent: all. */
   from: z.enum(NEW_JOB_FROM_FILTERS).optional(),
@@ -63,10 +66,16 @@ export const AdminReviewsFilterSchema = z.object({
 });
 export type AdminReviewsFilter = z.infer<typeof AdminReviewsFilterSchema>;
 
+/**
+ * v37 REVIEW (R1): a Review lane's page size from a query string: 1 to ADMIN_PAGE_MAX, REVIEW_PAGE_SIZE (100) when
+ * absent (the lists load the next page as you scroll).
+ */
+export const ReviewPageSizeSchema = z.coerce.number().int().min(1).max(ADMIN_PAGE_MAX).default(REVIEW_PAGE_SIZE);
+
 /** The Closed links and New jobs lanes' query string: the lane's filters (AdminReviewsFilterSchema) and a page. */
 export const AdminReviewsQuerySchema = AdminReviewsFilterSchema.extend({
   cursor: AdminCursorSchema.optional(),
-  limit: AdminPageSizeSchema,
+  limit: ReviewPageSizeSchema, // v37 REVIEW (R1): 100 a page
 });
 export type AdminReviewsQuery = z.infer<typeof AdminReviewsQuerySchema>;
 
@@ -119,11 +128,23 @@ export const AdminReviewRowSchema = z.object({
 });
 export type AdminReviewRow = z.infer<typeof AdminReviewRowSchema>;
 
+/**
+ * v37 REVIEW (R2, R3): what a lane's header and "Select all" count. `total` is every row the query matches (the list
+ * holds that many, page after page); `decidable` those a decision can take (pending reviews, open flags: "Select all
+ * 340"); `unfiltered` the rows of the view without the search or the From filter, Waiting for Needs review and Checking
+ * (the "of 340" of "12 of 340").
+ */
+const LaneTotalsShape = {
+  total: z.number().int().nonnegative(),
+  decidable: z.number().int().nonnegative(),
+  unfiltered: z.number().int().nonnegative(),
+};
+
 /** A lane's page: its rows, every lane's count, the matches counted, and the next page's cursor. */
 export const AdminReviewListSchema = z.object({
   items: z.array(AdminReviewRowSchema),
   counts: AdminReviewCountsSchema,
-  total: z.number().int().nonnegative(),
+  ...LaneTotalsShape, // v37 REVIEW
   nextCursor: AdminCursorSchema.optional(),
 });
 export type AdminReviewList = z.infer<typeof AdminReviewListSchema>;
@@ -277,8 +298,11 @@ export type AdminReviewBulkResult = z.infer<typeof AdminReviewBulkResultSchema>;
 // most ADMIN_BULK_ALL_SECONDS a request. An answer with `done: false` was cut at that time: the same request with
 // `after` = its `after` goes on past the reviews it decided or skipped (one that failed is never tried twice), and the
 // web sums the answers into one result line.
-/** Reviews the "all" decisions apply to: the New jobs lane's (Closed links keeps its selection bulk). */
-export const ADMIN_REVIEW_ALL_LANES = ['new_job'] as const;
+/**
+ * Reviews the "all" decisions apply to: the New jobs lane's. v37 REVIEW (R3): and the Closed links lane's ("Select all
+ * N", then Approve or Reject).
+ */
+export const ADMIN_REVIEW_ALL_LANES = ['closed', 'new_job'] as const;
 export const AdminReviewsAllFilterSchema = AdminReviewsFilterSchema.extend({ lane: z.enum(ADMIN_REVIEW_ALL_LANES) });
 export type AdminReviewsAllFilter = z.infer<typeof AdminReviewsAllFilterSchema>;
 /** The pending reviews the filter matches now: what Approve all or Reject all would decide. */
@@ -318,12 +342,21 @@ export type AdminReviewsAllResult = z.infer<typeof AdminReviewsAllResultSchema>;
 export const FLAG_STATUSES = ['open', 'resolved', 'dismissed'] as const;
 export type FlagStatus = (typeof FLAG_STATUSES)[number];
 
-/** The Flags lane's query string: open (needs review), decided (resolved or dismissed), or all. */
-export const AdminFlagsQuerySchema = z.object({
-  state: z.enum(['needs_review', 'decided', 'all']).default('needs_review'),
+/**
+ * The Flags lane's state filters: open (needs review), decided (resolved or dismissed), or all. v37 REVIEW (R2):
+ * `waiting`, the default, is the open flags too (the other lanes' word for what waits).
+ */
+export const FLAG_STATE_FILTERS = ['waiting', 'needs_review', 'decided', 'all'] as const;
+/** v37 REVIEW: the Flags lane's filters (its state and search), as its list, its count and "all" read them. */
+export const AdminFlagsFilterSchema = z.object({
+  state: z.enum(FLAG_STATE_FILTERS).default('waiting'),
   q: z.string().trim().max(200, messageError('MSG_TEXT_TOO_LONG', { max: 200 })).optional(),
+});
+export type AdminFlagsFilter = z.infer<typeof AdminFlagsFilterSchema>;
+/** The Flags lane's query string: its filters and a page (v37 REVIEW: 100 a page). */
+export const AdminFlagsQuerySchema = AdminFlagsFilterSchema.extend({
   cursor: AdminCursorSchema.optional(),
-  limit: AdminPageSizeSchema,
+  limit: ReviewPageSizeSchema,
 });
 export type AdminFlagsQuery = z.infer<typeof AdminFlagsQuerySchema>;
 
@@ -339,13 +372,18 @@ export const AdminFlagSchema = z.object({
   resolvedBy: z.string().nullable(),
   reporter: z.object({ id: z.string(), email: z.string(), name: z.string() }),
   job: ReviewJobRefSchema,
+  /**
+   * v37 FIX-REV (SP v37 FIXES-361.md D1): TailorIT resolved the flag because its job closed (by any path); `resolvedBy`
+   * is null then. Absent otherwise.
+   */
+  jobClosed: z.literal(true).optional(),
 });
 export type AdminFlag = z.infer<typeof AdminFlagSchema>;
 
 export const AdminFlagListSchema = z.object({
   items: z.array(AdminFlagSchema),
   counts: AdminReviewCountsSchema,
-  total: z.number().int().nonnegative(),
+  ...LaneTotalsShape, // v37 REVIEW
   nextCursor: AdminCursorSchema.optional(),
 });
 export type AdminFlagList = z.infer<typeof AdminFlagListSchema>;
@@ -357,3 +395,28 @@ export const AdminFlagBulkBodySchema = z.object({ ids: adminBulkIds(Id), status:
 export type AdminFlagBulkBody = z.infer<typeof AdminFlagBulkBodySchema>;
 export const FLAG_BULK_OUTCOMES = ['resolved', 'dismissed', 'skipped', 'failed'] as const;
 export const AdminFlagBulkResultSchema = adminBulkResultSchema(FLAG_BULK_OUTCOMES);
+
+// v37 REVIEW (SP v37 PLAN.md R3): Resolve all / Dismiss all on the Flags lane, as the reviews' "all" (above): the count
+// first (GET /api/admin/flags/all/count?<filter>, with `upTo`), then the decisions on the server in batches of
+// ADMIN_BULK_MAX, oldest first, for at most ADMIN_BULK_ALL_SECONDS a request (`done: false`: the same request with
+// `after` goes on), nothing past the count's `upTo`.
+/** The open flags the filter matches now, and what was counted (opaque). */
+export const AdminFlagsAllCountSchema = z.object({ pending: z.number().int().nonnegative(), upTo: z.string().max(40) });
+export type AdminFlagsAllCount = z.infer<typeof AdminFlagsAllCountSchema>;
+export const AdminFlagsAllBodySchema = z.object({
+  status: z.enum(['resolved', 'dismissed']),
+  filter: AdminFlagsFilterSchema,
+  after: z.number().int().nonnegative().optional(),
+  upTo: z.string().max(40).optional(),
+});
+export type AdminFlagsAllBody = z.infer<typeof AdminFlagsAllBodySchema>;
+export const AdminFlagsAllResultSchema = z.object({
+  status: z.enum(['resolved', 'dismissed']),
+  matched: z.number().int().nonnegative(),
+  counts: z.partialRecord(z.enum(FLAG_BULK_OUTCOMES), z.number().int().nonnegative()),
+  failures: z.array(z.object({ id: z.number().int(), message: z.string().max(400) })).max(20),
+  done: z.boolean(),
+  after: z.number().int().nonnegative(),
+});
+export type AdminFlagsAllResult = z.infer<typeof AdminFlagsAllResultSchema>;
+// end v37 REVIEW

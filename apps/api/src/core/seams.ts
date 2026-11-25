@@ -172,6 +172,12 @@ export interface CloseLinkInput {
   reason: CloseLinkReason;
   /** The time it closes at (ISO): the link's missing_since, the job's closed_at. */
   at: string;
+  /**
+   * v37 FIX-REV (SP v37 FIXES-361.md D1): TailorIT's own read confirmed it (an approved report its re-check found gone):
+   * what else waits on the job in Admin › Review is settled as `gone` and `missing` settle it ("Closed: confirmed by
+   * TailorIT"), not as any other report's ("The job closed").
+   */
+  confirmed?: boolean;
 }
 
 export interface CloseLinkResult {
@@ -312,13 +318,20 @@ export interface RecheckPostingResult {
   link: JobLinkRef | null;
   /** An enabled listing source lists the job: it was made due now (job_sources.next_run_at), so its listing settles it. */
   sourceMadeDue: boolean;
+  /**
+   * v37 INT-A (SP v37 PLAN W4): the read waits (try later): its host, or every Workday site (the Workday lane), is held
+   * or paused, or its request sent nothing; read again after this time (ISO). The answer is then no answer about the
+   * posting: the caller records nothing and moves no check time (`state` stays `unreadable` for older readers).
+   */
+  retryAt?: string;
 }
 
 /**
  * recheckPosting (S1-API, features/ingest/recheck.ts; 14 §5.1 step 3, §2.5). Outside any transaction: one per-posting
  * read through ingest/postings.ts, under the host's pace (crawl_hosts) and today's identity (the read today's liveness
- * check makes: no assertNewReadAllowed). A held host (Retry-After, the breaker, a bot check) or a failed read answers
- * `unreadable`; a platform with no per-posting read (SmartRecruiters, iCIMS, Taleo, a page job, a career site while S5
+ * check makes: no assertNewReadAllowed). A failed read answers `unreadable`; v37 INT-A: a held host or the Workday
+ * lane's pause (Retry-After, the breaker, a bot check, an admin's hold), or a read that sent nothing, answers
+ * `unreadable` with `retryAt` (try later: wait for it); a platform with no per-posting read (SmartRecruiters, iCIMS, Taleo, a page job, a career site while S5
  * is off) `not_possible`, with no request. `live` may refresh the posting as a liveness read does; `gone` closes
  * nothing (the caller closes through closeLink when the review is approved). The budget (EXT_RECHECKS_PER_DAY), one
  * check per review at a time and the 6-hour floor are the caller's. Caller: X1-API's re-check queue.
@@ -377,7 +390,14 @@ export type SiteReadResult =
       etag: string | null;
       lastModified: string | null;
     }
-  | { ok: false; refusal: SiteReadRefusal; status?: number; retryAt?: string };
+  | {
+      ok: false;
+      refusal: SiteReadRefusal;
+      status?: number;
+      retryAt?: string;
+      /** v37 INT-A: why a `held` host is held (crawl_hosts.hold_reason, or `backoff`), so a 429's hold reads as one. */
+      holdReason?: 'retry_after' | 'breaker' | 'bot_check' | 'admin' | 'backoff';
+    };
 
 /**
  * siteReader, the shared polite reader (E2 in wave 4, core/http/reader/index.ts; 13 §4, 12 §3.4, 11 §5.3a). Outside

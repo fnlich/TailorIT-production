@@ -1526,10 +1526,13 @@ export const CONSTANTS = {
     help: 'The score (0 to 100) from which two company records merge, or a record matches a company, without an admin.',
   },
   // The extension's reports and new jobs: Admin › Review (14 §7, §12).
+  // v37 CLOSED (SP v37 PLAN.md C6): a report TailorIT's own re-check finds gone closes the job whatever this says; it
+  // decides the rest: a re-check that finds the posting open rejects the report, and where TailorIT cannot read the site
+  // enough trusted reporters approve it.
   EXT_AUTO_APPROVE_CLOSED: {
     kind: 'bool', default: false, adminEditable: true, public: false, group: 'jobs',
     label: 'Approve closed links automatically',
-    help: "Approve the extension's closed-link reports automatically: TailorIT's own re-check decides, else enough trusted reporters.",
+    help: 'On: a re-check that finds the posting open rejects the report, and enough trusted reporters approve it (gone always closes).',
   },
   EXT_AUTO_APPROVE_NEW_ATS: {
     kind: 'bool', default: false, adminEditable: true, public: false, group: 'jobs',
@@ -1546,10 +1549,12 @@ export const CONSTANTS = {
   },
   EXT_NEW_PAGE_JOBS_REVIEW: {
     kind: 'bool', default: true, adminEditable: true, public: false, group: 'jobs',
-    // v31 INT-2: the label says what the switch does since LINK (it was "Queue page jobs for review").
-    label: "List links TailorIT couldn't verify",
-    // v31 LINK (D2): the "Couldn't verify" list (jobs/add/verification.ts).
-    help: "List the jobs TailorIT could not read from their link in Admin › Review (Couldn't verify), to approve, read again or reject.",
+    // v31 INT-2: the label says what the switch does since LINK (it was "Queue page jobs for review"). v37 FIX-REV
+    // (REVIEW361-ux M2): "people's": an admin's imports are listed whatever it says (REVIEW's R5).
+    label: "List people's links TailorIT couldn't verify",
+    // v31 LINK (D2): the "Couldn't verify" list (jobs/add/verification.ts). v37 INT-A (REVIEW's R5): an admin's
+    // imports are listed whatever the switch says (verification.ts listedSql).
+    help: "List the jobs people added that TailorIT could not read in Admin › Review (Couldn't verify); an admin's imports are listed either way.",
   },
   EXT_AUTO_CLOSE_MIN_REPORTERS: {
     // v30 FIX-B (SEC-10, DECISIONS P6.8): at least 2, so no one account closes a job TailorIT cannot read.
@@ -2836,7 +2841,8 @@ export const CONSTANTS = {
   ADMIN_BULK_ALL_SECONDS: {
     kind: 'int', default: 20, adminEditable: true, public: false, group: 'jobs', min: 1, max: 120,
     label: 'Seconds one "all" decision request runs',
-    help: 'How long one Approve all or Reject all request decides reviews before it answers and the page asks again.',
+    // v37 INT-2a: v3.6.1's lanes decide "all" through Select all N (REVIEW R3; Couldn't verify's 150 s too).
+    help: 'How long one request of a "Select all" decision in Admin › Review (Approve, Reject or Dismiss) runs before the page asks again.',
   },
   // end v35 ADMIN
   // v35 FIX-STORE (the final review's S3, S4, S7): a Google Sheet belongs to the first account that reads it; "Download
@@ -2918,6 +2924,98 @@ export const CONSTANTS = {
   },
   MSG_SHARE_ALL_TOO_MANY: message('Share All: too many jobs at once', 'Share at most {max} saved jobs at once.', ['max'] as const),
   // end v36 APPLYAPI
+  // v37 LANE (SP v37 PLAN W2, W3, W8): one lane for every Workday site (features/ingest/hosts.ts WORKDAY_LANE): one
+  // request at a time to all of Workday, this gap apart; a 429 pauses all of Workday; discovery validates at most this
+  // many Workday boards an hour.
+  // v37 FIX-LANE (SP v37 FIXES-361 D3; the coordinator's generic lane): a lane is an entry of hosts.ts's registry (only
+  // Workday's in v3.6.1), with its own least gap and discovery cap (WORKDAY_MIN_INTERVAL_MS, WORKDAY_DISCOVERY_PER_HOUR);
+  // the adaptive pace is every lane's, its constants LANE_*: a lane's 429s count over LANE_429_WINDOW_MINUTES (a good
+  // answer does not forget them): with k of them, a 429 pauses the lane 30 s x 2^(k-1) (up to LANE_PAUSE_MAX_MINUTES)
+  // and widens its gap to its least gap x 2^k (up to LANE_MAX_INTERVAL_MS), which halves back after each
+  // LANE_EASE_MINUTES without one; INGEST_HOST_BREAKER_FAILURES of them in the window hold the lane for
+  // LANE_BREAKER_HOLD_MINUTES. A person's read keeps the least gap.
+  WORKDAY_MIN_INTERVAL_MS: {
+    kind: 'int', default: 3000, adminEditable: true, public: false, group: 'jobs', min: 1000, max: 600_000,
+    label: 'Workday gap (ms)',
+    help: "The least time between two requests to any Workday site, as all of them share one lane (a site's Crawl-delay slows its own).",
+  },
+  WORKDAY_DISCOVERY_PER_HOUR: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'jobs', min: 0, max: 3600,
+    label: 'Workday boards checked an hour',
+    help: 'How many Workday boards discovery may check in an hour (0 stops those checks), so it never takes the Workday lane from the runs.',
+  },
+  LANE_429_WINDOW_MINUTES: {
+    kind: 'int', default: 60, adminEditable: true, public: false, group: 'jobs', min: 1, max: 1440,
+    label: 'Lane 429 window (minutes)',
+    help: "How far back a lane's 429s (Workday's) count toward its pause, its gap and its hold; a good answer does not forget them.",
+  },
+  LANE_PAUSE_MAX_MINUTES: {
+    kind: 'int', default: 30, adminEditable: true, public: false, group: 'jobs', min: 1, max: 1440,
+    label: 'Lane pause cap (minutes)',
+    help: 'The longest pause of a lane (Workday) after a 429: 30 s, doubled at each 429 in the window; a longer Retry-After is still waited.',
+  },
+  LANE_MAX_INTERVAL_MS: {
+    kind: 'int', default: 30_000, adminEditable: true, public: false, group: 'jobs', min: 1000, max: 600_000,
+    label: 'Widest lane gap (ms)',
+    help: "The widest a lane's gap (Workday's) grows after 429s: it doubles at each 429 in the window and halves back while the lane stays calm.",
+  },
+  LANE_EASE_MINUTES: {
+    kind: 'int', default: 10, adminEditable: true, public: false, group: 'jobs', min: 1, max: 1440,
+    label: 'Lane gap eases after (minutes)',
+    help: "Each time this long passes without a 429, a lane's widened gap (Workday's) halves, down to its least gap.",
+  },
+  LANE_BREAKER_HOLD_MINUTES: {
+    kind: 'int', default: 60, adminEditable: true, public: false, group: 'jobs', min: 1, max: 10_080,
+    label: 'Lane hold after 429s (minutes)',
+    help: "How long a whole lane (all of Workday) is held once its 429s in the window reach the failures that hold a host.",
+  },
+  MSG_INGEST_LANE_RUNNING: message(
+    'Run now: another source on the same lane runs',
+    'Another {site} source is running. Try again when it ends.',
+    ['site'] as const,
+  ),
+  // end v37 LANE
+  // v37 CLOSED (SP v37 PLAN.md C3, C6): the link queue keeps reading a link whose site failed for now (or asked TailorIT
+  // to slow down) for LINK_QUEUE_RETRY_HOURS before an import's row goes to Review, each read waiting up to
+  // LINK_QUEUE_READ_TIMEOUT_MS for its turn (a person's Add job keeps 15 s); a person's read while the site pauses
+  // TailorIT says until when; a closed report TailorIT's own read confirmed is decided with MSG_REVIEW_CLOSED_CONFIRMED.
+  LINK_QUEUE_RETRY_HOURS: {
+    // Public: the in-app guide says how long a row waits (help/content/jobs.tsx).
+    kind: 'int', default: 24, adminEditable: true, public: true, group: 'jobs', min: 1, max: 168,
+    // v37 FIX-REV (REVIEW361-ux L11): the label read as a time of day ("Hours a queued link is read again").
+    label: 'Hours a queued link keeps being read',
+    help: "How long the link queue reads again a link whose site failed for now or paused TailorIT, before an import's row goes to Review.",
+  },
+  LINK_QUEUE_READ_TIMEOUT_MS: {
+    kind: 'int', default: 120_000, adminEditable: true, public: false, group: 'jobs', min: 15_000, max: 600_000,
+    label: 'Time a queued link may take (ms)',
+    help: "How long one queued link's read may take, its wait for the site's turn included (a person's Add job waits 15 seconds).",
+  },
+  MSG_JOB_ADD_PAUSED: message(
+    'Add job: the site asked TailorIT to slow down',
+    '{site} asked us to slow down. Try again after {time}.',
+    ['site', 'time'] as const,
+  ),
+  MSG_JOB_ADD_HELD: message(
+    'Add job: TailorIT waits before it reads the site again',
+    'TailorIT is waiting before it reads {site} again. Try again after {time}.',
+    ['site', 'time'] as const,
+  ),
+  MSG_REVIEW_CLOSED_CONFIRMED: message('Review: a closed report TailorIT confirmed', 'Closed: confirmed by TailorIT'),
+  // end v37 CLOSED
+  // v37 FIX-REV (SP v37 FIXES-361.md D1, REVIEW361-ux M5): a job closed by a report, a purge or an admin has what waits
+  // on it in Admin › Review decided with MSG_REVIEW_JOB_CLOSED (TailorIT's own read keeps MSG_REVIEW_CLOSED_CONFIRMED);
+  // a person's Retry read that finds the posting closed answers MSG_JOB_RETRY_CLOSED (the job is theirs, now Closed).
+  MSG_REVIEW_JOB_CLOSED: message('Review: settled because the job closed', 'The job closed'),
+  MSG_JOB_RETRY_CLOSED: message('Retry read: the posting has closed', 'This posting has closed, so TailorIT marked the job closed.'),
+  // REVIEW361-ux L9: an import's row whose read waits (the site's pause, or a failure for now) says why and until when.
+  MSG_JOB_IMPORT_ROW_PAUSED: message(
+    'Import results: a row waits while the site asked TailorIT to slow down',
+    '{site} asked us to slow down; TailorIT reads the link again after {time}.',
+    ['site', 'time'] as const,
+  ),
+  MSG_JOB_IMPORT_ROW_LATER: message('Import results: a row waits to be read again', 'TailorIT reads the link again after {time}.', ['time'] as const),
+  // end v37 FIX-REV
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

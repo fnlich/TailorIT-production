@@ -1,4 +1,4 @@
-import { HostHeldError, IngestHttpError, type IngestHttp } from './http';
+import { HostHeldError, IngestHttpError, nothingSent, type IngestHttp } from './http';
 
 // A host's robots.txt, as RFC 9309 reads it, for the reads TailorIT makes on a site that is not a job board's public
 // API: Workday's posting read (adapters/workday.ts), the read a posting's own page makes. Before such a read the
@@ -19,6 +19,13 @@ import { HostHeldError, IngestHttpError, type IngestHttp } from './http';
 // for every process in site_robots (a RobotsStore: hosts.ts), with its Crawl-delay (the host's pace, crawl_hosts
 // min_interval_ms), its Content-Signal lines (`ai-input=no` keeps the host's postings out of AI) and its Sitemap
 // lines; an unreachable file is recorded too, but never used as rules. The product token stays `tailorit`.
+//
+// v37 LANE (SP v37 PLAN W7): a file that could not be read (429, a 5xx, no answer) is remembered so for
+// ROBOTS_UNREACHABLE_RETRY_MS in site_robots (failed_at), for every process: no read of it again before that, and the
+// reads that need it meanwhile are refused as held until then (HostHeldError, `backoff`: "not now"), never as a day-long
+// error. A refresh that fails keeps the file's last good rules (read at most ROBOTS_STALE_USE_MS ago): they keep
+// applying. A read that sent nothing (its host or lane held, its wait for a turn ran out: http.ts nothingSent) is never
+// kept as unreachable; with no good rules to fall back on it is refused as held too.
 
 /** TailorIT's product token, as its User-Agent starts ("TailorIT job ingest"). */
 export const ROBOTS_PRODUCT_TOKEN = 'tailorit';
@@ -35,6 +42,10 @@ export const ROBOTS_MAX_PATTERN = 2048;
 export const ROBOTS_READ_TIMEOUT_MS = 20_000;
 /** The longest Crawl-delay honoured (seconds): a longer one paces the host at this. */
 export const ROBOTS_MAX_CRAWL_DELAY_S = 120;
+/** v37 LANE (W7): how long a file that could not be read is remembered so (no read of it again before that). */
+export const ROBOTS_UNREACHABLE_RETRY_MS = 10 * 60_000;
+/** v37 LANE (W7): how old a file's last good rules may be and still apply while its refresh fails. */
+export const ROBOTS_STALE_USE_MS = 7 * 24 * 60 * 60_000;
 /** The most Sitemap lines kept per host. */
 export const ROBOTS_MAX_SITEMAPS = 50;
 
@@ -231,8 +242,12 @@ export function robotsAllows(text: string, path: string, options: { ignoreCase?:
   return rulesAllow(rulesFor(text), path, options.ignoreCase === true);
 }
 
-/** What a host's robots.txt says, read: its rules (none for a 4xx but 429), and the file as kept (v30 S1-API). */
-type Robots = { rules: Rule[]; stored: StoredRobots };
+/**
+ * What a host's robots.txt says, read: its rules (none for a 4xx but 429), and the file as kept (v30 S1-API). v37 LANE:
+ * `keepUntil`, until when a client keeps it in memory (a day after its read; the last good rules of a failed refresh
+ * only until the failure may be retried).
+ */
+type Robots = { rules: Rule[]; stored: StoredRobots; keepUntil: number };
 
 /** A host's robots.txt as kept for every process (site_robots, 11 §5.3a), read at `fetchedAt`. */
 export interface StoredRobots extends RobotsExtras {
@@ -243,6 +258,12 @@ export interface StoredRobots extends RobotsExtras {
   httpStatus: number | null;
   /** The file as read (capped at ROBOTS_MAX_BYTES), or null. */
   rules: string | null;
+  /**
+   * v37 LANE (W7, migration 0062): the last read that failed (429, a 5xx, no answer) and its status, when it failed after
+   * this file was read (a good file kept beside it), or this unreachable file's own read; null after a good read.
+   */
+  failedAt?: string | null;
+  failedStatus?: number | null;
 }
 
 /**
@@ -260,7 +281,44 @@ export function storedRobotsOf(host: string, fetchedAt: string, httpStatus: numb
     httpStatus === null || httpStatus === 429 || httpStatus >= 500 ? 'unreachable' : httpStatus >= 400 ? 'no_rules' : 'ok';
   const extras: RobotsExtras =
     status === 'ok' && text ? robotsExtras(text) : { crawlDelaySeconds: null, contentSignals: null, aiInput: null, sitemaps: [] };
-  return { host, fetchedAt, status, httpStatus, rules: status === 'ok' ? text : null, ...extras };
+  return {
+    host,
+    fetchedAt,
+    status,
+    httpStatus,
+    rules: status === 'ok' ? text : null,
+    ...extras,
+    failedAt: status === 'unreachable' ? fetchedAt : null,
+    failedStatus: status === 'unreachable' ? httpStatus : null,
+  };
+}
+
+/** v37 LANE (W7): when the kept file's last read failed (its own read for an unreachable file kept before 0062), or null. */
+function failedAtOf(kept: StoredRobots): number | null {
+  const at = kept.failedAt ?? (kept.status === 'unreachable' ? kept.fetchedAt : null);
+  return at ? Date.parse(at) : null;
+}
+
+/** v37 LANE (W7): the kept file's last good rules, while they may still apply (read at most ROBOTS_STALE_USE_MS ago). */
+export function lastGoodRobots(kept: StoredRobots | null, now: number): StoredRobots | null {
+  return kept && kept.status !== 'unreachable' && now - Date.parse(kept.fetchedAt) <= ROBOTS_STALE_USE_MS ? kept : null;
+}
+
+/**
+ * v37 LANE (W7): what a kept file is good for now: `use` it (read within ROBOTS_KEEP_MS; or its last good rules while
+ * its refresh failed within ROBOTS_UNREACHABLE_RETRY_MS), `unreachableUntil` (it could not be read lately and has no
+ * good rules to use: not read again before then), or null (read it now).
+ */
+export function keptRobotsUse(
+  kept: StoredRobots | null,
+  now: number,
+): { use: StoredRobots } | { unreachableUntil: string } | null {
+  if (!kept) return null;
+  if (kept.status !== 'unreachable' && now - Date.parse(kept.fetchedAt) <= ROBOTS_KEEP_MS) return { use: kept };
+  const failed = failedAtOf(kept);
+  if (failed === null || now - failed >= ROBOTS_UNREACHABLE_RETRY_MS) return null;
+  const good = lastGoodRobots(kept, now);
+  return good ? { use: good } : { unreachableUntil: new Date(failed + ROBOTS_UNREACHABLE_RETRY_MS).toISOString() };
 }
 
 /**
@@ -275,7 +333,7 @@ export function robotsVerdict(robots: Pick<StoredRobots, 'status' | 'rules'>, pa
 }
 
 /** Each client's reads of each host's robots.txt (so a test's fake client starts afresh), least recently used first. */
-const kept = new WeakMap<IngestHttp, Map<string, { at: number; reading: Promise<Robots> }>>();
+const kept = new WeakMap<IngestHttp, Map<string, { at: number; reading: Promise<Robots>; until?: number }>>();
 
 /** Why a read was refused by the site's robots.txt (or because it could not be read). */
 export class RobotsRefusal extends Error {
@@ -296,24 +354,38 @@ export function useRobotsStore(http: IngestHttp, store: RobotsStore): void {
   stores.set(http, store);
 }
 
-/** One read of a host's robots.txt, on its own clock: no caller's abort reaches it. Kept in the client's store. */
+/** A kept file's rules for TailorIT, and until when this client may use them without asking the store again. */
+function robotsOfKept(kept: StoredRobots, keepUntil: number): Robots {
+  return { rules: kept.status === 'ok' && kept.rules ? rulesFor(kept.rules) : [], stored: kept, keepUntil };
+}
+
+/**
+ * One read of a host's robots.txt, on its own clock: no caller's abort reaches it. Kept in the client's store. v37 LANE
+ * (W7): a failure is remembered for ROBOTS_UNREACHABLE_RETRY_MS (refused as held until then, no read), the last good
+ * rules apply while a refresh fails, and a read that sent nothing is never kept (see the top).
+ */
 async function readRobots(
   http: IngestHttp,
   host: string,
   options: { allowRedirectHost?: (host: string) => boolean; now: () => number },
 ): Promise<Robots> {
   const store = stores.get(http);
+  const now = options.now();
   /** The file as read, kept for every process, best effort (a failed write never fails the read). */
   const keepFor = async (status: number | null, text: string | null): Promise<StoredRobots> => {
     const stored = storedRobotsOf(host, new Date(options.now()).toISOString(), status, text);
     if (store) await store.write(stored).catch(() => undefined);
     return stored;
   };
-  if (store) {
-    const kept = await store.read(host).catch(() => null);
-    const fresh = kept && kept.status !== 'unreachable' && options.now() - Date.parse(kept.fetchedAt) <= ROBOTS_KEEP_MS;
-    if (kept && fresh) return { rules: kept.status === 'ok' && kept.rules ? rulesFor(kept.rules) : [], stored: kept };
+  const kept = store ? await store.read(host).catch(() => null) : null;
+  const known = keptRobotsUse(kept, now);
+  if (known && 'use' in known) {
+    // Fresh: until it is a day old. The last good rules of a failed refresh: until the failure may be retried.
+    const readAt = Date.parse(known.use.fetchedAt);
+    const failed = failedAtOf(known.use);
+    return robotsOfKept(known.use, now - readAt <= ROBOTS_KEEP_MS ? readAt + ROBOTS_KEEP_MS : (failed ?? now) + ROBOTS_UNREACHABLE_RETRY_MS);
   }
+  if (known) throw new HostHeldError(host, known.unreachableUntil, 'backoff');
   let answer;
   try {
     answer = await http.getJson(`https://${host}/robots.txt`, {
@@ -325,14 +397,26 @@ async function readRobots(
       ...(options.allowRedirectHost ? { allowRedirectHost: options.allowRedirectHost } : {}),
     });
   } catch (error) {
-    // Nothing was sent to a held host: no answer to keep. Any other failure is "not now" (unreachable).
-    if (!(error instanceof HostHeldError)) await keepFor(error instanceof IngestHttpError && error.status > 0 ? error.status : null, null);
+    const good = lastGoodRobots(kept, options.now());
+    if (nothingSent(error)) {
+      // Nothing was sent (a held host or lane, a wait for a turn that ran out): nothing to keep. The last good rules
+      // still apply; with none, the read is refused as held: the site said nothing.
+      if (good) return robotsOfKept(good, options.now() + ROBOTS_UNREACHABLE_RETRY_MS);
+      if (error instanceof HostHeldError) throw error;
+      throw new HostHeldError(host, new Date(options.now() + ROBOTS_READ_TIMEOUT_MS).toISOString(), 'backoff');
+    }
+    // Any other failure is "not now" (unreachable), remembered for ROBOTS_UNREACHABLE_RETRY_MS (the store keeps the
+    // last good rules beside it, and they apply meanwhile).
+    const status = error instanceof IngestHttpError && error.status > 0 ? error.status : error instanceof HostHeldError ? error.answered : null;
+    await keepFor(status, null);
+    if (good) return robotsOfKept(good, options.now() + ROBOTS_UNREACHABLE_RETRY_MS);
     throw error;
   }
   const text = typeof answer.data === 'string' ? answer.data : '';
   const stored = await keepFor(answer.status, answer.status >= 400 ? null : text);
-  if (answer.status >= 400) return { rules: [], stored };
-  return { rules: rulesFor(text), stored };
+  const until = options.now() + ROBOTS_KEEP_MS;
+  if (answer.status >= 400) return { rules: [], stored, keepUntil: until };
+  return { rules: rulesFor(text), stored, keepUntil: until };
 }
 
 /** `promise`, or a rejection with the signal's reason once `signal` aborts first (the promise itself goes on). */
@@ -406,12 +490,19 @@ async function robotsOf(http: IngestHttp, host: string, options: RobotsReadOptio
   }
   const key = host.toLowerCase();
   let entry = hosts.get(key);
-  if (!entry || now() - entry.at > ROBOTS_KEEP_MS) {
+  // v37 LANE (W7): a file read is kept until its own keepUntil (a fallback's, shortly), never past ROBOTS_KEEP_MS.
+  if (!entry || now() - entry.at > ROBOTS_KEEP_MS || (entry.until !== undefined && now() >= entry.until)) {
     const reading = readRobots(http, key, { allowRedirectHost: options.allowRedirectHost, now });
-    entry = { at: now(), reading };
-    reading.catch(() => {
-      if (hosts.get(key)?.reading === reading) hosts.delete(key);
-    });
+    const made: { at: number; reading: Promise<Robots>; until?: number } = { at: now(), reading };
+    entry = made;
+    reading.then(
+      (robots) => {
+        made.until = robots.keepUntil;
+      },
+      () => {
+        if (hosts.get(key)?.reading === reading) hosts.delete(key);
+      },
+    );
   }
   // Least recently used first: this host goes to the back, and the front goes past ROBOTS_KEPT_HOSTS.
   hosts.delete(key);

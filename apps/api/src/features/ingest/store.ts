@@ -13,7 +13,7 @@ import { RESTORE_AI_INPUT_SQL } from '../jobs/add/held'; // v35 FIX-PIPE (data D
 import { boardAliasOfSource, companyOfAlias } from '../companies/aliases';
 import { minConfidenceOf } from '../companies/profile';
 import { ownCompanyKey as companiesOwnKey, resolveCompanyByName, resolveCompanyIn } from '../companies/resolve';
-import { closeLinkIn, closeLinksOfSource } from './close';
+import { closedNoteOf, closeLinkIn, closeLinksOfSource, closeOrphanJobs } from './close'; // v37 FIX-REV (D1): closedNoteOf, closeOrphanJobs
 import { factsAtIngest } from './facts';
 import { findFuzzyMatch, logFuzzyMatch, NOT_SAME_BOARD_SQL, notSameBoardParams, placeKeyOf } from './fuzzy';
 import { addJobKeys, atsBoardOf, jobOfKeys, keysOfAddress, tidyKeys, type JobKey } from './keys';
@@ -571,7 +571,9 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
 
   /**
    * Brings jobs.active in line with its links; counts the change. Answers 'closed' or 'reopened' when it changed it. A
-   * reopened job tells jobReviews (an approved closed report's review hears its source reopened the job).
+   * reopened job tells jobReviews (an approved closed report's review hears its source reopened the job). v37 FIX-REV
+   * (SP v37 FIXES-361.md D1): a job a posting read as closed leaves with no live link closes through the one close
+   * function (close.ts closeOrphanJobs), so what waits on it in Admin › Review is settled with it.
    */
   async function settleLiveness(t: DbTx, jobId: number, now: string, counts: UpsertCounts): Promise<'closed' | 'reopened' | null> {
     const state = await db.one<{ active: unknown; live: unknown }>(
@@ -582,7 +584,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
     const active = d.isTrue(state.active);
     const live = d.isTrue(state.live);
     if (active && !live) {
-      await db.run('UPDATE jobs SET active = ?, closed_at = ?, updated_at = ? WHERE id = ?', [false, now, now, jobId]);
+      if ((await closeOrphanJobs(db, [jobId], now, closedNoteOf(deps, 'gone'))).length === 0) return null; // v37 FIX-REV (D1)
       counts.deactivated += 1;
       return 'closed';
     }
@@ -844,7 +846,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
       );
       const after = constant('INGEST_CLOSE_AFTER_MISSES');
       const due = counted.filter((row) => row.miss_count >= after).map((row) => row.source_job_id);
-      const closed = await closeLinksOfSource(db, sourceId, due, now, after);
+      const closed = await closeLinksOfSource(db, sourceId, due, now, after, closedNoteOf(deps, 'missing')); // v37 FIX-REV (D1)
       return { missing: closed.linksClosed, deactivated: closed.closedJobs.length, missed: counted.length - closed.linksClosed, suspect: false };
     },
 
@@ -858,6 +860,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
         db,
         { jobId: link.job_id, link: { sourceId, sourceJobId }, reason: 'gone', at: now },
         constant('INGEST_CLOSE_AFTER_MISSES'),
+        closedNoteOf(deps, 'gone'), // v37 FIX-REV (D1)
       );
       return { missing: result.linksClosed, deactivated: result.jobClosed ? 1 : 0 };
     },

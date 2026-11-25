@@ -1,5 +1,5 @@
-import { createHostGate, createRobotsStore, holdOf } from '../../../features/ingest/hosts';
-import { HostHeldError, retryAfterMs, sleepFor, type HostGate, type HostOutcome } from '../../../features/ingest/http';
+import { createHostGate, createRobotsStore, holdOf, isLaneHost } from '../../../features/ingest/hosts';
+import { HostHeldError, retryAfterMs, sleepFor, type HostGate, type HostHoldReason, type HostOutcome } from '../../../features/ingest/http';
 import { robotsVerdict, type RobotsStore } from '../../../features/ingest/robots';
 import { registrableDomain } from '../../../features/companies/domain';
 import { constantsOf } from '../../constants/index';
@@ -37,6 +37,9 @@ import { defaultSiteTransport, type SiteAnswer, type SiteTransport } from './tra
 //      5xx or no answer backs the host off (its breaker) and answers `failed`; any other status, a body too large, or
 //      a body that is not the kind asked for answers `failed` with the status.
 // A refusal is never retried with another identity, a headless browser, a proxy or a faster pace.
+// v37 LANE (SP v37 PLAN W1, W3): a Workday host's request takes the Workday lane's turn (the gate maps it), holds it
+// until its answer (one request at a time to all of Workday), and a 429 from it pauses all of Workday (the gate's
+// pause: its end is the refusal's retryAt).
 
 // v30 INT-4: the most redirects one read follows (13 §4 rule 3) is SITE_READER_MAX_REDIRECTS; a read waits at most
 // SITE_READER_TURN_WAIT_GAPS of the host's gaps for its slot (past it the read answers `held` with retryAt).
@@ -69,11 +72,15 @@ export interface SiteReaderOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
-const refusal = (reason: SiteReadRefusal, extra: { status?: number; retryAt?: string } = {}): SiteReadResult => ({
+const refusal = (
+  reason: SiteReadRefusal,
+  extra: { status?: number; retryAt?: string; holdReason?: HostHoldReason } = {},
+): SiteReadResult => ({
   ok: false,
   refusal: reason,
   ...(extra.status !== undefined ? { status: extra.status } : {}),
   ...(extra.retryAt ? { retryAt: extra.retryAt } : {}),
+  ...(extra.holdReason ? { holdReason: extra.holdReason } : {}), // v37 INT-A: a held host's reason (a 429's hold)
 });
 
 /** Whether a host (a name, lower case) is under a domain on crawl_opt_outs. */
@@ -152,6 +159,8 @@ export function createSiteReader(options: SiteReaderOptions = {}): SiteReader {
         now,
       };
       const record = (host: string, outcome: HostOutcome) => gate.record(host, outcome).catch(() => undefined);
+      /** v37 LANE: a Workday host's turn (the lane's; v37 FIX-LANE: any lane's) is given back once its request is over. */
+      const giveBack = (host: string) => (isLaneHost(host) ? gate.release?.(host).catch(() => undefined) : undefined);
 
       for (let hop = 0; ; hop += 1) {
         const host = url.host.toLowerCase();
@@ -160,7 +169,7 @@ export function createSiteReader(options: SiteReaderOptions = {}): SiteReader {
         if (await isOptedOut(deps.db, hostname)) return refusal('opted_out');
         // 5. The host's hold.
         const hold = await holdOf(deps.db, host, iso(now()));
-        if (hold) return refusal('held', { retryAt: hold.until });
+        if (hold) return refusal('held', { retryAt: hold.until, holdReason: hold.reason });
         // 6. robots.txt.
         try {
           const file = await robotsForHost(robots, host);
@@ -169,10 +178,14 @@ export function createSiteReader(options: SiteReaderOptions = {}): SiteReader {
             return refusal('robots', { retryAt: iso(now() + c.get('INGEST_HOST_BREAKER_HOLD_MINUTES') * 60_000) });
           }
           if (verdict === 'disallowed') return refusal('robots');
-          // 7. The host's pace.
-          await gate.takeTurn(host, { minIntervalMs: gapMs, maxWaitMs: gapMs * c.get('SITE_READER_TURN_WAIT_GAPS') });
+          // 7. The host's pace (v37 LANE: a Workday host's turn held until its answer; v37 FIX-LANE: any lane's host).
+          await gate.takeTurn(host, {
+            minIntervalMs: gapMs,
+            maxWaitMs: gapMs * c.get('SITE_READER_TURN_WAIT_GAPS'),
+            ...(isLaneHost(host) ? { busyMs: timeoutMs } : {}),
+          });
         } catch (error) {
-          if (error instanceof HostHeldError) return refusal('held', { retryAt: error.until });
+          if (error instanceof HostHeldError) return refusal('held', { retryAt: error.until, holdReason: error.reason });
           if (isAddressRefused(error)) return refusal('held');
           throw error;
         }
@@ -184,10 +197,12 @@ export function createSiteReader(options: SiteReaderOptions = {}): SiteReader {
         try {
           answer = await transport.get(url.href, { headers, signal: AbortSignal.timeout(timeoutMs), maxBytes });
         } catch (error) {
+          await giveBack(host);
           if (isAddressRefused(error)) return refusal('held');
           await record(host, { kind: 'failed', status: 0 });
           return refusal('failed');
         }
+        await giveBack(host);
         // 9. The answer.
         const { status } = answer;
         const location = status >= 300 && status < 400 && status !== 304 ? answer.headers.get('location') : null;
@@ -212,9 +227,11 @@ export function createSiteReader(options: SiteReaderOptions = {}): SiteReader {
           return refusal('blocked', { status, retryAt: iso(now() + c.get('INGEST_BOT_CHECK_HOLD_HOURS') * 3_600_000) });
         }
         if (status === 429) {
-          const waitMs = retryAfterMs(answer.headers.get('retry-after'), now()) ?? c.get('INGEST_HOST_BREAKER_HOLD_MINUTES') * 60_000;
-          await record(host, { kind: 'wait', status, waitMs, hold: true });
-          return refusal('blocked', { status, retryAt: iso(now() + waitMs) });
+          const asked = retryAfterMs(answer.headers.get('retry-after'), now());
+          const waitMs = asked ?? c.get('INGEST_HOST_BREAKER_HOLD_MINUTES') * 60_000;
+          const held = await record(host, { kind: 'wait', status, waitMs, hold: true, retryAfterMs: asked });
+          // v37 LANE: Workday's 429 paused its whole lane: the refusal says until when.
+          return refusal('blocked', { status, retryAt: held ? held.until : iso(now() + waitMs) });
         }
         if (status >= 500) {
           await record(host, { kind: 'failed', status });

@@ -1,10 +1,15 @@
-import type {
-  AdminFlag,
-  AdminFlagBulkBody,
-  AdminFlagBulkResultSchema,
-  AdminFlagDecisionBody,
-  AdminFlagList,
-  AdminFlagsQuery,
+import {
+  ADMIN_BULK_MAX,
+  type AdminFlag,
+  type AdminFlagBulkBody,
+  type AdminFlagBulkResultSchema,
+  type AdminFlagDecisionBody,
+  type AdminFlagList,
+  type AdminFlagsAllBody,
+  type AdminFlagsAllCount,
+  type AdminFlagsAllResult,
+  type AdminFlagsFilter,
+  type AdminFlagsQuery,
 } from '@tailorit/shared';
 import type { z } from 'zod';
 import { afterCursor, likeText, pageOf, Where, type AdminActor } from '../../core/admin/index';
@@ -12,6 +17,8 @@ import { nowIso, type AppDeps } from '../../core/context';
 import type { SqlParam } from '../../core/db/types';
 import { closeLink } from '../../core/seams';
 import { FLAG_SELECT, reviewCounts, toFlag, type FlagRow } from './admin';
+import { FLAG_LANE_FROM } from './counts'; // v37 REVIEW
+import { decideInTurns, reviewsUpToBound, upToOf } from './service'; // v37 REVIEW (R3)
 
 // v30 X1-API: Admin › Review's Flags lane (docs/design/part2/14-extension-reports.md §5.4, §6.1): the Jobs page's flags
 // that are not about a closed posting (spam, wrong details, duplicate, other, and E0's "Company information is wrong";
@@ -22,24 +29,43 @@ import { FLAG_SELECT, reviewCounts, toFlag, type FlagRow } from './admin';
 
 const STALE = 'This list changed since it was opened. Load it again.';
 
-/** GET /api/admin/flags: a page of flags (open, decided, or all), newest first. */
-export async function listFlags(deps: Pick<AppDeps, 'db'>, query: AdminFlagsQuery): Promise<AdminFlagList> {
+/**
+ * The Flags lane's filters on the flag `r` (its job `j`, company `c`): the state (v37 REVIEW: Waiting, the default, is
+ * the open flags, as Needs review) and the search.
+ */
+function flagsWhere(deps: Pick<AppDeps, 'db'>, filter: AdminFlagsFilter): Where {
   const where = new Where();
-  if (query.state === 'needs_review') where.add("r.status = 'open'");
-  else if (query.state === 'decided') where.add("r.status <> 'open'");
+  if (filter.state === 'waiting' || filter.state === 'needs_review') where.add("r.status = 'open'");
+  else if (filter.state === 'decided') where.add("r.status <> 'open'");
   const d = deps.db.dialect;
-  if (query.q) where.add(`(${d.like('j.title', '@q')} OR ${d.like('c.name', '@q')})`, { q: likeText(query.q) });
-  const counted = await deps.db.one<{ n: number }>(
-    `SELECT count(*) AS n FROM job_reports r JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id ${where.sql()}`,
+  if (filter.q) where.add(`(${d.like('j.title', '@q')} OR ${d.like('c.name', '@q')})`, { q: likeText(filter.q) });
+  return where;
+}
+
+/**
+ * GET /api/admin/flags: a page of flags (open, decided, or all), newest first. v37 REVIEW (R2, R3): with the flags the
+ * query matches (`total`), the open ones among them (`decidable`), and the view's flags without the search
+ * (`unfiltered`); counted as the list reads them (counts.ts FLAG_LANE_FROM).
+ */
+export async function listFlags(deps: Pick<AppDeps, 'db'>, query: AdminFlagsQuery): Promise<AdminFlagList> {
+  const where = flagsWhere(deps, query);
+  const counted = await deps.db.one<{ n: number; open: number }>(
+    `SELECT count(*) AS n, count(*) FILTER (WHERE r.status = 'open') AS open ${FLAG_LANE_FROM} ${where.sql()}`,
     where.params as Record<string, SqlParam>,
   );
+  const total = Number(counted?.n ?? 0);
+  let unfiltered = total;
+  if (query.q) {
+    const base = flagsWhere(deps, { state: query.state });
+    unfiltered = Number((await deps.db.one<{ n: number }>(`SELECT count(*) AS n ${FLAG_LANE_FROM} ${base.sql()}`, base.params as Record<string, SqlParam>))?.n ?? 0);
+  }
   if (query.cursor) {
     const after = afterCursor(query.cursor, { sortColumn: 'r.created_at', idColumn: 'r.id', staleMessage: STALE });
     where.add(after.sql, after.params);
   }
   const rows = await deps.db.all<FlagRow>(`${FLAG_SELECT} ${where.sql()} ORDER BY r.created_at DESC, r.id DESC LIMIT ${query.limit + 1}`, where.params as Record<string, SqlParam>);
   const page = pageOf(rows, query.limit, (last) => ({ c: last.created_at, id: last.id }), toFlag);
-  return { ...page, counts: await reviewCounts(deps.db), total: counted?.n ?? 0 };
+  return { ...page, counts: await reviewCounts(deps.db), total, decidable: Number(counted?.open ?? 0), unfiltered };
 }
 
 /** PATCH /api/admin/flags/:id: reopen, resolve or dismiss a flag, closing its job too when asked; null when none. */
@@ -88,3 +114,57 @@ export async function decideFlags(
   for (const result of results) counts[result.outcome] = (counts[result.outcome] ?? 0) + 1;
   return { ids: changed, body: { results, counts } };
 }
+
+// v37 REVIEW (SP v37 PLAN.md R3) --------------------------------------------------------- Resolve all / Dismiss all
+
+/** The open flags the filter matches (the lane's own condition), on `r` with its reporter, job and company. */
+function openWhere(deps: Pick<AppDeps, 'db'>, filter: AdminFlagsFilter): Where {
+  const where = flagsWhere(deps, filter);
+  where.add("r.status = 'open'");
+  return where;
+}
+
+/** GET /api/admin/flags/all/count: the open flags the filter matches (the confirm's count), and what was counted. */
+export async function countAllFlags(deps: AppDeps, filter: AdminFlagsFilter): Promise<AdminFlagsAllCount> {
+  const at = deps.now(); // taken before the count, so nothing changed after it is in its upTo
+  const where = openWhere(deps, filter);
+  const row = await deps.db.one<{ n: number; last: number | null }>(
+    `SELECT count(*) AS n, max(r.id) AS last ${FLAG_LANE_FROM} ${where.sql()}`,
+    where.params as Record<string, SqlParam>,
+  );
+  return { pending: Number(row?.n ?? 0), upTo: upToOf(Number(row?.last ?? 0), at) };
+}
+
+/**
+ * POST /api/admin/flags/all: resolves or dismisses every open flag the filter matches, oldest first, ADMIN_BULK_MAX at a
+ * time through decideFlags (a flag decided meanwhile is skipped), for at most ADMIN_BULK_ALL_SECONDS (decideInTurns:
+ * `done` false, then the same request with `after` goes on); with the count's `upTo`, never a flag made after it.
+ */
+export async function decideAllFlags(
+  deps: AppDeps,
+  body: AdminFlagsAllBody,
+  admin: AdminActor,
+  clock: () => number = Date.now,
+): Promise<{ ids: number[]; body: AdminFlagsAllResult }> {
+  const bound = body.upTo === undefined ? null : reviewsUpToBound(body.upTo);
+  const nextIds = async (after: number): Promise<number[]> => {
+    const where = openWhere(deps, body.filter);
+    where.add('r.id > @after', { after });
+    if (bound) {
+      where.add('r.id <= @upToId', { upToId: bound.lastId });
+      where.add('r.created_at <= CAST(@upToAt AS timestamptz)', { upToAt: bound.at });
+    }
+    const rows = await deps.db.all<{ id: number }>(`SELECT r.id ${FLAG_LANE_FROM} ${where.sql()} ORDER BY r.id LIMIT ${ADMIN_BULK_MAX}`, where.params as Record<string, SqlParam>);
+    return rows.map((row) => Number(row.id));
+  };
+  const decide = async (ids: number[]) => {
+    const decided = await decideFlags(deps, { ids, status: body.status }, admin);
+    return { ids: decided.ids, results: decided.body.results };
+  };
+  const turns = await decideInTurns(deps, body.after ?? 0, nextIds, decide, clock);
+  return {
+    ids: turns.changed,
+    body: { status: body.status, matched: turns.matched, counts: turns.counts, failures: turns.failures, done: turns.done, after: turns.after },
+  };
+}
+// end v37 REVIEW

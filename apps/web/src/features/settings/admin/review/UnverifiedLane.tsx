@@ -3,8 +3,7 @@
 import type { UnverifiedLink, UnverifiedVersion } from '@tailorit/shared/jobs';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShowMoreButton } from '@/components/admin';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -19,15 +18,18 @@ import { useToast } from '@/components/ui/Toast';
 import { userMessage } from '@/lib/api';
 import { focusSoon } from '@/lib/focusLater';
 import { useNow } from '@/lib/useNow';
-import { ROW_ACTION, SelectBar, useRowFocus } from '../../../../components/queue';
+import { ListEnd, ROW_ACTION, SelectBar, useConfirmReturn, useLoadOnScroll, useRowFocus } from '../../../../components/queue'; // v37 FIX-REV: useConfirmReturn
 import { adminKeys, fetchAdminConstants } from '../api';
 import { ConstantSwitch, type SwitchWords } from './AutoApprove';
 import { reviewKeys } from './api';
 import { REVIEW_POLL_MS } from './copy';
+import { LOADED_ROWS_NOTE, selectAllTip, selectAllWords } from './all'; // v37 REVIEW (R3); v37 FIX-REV: LOADED_ROWS_NOTE
 import { UNVERIFIED_WAYS, fetchRecentImports, fromOptions, unverifiedFilterOf, unverifiedFromValue } from './from'; // v35 OPSWEB
 import { AccentBar, RowActions, TOUCH } from './ReviewRows';
 import {
+  LIST_OFF_NOTE, // v37 FIX-REV (M2)
   PAGE_READS_OFF,
+  UNVERIFIED_BAR_WORDS, // v37 FIX-REV (L3)
   approveOutcomeText,
   approveText,
   allUnverified,
@@ -57,6 +59,7 @@ import {
   type UnverifiedOutcome,
 } from './unverified';
 import { ApproveVersions, VersionsDisclosure } from './UnverifiedVersions';
+import { ALL_STOP_WORDS } from './AllDialog'; // v37 FIX-REV (L6)
 
 // v31 ADMINWEB: Admin › Review › Couldn't verify (docs/design/v3.1/21-jobs-from-links.md §6, D2): one row per link
 // TailorIT could not read that someone keeps as their own job (its host, the link, why, who and when), with Retry read
@@ -74,12 +77,23 @@ import { ApproveVersions, VersionsDisclosure } from './UnverifiedVersions';
 // checkboxes (Space toggles one; Shift+click a range), Select all shown, Approve selected / Reject selected (in turns of
 // UNVERIFIED_BULK_MAX), Approve all / Reject all for the filter (a confirm with its count, then IMPORT's "all" requests
 // while rows are left, with progress and one result line), and each row's origin ("Import · jobs.csv, row 12").
+// v37 REVIEW (SP v37 PLAN.md R1, R3, R5): the list loads as you scroll (100 a page; no Load more); "Select all N" (the
+// tools row's, and the bar's button) takes every link the From filter matches, loaded or not, and the bar's Approve /
+// Reject then run IMPORT's "all" for them (the separate Approve all / Reject all buttons went: one way on every lane);
+// an admin import's held jobs are listed with the switch off too (the API's listedSql), so the empty state no longer
+// says "This list is off" while it lists them.
+// v37 FIX-REV (SP v37 FIXES-361.md, REVIEW361-ux): the switch reads "List people's links TailorIT couldn't verify" and,
+// while off, a line under it says an admin's imports are listed (M2); the bulk confirm gives focus back to the bar's
+// action on Cancel (M1) and its "all" can be stopped after a turn (L6); the bar says Approve / Reject / Cancel as the
+// other lanes' (L3); "Select all N"'s tip is a "?" and names the From filter (L4); unticking a row under "Select all N"
+// says the selection is the rows loaded so far (L5); Try again at the list's end keeps focus (L2).
 
 /** A bulk action asked for: the chosen rows, or every row the filter matches. */
 type BulkAsk = { scope: 'selected' | 'all'; action: 'approve' | 'reject' };
 
 const LIST_SWITCH = 'EXT_NEW_PAGE_JOBS_REVIEW';
-const LIST_WORDS: SwitchWords = { on: "Couldn't verify lists links again", off: "Couldn't verify is off" };
+// v37 REVIEW (R5): off, the lane still lists an admin import's held jobs (only people's links leave it).
+const LIST_WORDS: SwitchWords = { on: "Couldn't verify lists people's links again", off: "Couldn't verify lists imported jobs only" };
 const PANE = '[data-review-pane]';
 
 export function UnverifiedLane({
@@ -97,6 +111,13 @@ export function UnverifiedLane({
   // v35 OPSWEB: `run=` in the address opens one import (no address outside the app's router: All).
   const [filter, setFilter] = useState<UnverifiedFilter>(() => unverifiedFilterFromAddress(address ?? new URLSearchParams()));
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set()); // v35 OPSWEB
+  const [allMode, setAllMode] = useState(false); // v37 REVIEW (R3): every link the filter matches, loaded or not
+  // v37 FIX-REV (REVIEW361-ux M1, L5, L6): where the bulk confirm gives focus back; a row unticked under "Select all N";
+  // Stop pressed while "all" works.
+  const bulkReturn = useConfirmReturn();
+  const [loadedOnly, setLoadedOnly] = useState(false);
+  const stopAll = useRef(false);
+  const [stopping, setStopping] = useState(false);
   const anchor = useRef<number | null>(null);
   const [asking, setAsking] = useState<BulkAsk | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
@@ -107,7 +128,7 @@ export function UnverifiedLane({
   const [approving, setApproving] = useState<UnverifiedLink | null>(null); // v32 ADMINAPP (E6)
   // v32 FIX-API (SB-1): the version the confirm shows, the one an approval publishes.
   const [version, setVersion] = useState<UnverifiedVersion | null>(null);
-  const onPick = useCallback((picked: UnverifiedVersion | null) => setVersion(picked), []);
+  const onPick: (picked: UnverifiedVersion | null) => void = setVersion; // stable: a state setter
   const constants = useQuery({ queryKey: adminKeys.constants, queryFn: ({ signal }) => fetchAdminConstants(signal) });
   const listSwitch = constants.data?.items.find((item) => item.key === LIST_SWITCH);
   const listOn = listSwitch ? listSwitch.value === true : null;
@@ -120,6 +141,14 @@ export function UnverifiedLane({
     refetchInterval: busy.size > 0 || rejecting || approving || asking ? false : REVIEW_POLL_MS,
   });
   const rows = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
+  // v37 REVIEW (R1): the next page as the list's end (or keyboard focus) comes near.
+  const more = {
+    hasNextPage: Boolean(list.hasNextPage),
+    isFetchingNextPage: list.isFetchingNextPage,
+    isFetchNextPageError: list.isFetchNextPageError,
+    fetchNextPage: list.fetchNextPage,
+  };
+  const loader = useLoadOnScroll(more, 'li[data-unverified-row]');
   // v35 OPSWEB: the recent imports the From filter offers; the filter's count, read when Approve all / Reject all asks.
   const imports = useQuery({ queryKey: ['admin', 'imports', 'recent'], queryFn: ({ signal }) => fetchRecentImports(signal), staleTime: 60_000 });
   // v35 FIX-WEB (S6): the count and its `upTo`, which Approve all / Reject all send back.
@@ -139,6 +168,9 @@ export function UnverifiedLane({
     refetchInterval: REVIEW_POLL_MS,
   });
   const shownFilterCount = isFiltered ? (filterCount.data ?? null) : null;
+  // v37 REVIEW (R3): the links "Select all N" takes: the filter's count, else the lane's (the page's own query).
+  const laneCount = useQuery({ queryKey: reviewKeys.unverifiedCount, queryFn: ({ signal }) => fetchUnverifiedCount(signal), refetchInterval: REVIEW_POLL_MS });
+  const matching = isFiltered ? (filterCount.data ?? null) : (laneCount.data ?? null);
   const reportCount = useRef(onFilterCount);
   useEffect(() => {
     reportCount.current = onFilterCount;
@@ -147,17 +179,28 @@ export function UnverifiedLane({
     reportCount.current?.(shownFilterCount);
   }, [shownFilterCount]);
   useEffect(() => () => reportCount.current?.(null), []);
-  const chosen = rows.filter((row) => selected.has(row.jobId)).map((row) => row.jobId);
+  const chosen = allMode ? rows.map((row) => row.jobId) : rows.filter((row) => selected.has(row.jobId)).map((row) => row.jobId);
+  const chosenCount = allMode ? (matching ?? rows.length) : chosen.length;
   const askCount = asking?.scope === 'all' ? (allCount.data?.count ?? null) : chosen.length;
   const askWords = asking && askCount !== null ? unverifiedBulkConfirm(asking.action, askCount, asking.scope === 'all') : null;
 
   const changeFilter = (next: UnverifiedFilter) => {
     setFilter(next);
     setSelected(new Set());
+    setAllMode(false);
+    setLoadedOnly(false);
     setOutcomes(new Map());
     anchor.current = null;
   };
   const choose = (jobId: number, on: boolean, shiftKey: boolean) => {
+    if (allMode) {
+      // v37 REVIEW (R3): unticking one row of "all" keeps the other rows shown. v37 FIX-REV (L5): the bar says so.
+      setAllMode(false);
+      setLoadedOnly(true);
+      setSelected(new Set(rows.map((row) => row.jobId).filter((id) => id !== jobId || on)));
+      anchor.current = rows.findIndex((row) => row.jobId === jobId);
+      return;
+    }
     const index = rows.findIndex((row) => row.jobId === jobId);
     const from = shiftKey && anchor.current !== null ? Math.min(anchor.current, index) : index;
     const to = shiftKey && anchor.current !== null ? Math.max(anchor.current, index) : index;
@@ -171,9 +214,18 @@ export function UnverifiedLane({
     });
     anchor.current = index;
   };
+  /** v37 REVIEW (R3): "Select all N" (every link the filter matches, loaded or not), or none. */
   const chooseAll = (on: boolean) => {
     anchor.current = null;
-    setSelected(on ? new Set(rows.map((row) => row.jobId)) : new Set());
+    setSelected(new Set());
+    setAllMode(on);
+    setLoadedOnly(false);
+  };
+  /** The bar's Approve / Reject: on every link the filter matches ("Select all N"), else on the chosen rows. */
+  const askFor = (action: 'approve' | 'reject') => {
+    bulkReturn.remember(); // v37 FIX-REV (M1): Cancel gives focus back to this action
+    stopAll.current = false;
+    setAsking({ scope: allMode ? 'all' : 'selected', action });
   };
 
   /** Runs the asked bulk action; the confirm stays open (busy) with its progress until it is done. */
@@ -186,19 +238,26 @@ export function UnverifiedLane({
         outcome = await runUnverifiedAll(
           () => allUnverified(ask.action, filter, upTo),
           (sofar) => setProgress(`${verb} ${sofar.done.toLocaleString('en-US')} so far${sofar.left > 0 ? `; ${sofar.left.toLocaleString('en-US')} to go` : ''}...`),
+          undefined,
+          () => stopAll.current, // v37 FIX-REV (L6)
         );
       } else {
         outcome = await runUnverifiedBulk(ask.action, chosen, (ids) => bulkUnverified(ask.action, ids), userMessage);
       }
     } catch (error) {
       setProgress(null);
+      setStopping(false);
       throw new Error(userMessage(error));
     }
     setProgress(null);
+    setStopping(false);
+    bulkReturn.finished(); // v37 FIX-REV (M1): the bar goes; focus goes to the result line (below)
     setAsking(null);
     setResult(outcome);
     setOutcomes(new Map(outcome.items.filter((item) => item.outcome === 'skipped').map((item) => [item.jobId, item.message ?? 'Skipped.'] as const)));
     setSelected(new Set());
+    setAllMode(false);
+    setLoadedOnly(false);
     anchor.current = null;
     onLive(outcome.message);
     refresh();
@@ -287,6 +346,7 @@ export function UnverifiedLane({
   const pageReadsOff = rows.some((row) => row.reason === 'not_set_up');
 
   const empty = unverifiedEmptyText(listOn);
+  const selectWords = selectAllWords(matching ?? rows.length);
   const filtered = filter.from !== 'all' || filter.runId !== null;
   let body;
   if (list.isError && !list.data) {
@@ -339,7 +399,7 @@ export function UnverifiedLane({
   } else {
     body = (
       <>
-        {list.isError && (
+        {list.isRefetchError && (
           <Notice tone="warning" className="mx-4 mt-3 sm:mx-5" title="The list could not be refreshed">
             What is shown may be out of date.
           </Notice>
@@ -351,13 +411,13 @@ export function UnverifiedLane({
             <HelpTip label={PAGE_READS_OFF.label}>{PAGE_READS_OFF.tip}</HelpTip>
           </p>
         )}
-        <ul ref={listRef} className="divide-y divide-divider-soft" aria-label="Links TailorIT couldn't verify">
+        <ul ref={listRef} className="divide-y divide-divider-soft" aria-label="Links TailorIT couldn't verify" onFocusCapture={loader.onFocusCapture}>
           {rows.map((row) => (
             <UnverifiedRow
               key={row.jobId}
               row={row}
               now={now}
-              checked={selected.has(row.jobId)}
+              checked={allMode || selected.has(row.jobId)}
               onChecked={(on, shiftKey) => choose(row.jobId, on, shiftKey)}
               outcome={outcomes.get(row.jobId) ?? null}
               busy={busy.has(row.jobId)}
@@ -367,14 +427,29 @@ export function UnverifiedLane({
             />
           ))}
         </ul>
-        {/* v35 OPSWEB: the chosen rows' Approve and Reject, stuck to the window's foot while rows are chosen. */}
-        {chosen.length > 0 && (
+        {/* v37 REVIEW (R1): the list's end: "Loading more links...", an error with Try again, "All 340 links shown". */}
+        <ListEnd
+          sentinel={loader.sentinel}
+          list={more}
+          things="links"
+          shown={rows.length}
+          pages={list.data.pages.length}
+          error={userMessage(list.error, "More links didn't load.")}
+          rows="li[data-unverified-row]"
+        />
+        {/* v35 OPSWEB: the chosen rows' Approve and Reject, stuck to the window's foot while rows are chosen. v37 REVIEW
+            (R3): "Select all N" / "Deselect all" leads it (every link the filter matches, loaded or not). */}
+        {(chosen.length > 0 || allMode) && (
           <SelectBar
             aria-label="Approve or reject the chosen links"
-            selected={chosen.length}
-            selectable={rows.length}
-            selectAllLabel="Select every link shown"
+            selected={chosenCount}
+            selectable={matching ?? rows.length}
+            selectAllLabel={selectAllTip('unverified')}
             onSelectAll={chooseAll}
+            selectAllAs="button"
+            allSelected={allMode || (matching !== null && matching > 0 && chosen.length === matching)}
+            selectAllWords={selectWords}
+            note={loadedOnly ? LOADED_ROWS_NOTE : null}
           >
             {/* v35 INT-B: the three buttons wrap on a phone (Clear on its own line), never past the window's edge. */}
             <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" data-unverified-bar-actions="">
@@ -383,9 +458,9 @@ export function UnverifiedLane({
                 className="max-sm:h-11 max-sm:flex-1"
                 icon={<CheckIcon size={14} weight="bold" aria-hidden="true" />}
                 aria-haspopup="dialog"
-                onClick={() => setAsking({ scope: 'selected', action: 'approve' })}
+                onClick={() => askFor('approve')}
               >
-                Approve selected
+                {UNVERIFIED_BAR_WORDS.approve}
               </Button>
               <Button
                 size="sm"
@@ -393,27 +468,16 @@ export function UnverifiedLane({
                 className="max-sm:h-11 max-sm:flex-1"
                 icon={<XIcon size={14} weight="bold" aria-hidden="true" />}
                 aria-haspopup="dialog"
-                onClick={() => setAsking({ scope: 'selected', action: 'reject' })}
+                onClick={() => askFor('reject')}
               >
-                Reject selected
+                {UNVERIFIED_BAR_WORDS.reject}
               </Button>
               <Button size="sm" variant="ghost" className="max-sm:h-11" onClick={() => chooseAll(false)}>
-                Clear
+                {UNVERIFIED_BAR_WORDS.cancel}
               </Button>
             </div>
           </SelectBar>
         )}
-        <ShowMoreButton
-          hasMore={list.hasNextPage}
-          loading={list.isFetchingNextPage}
-          onMore={() => void list.fetchNextPage()}
-          afterLast={[`${PANE} li[data-unverified-row]:last-of-type [data-row-action]`]}
-          variant="ghost"
-          size="sm"
-          className="flex justify-center p-3"
-        >
-          Load more
-        </ShowMoreButton>
       </>
     );
   }
@@ -427,7 +491,15 @@ export function UnverifiedLane({
         data-unverified-switch=""
       >
         {listSwitch ? (
-          <ConstantSwitch row={listSwitch} rule={listSwitch.help} words={LIST_WORDS} />
+          <div className="flex flex-col gap-0.5">
+            <ConstantSwitch row={listSwitch} rule={listSwitch.help} words={LIST_WORDS} />
+            {/* v37 FIX-REV (REVIEW361-ux M2): off, the list still holds an admin's imports: said under the switch. */}
+            {listOn === false && (
+              <p className="text-[13px] leading-5 text-muted-foreground" data-unverified-switch-off="">
+                {LIST_OFF_NOTE}
+              </p>
+            )}
+          </div>
         ) : constants.isError ? (
           <p className="text-[13px] text-muted-foreground">The list switch didn&apos;t load. {userMessage(constants.error)}</p>
         ) : (
@@ -449,35 +521,24 @@ export function UnverifiedLane({
               options={fromOptions(UNVERIFIED_WAYS, imports.data?.items ?? [], filter.runId)}
             />
           </span>
-          {rows.length > 0 && (
-            <>
-              <Button variant="ghost" size="sm" className="max-sm:h-11" onClick={() => chooseAll(true)} data-unverified-select-all="">
-                Select all shown
+          {/* v37 REVIEW (R3): every link the From filter matches, loaded or not; the bar's Approve / Reject act on them. */}
+          {rows.length > 0 && !allMode && (
+            // v37 FIX-REV (REVIEW361-ux L4): what it takes in a "?" tip (a native title reached neither keyboard nor touch).
+            <span className="inline-flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="max-sm:h-11"
+                onClick={() => {
+                  chooseAll(true);
+                  focusSoon([`${PANE} [role="toolbar"][aria-label="Approve or reject the chosen links"] [data-select-all]`]);
+                }}
+                data-unverified-select-all=""
+              >
+                {selectWords.select}
               </Button>
-              <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="max-sm:h-11"
-                  icon={<CheckIcon size={14} weight="bold" aria-hidden="true" />}
-                  aria-haspopup="dialog"
-                  onClick={() => setAsking({ scope: 'all', action: 'approve' })}
-                >
-                  Approve all
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="max-sm:h-11"
-                  icon={<XIcon size={14} weight="bold" aria-hidden="true" />}
-                  aria-haspopup="dialog"
-                  onClick={() => setAsking({ scope: 'all', action: 'reject' })}
-                >
-                  Reject all
-                </Button>
-                <HelpTip label="Approve all and Reject all">Every link the From filter matches, shown or not.</HelpTip>
-              </span>
-            </>
+              <HelpTip label={selectWords.select}>{selectAllTip('unverified')}</HelpTip>
+            </span>
           )}
         </div>
       </div>
@@ -505,7 +566,7 @@ export function UnverifiedLane({
           setAsking(null);
         }}
         tone={asking?.action === 'reject' ? 'destructive' : 'primary'}
-        title={askWords?.title ?? (asking?.action === 'reject' ? 'Reject every link shown?' : 'Approve every link shown?')}
+        title={askWords?.title ?? (asking?.action === 'reject' ? 'Reject every link selected?' : 'Approve every link selected?')}
         description={
           allCount.isError && asking?.scope === 'all'
             ? `The links could not be counted. ${userMessage(allCount.error)}`
@@ -520,15 +581,35 @@ export function UnverifiedLane({
         confirmDisabled={!askWords || !askCount}
         // Publishing to everyone opens on Cancel, so a quick Enter never publishes (v32 INT-2, UXREQ-12).
         focusCancel
-        finalFocus={() => false}
+        // v37 FIX-REV (REVIEW361-ux M1): Cancel gives focus back to the bar's action (it fell to the page).
+        finalFocus={bulkReturn.finalFocus}
         onConfirm={async () => {
           if (asking) await runAsked(asking);
         }}
       >
         {progress && (
-          <p className="text-[13px] text-muted-foreground" role="status" data-unverified-progress="">
-            {progress}
-          </p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[13px] text-muted-foreground" role="status" data-unverified-progress="">
+              {progress}
+            </p>
+            {/* v37 FIX-REV (REVIEW361-ux L6): "all" can be stopped after the turn under way. */}
+            {asking?.scope === 'all' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="max-sm:h-11"
+                disabled={stopping}
+                focusableWhenDisabled
+                onClick={() => {
+                  stopAll.current = true;
+                  setStopping(true);
+                }}
+                data-all-stop=""
+              >
+                {stopping ? ALL_STOP_WORDS.stopping : ALL_STOP_WORDS.stop}
+              </Button>
+            )}
+          </div>
         )}
       </ConfirmDialog>
       <ConfirmDialog

@@ -13,6 +13,7 @@ import { refuse } from '../../core/http/refuse'; // v31 LINK
 import { bestResumes, SINGLE_SAVE_MATCH_BUDGET_MS } from '../applications/resume-choice';
 import { createApplication, wantsResumeMatch, type CreateOptions } from '../applications/service';
 import { IngestHttpError } from '../ingest/http';
+import { workdayLinkPosting } from '../ingest/adapters/workday'; // v37 CLOSED (C4)
 import { ADDED_BY_AUTOFILL } from '../ingest/liveness';
 import { sourceHashOf } from '../ingest/normalize';
 import { fetchPosting, type AshbyBoardReads, type PostingAnswer } from '../ingest/postings';
@@ -25,6 +26,8 @@ import { readPageToSharedJob, type ImportRead } from '../jobs/add/page'; // v31 
 import { readWaitsForAdmin, settleHeldAfterRead } from '../jobs/add/held'; // v31 FIX-LINK
 import { dateImported } from '../jobs/add/import-time'; // v36 IMPORTTIME
 import { REVIEW_HELD_SQL } from '../jobs/add/review-held'; // v31 FIX-LINK (a leaf: the SQL below is built at load)
+import { offerBoardOfClosedLink } from '../jobs/add/closed-link'; // v37 CLOSED (C7)
+import { pauseMessage, pauseOf } from '../jobs/add/verdict'; // v37 CLOSED (C1, C3)
 import { aliasValueHash } from './alias-key';
 import { jobPlaces, placesMeet } from './places';
 import { insertSourceIfNameFree, sourcesOfKind } from './sources';
@@ -75,7 +78,7 @@ import {
 /** How long the board has to answer, the client's turn-taking and retries included (the extension waits 25 s). */
 export const ADD_JOB_FETCH_TIMEOUT_MS = 15_000;
 
-const ATS_NAMES: Record<AddablePosting['kind'], string> = {
+export const ATS_NAMES: Record<AddablePosting['kind'], string> = {
   greenhouse: 'Greenhouse',
   lever: 'Lever',
   ashby: 'Ashby',
@@ -151,10 +154,16 @@ async function boardSourceOrNew(
   }
 }
 
-/** The board's failure as the extension shows it: 503 when it could not be reached in time, else 502. */
-function boardFailure(error: unknown, kind: AddablePosting['kind'], signal: AbortSignal): AppError {
+/**
+ * The board's failure as the extension shows it: 503 when it could not be reached in time, else 502. v37 CLOSED (C3):
+ * a host held (Workday's paused lane, a site that asked TailorIT to slow down) is 503 at once with the time to try again
+ * ("Workday asked us to slow down. Try again after 3:42 PM Pacific Time."), the hold riding along (`cause`).
+ */
+function boardFailure(deps: AppDeps, error: unknown, kind: AddablePosting['kind'], signal: AbortSignal, timeoutMs: number): AppError {
   const ats = ATS_NAMES[kind];
   const later = 'Try again in a minute.';
+  const pause = pauseOf(error, ats);
+  if (pause) return new AppError('ats_unavailable', pauseMessage(deps, pause), { cause: error });
   if (error instanceof RobotsRefusal && !signal.aborted) {
     // The refusal rides along (`cause`): adding from the page then keeps the page's text instead (from-page.ts).
     return error.reason === 'disallowed'
@@ -164,7 +173,7 @@ function boardFailure(error: unknown, kind: AddablePosting['kind'], signal: Abor
         });
   }
   if (signal.aborted) {
-    return new AppError('ats_unavailable', `${ats} did not answer within ${ADD_JOB_FETCH_TIMEOUT_MS / 1000} seconds. ${later}`);
+    return new AppError('ats_unavailable', `${ats} did not answer within ${Math.round(timeoutMs / 1000)} seconds. ${later}`);
   }
   if (error instanceof IngestHttpError) {
     if (error.status === 0 || error.status === 429 || error.status >= 500) {
@@ -172,6 +181,8 @@ function boardFailure(error: unknown, kind: AddablePosting['kind'], signal: Abor
     }
     // The client stopped reading an answer over its cap.
     if (error.status === 413) return new AppError('ats_failed', `${ats}'s answer is too large for TailorIT to read.`);
+    // v37 CLOSED (C1): a 404 or a 410 a reader did not expect (a Workable posting's 410, a board's) is a closed posting.
+    if (error.status === 404 || error.status === 410) return new AppError('not_found', `${ats} no longer has this posting: it has closed.`);
     return new AppError('ats_failed', `${ats} refused to send this posting (HTTP ${error.status}).`);
   }
   // An answer that is not a posting TailorIT can read is the ATS's lasting word (`cause`): adding from the page then
@@ -193,9 +204,10 @@ async function readAndStore(
   posting: AddablePosting,
   boards: AshbyBoardReads,
   importRead?: ImportRead,
+  timeoutMs: number = ADD_JOB_FETCH_TIMEOUT_MS, // v37 CLOSED (C3): the link queue's reads wait longer for their turn
 ): Promise<{ jobId: number; created: boolean }> {
   const ingest = requireIngest(deps);
-  const signal = AbortSignal.timeout(ADD_JOB_FETCH_TIMEOUT_MS);
+  const signal = AbortSignal.timeout(timeoutMs);
   let answer: PostingAnswer;
   try {
     const config = (await boardSource(deps.db, posting))?.config;
@@ -205,7 +217,7 @@ async function readAndStore(
     if (!(error instanceof IngestHttpError || error instanceof IngestError || error instanceof RobotsRefusal) && !signal.aborted) {
       deps.log.warn(`[autofill] add job: reading the ${posting.kind} posting failed`, error instanceof Error ? error.name : 'unknown');
     }
-    throw boardFailure(error, posting.kind, signal);
+    throw boardFailure(deps, error, posting.kind, signal, timeoutMs);
   }
   if (!answer.found) {
     if (answer.unlisted) throw new AppError('unsupported', UNLISTED);
@@ -623,12 +635,13 @@ async function openHeldJobOf(deps: Pick<AppDeps, 'db'>, posting: AddablePosting)
  * The read of `posting`, shared with an add of the same posting already under way (an open held job is not read again).
  * v31 FIX-LINK (BEH-2): `fresh` reads the board whatever job holds the posting (the legacy pass's reads, Retry read).
  * v35 INT-A: `importRead`, an admin import's read (jobs/add/page.ts ImportRead), never shared with another read.
+ * v37 CLOSED (C3): `timeoutMs`, the read's budget (the link queue's LINK_QUEUE_READ_TIMEOUT_MS; people's 15 s).
  */
 export function readShared(
   deps: AppDeps,
   posting: AddablePosting,
   inFlight: InFlight,
-  options: { fresh?: boolean; importRead?: ImportRead } = {},
+  options: { fresh?: boolean; importRead?: ImportRead; timeoutMs?: number } = {},
 ): Promise<{ jobId: number; created: boolean }> {
   const key =
     `${posting.kind}:${posting.region}:${posting.board.toLowerCase()}:${posting.externalId.toLowerCase()}` +
@@ -637,7 +650,9 @@ export function readShared(
   if (!reading) {
     const held = options.fresh ? Promise.resolve(null) : openHeldJobOf(deps, posting);
     reading = held
-      .then((found) => (found !== null ? { jobId: found, created: false } : readAndStore(deps, posting, inFlight.boards, options.importRead)))
+      .then((found) =>
+        found !== null ? { jobId: found, created: false } : readAndStore(deps, posting, inFlight.boards, options.importRead, options.timeoutMs),
+      )
       .finally(() => inFlight.postings.delete(key));
     inFlight.postings.set(key, reading);
   }
@@ -659,14 +674,22 @@ export async function addJob(
 ): Promise<AddedJob> {
   const page = readPage(request.url, undefined, aliasValueHash(deps));
   const parsed = page.ats;
-  const posting = addablePosting(parsed);
+  // v37 CLOSED (C4): a Workday link without a location reads the posting's JSON too (never the page).
+  const posting = addablePosting(parsed) ?? workdayLinkPosting(request.url);
   const keys = pageKeys(page);
   // v30 X1-API: a held job of the posting another account added is found too (heldJobOf).
   let job = (await findPageJob(deps, userId, page)) ?? (await heldJobOf(deps, page));
   let created = false;
   if (!job) {
     if (posting) {
-      const stored = await readShared(deps, posting, inFlight);
+      let stored: { jobId: number; created: boolean };
+      try {
+        stored = await readShared(deps, posting, inFlight);
+      } catch (error) {
+        // v37 CLOSED (C7): a closed posting's board is offered to discovery (a candidate waiting for an admin).
+        if (error instanceof AppError && error.code === 'not_found') await offerBoardOfClosedLink(deps, request.url, 'extension');
+        throw error;
+      }
       job = { id: stored.jobId, matchedBy: 'source_link' };
       created = stored.created;
     } else {
@@ -676,7 +699,10 @@ export async function addJob(
       const readable = link !== null && !page.linkedIn && !isRefusedPageHost(new URL(link).hostname);
       const read = readable ? await readPageToSharedJob(deps, link) : null;
       // The page TailorIT read says its posting has closed (404, 410, or a past validThrough).
-      if (read?.kind === 'closed') throw refuse(deps, 'not_found', 'MSG_JOB_ADD_REFUSED_CLOSED');
+      if (read?.kind === 'closed') {
+        if (link) await offerBoardOfClosedLink(deps, link, 'extension'); // v37 CLOSED (C7)
+        throw refuse(deps, 'not_found', 'MSG_JOB_ADD_REFUSED_CLOSED');
+      }
       if (read?.kind !== 'shared') throw new AppError('unsupported', UNSUPPORTED);
       job = { id: read.jobId, matchedBy: 'source_link' };
       created = read.created;

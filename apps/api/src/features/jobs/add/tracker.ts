@@ -1,9 +1,11 @@
 import type { CreateApplicationBody } from '@tailorit/shared';
 import type { AppDeps } from '../../../core/context';
+import { AppError } from '../../../core/http/errors';
 import { refuse } from '../../../core/http/refuse';
 import { noteHeldAdd } from '../../job-reviews/new-jobs';
 import { tryTakeAddSlot } from './limits';
 import { addJobByLink } from './pipeline';
+import { pauseMessage } from './verdict'; // v37 CLOSED (C3)
 
 // v31 LINK (21-jobs-from-links.md §3): a tracker entry added by hand with a posting's link (POST /api/applications, the
 // Tracker's "+ Add application") goes through the one pipeline: TailorIT reads the posting from the link, and when it
@@ -36,6 +38,9 @@ export async function trackerEntryOfLink(
       const { title: _title, companyName: _company, location: _location, ...rest } = body;
       return { ...rest, jobId: added.jobId, ...(added.url ? { postingUrl: added.url } : {}) };
     }
+    // v37 CLOSED (C3): the site (every Workday site) paused TailorIT: an entry with no title or company says when to try
+    // again (503), never "add the title and company" for a link TailorIT reads.
+    if (added.pause && (!body.title || !body.companyName)) throw new AppError('ats_unavailable', pauseMessage(deps, added.pause));
   }
   if (!body.title || !body.companyName) {
     throw refuse(deps, 'validation_failed', 'MSG_JOB_ADD_NEEDS_DETAILS', {}, { fields: { ...(!body.title ? { title: 'Required' } : {}), ...(!body.companyName ? { companyName: 'Required' } : {}) } });

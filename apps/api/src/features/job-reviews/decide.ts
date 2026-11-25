@@ -154,14 +154,21 @@ export async function approveReview(
   captured?: CapturedApproval,
 ): Promise<FollowUp[]> {
   if (review.state !== 'pending') throw conflict('This review was decided already.');
-  let followUps: FollowUp[] = [];
   if (review.kind === 'closed') {
     const link: JobLinkRef | undefined =
       review.link_source_id !== null && review.link_source_job_id !== null
         ? { sourceId: review.link_source_id, sourceJobId: review.link_source_job_id }
         : undefined;
-    await closeLink(deps, t, { jobId: review.job_id, ...(link ? { link } : {}), reason: 'report', at });
-  } else if (review.origin === 'ats') {
+    // v37 FIX-REV (SP v37 FIXES-361.md D1): decided first, so the close's settle (job-reviews/settle.ts: what else waits
+    // on the job, its New jobs review and flags) leaves this decision as the admin (or the rule) made it; TailorIT's own
+    // check that found it gone says so on what it settles.
+    await markDecided(t, review, 'approved', decider, at);
+    const confirmed = decider.by === 'server_check' ? { confirmed: true } : {};
+    await closeLink(deps, t, { jobId: review.job_id, ...(link ? { link } : {}), reason: 'report', at, ...confirmed });
+    return [];
+  }
+  let followUps: FollowUp[] = [];
+  if (review.origin === 'ats') {
     // v36 IMPORTTIME (SP v36 PLAN.md I1): a job an admin's import held, or named while it waited, reaches people now:
     // dated its approval.
     await t.run(DATE_APPROVED_SQL, [at, review.job_id, review.imported]);

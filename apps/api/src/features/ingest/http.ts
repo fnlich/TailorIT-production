@@ -71,20 +71,48 @@ const HOLD_WORDS: Record<HostHoldReason, string> = {
   backoff: 'it failed recently',
 };
 
-/** A request refused, nothing sent, because its host is held (Retry-After, the breaker, a bot check, an admin) or backed off. */
+/**
+ * A request refused, nothing sent, because its host is held (Retry-After, the breaker, a bot check, an admin) or backed off.
+ * v37 LANE (SP v37 PLAN W3): or the request's own answer held its lane (a 429 from Workday pauses every Workday site:
+ * hosts.ts WORKDAY_LANE); `answered` then names that answer's status. `host` is the crawl_hosts row held (a lane's key,
+ * `workday.lane`, for a lane), `label` its name in words ("Workday (all sites)"; the host itself otherwise).
+ */
 export class HostHeldError extends IngestHttpError {
   readonly host: string;
   /** Until when (ISO). */
   readonly until: string;
   readonly reason: HostHoldReason;
-  constructor(host: string, until: string, reason: HostHoldReason) {
-    super(`${host} is on hold until ${until} (${HOLD_WORDS[reason]}); TailorIT reads it again after that.`, 0, `https://${host}/`);
+  /** v37 LANE: the held row in words (a lane's name, else the host). */
+  readonly label: string;
+  /** v37 LANE: the status of this request's own answer that held the host or its lane (429), or null: nothing was sent. */
+  readonly answered: number | null;
+  constructor(host: string, until: string, reason: HostHoldReason, extra: { label?: string; answered?: number } = {}) {
+    const label = extra.label ?? host;
+    super(`${label} is on hold until ${until} (${HOLD_WORDS[reason]}); TailorIT reads it again after that.`, 0, `https://${host}/`);
     this.name = 'HostHeldError';
     this.host = host;
     this.until = until;
     this.reason = reason;
+    this.label = label;
+    this.answered = extra.answered ?? null;
   }
 }
+
+/** v37 LANE: failures thrown before their request sent anything (a turn's wait that ran out or was stopped). */
+const unsentFailures = new WeakSet<object>();
+
+/**
+ * v37 LANE (SP v37 PLAN W7): whether a request failed without sending anything: its host or lane was held (and not by
+ * its own answer), or its wait for the host's turn ran out or was stopped. Such a failure says nothing about the site
+ * (robots.ts never keeps it as an unreachable robots.txt).
+ */
+export function nothingSent(error: unknown): boolean {
+  if (error instanceof HostHeldError) return error.answered === null;
+  return error !== null && typeof error === 'object' && unsentFailures.has(error);
+}
+
+/** v37 LANE (SP v37 PLAN W5): a turn for a person waiting (Add job and its kin) or for background work (runs, queues). */
+export type TurnPriority = 'interactive' | 'background';
 
 /** What happened to one request, for its host's record (HostGate.record). */
 export type HostOutcome =
@@ -92,8 +120,11 @@ export type HostOutcome =
   | { kind: 'answered'; status: number }
   /** It failed for good: a 5xx, a timeout or no answer, its retries spent. */
   | { kind: 'failed'; status: number }
-  /** It asked to wait (429 or 5xx, Retry-After or the client's own pause): `hold` when longer than the client waits. */
-  | { kind: 'wait'; status: number; waitMs: number; hold: boolean }
+  /**
+   * It asked to wait (429 or 5xx, Retry-After or the client's own pause): `hold` when longer than the client waits.
+   * v37 LANE: `retryAfterMs`, the wait the answer asked for itself (Retry-After), when it named one.
+   */
+  | { kind: 'wait'; status: number; waitMs: number; hold: boolean; retryAfterMs?: number | null }
   /** 401, 403 or a bot check. */
   | { kind: 'bot_check'; status: number };
 
@@ -107,14 +138,27 @@ export interface HostGate {
    * more: its Crawl-delay). Throws HostHeldError, taking nothing, while the host is held or its next slot is more than
    * `maxWaitMs` ahead (a backed-off host).
    */
-  takeTurn(host: string, options: { minIntervalMs: number; maxWaitMs: number; signal?: AbortSignal; busyMs?: number }): Promise<void>;
-  /** Records a request's outcome: failures and backoff, the breaker, Retry-After and bot-check holds. */
-  record(host: string, outcome: HostOutcome): Promise<void>;
+  takeTurn(
+    host: string,
+    options: { minIntervalMs: number; maxWaitMs: number; signal?: AbortSignal; busyMs?: number; priority?: TurnPriority },
+  ): Promise<void>;
+  /**
+   * Records a request's outcome: failures and backoff, the breaker, Retry-After and bot-check holds. v37 LANE: answers
+   * the hold the outcome put on the request's lane (a 429 from Workday pauses all of Workday), which the request then
+   * throws instead of trying again; nothing otherwise.
+   */
+  record(host: string, outcome: HostOutcome): Promise<HostHeldError | void>;
   /**
    * v30 FIX-A: the request that took the host's turn with `busyMs` is over (answered, failed or given up): the host is
    * free for the next one at once (otherwise when `busyMs` has passed).
    */
   release?(host: string): Promise<void>;
+  /**
+   * v37 FIX-LANE (the review's F4): the lane a host's requests take their turns on (the database gate's Workday lane for
+   * every Workday host), else the host itself. A 429 on a lane is never tried again inside the request, whether or not
+   * its record could be written. Absent: every host is its own lane.
+   */
+  laneOf?(host: string): string;
 }
 
 export interface GetJsonOptions {
@@ -177,6 +221,12 @@ export interface IngestHttpOptions {
   maxBytes?: number | (() => number);
   /** v30 S1-API: checks robots.txt before every read but `robots: false` ones (rejects with robots.ts RobotsRefusal). */
   robots?: (url: URL, signal: AbortSignal | undefined) => Promise<void>;
+  /**
+   * v37 LANE (SP v37 PLAN W5): whose reads these are, read at each request: `interactive` for a person waiting (the API's
+   * own client: Add job, the extension, Add by link, MCP add), whose turns go ahead of background ones on a lane.
+   * Default `background`.
+   */
+  priority?: () => TurnPriority;
 }
 
 /** v30 S4: the headers the client sets itself, which a request's own `headers` never give. */
@@ -219,6 +269,15 @@ export function createMemoryHostGate(options: { now?: () => number; sleep?: Inge
   const holds = new Map<string, { until: number; reason: HostHoldReason }>();
   /** v30 FIX-A: the request in flight to each host (its turn's end), and the turns waiting for it. */
   const busy = new Map<string, { until: number; waiting: Array<() => void> }>();
+  /** The host's turn is over: the next waiting turn goes; the others wait for its release in turn. */
+  const giveBack = (host: string) => {
+    const current = busy.get(host);
+    if (!current) return;
+    busy.delete(host);
+    const [next, ...rest] = current.waiting;
+    if (rest.length > 0) busy.set(host, { until: 0, waiting: rest });
+    next?.();
+  };
   return {
     async takeTurn(host, { minIntervalMs, maxWaitMs, signal, busyMs }) {
       const hold = holds.get(host);
@@ -231,16 +290,16 @@ export function createMemoryHostGate(options: { now?: () => number; sleep?: Inge
       if (at - now() > maxWaitMs) throw new HostHeldError(host, new Date(at).toISOString(), 'backoff');
       nextSlot.set(host, at + minIntervalMs);
       if (busyMs && busyMs > 0) busy.set(host, { until: at + busyMs, waiting: busy.get(host)?.waiting ?? [] });
-      await sleep(at - now(), signal);
+      try {
+        await sleep(at - now(), signal);
+      } catch (error) {
+        // v37 LANE (SP v37 PLAN W9): a turn taken but never used (its wait was stopped) is given back at once.
+        if (busyMs && busyMs > 0) giveBack(host);
+        throw error;
+      }
     },
     async release(host) {
-      const current = busy.get(host);
-      if (!current) return;
-      busy.delete(host);
-      // The next waiting turn goes; the others wait for its release in turn.
-      const [next, ...rest] = current.waiting;
-      if (rest.length > 0) busy.set(host, { until: 0, waiting: rest });
-      next?.();
+      giveBack(host);
     },
     async record(host, outcome) {
       if (outcome.kind === 'wait') {
@@ -332,14 +391,25 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
   /** Errors a redirect hop's own checks threw (robots.txt's refusal, a held host): the request fails with them as they are. */
   const hopRefusals = new WeakSet<object>();
 
-  /** The host's record of an outcome, best effort: a failed write never fails the read. */
-  async function record(host: string, outcome: HostOutcome): Promise<void> {
+  /**
+   * The host's record of an outcome, best effort: a failed write never fails the read. v37 LANE: answers the hold the
+   * outcome put on the host's lane (the request throws it), or null.
+   */
+  async function record(host: string, outcome: HostOutcome): Promise<HostHeldError | null> {
     try {
-      await gate.record(host, outcome);
+      return (await gate.record(host, outcome)) ?? null;
     } catch {
       /* the pace and holds are advice; the answer stands */
+      return null;
     }
   }
+  /** v37 LANE: whose turns this client's requests take (read at each request). */
+  const priority = (): TurnPriority => options.priority?.() ?? 'background';
+  /** v37 FIX-LANE (F4): whether a host's turns are a lane's (Workday's, on the database gate). */
+  const onLane = (host: string): boolean => {
+    const lane = gate.laneOf?.(host);
+    return lane !== undefined && lane !== host;
+  };
 
   /**
    * The answer to `url`, redirects followed here (at most MAX_REDIRECTS) so that every hop passes the outbound guard
@@ -386,7 +456,13 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
       // refusals are the request's answer, never retried.
       try {
         if (rules.robots && options.robots) await options.robots(next, rules.signal);
-        await gate.takeTurn(next.host, { minIntervalMs: minInterval(), maxWaitMs: maxTurnWait, signal: rules.signal, busyMs: options.timeoutMs });
+        await gate.takeTurn(next.host, {
+          minIntervalMs: minInterval(),
+          maxWaitMs: maxTurnWait,
+          signal: rules.signal,
+          busyMs: options.timeoutMs,
+          priority: priority(),
+        });
         hop.host = next.host;
         hop.held = true;
       } catch (error) {
@@ -447,7 +523,14 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
     /** The request's own headers' names (they never follow a hop to another origin: SEC-1). */
     const added = own.map(([header]) => header);
     for (let attempt = 0; ; attempt += 1) {
-      await gate.takeTurn(host, { minIntervalMs: minInterval(), maxWaitMs: maxTurnWait, signal, busyMs: options.timeoutMs });
+      try {
+        await gate.takeTurn(host, { minIntervalMs: minInterval(), maxWaitMs: maxTurnWait, signal, busyMs: options.timeoutMs, priority: priority() });
+      } catch (error) {
+        // v37 LANE (W7): a first turn's wait that ran out or was stopped sent nothing (nothingSent). The gate gave back
+        // a turn it took but whose wait was stopped (W9).
+        if (attempt === 0 && error !== null && typeof error === 'object') unsentFailures.add(error);
+        throw error;
+      }
       const timeout = AbortSignal.timeout(options.timeoutMs);
       const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
       let response: Response;
@@ -479,18 +562,28 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
             await response.body?.cancel().catch(() => undefined);
             if (asked !== null && asked > maxRetryAfter) {
               // A long Retry-After holds the whole host: the sources behind it wait instead of failing one by one.
-              await record(hop.host, { kind: 'wait', status: response.status, waitMs: asked, hold: true });
-              throw new HostHeldError(hop.host, new Date(now() + asked).toISOString(), 'retry_after');
+              const held = await record(hop.host, { kind: 'wait', status: response.status, waitMs: asked, hold: true, retryAfterMs: asked });
+              throw held ?? new HostHeldError(hop.host, new Date(now() + asked).toISOString(), 'retry_after', { answered: response.status });
             }
             if (attempt >= maxRetries || wait > maxRetryAfter) {
-              await record(
+              const held = await record(
                 hop.host,
-                response.status === 429 ? { kind: 'wait', status: 429, waitMs: wait, hold: false } : { kind: 'failed', status: response.status },
+                response.status === 429
+                  ? { kind: 'wait', status: 429, waitMs: wait, hold: false, retryAfterMs: asked }
+                  : { kind: 'failed', status: response.status },
               );
+              if (held) throw held; // v37 LANE: the answer paused the host's lane
               const what = response.status === 429 ? 'is rate limiting us' : `answered HTTP ${response.status}`;
               throw new IngestHttpError(`${hop.host} ${what}; try the run again later.`, response.status, url);
             }
-            await record(hop.host, { kind: 'wait', status: response.status, waitMs: wait, hold: false });
+            const held = await record(hop.host, { kind: 'wait', status: response.status, waitMs: wait, hold: false, retryAfterMs: asked });
+            // v37 LANE (SP v37 PLAN W3): a 429 on a lane (Workday) is never tried again inside the request: the whole
+            // lane is paused, and the request says until when.
+            if (held) throw held;
+            // v37 FIX-LANE (F4): nor when the pause could not be written (a database error): the 429 is the answer.
+            if (response.status === 429 && onLane(hop.host)) {
+              throw new IngestHttpError(`${hop.host} is rate limiting us; try the run again later.`, 429, url);
+            }
             continue;
           }
           // The body counts toward the timeout too: a board that stalls mid-answer is retried like one that never answered.

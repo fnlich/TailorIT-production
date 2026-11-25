@@ -58,7 +58,8 @@ export function Pane({ id, title, count, controls, status, scroll, fill = false,
             </h2>
             {count !== null && (
               <span className="num text-sm text-muted-foreground" data-pane-count="">
-                {count}
+                {/* v37 REVIEW: "1,240", as the nav and the lanes write thousands. */}
+                {count.toLocaleString('en-US')}
               </span>
             )}
           </div>

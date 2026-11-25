@@ -1,6 +1,9 @@
+import { constantDefault } from '@tailorit/shared';
 import { constantsOf } from '../../core/constants/index';
+import type { AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/types';
-import type { CloseLink, CloseLinkInput, CloseLinkResult } from '../../core/seams';
+import type { CloseLink, CloseLinkInput, CloseLinkReason, CloseLinkResult } from '../../core/seams';
+import { settleClosedJobsIn } from '../job-reviews/settle'; // v37 FIX-REV (D1)
 import { storedSourceJobId } from './normalize';
 import { projectJobs } from './project-job';
 
@@ -16,12 +19,32 @@ import { projectJobs } from './project-job';
 // The reverse is the store's: a link seen again (a listing, its own read) is live again (missing_since NULL, miss_count
 // 0), its job reopens and is projected, and jobReviews.reopenedBySource hears of it. Callers import closeLink from
 // core/seams.
+// v37 FIX-REV (SP v37 FIXES-361.md D1): every job this file closes (closeOrphanJobs, which every path here ends in, the
+// store's own read of a closed posting included) has its waiting closed reports, New jobs review, open flags and
+// Couldn't verify notes settled by the server in the same transaction (job-reviews/settle.ts), with `note`: the words
+// its decisions carry (closedNoteOf).
 
 /**
- * Closes the jobs among `jobIds` that are open and have no live link left; projects them (they leave job_search).
- * Answers the ids it closed, in id order. The caller's transaction.
+ * v37 FIX-REV (D1): the note a closed job's reviews are decided with: "Closed: confirmed by TailorIT" when TailorIT's
+ * own read or its listings found the posting gone (`gone`, `missing`, or a report its re-check `confirmed`), "The job
+ * closed" for any other close (an approved report, a purge, an admin). The constants' defaults for a store made with a
+ * client alone.
  */
-export async function closeOrphanJobs(db: DbQueries, jobIds: readonly number[], at: string): Promise<number[]> {
+export function closedNoteOf(
+  deps: Pick<AppDeps, 'db' | 'config' | 'log' | 'now' | 'services'> | undefined,
+  reason: CloseLinkReason,
+  confirmed = false,
+): string {
+  const key = confirmed || reason === 'gone' || reason === 'missing' ? 'MSG_REVIEW_CLOSED_CONFIRMED' : 'MSG_REVIEW_JOB_CLOSED';
+  return deps ? constantsOf(deps).message(key) : constantDefault(key);
+}
+
+/**
+ * Closes the jobs among `jobIds` that are open and have no live link left; projects them (they leave job_search); v37
+ * FIX-REV (D1): settles what waits on them in Admin › Review (settleClosedJobsIn, decided with `note`). Answers the ids
+ * it closed, in id order. The caller's transaction.
+ */
+export async function closeOrphanJobs(db: DbQueries, jobIds: readonly number[], at: string, note: string): Promise<number[]> {
   const ids = [...new Set(jobIds)];
   if (ids.length === 0) return [];
   const closed = await db.all<{ id: number }>(
@@ -31,16 +54,19 @@ export async function closeOrphanJobs(db: DbQueries, jobIds: readonly number[], 
       RETURNING id`,
     [at, at, JSON.stringify(ids)],
   );
-  const closedIds = closed.map((row) => row.id).sort((a, b) => a - b);
-  if (closedIds.length > 0) await projectJobs(db, closedIds);
+  const closedIds = closed.map((row) => Number(row.id)).sort((a, b) => a - b);
+  if (closedIds.length > 0) {
+    await projectJobs(db, closedIds);
+    await settleClosedJobsIn(db, closedIds, at, note); // v37 FIX-REV (D1)
+  }
   return closedIds;
 }
 
 /**
- * closeLink's body with the miss count given (the store passes the constant it read; the seam reads it from deps).
- * The caller's transaction.
+ * closeLink's body with the miss count given (the store passes the constant it read; the seam reads it from deps), and
+ * v37 FIX-REV (D1) the note a job it closes has its reviews decided with (closedNoteOf). The caller's transaction.
  */
-export async function closeLinkIn(db: DbQueries, input: CloseLinkInput, closeAfterMisses: number): Promise<CloseLinkResult> {
+export async function closeLinkIn(db: DbQueries, input: CloseLinkInput, closeAfterMisses: number, note: string): Promise<CloseLinkResult> {
   const misses = Math.max(1, Math.trunc(closeAfterMisses));
   const linksClosed = input.link
     ? (
@@ -59,14 +85,14 @@ export async function closeLinkIn(db: DbQueries, input: CloseLinkInput, closeAft
   const live = (await db.one<{ n: number }>('SELECT count(*) AS n FROM job_source_links WHERE job_id = ? AND missing_since IS NULL', [
     input.jobId,
   ]))!.n;
-  const jobClosed = live === 0 ? (await closeOrphanJobs(db, [input.jobId], input.at)).length > 0 : false;
+  const jobClosed = live === 0 ? (await closeOrphanJobs(db, [input.jobId], input.at, note)).length > 0 : false;
   return { linksClosed, liveLinks: live, jobClosed };
 }
 
 /**
  * The batch form for a source's listing (store.ts markMissing): its links among `sourceJobIds` whose miss count reached
- * `closeAfterMisses` are missing from `at`, and the jobs they leave with no live link close. Answers how many links it
- * marked and the jobs it closed. The caller's transaction.
+ * `closeAfterMisses` are missing from `at`, and the jobs they leave with no live link close (v37 FIX-REV: settled with
+ * `note`). Answers how many links it marked and the jobs it closed. The caller's transaction.
  */
 export async function closeLinksOfSource(
   db: DbQueries,
@@ -74,6 +100,7 @@ export async function closeLinksOfSource(
   sourceJobIds: readonly string[],
   at: string,
   closeAfterMisses: number,
+  note: string,
 ): Promise<{ linksClosed: number; closedJobs: number[] }> {
   if (sourceJobIds.length === 0) return { linksClosed: 0, closedJobs: [] };
   const marked = await db.all<{ job_id: number }>(
@@ -87,10 +114,14 @@ export async function closeLinksOfSource(
     db,
     marked.map((row) => row.job_id),
     at,
+    note,
   );
   return { linksClosed: marked.length, closedJobs };
 }
 
-/** The one close function (core/seams.ts CloseLink): INGEST_CLOSE_AFTER_MISSES from the central constants. */
+/**
+ * The one close function (core/seams.ts CloseLink): INGEST_CLOSE_AFTER_MISSES from the central constants; v37 FIX-REV
+ * (D1): a job it closes settled with its reason's note (closedNoteOf).
+ */
 export const closeLink: CloseLink = async (deps, t, input) =>
-  closeLinkIn(t, input, constantsOf(deps).get('INGEST_CLOSE_AFTER_MISSES'));
+  closeLinkIn(t, input, constantsOf(deps).get('INGEST_CLOSE_AFTER_MISSES'), closedNoteOf(deps, input.reason, input.confirmed === true));

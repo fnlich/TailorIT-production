@@ -18,6 +18,7 @@ import { currentJobId } from '../jobs/store';
 import { jobVisibleTo } from '../jobs/visibility';
 import { autoDecide } from './auto';
 import { runFollowUps } from './decide';
+import { settleClosedJobsIn } from './settle'; // v37 FIX-REV (D1)
 import { openReview, recountReview, upsertReport } from './store';
 
 // v30 X1-API: a closed report (docs/design/part2/14-extension-reports.md §5.1): the extension's
@@ -131,6 +132,19 @@ async function underCap(t: DbTx, userId: string, reviewId: number | null, dayKey
     [userId, dayKey],
   );
   return (used?.n ?? 0) < max;
+}
+
+/**
+ * v37 CLOSED (SP v37 PLAN.md C2, C6): a job TailorIT's own read found closed, settled by the server in the caller's
+ * transaction (the job closed in it): its pending closed reports are approved and its pending New jobs review rejected,
+ * each decided by TailorIT's check (`server_check`) with MSG_REVIEW_CLOSED_CONFIRMED ("Closed: confirmed by TailorIT",
+ * under Decided). v37 FIX-REV (SP v37 FIXES-361.md D1): the one close function settles a job it closes itself
+ * (ingest/close.ts closeOrphanJobs with job-reviews/settle.ts: its open flags and every Couldn't verify note too); this
+ * is the same settle for a job that was closed already when a read found it gone (nothing waits on such a job, unless
+ * it closed before v3.6.1).
+ */
+export async function settleReviewsOfClosedJob(deps: AppDeps, t: DbTx, jobId: number, at: string): Promise<void> {
+  await settleClosedJobsIn(t, [jobId], at, constantsOf(deps).message('MSG_REVIEW_CLOSED_CONFIRMED'));
 }
 
 /** Files a closed report (see above). Throws 404 not_found, or 429 rate_limited at the daily cap. */

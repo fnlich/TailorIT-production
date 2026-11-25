@@ -1,9 +1,8 @@
 import { formatSalaryRange, UNVERIFIED_VERSIONS_MAX, type JobVerifyReason, type SalaryPeriod, type UnverifiedLinkDetail, type UnverifiedVersion } from '@tailorit/shared';
-import { constantsOf } from '../../../core/constants/service';
 import type { AppDeps } from '../../../core/context';
 import type { DbQueries } from '../../../core/db/types';
 import { sanitizeDescription } from '../../jobs/html';
-import { LISTED } from './verification';
+import { LISTED, listedSql } from './verification'; // v37 REVIEW (R5): listedSql
 
 // v32 FIX-API (REV-SECBEH SB-1, the coordinator's decision of 2026-11-18): an admin approves only words they have read.
 // Admin › Review › Couldn't verify draws, for a link, every version of its job its adders captured, in full (GET
@@ -86,9 +85,9 @@ export async function unverifiedLinkDetail(
   jobId: number,
   viewer: { id: string },
 ): Promise<UnverifiedLinkDetail | null> {
-  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return null;
+  // v37 REVIEW (R5): a row the list shows now (an admin import's whatever EXT_NEW_PAGE_JOBS_REVIEW says).
   const anchor = await deps.db.one<{ url_key: string }>(
-    `SELECT v.url_key FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE v.job_id = ? AND ${LISTED}`,
+    `SELECT v.url_key FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE v.job_id = ? AND ${listedSql(deps)}`,
     [jobId],
   );
   if (!anchor) return null;
@@ -97,7 +96,7 @@ export async function unverifiedLinkDetail(
        j.salary_min, j.salary_max, j.salary_currency, j.salary_period, j.salary_raw, jt.description_html,
        EXISTS (SELECT 1 FROM job_admin_approvals a WHERE a.job_id = j.id) AS published, ${VERSION_SQL} AS version
      FROM job_verifications v JOIN jobs j ON j.id = v.job_id ${VERSION_JOINS}
-     WHERE v.url_key = ? AND ${LISTED}
+     WHERE v.url_key = ? AND ${listedSql(deps)}
      ORDER BY v.created_at, j.id LIMIT ?`,
     [anchor.url_key, DETAIL_ROWS],
   );

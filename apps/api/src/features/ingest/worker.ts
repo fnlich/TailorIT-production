@@ -5,6 +5,7 @@ import { startWorkers } from '../../core/feature-hooks';
 import { workPurges } from './purge';
 import { DUE_TICK_MS, dueSources, postponeHeldSources, refreshRobotsStatuses } from './scheduler';
 import { requireIngest, WORKER_TRIGGERS, type IngestService } from './service';
+import { laneKeyOf } from './hosts'; // v37 LANE
 import { runsPaused } from './pause-state'; // v31 RUNS
 import { acquireWorkerLock, WorkerLockedError, type WorkerLockOptions } from './worker-lock';
 
@@ -18,7 +19,8 @@ import { acquireWorkerLock, WorkerLockedError, type WorkerLockOptions } from './
 //   - recover the runs whose lease ran out (a crashed process's), never one this worker runs;
 //   - move the sources of held hosts past the hold (scheduler.ts postponeHeldSources);
 //   - give robots.txt verdicts to the sources that need one (refreshRobotsStatuses: a host read at most once a day);
-//   - start the due sources: at most INGEST_HOSTS_IN_FLIGHT hosts at once, one source per host at a time;
+//   - start the due sources: at most INGEST_HOSTS_IN_FLIGHT hosts at once, one source per host at a time (v37 LANE:
+//     one Workday source at a time: every Workday host is the Workday lane, hosts.ts laneKeyOf);
 //   - every PURGE_EVERY_MS, work the open purges (purge.ts workPurges) for a while.
 // With INGEST_ENABLED=false no source is read (the purges, which read no outside host, still run).
 // v31 RUNS: nor while an admin paused every run (pause-state.ts): no due source starts and no robots.txt is read; the
@@ -70,7 +72,7 @@ export function startDueQueue(
       const busy = new Set(inFlight.values());
       for (const source of await dueSources(deps)) {
         if (stopped || started >= room) break;
-        const lane = source.host ?? `source:${source.id}`;
+        const lane = source.host ? laneKeyOf(source.host) : `source:${source.id}`; // v37 LANE (W6)
         if (busy.has(lane) || service.isRunning(source.id)) continue;
         try {
           const run = await service.run(source.id, 'schedule', { bypassSlots: true });

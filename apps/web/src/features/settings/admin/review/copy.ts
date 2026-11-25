@@ -1,20 +1,21 @@
 import { ATS_NAMES, type AtsKind } from '@tailorit/shared/autofill';
 import {
   ADMIN_BULK_MAX,
+  firstReviewLane,
   REVIEW_CHECK_LABEL,
   REVIEW_DECIDER_LABEL,
   REVIEW_GROUP_LABEL,
-  REVIEW_GROUPS,
   REVIEW_SIGNAL_LABEL,
+  REVIEW_STATE_DEFAULT,
   REVIEW_STATE_FILTER_LABEL,
   REVIEW_STATE_FILTERS,
   REVIEW_STATE_LABEL,
+  reviewStateBase,
   type AdminFlag,
   type AdminReviewCounts,
   type AdminReviewRow,
   type JobReviewStrength,
   type JobReviewVia,
-  type ReviewGroup,
   type ReviewLane,
   type ReviewStateFilter,
 } from '@tailorit/shared/reviews';
@@ -37,11 +38,28 @@ export const REVIEW_SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * The lane the address opens: `?tab=reports` (Admin › Reports' old address) opens Flags; `?lane=` names one (v31
- * ADMINWEB: `unverified` too); else Closed links.
+ * ADMINWEB: `unverified` too). v37 REVIEW (SP v37 PLAN.md R4): else none (null): the page opens on the first lane with
+ * items (openingLane).
  */
-export function laneFromAddress(tab: string | null, lane: string | null): AdminReviewLane {
+export function laneFromAddress(tab: string | null, lane: string | null): AdminReviewLane | null {
   if (tab === 'reports') return 'flags';
-  return (ADMIN_REVIEW_LANES as readonly string[]).includes(lane ?? '') ? (lane as AdminReviewLane) : 'closed';
+  return (ADMIN_REVIEW_LANES as readonly string[]).includes(lane ?? '') ? (lane as AdminReviewLane) : null;
+}
+
+/**
+ * v37 REVIEW (R4): the lane Review opens on: the address's, else the first lane with items (Closed links, New jobs,
+ * Flags, Couldn't verify: shared firstReviewLane, the admins' bell's link too), once the counts are read (null until
+ * then; Closed links when they could not be read).
+ */
+export function openingLane(
+  address: AdminReviewLane | null,
+  counts: AdminReviewCounts | undefined,
+  unverified: number | null,
+  unreadable = false,
+): AdminReviewLane | null {
+  if (address) return address;
+  if (counts && unverified !== null) return firstReviewLane({ ...counts, unverified });
+  return unreadable ? 'closed' : null;
 }
 
 /**
@@ -68,23 +86,48 @@ export function reviewTabLabel(label: string, counts: AdminReviewCounts | undefi
 /** "Closed links (3)", or the label alone while the counts load. */
 export function laneLabel(lane: AdminReviewLane, counts: AdminReviewCounts | undefined, unverified: number | null = null): string {
   const count = laneCount(counts, lane, unverified);
-  return count === null ? ADMIN_REVIEW_LANE_LABEL[lane] : `${ADMIN_REVIEW_LANE_LABEL[lane]} (${count})`;
+  // v37 REVIEW: thousands written as the nav writes them ("New jobs (1,240)").
+  return count === null ? ADMIN_REVIEW_LANE_LABEL[lane] : `${ADMIN_REVIEW_LANE_LABEL[lane]} (${count.toLocaleString('en-US')})`;
 }
 
 /** The header's count in words: "3 need a decision", "1 needs a decision", "Nothing to decide". */
 export function needingText(total: number): string {
   if (total === 0) return 'Nothing to decide';
-  return `${total} ${total === 1 ? 'needs' : 'need'} a decision`;
+  return `${total.toLocaleString('en-US')} ${total === 1 ? 'needs' : 'need'} a decision`; // v37 REVIEW: "1,000 need a decision"
 }
 
-/** The state filters a lane offers: Flags has no TailorIT check, so no Checking ("Couldn't verify" shows none). */
+/**
+ * The state filters a lane offers: Flags has no TailorIT check, so no Checking ("Couldn't verify" shows none). v37
+ * REVIEW (R2): Waiting first (every pending one, the default); on Flags it is the open flags, so no Needs review apart.
+ */
 export function stateFiltersOf(lane: AdminReviewLane): readonly ReviewStateFilter[] {
-  return lane === 'flags' ? REVIEW_STATE_FILTERS.filter((state) => state !== 'checking') : REVIEW_STATE_FILTERS;
+  return lane === 'flags' ? REVIEW_STATE_FILTERS.filter((state) => state !== 'checking' && state !== 'needs_review') : REVIEW_STATE_FILTERS;
 }
 
-/** The state filter kept on a lane change: Checking falls back to Needs review on Flags. */
+/** The state filter kept on a lane change: one the lane has no filter for falls back to Waiting. */
 export function stateForLane(lane: AdminReviewLane, state: ReviewStateFilter): ReviewStateFilter {
-  return stateFiltersOf(lane).includes(state) ? state : 'needs_review';
+  return stateFiltersOf(lane).includes(state) ? state : REVIEW_STATE_DEFAULT;
+}
+
+/**
+ * v37 REVIEW (R2): whether a lane's view is narrowed (a search, New jobs' From filter, or Needs review / Checking within
+ * Waiting): its header then says "12 of 340".
+ */
+export function viewNarrowed(state: ReviewStateFilter, q: string, fromFiltered: boolean): boolean {
+  return q.trim() !== '' || fromFiltered || reviewStateBase(state) !== state;
+}
+
+/**
+ * v37 REVIEW (R2): a lane's header count: what its list can show (`total`), and while the view is narrowed "12 of 340"
+ * (the view's rows without the search or the From filter: `unfiltered`). Null while the list loads.
+ */
+export function laneHeadCount(
+  page: { total: number; unfiltered: number } | undefined,
+  narrowed: boolean,
+): { count: number | null; text: string | null } {
+  if (!page) return { count: null, text: null };
+  if (!narrowed) return { count: page.total, text: null };
+  return { count: null, text: `${page.total.toLocaleString('en-US')} of ${page.unfiltered.toLocaleString('en-US')}` };
 }
 
 export const stateFilterLabel = (state: ReviewStateFilter) => REVIEW_STATE_FILTER_LABEL[state];
@@ -93,7 +136,7 @@ export const stateFilterLabel = (state: ReviewStateFilter) => REVIEW_STATE_FILTE
 export function emptyText(lane: ReviewLane, state: ReviewStateFilter, searching: boolean): { title: string; description?: string } {
   const things = lane === 'closed' ? 'closed links' : lane === 'new_job' ? 'new jobs' : 'flags';
   if (searching) return { title: `No ${things} match your search`, description: 'Search by job title or company.' };
-  if (state === 'needs_review' || state === 'checking') {
+  if (state === 'waiting' || state === 'needs_review' || state === 'checking') {
     const descriptions: Record<ReviewLane, string> = {
       closed: 'When the extension or the Jobs page reports a posting as closed, it shows up here.',
       new_job: 'When someone adds a job TailorIT did not have, it waits here before others can find it.',
@@ -188,13 +231,14 @@ export const PENDING_LINE: ReviewStateLine = { icon: 'hand', text: REVIEW_STATE_
 /**
  * A review row's state line (components/queue's StateLine): its group's icon, its words, TailorIT's check. v32 FIX-API
  * (UXREQ-9): a row waiting in the Needs review group does not say "Needs review" again (its group heading and the
- * filter say it): only TailorIT's check, else nothing (null).
+ * filter say it): only TailorIT's check, else nothing (null). v37 REVIEW (R2): a checking row's "Checking" is its tag
+ * (ReviewRows' badge): its line says TailorIT's check alone.
  */
 export function reviewStateLine(row: AdminReviewRow): ReviewStateLine | null {
   const check = checkLine(row);
   switch (row.state) {
     case 'pending':
-      if (row.group === 'checking') return { icon: 'spinner', text: REVIEW_GROUP_LABEL.checking, detail: check, tone: 'muted' };
+      if (row.group === 'checking') return { icon: 'spinner', text: check ?? REVIEW_GROUP_LABEL.checking, detail: null, tone: 'muted' };
       if (row.group === 'server_live') return { icon: 'warning', text: REVIEW_GROUP_LABEL.server_live, detail: check, tone: 'warning' };
       return check ? { icon: 'hand', text: check, detail: null, tone: 'muted' } : null;
     case 'approved':
@@ -208,12 +252,16 @@ export function reviewStateLine(row: AdminReviewRow): ReviewStateLine | null {
   }
 }
 
+/** v37 FIX-REV (SP v37 FIXES-361.md D1): a flag TailorIT resolved because its job closed, in words. */
+export const FLAG_JOB_CLOSED = { text: 'Resolved by TailorIT', detail: 'The job closed' } as const;
+
 /**
  * A flag's state line: resolved or dismissed, and by whom. v32 FIX-API (UXREQ-9): none for an open flag (its Needs
- * review group says it).
+ * review group says it). v37 FIX-REV (D1): a flag TailorIT resolved because its job closed says so.
  */
-export function flagStateLine(flag: Pick<AdminFlag, 'status' | 'resolvedBy'>): ReviewStateLine | null {
+export function flagStateLine(flag: Pick<AdminFlag, 'status' | 'resolvedBy'> & Partial<Pick<AdminFlag, 'jobClosed'>>): ReviewStateLine | null {
   if (flag.status === 'open') return null;
+  if (flag.jobClosed) return { icon: 'check', text: FLAG_JOB_CLOSED.text, detail: FLAG_JOB_CLOSED.detail, tone: 'muted' };
   const by = flag.resolvedBy ? `by ${flag.resolvedBy}` : null;
   return { icon: flag.status === 'resolved' ? 'check' : 'x', text: flag.status === 'resolved' ? 'Resolved' : 'Dismissed', detail: by, tone: 'muted' };
 }
@@ -221,29 +269,14 @@ export function flagStateLine(flag: Pick<AdminFlag, 'status' | 'resolvedBy'>): R
 /** "The Graphic Designer at Acme". */
 export const rowName = (job: { title: string; companyName: string }) => `${job.title} at ${job.companyName}`;
 
-// Groups -----------------------------------------------------------------------------------------------------------------
+// v37 REVIEW (SP v37 PLAN.md R1, R2): a lane is one list in the server's order (newest first), loaded as you scroll; its
+// rows were drawn in groups with loaded counts (v3.0), which a list that grows page by page cannot keep: a later page's
+// rows landed in the groups above, and a group said "50" of 340. Each row says its own state now: a "Checking" tag,
+// "Server says live", its decision.
 
-export interface RowGroup<T> {
-  group: ReviewGroup;
-  title: string;
-  rows: T[];
-}
-
-/** Review rows in their groups (Needs review, Checking, Server says live, Decided today, Decided), in that order. */
-export function groupReviewRows(rows: readonly AdminReviewRow[]): RowGroup<AdminReviewRow>[] {
-  return REVIEW_GROUPS.map((group) => ({ group, title: REVIEW_GROUP_LABEL[group], rows: rows.filter((row) => row.group === group) })).filter(
-    (entry) => entry.rows.length > 0,
-  );
-}
-
-/** Flags in two groups: open ones (Needs review), then the decided ones (today's first, as the server orders them). */
-export function groupFlagRows(flags: readonly AdminFlag[], now: number): RowGroup<AdminFlag>[] {
-  const today = new Date(now).toDateString();
-  const groupOf = (flag: AdminFlag): ReviewGroup =>
-    flag.status === 'open' ? 'needs_review' : flag.resolvedAt && new Date(flag.resolvedAt).toDateString() === today ? 'decided_today' : 'decided';
-  return (['needs_review', 'decided_today', 'decided'] as const)
-    .map((group) => ({ group, title: REVIEW_GROUP_LABEL[group], rows: flags.filter((flag) => groupOf(flag) === group) }))
-    .filter((entry) => entry.rows.length > 0);
+/** v37 REVIEW (R2): whether a row carries the "Checking" tag (TailorIT's check is queued). */
+export function isChecking(row: Pick<AdminReviewRow, 'state' | 'group'>): boolean {
+  return row.state === 'pending' && row.group === 'checking';
 }
 
 // Bulk actions ------------------------------------------------------------------------------------------------------------
@@ -351,7 +384,9 @@ export type AutoApproveKey = (typeof AUTO_APPROVE_KEYS)[ReviewLane][number];
 export function autoApproveRule(key: AutoApproveKey, numbers: { minReporters: number }): string {
   switch (key) {
     case 'EXT_AUTO_APPROVE_CLOSED':
-      return `Re-checked by TailorIT, or reported by ${peopleText(numbers.minReporters)}`;
+      // v37 INT-A (CLOSED's C6): a re-check that finds the posting gone closes it whatever the switch says; the switch
+      // adds the rest (job-reviews/auto.ts).
+      return `A re-check that finds it open rejects it; reported by ${peopleText(numbers.minReporters)} approves it`;
     case 'EXT_AUTO_APPROVE_NEW_ATS':
       return 'Once its company and duplicate checks pass';
     case 'PAGE_JOBS_AUTO_PUBLISH':

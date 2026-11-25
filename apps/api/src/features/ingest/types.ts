@@ -359,6 +359,11 @@ export interface FetchResult {
    * gone page: closeLink, outside the store's batches); the run's `deactivated` count includes them.
    */
   closedByRead?: number;
+  /**
+   * v37 LANE (SP v37 PLAN W4): the run stopped early at a held host or a paused lane (Workday's), keeping what it read:
+   * the hold's end (ISO). The source's next run is due after it, as for a run a hold stopped at its start.
+   */
+  heldUntil?: string | null;
 }
 
 export interface AdapterContext {

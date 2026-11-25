@@ -6,6 +6,7 @@ import { assertNewReadAllowed, newReadsAllowed } from '../../../core/http/identi
 import { OutboundRefusedError } from '../../../core/http/outbound';
 import { ADAPTERS } from '../adapters/index';
 import { HostHeldError, IngestHttpError, type IngestHttp } from '../http';
+import { laneKeyOf, laneOfHost, WORKDAY_LANE_SPEC, type LaneSpec } from '../hosts'; // v37 LANE; v37 FIX-LANE (any lane)
 import { RobotsRefusal } from '../robots';
 import { NOT_FOUND_DAYS, NOT_FOUND_DROP_AFTER, runnableKinds } from '../scheduler';
 import { requireIngest } from '../service';
@@ -45,6 +46,11 @@ import { DAY_MS } from '@tailorit/shared';
 // re-read of its pages, until an admin turns it on). A source an admin ever turned on is never a keeper (offer.ts isLinkKeeper), so
 // validation never undoes an admin's off. The read stores no job: it counts the board's open postings, and nothing of
 // the listing is kept. `attempts` counts the tries in a row that ended the same way. A candidate never names a person.
+//
+// v37 LANE (SP v37 PLAN W8): validation never takes the Workday lane from the runs: every Workday candidate reads on the
+// one lane (one after another), and at most WORKDAY_DISCOVERY_PER_HOUR of them are read in a clock hour (an exact count
+// per UTC hour: WORKDAY_HOUR_COUNTER); one past it waits for the next hour, not a try. v37 FIX-LANE: every registered
+// lane alike, each with its own cap constant (LaneSpec.discoveryPerHourKey) and hourly counter (laneHourOf).
 
 /** How long a candidate is held by the pass reading it (a crashed pass's candidate is due again after it). */
 export const VALIDATION_LEASE_MS = 10 * 60_000;
@@ -56,6 +62,27 @@ export const VALIDATION_BACKOFF_BASE_MS = 60_000;
 export const VALIDATION_READ_TIMEOUT_MS = 60_000;
 /** last_error's width (migration 0020's CHECK). */
 const ERROR_MAX_CHARS = 500;
+/**
+ * v37 FIX-LANE (W8): a lane's hourly counter of validations (discovery_counters, keyed by the UTC day and this + its
+ * hour): `<platform>_validations_h` from the lane's key.
+ */
+export function laneHourCounterOf(lane: LaneSpec): string {
+  return `${lane.key.replace(/\.lane$/, '').replace(/[^a-z0-9]+/g, '_')}_validations_h`;
+}
+/** v37 LANE (W8): the hourly counter of Workday validations. */
+export const WORKDAY_HOUR_COUNTER = laneHourCounterOf(WORKDAY_LANE_SPEC);
+
+/** v37 FIX-LANE (W8): the UTC day and a lane's counter of the clock hour `at` is in, and that hour's end (ISO). */
+export function laneHourOf(lane: LaneSpec, at: Date): { day: string; counter: string; end: string } {
+  const text = at.toISOString();
+  const end = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate(), at.getUTCHours() + 1));
+  return { day: text.slice(0, 10), counter: `${laneHourCounterOf(lane)}${text.slice(11, 13)}`, end: end.toISOString() };
+}
+
+/** v37 LANE (W8): Workday's (laneHourOf). */
+export function workdayHourOf(at: Date): { day: string; counter: string; end: string } {
+  return laneHourOf(WORKDAY_LANE_SPEC, at);
+}
 
 /** What a validation did with one candidate. */
 export const VALIDATION_OUTCOMES = ['valid', 'empty', 'not_found', 'dropped', 'forbidden', 'error', 'linked', 'waiting'] as const;
@@ -370,10 +397,24 @@ export async function validateCandidates(deps: AppDeps, options: ValidationOptio
       state.stop = 'cap';
       return false;
     }
+    // v37 LANE (W8): a Workday board also takes a place of its hour's WORKDAY_DISCOVERY_PER_HOUR (v37 FIX-LANE: a lane's
+    // board, of its lane's cap); none left: it waits for the next hour (its day's place given back), and the pass goes on
+    // with the other boards.
+    const candidateHost = hostOf(candidate.kind, candidateConfig(candidate.kind, candidate.name));
+    const onLane = candidateHost ? laneOfHost(candidateHost) : null;
+    const hour = onLane ? laneHourOf(onLane, deps.now()) : null;
+    if (onLane && hour && !(await claimCount(deps.db, hour.day, hour.counter, c.get(onLane.discoveryPerHourKey)))) {
+      await releaseCount(deps.db, day, VALIDATIONS_COUNTER);
+      await deps.db.run('UPDATE job_source_candidates SET next_check_at = CAST(? AS timestamptz) WHERE id = ?', [hour.end, candidate.id]);
+      count('waiting');
+      return true;
+    }
+    const releaseHour = () => (hour ? releaseCount(deps.db, hour.day, hour.counter) : Promise.resolve());
     const adapter = adapters[candidate.kind as SourceKind];
     if (!adapter) {
       // Not reachable through validatableKinds; kept so a kind's adapter removed meanwhile waits instead of failing.
       await releaseCount(deps.db, day, VALIDATIONS_COUNTER);
+      await releaseHour();
       await giveBack();
       count('waiting');
       return true;
@@ -383,6 +424,7 @@ export async function validateCandidates(deps: AppDeps, options: ValidationOptio
       answer = await readBoard(deps, candidate, clientOf(candidate.kind), adapter, signal);
     } catch {
       await releaseCount(deps.db, day, VALIDATIONS_COUNTER);
+      await releaseHour();
       await deps.db.run('UPDATE job_source_candidates SET next_check_at = CAST(? AS timestamptz) WHERE id = ?', [nowIso(deps), candidate.id]);
       state.stop = 'aborted';
       return false;
@@ -390,8 +432,9 @@ export async function validateCandidates(deps: AppDeps, options: ValidationOptio
     const at = nowIso(deps);
     const atMs = deps.now().getTime();
     if (answer.kind === 'held') {
-      // Nothing was sent: not a try, and its place under the cap is given back.
+      // Nothing was sent: not a try, and its place under the cap is given back (v37 LANE: and its hour's).
       await releaseCount(deps.db, day, VALIDATIONS_COUNTER);
+      await releaseHour();
       await deps.db.run('UPDATE job_source_candidates SET next_check_at = CAST(? AS timestamptz) WHERE id = ?', [
         new Date(Math.max(Date.parse(answer.until), atMs) + 60_000).toISOString(),
         candidate.id,
@@ -445,10 +488,12 @@ export async function validateCandidates(deps: AppDeps, options: ValidationOptio
     return true;
   }
 
-  // One lane per host: its candidates one after another (the gate paces each read); lanes side by side.
+  // One lane per host: its candidates one after another (the gate paces each read); lanes side by side. v37 LANE (W8):
+  // every Workday board is on the one Workday lane (v37 FIX-LANE: every board of a lane on its lane).
   const lanes = new Map<string, DueCandidate[]>();
   for (const candidate of due) {
-    const lane = hostOf(candidate.kind, candidateConfig(candidate.kind, candidate.name)) ?? `kind:${candidate.kind}`;
+    const host = hostOf(candidate.kind, candidateConfig(candidate.kind, candidate.name));
+    const lane = host ? laneKeyOf(host) : `kind:${candidate.kind}`;
     lanes.set(lane, [...(lanes.get(lane) ?? []), candidate]);
   }
   const queue = [...lanes.values()];

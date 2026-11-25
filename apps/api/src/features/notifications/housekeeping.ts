@@ -1,10 +1,11 @@
-import { DAY_MS, HOUR_MS } from '@tailorit/shared';
+import { DAY_MS, firstReviewLane, HOUR_MS, reviewLaneHref } from '@tailorit/shared'; // v37 REVIEW: the lane
 import { constantsOf } from '../../core/constants/service';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { DailyStep } from '../../core/feature';
 import { notifyExtensionDisconnected } from './emitters';
 import { notify, notifyAdmins, type NotifyDeps } from './service';
 import { unverifiedLinkCounts } from '../jobs/add/verification'; // v31 INT-1: LINK's "Couldn't verify" links
+import { reviewLaneCounts } from '../job-reviews/counts'; // v37 REVIEW (R2, R4): the lanes' counts, as Review reads them
 
 // v3.1 NOTIFY: the notifications' own upkeep and the notices no request makes.
 // - retention (daily): notifications older than NOTIFICATIONS_KEEP_DAYS go, read or not, in batches;
@@ -76,7 +77,9 @@ export async function notifyPaidEnding(deps: Deps): Promise<number> {
 /**
  * Review's items that arrived since the last summary, for the admins (`admin_review_items`); answers how many arrived.
  * The items: pending reviews, open reports and (v31 INT-1) LINK's "Couldn't verify" links (job_verifications: v31
- * FIX-LINK, a link counts when it is new to the list, not when it was checked again).
+ * FIX-LINK, a link counts when it is new to the list, not when it was checked again). v37 REVIEW (SP v37 PLAN.md R2,
+ * R4): what waits is counted as Admin › Review's lanes count it (job-reviews/counts.ts, and the list's links), and the
+ * notice opens the first lane with items (shared firstReviewLane, as the page opens).
  */
 export async function summarizeReviewItems(deps: NotifyDeps): Promise<number> {
   const now = nowIso(deps);
@@ -87,21 +90,21 @@ export async function summarizeReviewItems(deps: NotifyDeps): Promise<number> {
   const since = mark?.at ?? null;
   let arrived = 0;
   if (since !== null) {
-    const counts = await deps.db.one<{ arrived: number; pending: number }>(
+    const counts = await deps.db.one<{ arrived: number }>(
       `SELECT (SELECT count(*) FROM job_reviews WHERE state = 'pending' AND created_at > CAST(@since AS timestamptz))
-            + (SELECT count(*) FROM job_reports WHERE status = 'open' AND created_at > CAST(@since AS timestamptz)) AS arrived,
-              (SELECT count(*) FROM job_reviews WHERE state = 'pending')
-            + (SELECT count(*) FROM job_reports WHERE status = 'open') AS pending`,
+            + (SELECT count(*) FROM job_reports WHERE status = 'open' AND created_at > CAST(@since AS timestamptz)) AS arrived`,
       { since },
     );
     const links = await unverifiedLinkCounts(deps, since);
+    const lanes = await reviewLaneCounts(deps.db); // v37 REVIEW
     arrived = Number(counts?.arrived ?? 0) + links.arrived;
-    const pending = Number(counts?.pending ?? 0) + links.pending;
+    const pending = lanes.closed + lanes.newJob + lanes.flags + links.pending;
     if (arrived > 0) {
       await notifyAdmins(deps, {
         kind: 'admin_review_items',
         params: { count: arrived, pending },
-        link: '/settings/admin?tab=review',
+        // v37 REVIEW (R4): the first lane with items ("?tab=review&lane=new_job"), where the page opens too.
+        link: reviewLaneHref(firstReviewLane({ ...lanes, unverified: links.pending })),
         // v31 FIX-LINK (REV-BEH BEH-7): one notice per pass mark, so a second pass in one clock hour (a restart) that
         // counted new items still tells them; two processes passing from the same mark still write one.
         dedupeKey: `review:${since}`,

@@ -423,7 +423,9 @@ export async function approveUnverifiedJob(
     if (made) return { jobId: made.job_id, url: await urlOf(deps.db, made.job_id), approvedAt: made.approved_at, already: true, adders: made.adders };
   }
   // SB-2: only a row the list shows; SB-6: never a link TailorIT found opted out; SB-5: never the admin's own words.
-  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) throw conflict(REFUSED.listOff);
+  // v37 REVIEW (SP v37 PLAN.md R5): an admin import's held job is listed whatever the switch says (verification.ts
+  // listedSql), so it is approved whatever it says too.
+  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW') && !fromImport) throw conflict(REFUSED.listOff);
   if (row.reason === 'unreadable_host') throw conflict(REFUSED.site);
   if (row.reason === 'rejected') throw conflict(REFUSED.rejected);
   if (!row.active || row.reason === 'closed') throw conflict(REFUSED.closed);

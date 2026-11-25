@@ -4,7 +4,8 @@ import { nowIso, type AppDeps } from '../../../core/context';
 import { assertNewReadAllowed, type NewReadKind } from '../../../core/http/identity';
 // The one close function (core/seams re-exports it from here; a test's vi.mock of this path reaches this import too).
 import { closeLink } from '../close';
-import { HostHeldError } from '../http';
+import { HostHeldError, IngestHttpError } from '../http';
+import { holdOf } from '../hosts'; // v37 LANE
 import { storedSourceJobId } from '../normalize';
 import { assertRobotsAllow, hostRobots, RobotsRefusal } from '../robots';
 import { readSitemap } from '../sitemap';
@@ -38,6 +39,10 @@ import { isWorkdayHost, readWorkdayPosting, workdayTenant, type WorkdayRef } fro
 // completeness check needs the site's own count, the search call that is not built), so the run is `partial` and
 // nothing closes by absence. A held host stops the reads (the run keeps what it read); a robots.txt that refuses one
 // posting's read is that posting's failure.
+// v37 LANE (SP v37 PLAN W4): every Workday request takes the one Workday lane (hosts.ts), and a 429 pauses it. The run
+// stops at the first pause it meets (a HostHeldError, or a 429 the lane could not record), keeps what it read, and
+// answers the pause's end (FetchResult.heldUntil): its next run is due after it (scheduler.ts nextScheduleOf). It never
+// grinds on through its plan while Workday asks it to wait.
 
 /** This kind's new read (core/http/identity.ts; scheduler.ts NEW_READ_KIND_OF maps the kind to it). */
 const NEW_READ: NewReadKind = 'feed_read';
@@ -336,6 +341,7 @@ export const workdaySiteAdapter = defineAdapter({
     let goneUnstored = 0;
     let read = 0;
     let stopped: string | null = null;
+    let heldUntil: string | null = null; // v37 LANE (W4)
     for (const item of plan) {
       if (signal.aborted) throw new IngestError('The run was stopped before it finished.');
       read += 1;
@@ -347,9 +353,13 @@ export const workdaySiteAdapter = defineAdapter({
         else goneUnstored += 1;
       } catch (error) {
         if (signal.aborted) throw error;
-        if (error instanceof HostHeldError || (error instanceof RobotsRefusal && error.reason === 'unreadable')) {
-          read -= 1;
+        const rateLimited = error instanceof IngestHttpError && !(error instanceof HostHeldError) && error.status === 429;
+        if (error instanceof HostHeldError || rateLimited || (error instanceof RobotsRefusal && error.reason === 'unreadable')) {
+          if (!rateLimited) read -= 1;
           stopped = messageOf(error);
+          // v37 LANE (W4): the pause's end, for the next run (a 429 the lane did not record: the lane's or host's hold, if any).
+          if (error instanceof HostHeldError) heldUntil = error.until;
+          else if (rateLimited) heldUntil = (await holdOf(deps.db, site.host, nowIso(deps)))?.until ?? null;
           break;
         }
         failures.push({ sourceJobId: item.ref.reqId, message: `Posting ${item.ref.reqId}: ${messageOf(error)}` });
@@ -390,6 +400,6 @@ export const workdaySiteAdapter = defineAdapter({
     );
     if (unreadable) ctx.log(`${unreadable} live postings the sitemap no longer lists have no Workday address to read them by.`);
     if (stopped) ctx.log(`The reads stopped early: ${stopped}`);
-    return { postings, complete: false, failures, closedByRead: jobsClosed };
+    return { postings, complete: false, failures, closedByRead: jobsClosed, ...(heldUntil ? { heldUntil } : {}) };
   },
 });

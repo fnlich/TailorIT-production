@@ -9,8 +9,8 @@ import { dayOf, ensureDayPartition, JOB_POSTINGS_RAW } from '../../core/db/pg/ma
 import type { DbClient, DbTx } from '../../core/db/types';
 import { ADAPTERS } from './adapters/index';
 import { missingOutsideKey } from './adapters/define'; // v30 S4
-import { createHostGate, createRobotsStore } from './hosts';
-import { createIngestHttp, HostHeldError, IngestHttpError, type IngestHttp } from './http';
+import { createHostGate, createRobotsStore, laneOfHost, lanePauseOf, laneSql, laneWaitingCodeOf } from './hosts'; // v37 FIX-LANE: the lane helpers
+import { createIngestHttp, HostHeldError, IngestHttpError, type IngestHttp, type TurnPriority } from './http';
 import { readLake } from './lake';
 import { normalizeCompany, sourceHashOf, storedSourceJobId } from './normalize';
 import { assertRobotsAllow, RobotsRefusal, useRobotsStore } from './robots';
@@ -134,12 +134,21 @@ export interface RunOptions {
 }
 
 export interface IngestService {
-  /** The client of today's reads (INGEST_USER_AGENT): v2.0's kinds, Add job, the re-checks. */
+  /**
+   * The client of today's reads (INGEST_USER_AGENT): v2.0's kinds, Add job, the re-checks. v37 LANE (SP v37 PLAN W5):
+   * in the API process (readForPeople) its turns on a lane are a waiting person's: Add job, the extension's add and From
+   * page, Add by link and MCP add go ahead of the worker's background reads on the Workday lane.
+   */
   readonly http: IngestHttp;
   /** The client of the new kinds of read (BOT_USER_AGENT; they run only when assertNewReadAllowed allows them). */
   readonly botHttp: IngestHttp;
   /** The store the runs use (store.ts). */
   readonly store: IngestStore;
+  /**
+   * v37 LANE (W5): this process serves people (the API: ingest's start hook): `http`'s turns are interactive from now
+   * on. The worker never calls it (its reads are background). botHttp's (runs, Run now, Test) stay background.
+   */
+  readForPeople(): void;
   /**
    * Leases the source, starts a run of it and answers with the run's id (the run goes on in the background). Throws 404
    * for an unknown source and 409 when it is running (here or in another process).
@@ -272,6 +281,19 @@ const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resol
 const LEASE_SQL = `UPDATE job_sources SET last_run_at = CAST(@now AS timestamptz), last_status = 'running', lease_until = CAST(@until AS timestamptz),
     lease_owner = CAST(@owner AS uuid)
   WHERE id = @id AND (lease_until IS NULL OR lease_until < CAST(@now AS timestamptz))`;
+/**
+ * v37 FIX-LANE (SP v37 FIXES-361 F8, PLAN W6): whether another source of the lane `@lane` (a Workday source for
+ * Workday's) holds an unexpired lease (it runs), for every way a run starts (the schedule, Run now, an import): one
+ * source of a lane at a time. Read under LANE_LEASE_LOCK, so two starts at once never both find the lane free. Built at
+ * each use (hosts.ts laneSql reads the lane registry).
+ */
+const otherLaneRunSql = () => `SELECT 1 AS found FROM job_sources o
+  WHERE o.id <> @id AND o.lease_until > CAST(@now AS timestamptz) AND ${laneSql('o.host')} = @lane LIMIT 1`;
+/**
+ * v37 FIX-LANE (F8): the transaction lock that takes a lane's source's lease one at a time (pg_advisory_xact_lock, with
+ * the lane's key hashed as its second key: each lane its own lock).
+ */
+export const LANE_LEASE_LOCK = 7_370_062;
 
 /** v30 FIX-A: a run whose lease another run took over (BEH-4): it stops, and writes only its own run row. */
 export class LeaseLostError extends IngestError {
@@ -323,8 +345,11 @@ export interface IngestServiceOptions {
   adapters?: Partial<Record<SourceKind, SourceAdapter>>;
 }
 
-/** A client for one identity: paced and held per host for every process, robots.txt before each read. */
-function clientFor(deps: AppDeps, userAgent: string): IngestHttp {
+/**
+ * A client for one identity: paced and held per host for every process, robots.txt before each read. v37 LANE:
+ * `priority`, whose turns its requests take on a lane (read at each request).
+ */
+function clientFor(deps: AppDeps, userAgent: string, priority?: () => TurnPriority): IngestHttp {
   const constants = () => constantsOf(deps);
   let client: IngestHttp | null = null;
   const http = createIngestHttp({
@@ -334,6 +359,7 @@ function clientFor(deps: AppDeps, userAgent: string): IngestHttp {
     maxBytes: () => constants().get('INGEST_ANSWER_MAX_BYTES'),
     now: () => deps.now().getTime(),
     gate: createHostGate(deps),
+    ...(priority ? { priority } : {}),
     robots: (url, signal) =>
       assertRobotsAllow(client!, url.host, [`${url.pathname}${url.search}`], { signal, now: () => deps.now().getTime() }),
   });
@@ -361,7 +387,9 @@ export function saveBatch(db: DbClient, store: IngestStore, source: SourceRecord
 export function createIngestService(deps: AppDeps, options: IngestServiceOptions = {}): IngestService {
   const { log } = deps;
   const db = deps.db;
-  const http = options.http ?? clientFor(deps, deps.config.ingest.userAgent);
+  /** v37 LANE (W5): whether `http`'s turns are a waiting person's (the API process: readForPeople). */
+  let forPeople = false;
+  const http = options.http ?? clientFor(deps, deps.config.ingest.userAgent, () => (forPeople ? 'interactive' : 'background'));
   const botHttp = options.botHttp ?? (options.http ? options.http : clientFor(deps, deps.config.outside.botUserAgent));
   // v30 DB-INGEST: the store reads the central constants (two misses, the suspect share, the fuzzy bits) and the seams.
   const store = createIngestStore(db, deps);
@@ -445,6 +473,8 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
      * this listing and count nothing).
      */
     pendingMisses?: boolean;
+    /** v37 FIX-LANE (F7): it read nothing, waiting for Workday's pause: not the source's success either. */
+    waiting?: boolean;
   }
 
   /**
@@ -564,7 +594,7 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
           {
             id: source.id,
             status: end.status,
-            ok,
+            ok: ok && !end.waiting, // v37 FIX-LANE (F7): a run that only waited for Workday is no success of the source
             now,
             complete: end.complete,
             changed,
@@ -679,6 +709,7 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         validators: conditional ? { etag: source.etag ?? null, lastModified: source.lastModified ?? null } : null,
       });
 
+      if (result.heldUntil) end.heldUntil = result.heldUntil; // v37 LANE (W4): stopped at a pause: due again after it
       if (result.notModified) {
         // 12 §9.4: the listing is complete and unchanged; nothing else is done.
         end.status = 'not_modified';
@@ -768,6 +799,20 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
           `Paused by an admin: ${counts.created} new and ${counts.updated} updated postings were saved; nothing was closed. ` +
             'Continue reads the source again from the top.',
         );
+        return finishRun(source, runId, end, runLog, owner);
+      }
+      // v37 FIX-LANE (SP v37 FIXES-361 F7): the lane's platform paused every one of its sites (Workday: every Workday
+      // site), or an admin held them all, before this run read its postings: the run waits for it, never a failure (none
+      // counted, no admin told); its next run is due after the pause (scheduler.ts nextScheduleOf).
+      const lanePause = signal.aborted ? null : lanePauseOf(caught);
+      if (lanePause) {
+        end.status = 'partial';
+        end.complete = false;
+        end.waiting = true;
+        end.heldUntil = lanePause.until;
+        end.error = messageOf(caught);
+        end.errorCode = laneWaitingCodeOf(lanePause.lane);
+        runLog.add(`Waiting for ${lanePause.lane.name}: ${end.error} Nothing was closed; the next run starts after it.`);
         return finishRun(source, runId, end, runLog, owner);
       }
       end.status = 'failed';
@@ -1004,6 +1049,10 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
     botHttp,
     store,
 
+    readForPeople() {
+      forPeople = true; // v37 LANE (W5)
+    },
+
     async run(sourceId, trigger, runOptions = {}) {
       const source = checkRunnable(await getSourceRecord(db, sourceId));
       // v30 FIX-A (SEC-2, BEH-3): a source of a company that opted out is never read (Run now, the worker, an import).
@@ -1018,14 +1067,21 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
       const until = new Date(deps.now().getTime() + leaseMs()).toISOString();
       // v30 FIX-A (BEH-4): the run's own id on the lease.
       const owner = randomUUID();
+      // v37 FIX-LANE (F8, W6): a source on a lane (a Workday source) runs only while no other source of its lane does.
+      const lane = source.host ? laneOfHost(source.host) : null;
       const runId = await db.tx(
-        async (t) => {
+        async (t): Promise<number | 'lane' | null> => {
+          if (lane) {
+            await t.run('SELECT pg_advisory_xact_lock(CAST(@lock AS integer), hashtext(@lane))', { lock: LANE_LEASE_LOCK, lane: lane.key });
+            if (await t.one(otherLaneRunSql(), { id: source.id, now: startedAt, lane: lane.key })) return 'lane';
+          }
           // The lease: no row changed means the source runs already (another request, or another process).
           if ((await t.run(LEASE_SQL, { now: startedAt, until, id: source.id, owner })).changes === 0) return null;
           return (await t.one<{ id: number }>(INSERT_RUN_SQL, [source.id, trigger, startedAt]))!.id;
         },
         { label: 'ingest run started' },
       );
+      if (runId === 'lane') throw refuse(deps, 'conflict', 'MSG_INGEST_LANE_RUNNING', { site: lane!.name });
       if (runId === null) throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_RUNNING');
       return launch(source, runId, trigger, startedAt, runOptions, owner);
     },

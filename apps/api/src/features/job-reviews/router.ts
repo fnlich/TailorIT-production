@@ -2,6 +2,8 @@ import type { Router } from 'express';
 import {
   AdminFlagBulkBodySchema,
   AdminFlagDecisionBodySchema,
+  AdminFlagsAllBodySchema, // v37 REVIEW
+  AdminFlagsFilterSchema, // v37 REVIEW
   AdminFlagsQuerySchema,
   AdminReviewBulkBodySchema,
   AdminReviewDecisionBodySchema,
@@ -13,7 +15,7 @@ import { adminRouter, PositiveId } from '../../core/admin/index';
 import type { AppDeps } from '../../core/context';
 import { notFound } from '../../core/http/errors';
 import { listReviews, reviewCounts, reviewDetail, reviewReporters } from './admin';
-import { decideFlag, decideFlags, listFlags } from './flags';
+import { countAllFlags, decideAllFlags, decideFlag, decideFlags, listFlags } from './flags'; // v37 REVIEW: the "all" pair
 import { retryReviewRead } from './page-read'; // v32 ADMINAPP (E6)
 import { countAllReviews, decideAllReviews, decideReview, decideReviews } from './service';
 import { parseInput } from '../../core/http/validate'; // v35 ADMIN
@@ -35,6 +37,11 @@ import { parseInput } from '../../core/http/validate'; // v35 ADMIN
 //   GET   /api/admin/flags?state=&q=&cursor=&limit=                         the Flags lane (job_reports)
 //   PATCH /api/admin/flags/:id {status, closeJob?}                          a flag's decision
 //   POST  /api/admin/flags/bulk {ids, status: resolved|dismissed}           up to 100
+//   GET   /api/admin/flags/all/count?state=&q=                              v37 REVIEW (R3): the open flags the filter
+//                                                                          matches, and `upTo` (what was counted)
+//   POST  /api/admin/flags/all {status, filter, after?, upTo?}              v37 REVIEW (R3): Resolve all / Dismiss all
+// v37 REVIEW (SP v37 PLAN.md R1-R3): every list is Waiting by default (pending, Checking too), 100 a page, with `total`,
+// `decidable` and `unfiltered`; /reviews/all takes the Closed links lane as well as New jobs.
 // The paths are the ones X1-WEB's Admin › Review calls (apps/web/.../settings/admin/review/api.ts REVIEW_ROUTES).
 
 /** Mounted at /api/admin/flags. */
@@ -45,6 +52,28 @@ export function createReviewFlagsRouter(deps: AppDeps): Router {
     list: { query: AdminFlagsQuerySchema, run: (_deps, query) => listFlags(deps, query) },
     patch: { body: AdminFlagDecisionBodySchema, run: (_deps, id, change, admin) => decideFlag(deps, id, change, admin) },
     bulk: { body: AdminFlagBulkBodySchema, run: (_deps, bulk, admin) => decideFlags(deps, bulk, admin) },
+    // v37 REVIEW (R3): Resolve all / Dismiss all of the lane's filter: the count for the confirm, then the decisions on
+    // the server (flags.ts decideAllFlags), audited once with the filter and the flags decided, as the reviews' "all".
+    routes: (router, helpers) => {
+      router.get(
+        '/all/count',
+        helpers.handle((req) => countAllFlags(deps, parseInput(AdminFlagsFilterSchema, req.query, 'query'))),
+      );
+      router.post(
+        '/all',
+        helpers.handle(async (req, admin) => {
+          const body = parseInput(AdminFlagsAllBodySchema, req.body ?? {}, 'change');
+          const decided = await decideAllFlags(deps, body, admin);
+          await helpers.audit({
+            action: `${body.status}_all`,
+            ids: ['all'],
+            actor: admin,
+            change: { filter: body.filter, after: body.after ?? 0, upTo: body.upTo ?? null, matched: decided.body.matched, decided: decided.ids.length },
+          });
+          return decided.body;
+        }),
+      );
+    },
   });
 }
 

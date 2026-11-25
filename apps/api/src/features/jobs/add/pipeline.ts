@@ -6,13 +6,14 @@ import {
   type JobAddState,
   type JobVerifyReason,
 } from '@tailorit/shared';
-import { addablePosting } from '@tailorit/shared/autofill';
 import { nowIso, type AppDeps } from '../../../core/context';
-import { AppError, notFound } from '../../../core/http/errors';
+import { notFound } from '../../../core/http/errors';
 import { refuse } from '../../../core/http/refuse';
+import { closeLink } from '../../../core/seams'; // v37 CLOSED (C5)
 import { aliasValueHash } from '../../autofill/alias-key';
 import { storeOwnJobFromDetails } from '../../autofill/from-page';
 import {
+  ATS_NAMES, // v37 CLOSED (C3)
   heldJobOf,
   newInFlight,
   readShared,
@@ -22,8 +23,6 @@ import {
   type InFlight,
 } from '../../autofill/jobs';
 import { findPageJob, readPage, type PageReading } from '../../autofill/lookup';
-import { RobotsRefusal } from '../../ingest/robots';
-import { IngestError } from '../../ingest/types';
 import { isRefusedPageHost, isSiteHost } from '../../job-reviews/hosts';
 import { noteHeldAdd } from '../../job-reviews/new-jobs'; // v31 FIX-LINK (D12)
 import { sharedAddress } from './address';
@@ -33,6 +32,8 @@ import { readPageToSharedJob, type ImportRead } from './page'; // v35 INT-A: Imp
 import { fillPayFromRate } from './import-jobs'; // v35 IMPORT
 import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
 import { linkRejected, noteUnverified, ownJobsOfLink } from './verification';
+import { atsFailure, type LinkRead, type ReadPause } from './verdict'; // v37 CLOSED (C1, C3)
+import { offerBoardOfClosedLink, postingOfLink } from './closed-link'; // v37 CLOSED (C4, C7)
 
 // v31 LINK: addJobByLink, the ONE pipeline every add path runs (docs/design/v3.1/21-jobs-from-links.md §3; the build
 // plan's D1-D3). In order:
@@ -86,6 +87,8 @@ export interface AddJobByLinkInput {
   /** Told step 3's read, once made (the next profile's add reuses a failed one). */
   onRead?: (read: LinkRead) => void;
   // end v34 FANOUT
+  /** v37 CLOSED (C3): the read's budget (the link queue's LINK_QUEUE_READ_TIMEOUT_MS; a person's add keeps 15 s). */
+  timeoutMs?: number;
 }
 
 export interface AddJobByLinkOutcome {
@@ -96,6 +99,11 @@ export interface AddJobByLinkOutcome {
   reason: JobVerifyReason | null;
   created: boolean;
   needsDetails: boolean;
+  /**
+   * v37 CLOSED (C3): the site (every Workday site) paused TailorIT: `refused` (`unavailable`) at once, nothing kept, and
+   * the answer says when to try again (router.ts addJobResultOf). Absent otherwise (every other answer as before).
+   */
+  pause?: ReadPause;
 }
 
 /** How readLink reads. */
@@ -111,13 +119,12 @@ export interface ReadLinkOptions {
   approved?: boolean;
   /** v35 INT-A: an admin import's read: its row fills what the read lacks; a new job it holds is the import's (page.ts). */
   importRead?: ImportRead;
+  /** v37 CLOSED (C3): an ATS read's budget (the link queue's LINK_QUEUE_READ_TIMEOUT_MS; people's reads keep 15 s). */
+  timeoutMs?: number;
 }
 
-/** What TailorIT's own read of a link came to. */
-export type LinkRead =
-  | { kind: 'shared'; jobId: number; created: boolean; held: boolean }
-  | { kind: 'closed' }
-  | { kind: 'unreadable'; reason: JobVerifyReason };
+/** What TailorIT's own read of a link came to (v37 CLOSED: verdict.ts, with a paused read's pause). */
+export type { LinkRead } from './verdict';
 
 /**
  * Whether a canonical link is one TailorIT may add: an https address with no port on a public host name (never an IP
@@ -136,18 +143,6 @@ export function isAddableLink(url: string): boolean {
 
 /** A dotted DNS name (letters, digits, hyphens), the last label letters only. */
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-
-/** An ATS read's failure as a LinkRead: closed (404, gone), or why it could not be read. Anything else is thrown. */
-function atsFailure(error: unknown): LinkRead {
-  if (!(error instanceof AppError)) throw error;
-  if (error.code === 'not_found') return { kind: 'closed' };
-  if (error.code === 'unsupported') {
-    return { kind: 'unreadable', reason: error.cause instanceof RobotsRefusal ? 'robots' : 'unlisted' };
-  }
-  if (error.code === 'ats_failed') return { kind: 'unreadable', reason: error.cause instanceof IngestError ? 'no_posting' : 'unavailable' };
-  if (error.code === 'ats_unavailable') return { kind: 'unreadable', reason: 'unavailable' };
-  throw error;
-}
 
 async function isHeld(deps: Pick<AppDeps, 'db'>, jobId: number): Promise<boolean> {
   const row = await deps.db.one<{ held: boolean }>('SELECT held_since IS NOT NULL AS held FROM jobs WHERE id = ?', [jobId]);
@@ -171,16 +166,18 @@ export async function readLink(
   const host = new URL(url).hostname;
   if (reading.linkedIn || isRefusedPageHost(host)) return { kind: 'unreadable', reason: 'unreadable_host' };
   if (await linkRejected(deps.db, sharedAddress(url) ?? url)) return { kind: 'unreadable', reason: 'rejected' };
-  const posting = addablePosting(reading.ats);
+  // v37 CLOSED (C4): a Workday link without a location is a posting read too (closed-link.ts postingOfLink).
+  const posting = postingOfLink(reading, url);
   if (posting) {
     try {
       const stored = await readShared(deps, posting, inFlight ?? newInFlight(), {
         fresh: options.fresh === true,
         ...(options.importRead ? { importRead: options.importRead } : {}),
+        ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       });
       return { kind: 'shared', jobId: stored.jobId, created: stored.created, held: await isHeld(deps, stored.jobId) };
     } catch (error) {
-      return atsFailure(error);
+      return atsFailure(error, ATS_NAMES[posting.kind]); // v37 CLOSED (C1): verdict.ts
     }
   }
   return readPageToSharedJob(deps, options.readAt ?? url, {
@@ -245,7 +242,8 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
   }
 
   // 3. TailorIT's own read (v34 FANOUT: or the failed one this request already made of the link).
-  const read = input.knownRead ?? (await readLink(deps, url, input.inFlight, page, { readAt: given }));
+  const read =
+    input.knownRead ?? (await readLink(deps, url, input.inFlight, page, { readAt: given, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }));
   input.onRead?.(read);
   if (read.kind === 'shared') {
     if (userId) {
@@ -256,7 +254,16 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
     await save(read.jobId);
     return outcome(stateOf(read.held), read.jobId, null, read.created);
   }
-  if (read.kind === 'closed') return outcome('refused', null, 'closed');
+  if (read.kind === 'closed') {
+    // v37 CLOSED (C7): a person's closed link offers its board to discovery (a candidate, no person's data).
+    if (userId) await offerBoardOfClosedLink(deps, url, isExtensionOrigin(input.origin) ? 'extension' : 'application_link');
+    return outcome('refused', null, 'closed');
+  }
+  // v37 CLOSED (C3, LANE's W5): the site (every Workday site) asked TailorIT to slow down: answered at once with when to
+  // try again; nothing is kept and nothing goes to Review (an import's queued read reads it again after the pause:
+  // import-pipeline.ts). A host TailorIT holds for another reason (a bot check, the breaker, an admin) is answered as any
+  // link it cannot read now, as before.
+  if (read.pause?.slowDown) return { ...outcome('refused', own, 'unavailable'), pause: read.pause };
 
   // 4. A link TailorIT cannot read.
   const reason = read.reason;
@@ -279,6 +286,11 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
     return outcome('private_unverified', made.jobId, reason, made.created);
   }
   return outcome('private_unverified', null, reason, false, input.privateJob !== false);
+}
+
+/** v37 CLOSED (C7): the add paths of the extension (its add, From page, Applied): their closed links are its finds. */
+function isExtensionOrigin(origin: JobAddOrigin): boolean {
+  return origin === 'extension' || origin === 'extension_page' || origin === 'applied';
 }
 
 /**
@@ -360,9 +372,25 @@ export async function verifyJob(
     }
     return { ...answer(stateOf(read.held), read.jobId, null), created: read.created };
   }
+  // v37 CLOSED (C3): the site paused TailorIT: nothing is read or noted; the answer says when to try again.
+  if (read.kind === 'unreadable' && read.pause) return { ...answer('private_unverified', jobId, 'unavailable'), pause: read.pause };
   const reason: JobVerifyReason = read.kind === 'closed' ? 'closed' : read.reason;
   const origin = (job.origin ?? 'web') as JobAddOrigin;
-  await noteUnverified(deps.db, { jobId, userId: job.owner_user_id, url, origin, reason }, nowIso(deps));
+  if (read.kind === 'closed') {
+    // v37 CLOSED (C5): the posting has closed: the person's own job closes (its Closed badge; out of their open jobs)
+    // and is no link to verify any more (its Couldn't verify note goes); its board is offered to discovery.
+    const at = nowIso(deps);
+    await deps.db.tx(
+      async (t) => {
+        await closeLink(deps, t, { jobId, reason: 'gone', at });
+        await t.run('DELETE FROM job_verifications WHERE job_id = ?', [jobId]);
+      },
+      { label: 'retry read: a closed posting' },
+    );
+    await offerBoardOfClosedLink(deps, url, isExtensionOrigin(origin) ? 'extension' : 'application_link');
+  } else {
+    await noteUnverified(deps.db, { jobId, userId: job.owner_user_id, url, origin, reason }, nowIso(deps));
+  }
   const state = read.kind === 'closed' ? 'refused' : 'private_unverified';
   // v33 SHARE-6: as above, the adder on the owner's profile hears it there; the asker sees the answer.
   const target = await linkNoticeTarget(deps, { user_id: job.owner_user_id, added_by: job.added_by, grant_id: job.grant_id });

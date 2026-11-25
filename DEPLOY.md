@@ -208,7 +208,7 @@ These features are built and **off**. Each stays off until its setting is given;
 | Read career pages, `SITE_READER_CAREER_PAGES` (Admin › Constants) | false | A legal review of reading employers' career pages and of discovering career sites. |
 | Live Wikidata lookups, `REFDATA_LIVE_LOOKUPS` (Admin › Constants) | false | Accepting that Wikidata's two APIs are read although robots.txt does not cover them for crawlers (also needs `BOT_USER_AGENT`). |
 | `DISCOVERY_PROBES_PER_HOST_PER_DAY` (Admin › Constants) | 0 | A decision to probe job boards for company names. |
-| `EXT_AUTO_APPROVE_CLOSED`, `EXT_AUTO_APPROVE_NEW_ATS` (Admin › Constants) | false | Trust in the extension's reports and TailorIT's re-reads: until then an administrator approves each one in Admin › Review. (`EXT_AUTO_APPROVE_NEW_PAGE` has no effect since v3.1.) |
+| `EXT_AUTO_APPROVE_CLOSED`, `EXT_AUTO_APPROVE_NEW_ATS` (Admin › Constants) | false | Trust in the extension's reports and TailorIT's re-reads: until then an administrator approves each one in Admin › Review (a closed report TailorIT's own re-read finds gone closes the job either way, since v3.6.1). (`EXT_AUTO_APPROVE_NEW_PAGE` has no effect since v3.1.) |
 | Publish jobs read from a careers page at once, `PAGE_JOBS_AUTO_PUBLISH` (Admin › Constants) | false | Trust in what TailorIT reads from employers' own pages: until then each new job read from a page's own job data (no ATS API) waits in Admin › Review › New jobs for an administrator's approval. Jobs read through an ATS's API are published at once. |
 
 `DISCOVERY_VALIDATE_V2_KINDS_TODAY` is **on**: boards that discovery finds of the four kinds today's sources read

@@ -6,6 +6,7 @@ import { payFromRate, salaryFromText, sourceHashOf, storedSourceJobId } from '..
 import { rowIdOf } from '../../ingest/tabular';
 import { requireIngest } from '../../ingest/service';
 import type { RawPosting, SourceRecord } from '../../ingest/types';
+import { settleReviewsOfClosedJob } from '../../job-reviews/closed'; // v37 CLOSED (C2)
 import { noteUnverified } from './verification';
 
 // v35 IMPORT (SP v35 PLAN.md H2, H4, H5): what an import does to jobs, each in one transaction with the job's search
@@ -19,15 +20,18 @@ import { noteUnverified } from './verification';
 //     from the row under the import's source, HELD (out of search, no review: legacy-like, so Review › Couldn't verify
 //     lists it through its note with no adder, origin `import`) and kept out of the AI job analysis until approved
 //     (jobs.ai_input false: nothing is spent on a job an admin rejects);
-//   - holdImported (H5): a closed job an admin import names that TailorIT cannot read now: reopened HELD with the same
-//     note, so an approval publishes (and reposts) it (v35 FIX-PIPE: in the caller's transaction; also a held job no
-//     review waits on any more, back in Couldn't verify: import-pipeline.ts, data D4);
+//   - holdImported (H5): a held job no review waits on any more, back in Couldn't verify (import-pipeline.ts, data D4),
+//     in the caller's transaction (v37 CLOSED: v3.5 also reopened a closed job HELD here; a closed job stays closed);
 //   - fillReadPosting (v35 INT-A, H2 "a row's own fields only fill what the read lacks"): an admin row's title, company,
 //     description and location in the read's raw posting where it has none, before the store (the read's own always
 //     win; pay follows H4 through fillPayFromRate after the read). A person's row never reaches a shared job.
 // v36 IMPORTTIME (SP v36 PLAN.md I1): holdImported dates the job the import's (jobs.reposted_at, import-time.ts) in its
 // transaction: a job made from a row, or a known job held again for Couldn't verify, counts as posted at the import (its
 // approval dates it again: approve.ts).
+// v37 CLOSED (SP v37 PLAN.md C2, "closed is closed"): holdImported never reopens a closed job (v3.5 reopened one held
+// for Couldn't verify when an import named it and TailorIT could not read it now): it holds an open job only; and
+// closeGoneJob settles the closed job's reviews in its transaction (job-reviews/closed.ts settleReviewsOfClosedJob:
+// its closed reports approved, its New jobs review rejected, by TailorIT's check; its Couldn't verify note gone).
 
 /** The country of a job's first place (a salary's currency when its text names none). */
 async function countryOf(db: DbQueries, jobId: number): Promise<string | null> {
@@ -123,10 +127,19 @@ export async function repostJob(t: DbQueries, jobId: number, at: string, by: Rep
   await projectJob(t, jobId);
 }
 
-/** H5: a job whose posting TailorIT found gone now: its links close (`gone`), and the job with them. */
+/**
+ * H5: a job whose posting TailorIT found gone now: its links close (`gone`), and the job with them. v37 CLOSED (C2): its
+ * reviews and notes settled by the server in the same transaction (settleReviewsOfClosedJob).
+ */
 export async function closeGoneJob(deps: AppDeps, jobId: number): Promise<void> {
   const at = nowIso(deps);
-  await deps.db.tx((t) => closeLink(deps, t, { jobId, reason: 'gone', at }), { label: 'import: a posting gone' });
+  await deps.db.tx(
+    async (t) => {
+      await closeLink(deps, t, { jobId, reason: 'gone', at });
+      await settleReviewsOfClosedJob(deps, t, jobId, at);
+    },
+    { label: 'import: a posting gone' },
+  );
 }
 
 /** The posting a row makes (H2.3, H4): its own words; the Rate only when its description names no pay. */
@@ -203,16 +216,27 @@ export async function jobFromRow(
 
 /**
  * Holds a shared job for Review › Couldn't verify (see the top) and notes it there. In the caller's transaction (v35
- * FIX-PIPE: exported, so an import's other writes of the row join it: import-pipeline.ts, data D8).
+ * FIX-PIPE: exported, so an import's other writes of the row join it: import-pipeline.ts, data D8). v37 CLOSED (C2): an
+ * open job only: a closed one is never reopened nor held (nothing is written; answers false).
  */
-export async function holdImported(t: DbQueries, jobId: number, url: string, reason: JobVerifyReason, at: string): Promise<void> {
-  // v36 IMPORTTIME (I1): dated the import's (never moved back).
-  await t.run(
-    `UPDATE jobs SET held_since = COALESCE(held_since, ?), active = true, closed_at = NULL, ai_input = false, updated_at = ?,
-       reposted_at = GREATEST(reposted_at, CAST(? AS timestamptz))
-     WHERE id = ? AND owner_user_id IS NULL`,
+export async function holdImported(
+  t: DbQueries,
+  jobId: number,
+  url: string,
+  reason: JobVerifyReason,
+  at: string,
+  options: { reopen?: boolean } = {},
+): Promise<boolean> {
+  // v36 IMPORTTIME (I1): dated the import's (never moved back). v37 CLOSED (C2): `reopen` only for a job an admin's
+  // rejection closed that an admin's import asks for again (import-pipeline.ts unreadableKnown, H3).
+  const { changes } = await t.run(
+    `UPDATE jobs SET held_since = COALESCE(held_since, ?), ai_input = false, updated_at = ?,
+       reposted_at = GREATEST(reposted_at, CAST(? AS timestamptz))${options.reopen ? ', active = true, closed_at = NULL' : ''}
+     WHERE id = ? AND owner_user_id IS NULL${options.reopen ? '' : ' AND active'}`,
     [at, at, at, jobId],
   );
+  if (changes === 0) return false;
   await projectJob(t, jobId);
   await noteUnverified(t, { jobId, userId: null, url, origin: 'import', reason, addedBy: null }, at);
+  return true;
 }

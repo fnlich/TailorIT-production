@@ -4,7 +4,7 @@ import { nowIso, type AppDeps } from '../../../core/context';
 import { AppError, validationFailed } from '../../../core/http/errors';
 import { closeLink } from '../../../core/seams';
 import { approveUnverifiedJob } from './approve';
-import { LISTED, rejectLink, unverifiedFilterSql, type UnverifiedFilter } from './verification';
+import { listedSql, rejectLink, unverifiedFilterSql, type UnverifiedFilter } from './verification'; // v37 REVIEW: listedSql
 
 // v35 IMPORT (SP v35 PLAN.md H3): Admin › Review › Couldn't verify, a selection or every row at once.
 //   - Approve: each row as the single Approve does (approve.ts approveUnverifiedJob: the job published as it is, the
@@ -14,14 +14,16 @@ import { LISTED, rejectLink, unverifiedFilterSql, type UnverifiedFilter } from '
 //   - Reject: each row's link as the single Reject does (rejectLink), and a job an admin import made of it closes (it
 //     is never published).
 //   - All: every row the list's filter matches (the From filter), in batches of UNVERIFIED_ALL_BATCH, within
-//     UNVERIFIED_ALL_BUDGET_MS of the request (a longer one answers what is `left`; the next call goes on).
+//     ADMIN_BULK_ALL_SECONDS of the request (v37 REVIEW; v3.5: 150 s; a longer one answers what is `left`; the next
+//     call goes on).
 // A row that cannot be approved (a refusal: a closed posting, a site never read, an admin's own add, ...) is skipped
 // with its words.
+// v37 REVIEW (SP v37 PLAN.md R3, R5): "all" works for ADMIN_BULK_ALL_SECONDS a request, as every lane's "all" does (the
+// web calls again while rows are left and the last request did something); and the rows are those the list shows now
+// (verification.ts listedSql: an admin import's alone while EXT_NEW_PAGE_JOBS_REVIEW is off).
 
 /** Rows one batch of "all" reads. */
 export const UNVERIFIED_ALL_BATCH = 100;
-/** How long one "all" request works before it answers what is left (under the web proxy's 240 s). */
-export const UNVERIFIED_ALL_BUDGET_MS = 150_000;
 
 type Action = 'approve' | 'reject';
 
@@ -121,10 +123,9 @@ function upToBound(upTo: string): { lastJobId: number; at: string } {
 /** GET /api/admin/jobs/unverified/count: the links the list holds for the filter (0 while it is off), and `upTo`. */
 export async function countUnverifiedUpTo(deps: AppDeps, filter: UnverifiedFilter): Promise<UnverifiedCount> {
   const at = deps.now(); // before the count: nothing changed after it is in its upTo
-  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { count: 0, upTo: `0@${at.getTime()}` };
   const where = unverifiedFilterSql(filter);
   const row = await deps.db.one<{ n: number; last: number | null }>(
-    `SELECT count(DISTINCT v.url_key)::int AS n, max(v.job_id) AS last FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${LISTED}${where.sql}`,
+    `SELECT count(DISTINCT v.url_key)::int AS n, max(v.job_id) AS last FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${listedSql(deps)}${where.sql}`,
     where.params,
   );
   return { count: Number(row?.n ?? 0), upTo: `${Number(row?.last ?? 0)}@${at.getTime()}` };
@@ -135,7 +136,7 @@ async function nextBatch(deps: AppDeps, filter: UnverifiedFilter, tried: Readonl
   const where = unverifiedFilterSql(filter);
   const rows = await deps.db.all<{ job_id: number }>(
     `SELECT min(v.job_id) AS job_id FROM job_verifications v JOIN jobs j ON j.id = v.job_id
-     WHERE ${LISTED}${where.sql} GROUP BY v.url_key${bound ? ` HAVING ${WITHIN_UP_TO}` : ''}
+     WHERE ${listedSql(deps)}${where.sql} GROUP BY v.url_key${bound ? ` HAVING ${WITHIN_UP_TO}` : ''}
      ORDER BY max(v.checked_at) DESC, v.url_key DESC LIMIT ?`,
     [...where.params, ...(bound ? [bound.lastJobId, bound.at] : []), UNVERIFIED_ALL_BATCH + tried.size],
   );
@@ -149,16 +150,16 @@ export async function allUnverified(
   action: Action,
   filter: UnverifiedFilter,
   upTo?: string,
+  clock: () => number = Date.now, // v37 REVIEW: the tests' clock
 ): Promise<UnverifiedBulkResult> {
   const bound = upTo === undefined ? null : upToBound(upTo); // v35 FIX-STORE (S6)
-  // The list is empty while it is off (verification.ts): nothing to act on.
-  if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW')) return { action, done: 0, skipped: 0, left: 0, message: sentence(action, 0, 0, 0, null), items: [] };
-  const started = Date.now();
+  const budgetMs = constantsOf(deps).get('ADMIN_BULK_ALL_SECONDS') * 1000; // v37 REVIEW (R3): every lane's budget
+  const started = clock();
   const tried = new Set<number>();
   let done = 0;
   let skipped = 0;
   let hourUsed: string | null = null;
-  outer: while (Date.now() - started < UNVERIFIED_ALL_BUDGET_MS) {
+  outer: while (clock() - started < budgetMs) {
     const batch = await nextBatch(deps, filter, tried, bound);
     if (batch.length === 0) break;
     for (const jobId of batch) {
@@ -173,12 +174,12 @@ export async function allUnverified(
         tried.delete(jobId);
         break outer;
       }
-      if (Date.now() - started >= UNVERIFIED_ALL_BUDGET_MS) break outer;
+      if (clock() - started >= budgetMs) break outer;
     }
   }
   const where = unverifiedFilterSql(filter);
   const remaining = await deps.db.all<{ job_id: number }>(
-    `SELECT min(v.job_id) AS job_id FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${LISTED}${where.sql} GROUP BY v.url_key${bound ? ` HAVING ${WITHIN_UP_TO}` : ''}`,
+    `SELECT min(v.job_id) AS job_id FROM job_verifications v JOIN jobs j ON j.id = v.job_id WHERE ${listedSql(deps)}${where.sql} GROUP BY v.url_key${bound ? ` HAVING ${WITHIN_UP_TO}` : ''}`,
     [...where.params, ...(bound ? [bound.lastJobId, bound.at] : [])],
   );
   const left = remaining.filter((row) => !tried.has(Number(row.job_id))).length;

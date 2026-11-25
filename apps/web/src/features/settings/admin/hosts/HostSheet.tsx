@@ -1,11 +1,12 @@
 'use client';
 
-import { CRAWL_HOST_HOLD_LABEL, type AdminHost, type AdminHostRow } from '@tailorit/shared/sourcing';
+import { type AdminHost, type AdminHostRow } from '@tailorit/shared/sourcing';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { RowDetailSheet } from '@/components/queue';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Field } from '@/components/ui/Field';
 import { Notice } from '@/components/ui/Notice';
 import { Select } from '@/components/ui/Select';
@@ -18,18 +19,35 @@ import {
   HOLD_CHOICES,
   ROBOTS_STATUS_LABEL,
   aiInputText,
+  breakerText,
   clockText,
   crawlDelayText,
+  failuresLabel,
+  gapText,
+  holdReasonText,
   holdText,
+  hostName,
   isHeld,
+  isLaneRow,
+  lanePaused,
   lastStatusText,
+  nextSlotText,
   paceText,
-  sourcesText,
+  platformOf,
+  releaseNeedsWarning,
+  rowSourcesText,
 } from './hosts';
 
 // v30 S1-WEB: one host's sheet (12 §9.4, §9.8): its pace (shared by every process through crawl_hosts), its hold and
 // failures, its sources, and its robots.txt as the reader keeps it (status, Crawl-delay, the content signals and their
 // ai-input, the sitemaps, the file itself). An admin holds it for some hours or releases its hold.
+// v37 LANE (SP v37 PLAN W10): the Workday lane's sheet ("Workday (all sites)"): its gap, its pause and end, its 429s in
+// a row, its last answer and its Workday sources; holding it holds every Workday site. A Workday site's sheet names the
+// lane its requests take their turns on; its own row keeps its bot checks and an admin's hold of that site alone.
+// v37 FIX-LANE (SP v37 FIXES-361 D2, D3, F6; the ux review's M3, M4): the lane's gap as it adapts and when it eases
+// back, its 429s in the window, its breaker; while paused its next free slot is after the pause; a Workday site paused
+// with all of Workday says so. Releasing a pause Workday asked for asks first (it can get this address blocked; the
+// 429s still count). v37 FIX-LANE (the generic lane): every word names the lane's platform (platformOf: "Workday").
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -44,6 +62,8 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 export function HostDetails({ host, now, onShowSources }: { host: AdminHost; now: number; onShowSources?: (host: string) => void }) {
   const hold = holdText(host, now);
   const robots = host.robots;
+  const lane = isLaneRow(host);
+  const paused = lanePaused(host, now);
   return (
     <div className="flex flex-col gap-6" data-host-details={host.host}>
       <section aria-labelledby="host-pace">
@@ -51,15 +71,24 @@ export function HostDetails({ host, now, onShowSources }: { host: AdminHost; now
           Pace and holds
         </h3>
         <dl className="mt-1 divide-y divide-divider-soft">
-          <Fact label="Pace">{paceText(host.minIntervalMs)}</Fact>
-          <Fact label="Next free slot">{Date.parse(host.nextSlotAt) <= now ? 'Now' : clockText(host.nextSlotAt, now)}</Fact>
-          <Fact label="Hold">{hold ?? <span className="text-muted-foreground">Not held</span>}</Fact>
-          <Fact label="Failures in a row">{host.consecutiveFailures.toLocaleString('en-US')}</Fact>
+          <Fact label={lane ? 'Gap' : 'Pace'}>{lane ? gapText(host, now) : paceText(host.minIntervalMs)}</Fact>
+          {host.lane && <Fact label="Lane">{`${host.lane}: one request at a time for every ${platformOf(host)} site`}</Fact>}
+          <Fact label="Next free slot">{nextSlotText(host, now)}</Fact>
+          <Fact label={lane ? 'Pause' : 'Hold'}>
+            {hold ??
+              (paused && host.laneHoldUntil ? (
+                `Paused with all of ${platformOf(host)} until ${clockText(host.laneHoldUntil, now)}`
+              ) : (
+                <span className="text-muted-foreground">{lane ? 'Not paused' : 'Not held'}</span>
+              ))}
+          </Fact>
+          <Fact label={failuresLabel(host)}>{host.consecutiveFailures.toLocaleString('en-US')}</Fact>
+          {lane && <Fact label="Breaker">{breakerText(host, now)}</Fact>}
           <Fact label="Last answer">{lastStatusText(host.lastStatus)}</Fact>
           <Fact label="Sources">
             <span className="flex flex-wrap items-center gap-2">
-              {sourcesText(host)}
-              {onShowSources && host.sources > 0 && (
+              {rowSourcesText(host)}
+              {onShowSources && host.sources > 0 && !lane && (
                 <Button variant="link" onClick={() => onShowSources(host.host)}>
                   See its sources
                 </Button>
@@ -78,7 +107,9 @@ export function HostDetails({ host, now, onShowSources }: { host: AdminHost; now
         <h3 id="host-robots" className="text-[11px] leading-4 font-semibold tracking-[0.06em] text-subtle-foreground uppercase">
           robots.txt
         </h3>
-        {robots ? (
+        {lane ? (
+          <p className="mt-2 text-sm text-muted-foreground">{`Each ${platformOf(host)} site keeps its own robots.txt: open the site's row.`}</p>
+        ) : robots ? (
           <>
             <dl className="mt-1 divide-y divide-divider-soft">
               <Fact label="Status">
@@ -142,6 +173,10 @@ export function HostSheet({
   const toast = useToast();
   const queryClient = useQueryClient();
   const [hours, setHours] = useState('6');
+  // v37 FIX-LANE (D2): the warning before a release of a pause the platform asked for; focus goes back to the footer.
+  const [warning, setWarning] = useState(false);
+  const releaseRef = useRef<HTMLButtonElement>(null);
+  const holdRef = useRef<HTMLButtonElement>(null);
   const name = row?.host ?? '';
   const detail = useQuery({
     queryKey: hostKeys.detail(name),
@@ -165,17 +200,30 @@ export function HostSheet({
       item={row}
       open={open}
       onOpenChange={onOpenChange}
-      title={(item) => item.host}
-      description="One pace and one hold for every reader."
+      title={(item) => hostName(item)}
+      description={
+        row && 'label' in row && row.label ? `Every ${platformOf(row)} site takes its turns here: a 429 pauses them all.` : 'One pace and one hold for every reader.'
+      }
       footer={() =>
         host ? (
           <div className="flex flex-wrap items-end justify-end gap-2">
             {/* One status line for both states, so a hold or a release is read aloud where it shows. */}
             <p role="status" className="mr-auto self-center text-[13px] text-muted-foreground">
-              {held ? (holdText(host, now) ?? (host.holdReason ? CRAWL_HOST_HOLD_LABEL[host.holdReason] : 'Held')) : 'Not held'}
+              {held
+                ? (holdText(host, now) ?? holdReasonText(host))
+                : lanePaused(host, now) && host.laneHoldUntil
+                  ? `Paused with all of ${platformOf(host)} until ${clockText(host.laneHoldUntil, now)}`
+                  : isLaneRow(host)
+                    ? 'Not paused'
+                    : 'Not held'}
             </p>
             {held ? (
-              <Button variant="outline" loading={change.isPending} onClick={() => change.mutate({ action: 'release' })}>
+              <Button
+                ref={releaseRef}
+                variant="outline"
+                loading={change.isPending}
+                onClick={() => (releaseNeedsWarning(host) ? setWarning(true) : change.mutate({ action: 'release' }))}
+              >
                 Release the hold
               </Button>
             ) : (
@@ -183,11 +231,30 @@ export function HostSheet({
                 <Field label="Hold for" className="w-40">
                   <Select options={HOLD_CHOICES} value={hours} onValueChange={setHours} />
                 </Field>
-                <Button variant="destructive-outline" loading={change.isPending} onClick={() => change.mutate({ action: 'hold', hours: Number(hours) })}>
-                  Hold the host
+                <Button ref={holdRef} variant="destructive-outline" loading={change.isPending} onClick={() => change.mutate({ action: 'hold', hours: Number(hours) })}>
+                  {isLaneRow(host) ? `Hold all of ${platformOf(host)}` : 'Hold the host'}
                 </Button>
               </>
             )}
+            {/* v37 FIX-LANE (D2): inside the sheet, so the question opens over it and focus comes back to its foot. */}
+            <ConfirmDialog
+              open={warning}
+              onOpenChange={setWarning}
+              title={`Release ${platformOf(host)}'s pause?`}
+              description={
+                host.holdUntil
+                  ? `${platformOf(host)} asked TailorIT to slow down until ${clockText(host.holdUntil, now)}. Releasing early can get this address blocked by ${platformOf(host)}, and its 429s still count.`
+                  : `${platformOf(host)} asked TailorIT to slow down. Releasing early can get this address blocked by ${platformOf(host)}, and its 429s still count.`
+              }
+              confirmLabel="Release anyway"
+              busyLabel="Releasing..."
+              cancelLabel="Keep the pause"
+              focusCancel
+              finalFocus={() => releaseRef.current ?? holdRef.current ?? true}
+              onConfirm={async () => {
+                await change.mutateAsync({ action: 'release' });
+              }}
+            />
           </div>
         ) : null
       }

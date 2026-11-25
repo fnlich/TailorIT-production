@@ -94,12 +94,19 @@ export async function readLink(
   { http, store }: { http: IngestHttp; store: LinkReadStore },
   link: LinkToRead,
   ref: PostingRef,
-  options: { signal?: AbortSignal; boards?: AshbyBoardReads; names?: WorkableNames } = {},
+  options: {
+    signal?: AbortSignal;
+    boards?: AshbyBoardReads;
+    names?: WorkableNames;
+    /** v37 INT-A: told why an `unreadable` read failed (recheck.ts: a held host or the Workday lane's pause waits). */
+    onFailure?: (error: unknown) => void;
+  } = {},
 ): Promise<LinkReadState> {
   let answer;
   try {
     answer = await fetchPosting(http, ref, { config: link.source.config, signal: options.signal, boards: options.boards, names: options.names });
-  } catch {
+  } catch (error) {
+    options.onFailure?.(error);
     return 'unreadable';
   }
   if (!answer.found) return 'gone';

@@ -7,6 +7,7 @@ import { ADDED_BY_AUTOFILL } from '../../ingest/liveness';
 import { approvedJobsDue, isApprovedJob, settleApprovedRecheck } from './approved'; // v32 FIX-API (SB-4)
 import { readPageToSharedJob } from './page';
 import { queueJobLinks } from './queue';
+import { verdictOf } from './verdict'; // v37 CLOSED (C1)
 
 // v31 LINK2 (21-jobs-from-links.md §10; the coordinator's decision of 2026-11-17): a job TailorIT read from its own
 // page when it was added (its host's career-site source, made disabled for Add job) is read again every
@@ -27,6 +28,10 @@ import { queueJobLinks } from './queue';
 // v32 FIX-API (REV-SECBEH SB-4): the step queues the jobs an admin approved as captured too (approved.ts), their link
 // read again every JOB_PAGE_RECHECK_DAYS after the approval or the last read: a read makes the job a normal verified
 // one, a posting gone closes it.
+//
+// v37 CLOSED (SP v37 PLAN.md C1): the read's verdict (verdict.ts): a read that failed for now (try later: the site
+// down, a 429, a held host, an unreachable robots.txt) moves no check time and is read again by the queue soon (after
+// the site's pause when it paused TailorIT: `later` with `until`); only a can't-read verdict waits for the next interval.
 
 /** The SQL of the live career-site links Add job's reads made: their sources disabled, marked as Add job's. */
 const ADDED_PAGE_LINK_SQL = `l.missing_since IS NULL AND s.kind = 'career_site' AND NOT s.enabled AND s.config ->> 'addedBy' = ?`;
@@ -67,12 +72,18 @@ async function addedPageLink(deps: Pick<AppDeps, 'db'>, jobId: number): Promise<
   );
 }
 
+/** v37 CLOSED (C1): what a re-check came to: `later`, a read that failed for now (`until`: the end of its site's pause). */
+export interface RecheckRead {
+  state: 'live' | 'closed' | 'unreadable' | 'later';
+  until?: string;
+}
+
 /** Reads a queued `recheck` link again and settles its job (see the top). Answers what the read came to. */
-export async function settleRecheck(deps: AppDeps, jobId: number, url: string): Promise<'live' | 'closed' | 'unreadable'> {
+export async function settleRecheckRead(deps: AppDeps, jobId: number, url: string): Promise<RecheckRead> {
   // v32 FIX-API (SB-4): an admin's approval of captured words, read again (approved.ts).
-  if (await isApprovedJob(deps, jobId)) return settleApprovedRecheck(deps, jobId, url);
+  if (await isApprovedJob(deps, jobId)) return { state: await settleApprovedRecheck(deps, jobId, url) };
   const link = await addedPageLink(deps, jobId);
-  if (!link) return 'unreadable';
+  if (!link) return { state: 'unreadable' };
   const read = await readPageToSharedJob(deps, url);
   const at = nowIso(deps);
   if (read.kind === 'closed') {
@@ -80,12 +91,20 @@ export async function settleRecheck(deps: AppDeps, jobId: number, url: string): 
       (t) => closeLink(deps, t, { jobId, link: { sourceId: Number(link.source_id), sourceJobId: link.source_job_id }, reason: 'gone', at }),
       { label: 'page recheck closed' },
     );
-    return 'closed';
+    return { state: 'closed' };
   }
+  // v37 CLOSED (C1): try later moves no check time.
+  if (read.kind === 'unreadable' && verdictOf(read) === 'try_later') return { state: 'later', ...(read.pause ? { until: read.pause.until } : {}) };
   await deps.db.run('UPDATE job_source_links SET liveness_checked_at = ? WHERE source_id = ? AND source_job_id = ?', [
     at,
     link.source_id,
     link.source_job_id,
   ]);
-  return read.kind === 'shared' ? 'live' : 'unreadable';
+  return { state: read.kind === 'shared' ? 'live' : 'unreadable' };
+}
+
+/** settleRecheckRead's state as v3.1 answered it (a read that failed for now is `unreadable`). */
+export async function settleRecheck(deps: AppDeps, jobId: number, url: string): Promise<'live' | 'closed' | 'unreadable'> {
+  const read = await settleRecheckRead(deps, jobId, url);
+  return read.state === 'later' ? 'unreadable' : read.state;
 }

@@ -10,13 +10,15 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, CheckIcon, XIcon } from '@/components/ui/icons';
 import { relativeTime } from '@/lib/format';
 import { ROW_ACTION, StateLine, useRowFocus } from '../../../../components/queue';
-import { evidenceLine, flagStateLine, originLine, reviewStateLine, rowName } from './copy';
+import { evidenceLine, flagStateLine, isChecking, originLine, reviewStateLine, rowName } from './copy';
 import { ReportersDisclosure } from './Reporters';
 
 // v30 X1-WEB: Admin › Review's rows (14 §6.2), drawn like the Auto-apply page's Queue rows (components/queue's state
 // line and row focus): the job and its company, a new job's origin, how many people and the strongest signal, TailorIT's
 // check, the newest report's age, and Approve and Reject (labelled, with their icons). In select mode a checkbox leads
 // each row that can still be decided.
+// v37 REVIEW (SP v37 PLAN.md R2): a lane is one list now (Waiting by default): a row TailorIT is checking carries a
+// "Checking" tag beside its company.
 
 /** A row's accent bar: needs a decision (denim), TailorIT says live (warning), otherwise quiet. */
 export function AccentBar({ tone }: { tone: 'decide' | 'warning' | 'quiet' }) {
@@ -130,6 +132,11 @@ export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, 
             {!row.job.active && (
               <Badge tone="neutral" className="ml-2 align-middle">
                 Closed
+              </Badge>
+            )}
+            {isChecking(row) && (
+              <Badge tone="sky" className="ml-2 align-middle" data-review-checking="">
+                Checking
               </Badge>
             )}
           </p>

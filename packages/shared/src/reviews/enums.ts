@@ -76,15 +76,53 @@ export const REVIEW_LANE_LABEL: Record<ReviewLane, string> = { closed: 'Closed l
 /**
  * The state filter: `needs_review` (pending, not being checked), `checking` (pending, TailorIT's check queued),
  * `decided` (any other state), `all`. On the Flags lane: open, decided (resolved or dismissed), all.
+ * v37 REVIEW (SP v37 PLAN.md R2): `waiting`, the default: every pending review (needs review and checking: what the
+ * lanes' counts count, so a lane's list shows all its count says); Needs review and Checking narrow it. On the Flags
+ * lane `waiting` is the open flags (`needs_review` there too).
  */
-export const REVIEW_STATE_FILTERS = ['needs_review', 'checking', 'decided', 'all'] as const;
+export const REVIEW_STATE_FILTERS = ['waiting', 'needs_review', 'checking', 'decided', 'all'] as const;
 export type ReviewStateFilter = (typeof REVIEW_STATE_FILTERS)[number];
 export const REVIEW_STATE_FILTER_LABEL: Record<ReviewStateFilter, string> = {
+  waiting: 'Waiting',
   needs_review: 'Needs review',
   checking: 'Checking',
   decided: 'Decided',
   all: 'All',
 };
+/** v37 REVIEW (R2): the state filter a lane opens with. */
+export const REVIEW_STATE_DEFAULT: ReviewStateFilter = 'waiting';
+
+/**
+ * v37 REVIEW (R2): the state filter a view's "of" counts against: Needs review and Checking narrow Waiting; Decided and
+ * All are their own views ("12 of 340": 12 match the search in the 340 the view holds).
+ */
+export function reviewStateBase(state: ReviewStateFilter): ReviewStateFilter {
+  return state === 'needs_review' || state === 'checking' ? 'waiting' : state;
+}
+
+// v37 REVIEW (SP v37 PLAN.md R1, R4): Admin › Review's page: its four lanes in order (the review queue's three and
+// "Couldn't verify", the web's own lane on LINK's routes), the page size its lists load as you scroll, and the lane it
+// opens on: the first one with items. The admins' bell links to that lane too (notifications/housekeeping.ts).
+/** The page's lanes, in order. */
+export const REVIEW_PAGE_LANES = ['closed', 'new_job', 'flags', 'unverified'] as const;
+export type ReviewPageLane = (typeof REVIEW_PAGE_LANES)[number];
+/** Rows one page of a lane holds (ADMIN_PAGE_MAX): the next page loads as the list's end comes near. */
+export const REVIEW_PAGE_SIZE = 100;
+/** Each lane's items: what its count says and its list shows (Waiting, or Couldn't verify's links). */
+export type ReviewPageCounts = Record<'closed' | 'newJob' | 'flags' | 'unverified', number>;
+/** The first lane with items, in the page's order; Closed links when nothing waits. */
+export function firstReviewLane(counts: ReviewPageCounts): ReviewPageLane {
+  if (counts.closed > 0) return 'closed';
+  if (counts.newJob > 0) return 'new_job';
+  if (counts.flags > 0) return 'flags';
+  if (counts.unverified > 0) return 'unverified';
+  return 'closed';
+}
+/** The address of a lane of Admin › Review ("/settings/admin?tab=review&lane=new_job"). */
+export function reviewLaneHref(lane: ReviewPageLane): string {
+  return `/settings/admin?tab=review&lane=${lane}`;
+}
+// end v37 REVIEW
 
 /** The groups rows show in, like the Queue pane's (14 §6.2). */
 export const REVIEW_GROUPS = ['needs_review', 'checking', 'server_live', 'decided_today', 'decided'] as const;

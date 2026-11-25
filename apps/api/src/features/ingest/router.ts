@@ -35,7 +35,7 @@ import { UsajobsConfigSchema } from './adapters/usajobs'; // v30 S4
 import { CAREER_CONFIG_LIST_MAX, careerSiteConfigOf } from './career/config'; // v30 FIX-A (REQ-5)
 import { storeAndRunImport } from './imports';
 import { lakeFileInfo, noLakeAt, readLake } from './lake';
-import { closeOrphanJobs } from './close';
+import { closedNoteOf, closeOrphanJobs } from './close'; // v37 FIX-REV (D1): closedNoteOf
 import { requireIngest } from './service';
 import { createSheetImportRouter } from './sheets/router';
 import { runnableKinds } from './scheduler'; // v30 INT-4
@@ -490,6 +490,7 @@ async function deleteSource(deps: AppDeps, id: number, running: (id: number) => 
         t,
         listed.map((row) => row.job_id),
         now,
+        closedNoteOf(deps, 'admin'), // v37 FIX-REV (D1): what waits on them in Review settles with them
       );
       // Never a source another process holds the lease of (service.ts): nothing is closed then either.
       const deleted = await t.run('DELETE FROM job_sources WHERE id = ? AND (lease_until IS NULL OR lease_until < CAST(? AS timestamptz))', [

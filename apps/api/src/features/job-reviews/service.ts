@@ -168,6 +168,74 @@ export async function decideReviews(deps: AppDeps, bulk: AdminReviewBulkBody, ad
 /** The failures one "all" answer names (the rest are counted). */
 const ALL_FAILURES_MAX = 20;
 
+/** v37 REVIEW (R3): one batch's decisions, as a selection's bulk answers them (each row's outcome). */
+export interface TurnDecisions<O extends string> {
+  ids: number[];
+  results: ReadonlyArray<{ id: number | string; outcome: O; message?: string | undefined }>;
+}
+
+/** v37 REVIEW (R3): what one "all" request did: the rows it took, each outcome's count, a few failures, where it stopped. */
+export interface InTurns<O extends string> {
+  changed: number[];
+  matched: number;
+  counts: Partial<Record<O, number>>;
+  failures: Array<{ id: number; message: string }>;
+  done: boolean;
+  after: number;
+}
+
+/**
+ * v37 REVIEW (SP v37 PLAN.md R3: one chunked, time-bound "all" path for every lane): New jobs' v3.5 loop, apart from
+ * what it decides. `nextIds(after)` names the next ADMIN_BULK_MAX rows after `after`, oldest first; `decide` decides
+ * them (each row in its own transaction, a failure named); the loop goes on until no row is left (`done`) or
+ * ADMIN_BULK_ALL_SECONDS have passed (`done` false: the same request with `after` goes on past every row it took, so a
+ * row that failed is never tried twice in one run).
+ */
+export async function decideInTurns<O extends string>(
+  deps: AppDeps,
+  start: number,
+  nextIds: (after: number) => Promise<number[]>,
+  decide: (ids: number[]) => Promise<TurnDecisions<O>>,
+  clock: () => number = Date.now,
+): Promise<InTurns<O>> {
+  const budgetMs = constantsOf(deps).get('ADMIN_BULK_ALL_SECONDS') * 1000;
+  const started = clock();
+  const counts: Partial<Record<O, number>> = {};
+  const failures: InTurns<O>['failures'] = [];
+  const changed: number[] = [];
+  let after = start;
+  let matched = 0;
+  let done = false;
+  for (;;) {
+    const ids = await nextIds(after);
+    if (ids.length === 0) {
+      done = true;
+      break;
+    }
+    const decided = await decide(ids);
+    matched += ids.length;
+    changed.push(...decided.ids);
+    for (const result of decided.results) {
+      counts[result.outcome] = (counts[result.outcome] ?? 0) + 1;
+      if (result.outcome === 'failed' && failures.length < ALL_FAILURES_MAX) {
+        failures.push({ id: Number(result.id), message: (result.message ?? 'It could not be decided.').slice(0, 400) });
+      }
+    }
+    after = ids[ids.length - 1]!;
+    if (ids.length < ADMIN_BULK_MAX) {
+      done = true;
+      break;
+    }
+    if (clock() - started >= budgetMs) break;
+  }
+  return { changed, matched, counts, failures, done, after };
+}
+
+/** v37 REVIEW (R3): an `upTo` for a count of rows up to `lastId` at `at` (reviews' and flags' alike). */
+export function upToOf(lastId: number, at: Date): string {
+  return `${lastId}@${at.getTime()}`;
+}
+
 /** The pending reviews of the lane's filter, on `r` joined with its job and company (the lane's own condition). */
 function pendingWhere(deps: AppDeps, filter: AdminReviewsAllFilter) {
   const where = reviewsWhere(deps, filter);
@@ -184,7 +252,7 @@ const ALL_FROM = 'FROM job_reviews r JOIN jobs j ON j.id = r.job_id JOIN compani
  * the count waits for the next decision), so rows that arrive while an import is still read stay pending.
  */
 export function reviewsUpTo(lastId: number, at: Date): string {
-  return `${lastId}@${at.getTime()}`;
+  return upToOf(lastId, at);
 }
 
 /** The bound of an `upTo` (400 for one no count gave). */
@@ -195,7 +263,10 @@ export function reviewsUpToBound(upTo: string): { lastId: number; at: string } {
   return { lastId: Number(parts[1]), at: at.toISOString() };
 }
 
-/** GET /api/admin/reviews/all/count: the pending reviews the New jobs lane's filter matches (the confirm's count). */
+/**
+ * GET /api/admin/reviews/all/count: the pending reviews the New jobs lane's filter matches (the confirm's count). v37
+ * REVIEW (R3): or the Closed links lane's.
+ */
 export async function countAllReviews(deps: AppDeps, filter: AdminReviewsAllFilter): Promise<AdminReviewsAllCount> {
   const at = deps.now(); // v35 FIX-STORE (S6): taken before the count, so nothing changed after it is in its upTo
   const where = pendingWhere(deps, filter);
@@ -212,7 +283,8 @@ export async function countAllReviews(deps: AppDeps, filter: AdminReviewsAllFilt
  * selection's bulk: a page review's link read first, a decided one skipped, a failure named), for at most
  * ADMIN_BULK_ALL_SECONDS: an answer with `done` false stopped there, and the same request with its `after` goes on.
  * Approvals of an admin's imports are not counted against ADMIN_APPROVALS_PER_HOUR (that hour is for approving what
- * TailorIT could not read: Couldn't verify, captured pages); nor are held reads', as before.
+ * TailorIT could not read: Couldn't verify, captured pages); nor are held reads', as before. v37 REVIEW (R3): the Closed
+ * links lane's too ("Select all N", then Approve or Reject), through decideInTurns.
  */
 export async function decideAllReviews(
   deps: AppDeps,
@@ -220,44 +292,24 @@ export async function decideAllReviews(
   admin: AdminActor,
   clock: () => number = Date.now,
 ): Promise<{ ids: number[]; body: AdminReviewsAllResult }> {
-  const budgetMs = constantsOf(deps).get('ADMIN_BULK_ALL_SECONDS') * 1000;
-  const started = clock();
-  const counts: AdminReviewsAllResult['counts'] = {};
-  const failures: AdminReviewsAllResult['failures'] = [];
-  const changed: number[] = [];
-  let after = body.after ?? 0;
-  let matched = 0;
-  let done = false;
   const bound = body.upTo === undefined ? null : reviewsUpToBound(body.upTo); // v35 FIX-STORE (S6)
-  for (;;) {
+  const nextIds = async (after: number): Promise<number[]> => {
     const where = pendingWhere(deps, body.filter);
     where.add('r.id > @after', { after });
     if (bound) {
       where.add('r.id <= @upToId', { upToId: bound.lastId });
       where.add('r.updated_at <= CAST(@upToAt AS timestamptz)', { upToAt: bound.at });
     }
-    const ids = (
-      await deps.db.all<{ id: number }>(`SELECT r.id ${ALL_FROM} ${where.sql()} ORDER BY r.id LIMIT ${ADMIN_BULK_MAX}`, where.params as Record<string, SqlParam>)
-    ).map((row) => row.id);
-    if (ids.length === 0) {
-      done = true;
-      break;
-    }
+    const rows = await deps.db.all<{ id: number }>(`SELECT r.id ${ALL_FROM} ${where.sql()} ORDER BY r.id LIMIT ${ADMIN_BULK_MAX}`, where.params as Record<string, SqlParam>);
+    return rows.map((row) => Number(row.id));
+  };
+  const decide = async (ids: number[]) => {
     const decided = await decideReviews(deps, { ids, decision: body.decision, ...(body.note ? { note: body.note } : {}) }, admin);
-    matched += ids.length;
-    changed.push(...decided.ids);
-    for (const result of decided.body.results) {
-      counts[result.outcome] = (counts[result.outcome] ?? 0) + 1;
-      if (result.outcome === 'failed' && failures.length < ALL_FAILURES_MAX) {
-        failures.push({ id: Number(result.id), message: (result.message ?? 'It could not be decided.').slice(0, 400) });
-      }
-    }
-    after = ids[ids.length - 1]!;
-    if (ids.length < ADMIN_BULK_MAX) {
-      done = true;
-      break;
-    }
-    if (clock() - started >= budgetMs) break;
-  }
-  return { ids: changed, body: { decision: body.decision, matched, counts, failures, done, after } };
+    return { ids: decided.ids, results: decided.body.results };
+  };
+  const turns = await decideInTurns(deps, body.after ?? 0, nextIds, decide, clock);
+  return {
+    ids: turns.changed,
+    body: { decision: body.decision, matched: turns.matched, counts: turns.counts, failures: turns.failures, done: turns.done, after: turns.after },
+  };
 }

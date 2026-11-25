@@ -593,4 +593,13 @@ export const PUBLIC_CONSTANT_SPECS = {
   MSG_INGEST_SOURCE_OFF: { kind: "message", default: "It is off: turn it on first." },
   SHARE_ALL_MAX: { kind: "int", default: 500, min: 1, max: 2000 },
   MSG_SHARE_ALL_TOO_MANY: { kind: "message", default: "Share at most {max} saved jobs at once." },
+  MSG_INGEST_LANE_RUNNING: { kind: "message", default: "Another {site} source is running. Try again when it ends." },
+  LINK_QUEUE_RETRY_HOURS: { kind: "int", default: 24, min: 1, max: 168 },
+  MSG_JOB_ADD_PAUSED: { kind: "message", default: "{site} asked us to slow down. Try again after {time}." },
+  MSG_JOB_ADD_HELD: { kind: "message", default: "TailorIT is waiting before it reads {site} again. Try again after {time}." },
+  MSG_REVIEW_CLOSED_CONFIRMED: { kind: "message", default: "Closed: confirmed by TailorIT" },
+  MSG_REVIEW_JOB_CLOSED: { kind: "message", default: "The job closed" },
+  MSG_JOB_RETRY_CLOSED: { kind: "message", default: "This posting has closed, so TailorIT marked the job closed." },
+  MSG_JOB_IMPORT_ROW_PAUSED: { kind: "message", default: "{site} asked us to slow down; TailorIT reads the link again after {time}." },
+  MSG_JOB_IMPORT_ROW_LATER: { kind: "message", default: "TailorIT reads the link again after {time}." },
 } as const satisfies PublicConstantSpecs;
