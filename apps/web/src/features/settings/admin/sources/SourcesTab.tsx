@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
-import { ArrowsClockwiseIcon, BriefcaseIcon, DotsThreeIcon, PlusIcon, TrashIcon, WarningCircleIcon } from '@/components/ui/icons';
+import { ArrowsClockwiseIcon, BriefcaseIcon, DotsThreeIcon, DownloadSimpleIcon, PlusIcon, TrashIcon, UploadSimpleIcon, WarningCircleIcon } from '@/components/ui/icons'; // v37 TRANSFER: Import, Export
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import { Notice } from '@/components/ui/Notice';
 import { Switch } from '@/components/ui/Switch';
@@ -35,6 +35,8 @@ import { usePublicConstants } from '@/lib/constants';
 import { focusLater } from '@/lib/focusLater';
 import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
+import { saveFile } from '../../../imports/results'; // v37 TRANSFER
+import { hostKeys } from '../hosts/api'; // v37 TRANSFER
 import { fetchSourcingReport, runKeys } from '../runs/api';
 import { RunStatusBadge } from '../runs/parts';
 import { runsBarText, sourcePausedText, sourcePauseToast } from '../runs/pause'; // v31 RUNS
@@ -46,6 +48,7 @@ import {
   changeAllSources,
   continueSource,
   deleteSource,
+  downloadSourcesExport, // v37 TRANSFER
   fetchSourcesAllCount,
   fetchSourcesPage,
   pauseSource,
@@ -74,10 +77,13 @@ import {
   runNowHint,
   scheduleText,
   sourceLine,
+  termsRunNowHint, // v37 FIX-37B (E8)
   termsTone,
   waitingTip,
 } from './sources';
 import { TurnedOffNotice } from './TurnedOffNotice'; // v36 SOURCES
+import { ImportSourcesDialog } from './ImportSourcesDialog'; // v37 TRANSFER
+import { EXPORT_TIP, exportSavedText, importProblems, importSummary } from './transfer'; // v37 TRANSFER; v37 FIX-37B: EXPORT_TIP
 
 /** How long the search box rests before the list is asked again. */
 const SEARCH_DELAY_MS = 300;
@@ -195,8 +201,9 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
   const [selection, setSelection] = useState<{ key: string; ids: ReadonlySet<number> }>({ key: filtersKey, ids: NO_IDS });
   const selected = selection.key === filtersKey ? selection.ids : NO_IDS;
   const anchor = useRef<number | null>(null);
-  // The last bulk action's outcome, said above the table until dismissed or replaced.
-  const [outcome, setOutcome] = useState<{ summary: ReturnType<typeof bulkSummary>; problems: BulkProblem[] } | null>(null);
+  // The last bulk action's outcome, said above the table until dismissed or replaced. v37 TRANSFER: or an import's, with
+  // its filter (the sources it added, waiting for an admin).
+  const [outcome, setOutcome] = useState<{ summary: ReturnType<typeof bulkSummary>; problems: BulkProblem[]; show?: Partial<SourceFilters> } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [opened, setOpened] = useState<AdminSourceRow | null>(null);
   const [adding, setAdding] = useState(false);
@@ -205,6 +212,8 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
   const [purgesOpen, setPurgesOpen] = useState(false);
   // v35 OPSWEB (PLAN H6): Enable all / Disable all for everything the filter shows (count, confirm, one request).
   const [allAction, setAllAction] = useState<AdminSourceAllAction | null>(null);
+  // v37 TRANSFER (PLAN T2): the Import dialog, made anew each time it opens (its key).
+  const [importing, setImporting] = useState<{ key: number; open: boolean }>({ key: 0, open: false });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -247,6 +256,18 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
     void queryClient.invalidateQueries({ queryKey: sourceKeys.all });
     void queryClient.invalidateQueries({ queryKey: runKeys.all });
   };
+  /** v37 TRANSFER (PLAN T3): a source turned on adds its host to Admin › Hosts: its list is read again. */
+  const hostsChanged = () => void queryClient.invalidateQueries({ queryKey: hostKeys.all });
+
+  // v37 TRANSFER (PLAN T1): Export saves the sources the filter shows.
+  const exportFile = useMutation({
+    mutationFn: () => downloadSourcesExport(filters),
+    onSuccess: (file) => {
+      saveFile(file.fileName, file.blob);
+      toast.success('Sources exported', exportSavedText(file));
+    },
+    onError: (error) => toast.error('The sources were not exported', userMessage(error)),
+  });
 
   /** Writes a change into every page shown (and the open sheet), without asking for the pages again. */
   const patchRows = (ids: ReadonlySet<number>, patch: Partial<AdminSourceRow>) => {
@@ -300,14 +321,16 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
   // v36 SOURCES: the answer's row says who turned it on and whether it still waits for an admin.
   const toggle = useMutation({
     mutationFn: (source: AdminSourceRow) => setSourceEnabled(source.id, !source.enabled),
-    onSuccess: (row, source) =>
+    onSuccess: (row, source) => {
       patchRows(new Set([source.id]), {
         enabled: row.enabled,
         enabledAt: row.enabledAt ?? null,
         enabledBy: row.enabledBy ?? null,
         waitingForAdmin: row.waitingForAdmin ?? false,
         nextRunAt: row.nextRunAt,
-      }),
+      });
+      if (row.enabled) hostsChanged(); // v37 TRANSFER
+    },
     onError: (error) => toast.error('The source was not changed', userMessage(error)),
   });
 
@@ -319,6 +342,7 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
       setOutcome({ summary: bulkSummary(action, result), problems: bulkProblems(result, (id) => names.get(Number(id))) });
       const done = new Set(result.results.filter((row) => row.outcome === 'done').map((row) => Number(row.id)));
       if (action !== 'run_now') patchRows(done, action === 'enable' ? { enabled: true, waitingForAdmin: false } : { enabled: false }); // v36 SOURCES
+      if (action === 'enable' && done.size > 0) hostsChanged(); // v37 TRANSFER
       setSelection({ key: filtersKey, ids: new Set([...selected].filter((id) => !done.has(id))) });
       void queryClient.invalidateQueries({ queryKey: sourceKeys.pages });
     },
@@ -341,6 +365,7 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
       setOutcome({ summary: { title: line.text, description: null, tone: line.tone }, problems: [] });
       setAllAction(null);
       void queryClient.invalidateQueries({ queryKey: sourceKeys.pages });
+      if (action === 'enable') hostsChanged(); // v37 TRANSFER
     } catch (error) {
       throw new Error(userMessage(error));
     }
@@ -477,12 +502,17 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
           <RunNowButton
             sourceId={source.id}
             running={Boolean(source.running)}
-            hint={source.running ? null : (pausedRunNowHint(source, Boolean(runsPause.paused), t) ?? offRunNowHint(source, t) ?? runNowHint(source))}
+            hint={
+              source.running
+                ? null
+                : (pausedRunNowHint(source, Boolean(runsPause.paused), t) ?? offRunNowHint(source, t) ?? termsRunNowHint(source, t) ?? runNowHint(source))
+            }
             disabled={
               Boolean(source.running) ||
               isUnrun(source) ||
               isPaused(source) || // v31 RUNS
               offRunNowHint(source, t) !== null || // v36 SOURCES (PLAN S5): it is off
+              termsRunNowHint(source, t) !== null || // v37 FIX-37B (E8): its terms don't allow reading
               Boolean(runsPause.paused) ||
               (run.isPending && run.variables?.id === source.id)
             }
@@ -536,6 +566,40 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
             Purges
           </Button>
           <IconButton label="Refresh the sources" icon={<ArrowsClockwiseIcon size={16} />} variant="outline" onClick={() => void sources.refetch()} />
+          {/* v37 TRANSFER (PLAN T1, T2): a sources file of what the filter shows, and the sources of a file, added off. */}
+          {/* v37 FIX-37B (the ux review's L8): named for what they move, apart from the Admin tab "Import" (job links). */}
+          <Button
+            variant="outline"
+            className="max-sm:h-11"
+            icon={<UploadSimpleIcon size={16} />}
+            aria-haspopup="dialog"
+            onClick={() => setImporting((now) => ({ key: now.key + 1, open: true }))}
+            data-sources-import-open=""
+          >
+            Import sources
+          </Button>
+          {/* v37 FIX-37B (E4, L10): its "?" says what a file holds (terms notes word for word); off with nothing shown. */}
+          <span className="flex items-center gap-1" data-sources-export-group="">
+            <Button
+              variant="outline"
+              className="max-sm:h-11"
+              icon={<DownloadSimpleIcon size={16} />}
+              loading={exportFile.isPending}
+              disabled={sources.data !== undefined && total === 0}
+              focusableWhenDisabled
+              aria-describedby={sources.data !== undefined && total === 0 ? 'sources-export-why' : undefined}
+              onClick={() => exportFile.mutate()}
+              data-sources-export=""
+            >
+              Export sources
+            </Button>
+            {sources.data !== undefined && total === 0 && (
+              <span id="sources-export-why" hidden>
+                Nothing to export: the search and filters show no sources.
+              </span>
+            )}
+            <HelpTip label="Export sources">{EXPORT_TIP}</HelpTip>
+          </span>
           <Button icon={<PlusIcon size={16} />} onClick={() => setAdding(true)}>
             Add source
           </Button>
@@ -653,9 +717,25 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
                 className="mb-3"
                 title={outcome.summary.title}
                 action={
-                  <Button variant="ghost" size="sm" onClick={() => setOutcome(null)}>
-                    Dismiss
-                  </Button>
+                  <span className="flex flex-wrap items-center gap-2">
+                    {/* v37 TRANSFER: an import's outcome shows the sources it added. */}
+                    {outcome.show && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="max-sm:h-11"
+                        onClick={() => {
+                          setSearch('');
+                          narrow(outcome.show!);
+                        }}
+                      >
+                        Show imported sources
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => setOutcome(null)}>
+                      Dismiss
+                    </Button>
+                  </span>
                 }
               >
                 {outcome.summary.description}
@@ -737,7 +817,8 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
         running={run.isPending && run.variables?.id === opened?.id}
         onPauseToggle={(source) => pauseToggle.mutate(source)}
         pauseBusy={pauseToggle.isPending && pauseToggle.variables?.id === opened?.id}
-        pausedHint={opened ? (pausedRunNowHint(opened, Boolean(runsPause.paused), t) ?? offRunNowHint(opened, t)) : null} // v36 SOURCES: or off
+        pausedHint={opened ? (pausedRunNowHint(opened, Boolean(runsPause.paused), t) ?? offRunNowHint(opened, t) ?? termsRunNowHint(opened, t)) : null} // v36 SOURCES: or off; v37 FIX-37B: or its terms
+        onTermsSaved={(row) => patchRows(new Set([row.id]), { termsStatus: row.termsStatus, waiting: row.waiting ?? null })} // v37 FIX-37B (E8)
         onShowRuns={onShowRuns}
         onShowHost={(host) => link({ tab: 'hosts', host })}
         onPurge={(source) => setPurging(source)}
@@ -764,6 +845,21 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
               ? `${source.name} is off. Turn it on when you want TailorIT to read it.`
               : `${source.name} is on. Run it now to fetch its jobs.`,
           );
+          refresh();
+          if (source.enabled !== false) hostsChanged(); // v37 TRANSFER
+        }}
+      />
+      {/* v37 TRANSFER (PLAN T2): the outcome goes above the table, with a filter for the sources it added. */}
+      <ImportSourcesDialog
+        key={importing.key}
+        open={importing.open}
+        onOpenChange={(open) => setImporting((now) => ({ ...now, open }))}
+        onImported={(result) => {
+          setOutcome({
+            summary: importSummary(result),
+            problems: importProblems(result),
+            ...(result.counts.new + result.counts.renamed > 0 ? { show: { ...clearedFilters(filters), via: ['file'], enabled: 'waiting' } } : {}),
+          });
           refresh();
         }}
       />

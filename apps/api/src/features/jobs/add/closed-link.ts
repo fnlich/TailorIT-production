@@ -4,14 +4,14 @@ import { nowIso, type AppDeps } from '../../../core/context';
 import { offerToDiscovery } from '../../../core/seams';
 import { workdayLinkPosting } from '../../ingest/adapters/workday';
 import { boardOfUrl } from '../../ingest/discovery/boards';
-import { IMPORT_BOARD_KINDS, importBoardOfPosting, type ImportBoardInput } from '../../ingest/import-sources';
+import { IMPORT_BOARD_KINDS, importBoardOfPosting, importBoardOfUrl, type ImportBoardInput } from '../../ingest/import-sources'; // v37 INT-B importBoardOfUrl
 import { readPage, type PageReading } from '../../autofill/lookup';
 
 // v37 CLOSED (SP v37 PLAN.md C7, the owner's "even if the job is closed, the source should be extracted and added"):
 //   - importBoardOfLink: the board an admin import's link names (a Greenhouse, Lever, Ashby or Workable board, or a
-//     Workday career site), from the posting the link names (importBoardOfPosting: the shared lookup's addablePosting,
-//     else a Workday link without a location) or, failing that, from the address alone (discovery's boardOfUrl, the
-//     import's board kinds only). import-pipeline.ts remembers it as a source (off, Found by import, in Runs' Sources
+//     Workday career site; v37 INT-B: a BambooHR company or an iCIMS site too, by BOARDS' importBoardOfUrl), from the
+//     posting the link names (importBoardOfPosting: the shared lookup's addablePosting, else a Workday link without a
+//     location) or, failing that, from the address alone (discovery's boardOfUrl, the import's board kinds only). import-pipeline.ts remembers it as a source (off, Found by import, in Runs' Sources
 //     found) whatever TailorIT's read gave: open, closed, try later, to review, can't read.
 //   - offerBoardOfClosedLink: a person's, the extension's or the MCP tool's add of a link whose posting has closed offers
 //     its board to discovery (offerToDiscovery: a candidate waiting for an admin; never a person's id, the job or the
@@ -51,6 +51,11 @@ export function importBoardOfLink(page: PageReading, url: string): Omit<ImportBo
       const config = workdaySiteConfig(found.name);
       return config ? { kind: 'workday_site', name: found.name, config } : null;
     }
+    // v37 INT-B (BOARDS B4, I4; CLOSED C7): a BambooHR opening's or an iCIMS posting's link names its company or site,
+    // closed or not (their config as BOARDS' Add source writes it: {company} / {board}).
+    case 'bamboohr':
+    case 'icims':
+      return importBoardOfUrl(url);
     default:
       return null;
   }

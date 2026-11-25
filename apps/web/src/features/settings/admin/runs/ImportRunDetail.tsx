@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Switch } from '@/components/ui/Switch';
 import { useToast } from '@/components/ui/Toast';
 import { userMessage } from '@/lib/api';
+import { hostKeys } from '../hosts/api'; // v37 INT-B (TRANSFER E3)
 import { setSourceEnabled, sourceKeys } from '../sources/api';
 import { allResultLine } from '../sources/bulk';
 import { importResultsHref } from '../sources/links';
@@ -109,6 +110,8 @@ function SourcesFound({ run }: { run: AdminRunRow }) {
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: runKeys.sources(run.id) });
     void queryClient.invalidateQueries({ queryKey: sourceKeys.all });
+    // v37 INT-B (TRANSFER T3): a source turned on here adds its host: an Admin › Hosts list open in this session reads again.
+    void queryClient.invalidateQueries({ queryKey: hostKeys.all });
   };
   const toggle = useMutation({
     mutationFn: (source: AdminRunSource) => setSourceEnabled(source.id, !source.enabled),

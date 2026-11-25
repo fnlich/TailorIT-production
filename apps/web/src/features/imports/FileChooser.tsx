@@ -7,11 +7,45 @@ import { HelpTip } from '@/components/ui/HelpTip';
 import { FileTextIcon, UploadSimpleIcon } from '@/components/ui/icons';
 import { Notice } from '@/components/ui/Notice';
 import { usePublicConstants } from '@/lib/constants';
-import { IMPORT_FILE_ACCEPT, IMPORT_FILE_TYPES_TEXT, fileProblem, fileProblemText, fileSizeText } from './mapping';
+import { IMPORT_FILE_ACCEPT, IMPORT_FILE_TYPES_TEXT, fileProblem, fileProblemText, fileSizeText, type FileProblem } from './mapping';
 
 // v35 IMPORTWEB (SP v35 SPECS-W2.md IMPORTWEB §1 "Choose a file"): a drop zone with Choose file, for the types an import
 // reads (.csv, .tsv, .txt, .json, .xlsx) up to UPLOAD_MAX_MB (the limit is shown). Anything else is refused here, before
 // it is sent, with what to do. Shared by Admin › Import › File and Jobs › Add job › File.
+
+/**
+ * v37 TRANSFER (SP v37 PLAN T2): another kind of file than a job import's (Admin › Sources › Import takes a .json sources
+ * file): the endings it takes, the input's accept list and its words. Absent: an import's files.
+ */
+export interface FileChooserAccept {
+  /** The file name endings it takes (".json"). */
+  endings: readonly string[];
+  /** The file input's accept list. */
+  accept: string;
+  /** The types in words ("JSON"). */
+  typesText: string;
+  /** The file input's name ("Sources file"). */
+  label: string;
+  /** The "?" beside the zone's words: what the file holds. */
+  help: string;
+  /** What an empty file should hold ("a source"), for its refusal. */
+  holds: string;
+}
+
+/** v37 TRANSFER: why a file of `accept`'s kind is refused before it is sent (as fileProblem for an import's), or null. */
+export function acceptedFileProblem(file: Pick<File, 'name' | 'size'>, maxMb: number, accept: FileChooserAccept): FileProblem | null {
+  if (!accept.endings.some((ending) => file.name.toLowerCase().endsWith(ending))) return 'type';
+  if (file.size === 0) return 'empty';
+  if (file.size > maxMb * 1024 * 1024) return 'size';
+  return null;
+}
+
+/** v37 TRANSFER: a refused file's sentence for `accept`'s kind, with what to do (the size's words are MSG_FILE_TOO_LARGE's). */
+export function acceptedFileProblemText(problem: FileProblem, file: Pick<File, 'name'>, accept: FileChooserAccept, tooLarge: string): string {
+  if (problem === 'size') return tooLarge;
+  if (problem === 'empty') return `${file.name} is empty: choose a file with ${accept.holds} in it.`;
+  return `TailorIT can't read ${file.name}: choose a ${accept.typesText} file.`;
+}
 
 export interface FileChooserProps {
   file: File | null;
@@ -22,9 +56,11 @@ export interface FileChooserProps {
   /** While the file's preview is read. */
   busy?: boolean;
   disabled?: boolean;
+  /** v37 TRANSFER: another kind of file than an import's (a sources file); absent: an import's. */
+  accept?: FileChooserAccept;
 }
 
-export function FileChooser({ file, onFile, error, busy = false, disabled = false }: FileChooserProps) {
+export function FileChooser({ file, onFile, error, busy = false, disabled = false, accept }: FileChooserProps) {
   const { t, get } = usePublicConstants();
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
@@ -33,9 +69,10 @@ export function FileChooser({ file, onFile, error, busy = false, disabled = fals
 
   const choose = (chosen: File | null | undefined) => {
     if (!chosen) return;
-    const problem = fileProblem(chosen, maxMb);
+    const problem = accept ? acceptedFileProblem(chosen, maxMb, accept) : fileProblem(chosen, maxMb); // v37 TRANSFER
     if (problem) {
-      setRefused(fileProblemText(problem, chosen, t('MSG_FILE_TOO_LARGE', { name: chosen.name, max_mb: maxMb })));
+      const tooLarge = t('MSG_FILE_TOO_LARGE', { name: chosen.name, max_mb: maxMb });
+      setRefused(accept ? acceptedFileProblemText(problem, chosen, accept, tooLarge) : fileProblemText(problem, chosen, tooLarge));
       return;
     }
     setRefused(null);
@@ -62,9 +99,9 @@ export function FileChooser({ file, onFile, error, busy = false, disabled = fals
       <input
         ref={inputRef}
         type="file"
-        accept={IMPORT_FILE_ACCEPT}
+        accept={accept?.accept ?? IMPORT_FILE_ACCEPT} // v37 TRANSFER
         className="sr-only"
-        aria-label="Job file"
+        aria-label={accept?.label ?? 'Job file'}
         data-testid="import-file"
         tabIndex={-1}
         disabled={disabled}
@@ -82,12 +119,12 @@ export function FileChooser({ file, onFile, error, busy = false, disabled = fals
             {file ? file.name : 'Drop a file here, or choose one'}
             {!file && (
               <HelpTip label="The file">
-                A row for each job with its link; other columns may give the company, title, description, rate and location.
+                {accept?.help ?? 'A row for each job with its link; other columns may give the company, title, description, rate and location.'}
               </HelpTip>
             )}
           </p>
           <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground" data-import-file-limit="">
-            {file ? fileSizeText(file.size) : `${IMPORT_FILE_TYPES_TEXT}. ${t('MSG_UPLOAD_SIZE_HINT', { max_mb: maxMb })}`}
+            {file ? fileSizeText(file.size) : `${accept?.typesText ?? IMPORT_FILE_TYPES_TEXT}. ${t('MSG_UPLOAD_SIZE_HINT', { max_mb: maxMb })}`}
           </p>
         </div>
         <Button

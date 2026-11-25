@@ -260,13 +260,14 @@ const LINK_APPROVED = `EXISTS (SELECT 1 FROM job_admin_approvals la JOIN jobs lj
  * of its link is published (SB-1: the adders keep their own jobs after one); a job an admin published whose approval ran
  * out and left search (SB-4: its note kept with no adder), to be approved again, read again or rejected. v37 REVIEW
  * (SP v37 PLAN.md R5: "never lists a closed job"): never a job that is closed (`j.active`) nor one TailorIT's last read
- * of its link found closed (its reason `closed`: nothing to approve, verify or reject there).
+ * of its link found closed (its reason `closed`: nothing to approve, verify or reject there). v37 FIX-37B (E2): nor one
+ * whose board's terms an admin recorded as not allowing automated access (`terms`: TailorIT doesn't read it).
  */
 export const LISTED = `((j.owner_user_id = v.user_id AND NOT ${LINK_APPROVED})
          OR (v.user_id IS NULL AND j.owner_user_id IS NULL AND j.held_since IS NOT NULL)
          OR (v.user_id IS NULL AND j.owner_user_id IS NULL AND j.held_since IS NULL AND j.unverified_since IS NOT NULL
              AND EXISTS (SELECT 1 FROM job_admin_approvals xa WHERE xa.job_id = j.id)))
-       AND j.superseded_by IS NULL AND j.active AND v.reason NOT IN ('unreadable_host', 'rejected', 'closed')
+       AND j.superseded_by IS NULL AND j.active AND v.reason NOT IN ('unreadable_host', 'rejected', 'closed', 'terms')
        AND NOT EXISTS (SELECT 1 FROM job_link_rejections r WHERE r.url_key = v.url_key)`;
 
 /**

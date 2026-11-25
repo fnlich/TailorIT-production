@@ -47,6 +47,8 @@ export const ADDABLE_KINDS = [
   'jobicy', // v30 S4
   'career_site', // v30 FIX-WEB (REQ-5): an employer's own career site, added by hand
   'workday_site', // v35 OPSWEB (PLAN H7): a Workday career site, from any page of it
+  'bamboohr', // v37 BOARDS (PLAN B4): a BambooHR company, by its name or careers address
+  'icims', // v37 BOARDS (PLAN I1): an employer's iCIMS site, by its address
   'ft_lake',
   'seed',
 ] as const;

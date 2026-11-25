@@ -37,6 +37,12 @@ export const JOB_SOURCE_ROBOTS_LABEL: Record<JobSourceRobotsStatus, string> = {
 
 /** The terms and robots statuses a source must have to be scheduled (the due index's condition). */
 export const JOB_SOURCE_RUNNABLE_TERMS = ['allowed', 'allowed_with_conditions'] as const satisfies readonly JobSourceTermsStatus[];
+/**
+ * v37 INT-2b (the coordinator's ruling on SP v37 FIXES-37 E2): the terms that say no. A board one of whose sources an
+ * admin recorded with one of them is never read, by any path (links, imports, re-checks, discovery, Add source's Test);
+ * Not checked is not one of them (such a source only never runs: JOB_SOURCE_RUNNABLE_TERMS).
+ */
+export const JOB_SOURCE_READ_FORBIDDING_TERMS = ['needs_contract', 'forbidden'] as const satisfies readonly JobSourceTermsStatus[];
 export const JOB_SOURCE_RUNNABLE_ROBOTS = ['allowed', 'not_applicable'] as const satisfies readonly JobSourceRobotsStatus[];
 
 /** How a board or site was found (12 §4.1); a candidate never names a person. */
@@ -55,8 +61,11 @@ export type JobSourceDiscoveredVia = (typeof JOB_SOURCE_DISCOVERED_VIA)[number];
 // v35 ADMIN (PLAN H6): a source may also be found by an admin's import (job_sources.discovered_via `import`, migration
 // 0058): the board of a link an import read, made a source switched off ("Found by import"). A candidate never is one
 // (job_source_candidates keeps JOB_SOURCE_DISCOVERED_VIA).
-/** How a source was found: discovery's ways, or an admin's import. */
-export const JOB_SOURCE_FOUND_VIA = [...JOB_SOURCE_DISCOVERED_VIA, 'import'] as const;
+/**
+ * How a source was found: discovery's ways, or an admin's import. v37 TRANSFER (PLAN T2): or an admin's sources file
+ * (Admin › Sources › Import, `file`: "Imported from a file", migration 0064), made off and waiting for an admin.
+ */
+export const JOB_SOURCE_FOUND_VIA = [...JOB_SOURCE_DISCOVERED_VIA, 'import', 'file'] as const; // v37 TRANSFER: 'file'
 export type JobSourceFoundVia = (typeof JOB_SOURCE_FOUND_VIA)[number];
 
 /** How a board or source was found, in words (v35 ADMIN: a source's `import` too, JOB_SOURCE_FOUND_VIA). */
@@ -70,6 +79,7 @@ export const JOB_SOURCE_DISCOVERED_VIA_LABEL: Record<JobSourceFoundVia, string> 
   vendor: 'A licensed feed',
   admin: 'An admin',
   import: 'Found by import', // v35 ADMIN
+  file: 'Imported from a file', // v37 TRANSFER
 };
 
 /** What started a run (job_source_runs, today's ingest_runs renamed; `liveness` is a per-posting read). */
@@ -141,6 +151,8 @@ export const JOB_SOURCE_RUN_ERROR_CODES = [
   'interrupted',
   'error',
   'workday_paused', // v37 FIX-LANE
+  'bamboohr_paused', // v37 INT-2b (E1)
+  'icims_paused', // v37 INT-2b (E1)
 ] as const;
 export type JobSourceRunErrorCode = (typeof JOB_SOURCE_RUN_ERROR_CODES)[number];
 /**
@@ -154,6 +166,8 @@ export const RUN_WAITING_FOR_WORKDAY = 'workday_paused' satisfies JobSourceRunEr
 export const RUN_WAITING_FOR_LANE_LABEL = "Waiting for its platform's pause";
 export const JOB_SOURCE_RUN_ERROR_LABEL: Record<JobSourceRunErrorCode, string> = {
   workday_paused: 'Waiting for Workday',
+  bamboohr_paused: 'Waiting for BambooHR', // v37 INT-2b (E1)
+  icims_paused: 'Waiting for iCIMS', // v37 INT-2b (E1)
   held: 'Its host is held',
   identity: "Waiting for TailorIT's bot identity",
   refused: 'A host TailorIT never reads',
@@ -207,7 +221,7 @@ export const JOB_SOURCE_WAITING_LABEL: Record<JobSourceWaitingReason, string> = 
   identity: 'Waiting: set BOT_USER_AGENT',
   outside_key: "Waiting: set this feed's API key",
   career_pages_off: 'Waiting: turn on Read career pages',
-  terms: 'Waiting: its terms are not recorded as allowing automated access',
+  terms: "Waiting: its terms don't allow automated reads", // v37 FIX-37B (E8): Forbidden, Needs a contract or Not checked
   robots_pending: "Waiting: reading its host's robots.txt",
   robots_disallowed: 'Waiting: robots.txt disallows this site',
   robots_unreadable: "Waiting: its host's robots.txt could not be read (tried again daily)",

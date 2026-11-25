@@ -164,7 +164,7 @@ export async function sweepLinks(deps: AppDeps, options: { budgetMs?: number } =
       t.all(
         `SELECT j.id AS at,
            CASE WHEN j.held_since IS NULL
-             AND j.apply_platform IN ('greenhouse', 'lever', 'ashby', 'workable', 'workday', 'bamboohr', 'breezy', 'site')
+             AND j.apply_platform IN ('greenhouse', 'lever', 'ashby', 'workable', 'workday', 'bamboohr', 'breezy', 'icims', 'site')
              AND NOT EXISTS (SELECT 1 FROM job_source_links l JOIN job_sources s ON s.id = l.source_id
                                              WHERE l.job_id = j.id AND s.kind = ANY(string_to_array(?, ',')))
            THEN j.apply_url END AS url

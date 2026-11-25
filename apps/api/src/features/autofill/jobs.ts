@@ -8,6 +8,7 @@ import {
 } from '@tailorit/shared/autofill';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/types';
+import { constantsOf } from '../../core/constants/index'; // v37 FIX-37B (E8)
 import { AppError } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse'; // v31 LINK
 import { bestResumes, SINGLE_SAVE_MATCH_BUDGET_MS } from '../applications/resume-choice';
@@ -19,6 +20,7 @@ import { sourceHashOf } from '../ingest/normalize';
 import { fetchPosting, type AshbyBoardReads, type PostingAnswer } from '../ingest/postings';
 import { RobotsRefusal } from '../ingest/robots';
 import { requireIngest } from '../ingest/service';
+import { termsRefusalOfPosting, TermsRefusalError } from '../ingest/terms'; // v37 FIX-37B (E2)
 import { IngestError, type SourceRecord } from '../ingest/types';
 import { holdNewJob, noteHeldAdd, type HeldAdder } from '../job-reviews/new-jobs'; // v30 X1-API; v33 SHARE-6: HeldAdder
 import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
@@ -207,6 +209,11 @@ async function readAndStore(
   timeoutMs: number = ADD_JOB_FETCH_TIMEOUT_MS, // v37 CLOSED (C3): the link queue's reads wait longer for their turn
 ): Promise<{ jobId: number; created: boolean }> {
   const ingest = requireIngest(deps);
+  // v37 FIX-37B (SP v37 FIXES-37 E2, E8): a board whose source's terms an admin recorded as not allowing automated access is
+  // never read (nothing sent): `unsupported` in the person's words (MSG_JOB_VERIFY_TERMS), the refusal along (a link's
+  // read answers the reason `terms`: verdict.ts atsFailure).
+  const refusal = await termsRefusalOfPosting(deps.db, posting);
+  if (refusal) throw new AppError('unsupported', constantsOf(deps).message('MSG_JOB_VERIFY_TERMS'), { cause: new TermsRefusalError(refusal) });
   const signal = AbortSignal.timeout(timeoutMs);
   let answer: PostingAnswer;
   try {
@@ -591,7 +598,8 @@ export async function upgradeOwnPageJobsFor(deps: AppDeps, userId: string, share
  */
 export function isGonePosting(error: unknown): boolean {
   if (!(error instanceof AppError)) return false;
-  return error.code === 'not_found' || (error.code === 'unsupported' && !(error.cause instanceof RobotsRefusal));
+  // v37 FIX-37B (E2): nor a board whose terms say no: the posting is there, only not for TailorIT to read.
+  return error.code === 'not_found' || (error.code === 'unsupported' && !(error.cause instanceof RobotsRefusal) && !(error.cause instanceof TermsRefusalError));
 }
 
 /**

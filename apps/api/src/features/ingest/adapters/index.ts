@@ -19,6 +19,7 @@ import { himalayasAdapter } from './himalayas'; // v30 S4
 import { jobicyAdapter } from './jobicy'; // v30 S4
 import { usajobsAdapter } from './usajobs'; // v30 S4
 import { careerSiteAdapter } from './careerSite'; // v30 S5
+import { icimsAdapter } from './icims'; // v37 BOARDS
 // v30 ST0: the dev-only seam's adapters (empty in the production export).
 import { DEV_ADAPTERS } from '../../../dev-only/index';
 
@@ -51,6 +52,8 @@ const PRODUCT_ADAPTERS = {
   jobicy: jobicyAdapter,
   // v30 S5: employers' career sites through the shared reader (off: SITE_READER_CAREER_PAGES).
   career_site: careerSiteAdapter,
+  // v37 BOARDS (SP v37 PLAN I1, I2): an employer's iCIMS site, its sitemap and each posting's page (a new kind of read).
+  icims: icimsAdapter,
 } satisfies Partial<Record<SourceKind, DefinedAdapter>>;
 
 /** The adapters every install has. */

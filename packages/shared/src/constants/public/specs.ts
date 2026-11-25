@@ -602,4 +602,12 @@ export const PUBLIC_CONSTANT_SPECS = {
   MSG_JOB_RETRY_CLOSED: { kind: "message", default: "This posting has closed, so TailorIT marked the job closed." },
   MSG_JOB_IMPORT_ROW_PAUSED: { kind: "message", default: "{site} asked us to slow down; TailorIT reads the link again after {time}." },
   MSG_JOB_IMPORT_ROW_LATER: { kind: "message", default: "TailorIT reads the link again after {time}." },
+  MSG_INGEST_SOURCE_TERMS: { kind: "message", default: "Its terms are {status}: TailorIT doesn't read it." },
+  ADMIN_SOURCES_IMPORT_MAX: { kind: "int", default: 5000, min: 1, max: 20000 },
+  MSG_ADMIN_SOURCES_FILE_TOO_MANY: { kind: "message", default: "This file holds {count} sources; a file may hold at most {max}. Split it and import each part." },
+  MSG_ADMIN_SOURCES_EXPORT_TOO_MANY: { kind: "message", default: "{count} sources match; a file holds at most {max}. Narrow the filters (a kind, a search) and export each part." },
+  MSG_ADMIN_SOURCES_FILE_INVALID: { kind: "message", default: "This isn't a TailorIT sources file. Choose a file saved by Export in Admin › Sources." },
+  MSG_ADMIN_SOURCES_FILE_UP_TO: { kind: "message", default: "Up to {max} sources a file." },
+  MSG_JOB_VERIFY_TERMS: { kind: "message", default: "TailorIT doesn't read this company's job site. Add the title and company to save it for yourself." },
+  MSG_JOB_IMPORT_ROW_TERMS: { kind: "message", default: "TailorIT doesn't read {host}: its terms say no." },
 } as const satisfies PublicConstantSpecs;

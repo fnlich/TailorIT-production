@@ -63,7 +63,8 @@ export const EMPTY_SOURCE_FILTERS: SourceFilters = {
  */
 export const FILTER_KINDS: readonly AdminSourceListKind[] = ADMIN_SOURCE_LIST_KINDS.filter(
   (kind) => !(JOB_SOURCE_KINDS_NOT_BUILT as readonly JobSourceKind[]).includes(kind),
-);
+  // v37 FIX-37B (the ux review's L6): iCIMS among the boards, after BambooHR (the table's kinds list it last).
+).flatMap((kind): AdminSourceListKind[] => (kind === 'icims' ? [] : kind === 'bamboohr' ? ['bamboohr', 'icims'] : [kind]));
 
 export const SOURCE_SORT_LABEL: Record<AdminSourceSort, string> = {
   next_run: 'Next run',

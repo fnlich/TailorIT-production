@@ -36,9 +36,10 @@ import { isWorkdayHost, readWorkdayPosting, workdayTenant, type WorkdayRef } fro
 //      sweep reads it); a gone answer (404/410, an error code, `posted: false`) closes its link through closeLink
 //      (reason `gone`), and its job once no live link is left (12 §8.1: "Workday postings close by their reads").
 // The sitemap is never taken as complete (12 §3.2: whether Workday caps one at 100 addresses is unknown, and its
-// completeness check needs the site's own count, the search call that is not built), so the run is `partial` and
-// nothing closes by absence. A held host stops the reads (the run keeps what it read); a robots.txt that refuses one
-// posting's read is that posting's failure.
+// completeness check needs the site's own count, the search call that is not built), so nothing closes by absence. A
+// held host stops the reads (the run keeps what it read); a robots.txt that refuses one posting's read is that
+// posting's failure. v37 FIX-37A (SP v37 FIXES-37 E9): a run that read every posting it planned (none failed, none due
+// left past the cap) ends `succeeded` (FetchResult.readAll), any other `partial`.
 // v37 LANE (SP v37 PLAN W4): every Workday request takes the one Workday lane (hosts.ts), and a 429 pauses it. The run
 // stops at the first pause it meets (a HostHeldError, or a 429 the lane could not record), keeps what it read, and
 // answers the pause's end (FetchResult.heldUntil): its next run is due after it (scheduler.ts nextScheduleOf). It never
@@ -241,7 +242,7 @@ export function planWorkdayReads(
   known: readonly KnownLink[],
   site: WorkdaySite,
   options: { now: number; budget: number; recheckMs: number; unlistedMs: number },
-): { plan: Planned[]; unreadable: number } {
+): { plan: Planned[]; unreadable: number; left: number } {
   const byId = new Map(known.map((link) => [link.source_job_id, link]));
   const due = (link: KnownLink, wait: number) => options.now - Date.parse(link.read_at) >= wait;
   const fresh: Planned[] = [];
@@ -268,7 +269,10 @@ export function planWorkdayReads(
       unreadable += 1;
     }
   }
-  return { plan: [...fresh, ...unlisted, ...stale].slice(0, Math.max(0, options.budget)), unreadable };
+  const reads = [...fresh, ...unlisted, ...stale];
+  const budget = Math.max(0, options.budget);
+  // v37 FIX-37A (E9): `left`, the due postings past the budget (later runs read them).
+  return { plan: reads.slice(0, budget), unreadable, left: Math.max(0, reads.length - budget) };
 }
 
 /** A read's failure as a sentence. */
@@ -328,7 +332,7 @@ export const workdaySiteAdapter = defineAdapter({
     const deps = ctx.deps;
     const constants = constantsOf(deps);
     const known = await knownLinks(deps, source.id, [...listed.keys()]);
-    const { plan, unreadable } = planWorkdayReads(listed, known, site, {
+    const { plan, unreadable, left } = planWorkdayReads(listed, known, site, {
       now: deps.now().getTime(),
       budget: constants.get('WORKDAY_SITE_READS_PER_RUN'),
       recheckMs: constants.get('WORKDAY_SITE_RECHECK_DAYS') * DAY,
@@ -400,6 +404,17 @@ export const workdaySiteAdapter = defineAdapter({
     );
     if (unreadable) ctx.log(`${unreadable} live postings the sitemap no longer lists have no Workday address to read them by.`);
     if (stopped) ctx.log(`The reads stopped early: ${stopped}`);
-    return { postings, complete: false, failures, closedByRead: jobsClosed, ...(heldUntil ? { heldUntil } : {}) };
+    if (left) ctx.log(`${left} more postings are due: later runs read them.`); // v37 FIX-37A (E9)
+    // v37 FIX-37A (E9): every planned posting read, none failed and none left for later: the run succeeded (the sitemap
+    // still closes nothing by its absence).
+    const readAll = !stopped && failures.length === 0 && left === 0 && read === plan.length;
+    return {
+      postings,
+      complete: false,
+      failures,
+      closedByRead: jobsClosed,
+      ...(readAll ? { readAll: true } : {}),
+      ...(heldUntil ? { heldUntil } : {}),
+    };
   },
 });

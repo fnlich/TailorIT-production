@@ -61,6 +61,11 @@ export const JOB_VERIFY_REASONS = [
   'closed',
   /** Not an https job link TailorIT may read (refused). */
   'invalid_link',
+  /**
+   * v37 FIX-37B (SP v37 FIXES-37 E2, E8): the board's source has terms an admin recorded as not allowing automated
+   * access (Forbidden, Needs a contract; or not checked yet): TailorIT doesn't read it, by any path.
+   */
+  'terms',
 ] as const;
 export type JobVerifyReason = (typeof JOB_VERIFY_REASONS)[number];
 
@@ -77,6 +82,7 @@ export const JOB_VERIFY_REASON_MESSAGE: Record<JobVerifyReason, MessageKey> = {
   rejected: 'MSG_JOB_VERIFY_REJECTED',
   closed: 'MSG_JOB_ADD_REFUSED_CLOSED',
   invalid_link: 'MSG_JOB_ADD_REFUSED_LINK',
+  terms: 'MSG_JOB_VERIFY_TERMS', // v37 FIX-37B (E8)
 };
 
 /**
@@ -97,6 +103,8 @@ export const JOB_VERIFY_REASON_ADMIN_TEXT: Record<JobVerifyReason, string> = {
   rejected: 'An admin rejected this link.',
   closed: 'The posting has closed.',
   invalid_link: 'Not an https job link TailorIT may read.',
+  // v37 FIX-37B (E8): an admin recorded its board's terms as not allowing automated access (Admin › Sources › Terms).
+  terms: 'Its terms say no to automated reading (Admin › Sources › Terms).',
 };
 
 /** Each state's words (constants, public): what the Add job dialog says. */

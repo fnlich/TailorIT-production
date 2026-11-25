@@ -1,6 +1,7 @@
 import { decodeHtmlEntities, htmlToText, linkKey } from '@tailorit/shared';
 import type { RawSalary } from '../types';
 import { isRecord, num, periodOf, str, type Json } from '../adapters/common';
+import { countryNameOf, regionReadAsCountry } from './countries'; // v37 FIX-37A
 
 // v30 S5: a career page's schema.org JobPosting (docs/design/part2/12-job-sourcing.md §3.4 step 4). Only the page's
 // `<script type="application/ld+json">` blocks are parsed: no guessing from the HTML around them, no scripts run, no AI
@@ -150,20 +151,68 @@ function listOf(value: unknown): unknown[] {
   return Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
 }
 
-/** A Country / State / Place's name ("United States", {"@type":"Country","name":"US"}). */
-function placeName(value: unknown): string | null {
-  if (isRecord(value)) return plain(value.name, 200) ?? plain(value.addressCountry, 200);
-  return plain(value, 200);
+// v37 FIX-37A (SP v37 FIXES-37 E5, review H1): a place's parts are cleaned before the places reader sees them. iCIMS
+// writes "UNAVAILABLE" in an empty field and its country as an ISO code ("Vught, UNAVAILABLE, NL" read as a second
+// place in Canada; "Bangalore, KA, IN" as Indiana): a placeholder is dropped, a country code becomes the country's name
+// (career/countries.ts), a region with a digit in it (a postal code, a numeric code) is dropped, and so is a locality
+// that is only a postal code. Every career page's JSON-LD is read alike, and BambooHR's places too (placeOfParts).
+
+/** Words a field holds when it holds nothing ("UNAVAILABLE", "N/A", "-"). */
+const PLACEHOLDER = /^(?:unavailable|not available|not applicable|n\/a|n\.a\.?|none|null|nil|undefined|unknown|not specified|unspecified|tbd|tba|-+|\.+|\?+)$/i;
+
+/** A place's part as text (null for a placeholder); `bareNa` also drops a bare "NA" (not in a country: Namibia's code). */
+function placePart(value: string | null, bareNa = true): string | null {
+  const text = value?.trim() ?? '';
+  if (!text || PLACEHOLDER.test(text) || (bareNa && /^na$/i.test(text))) return null;
+  return text;
 }
 
-/** One jobLocation as a place line: "Austin, TX, US" (locality, region, country; postal address or text). */
+/** A country as a place's part: a placeholder dropped, an ISO code as its name ("NL" -> "Netherlands"). */
+export function countryPart(value: string | null): string | null {
+  const text = placePart(value, false);
+  return text ? countryNameOf(text) : null;
+}
+
+/**
+ * One place's line from its parts, cleaned (see above): "Vught, UNAVAILABLE, NL" -> "Vught, Netherlands",
+ * "Bangalore, KA, IN" -> "Bangalore, KA, India"; null when nothing is left.
+ */
+export function placeOfParts(locality: string | null, region: string | null, country: string | null): string | null {
+  const city = placePart(locality);
+  const state = placePart(region);
+  const nation = countryPart(country);
+  const parts = [
+    city && !/^\d[\d\s-]*$/.test(city) ? city : null,
+    // A postal code (or any numeric code) is never a region; nor, before a country, a code the places reader would read
+    // as a country of its own ("Gurgaon, HR, India": Haryana's code is Croatia's).
+    state && !/\d/.test(state) && !(nation && regionReadAsCountry(state)) ? state : null,
+    nation,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
+/** Whether a node's @type names a schema.org Country. */
+const isCountryNode = (value: Json) => isType(value, 'Country');
+
+/** A Country / State / Place's name ("United States", {"@type":"Country","name":"US"}: a Country's code as its name). */
+function placeName(value: unknown): string | null {
+  if (isRecord(value)) {
+    const name = placePart(plain(value.name, 200), !isCountryNode(value));
+    if (name) return isCountryNode(value) ? countryNameOf(name) : name;
+    return countryPart(plain(value.addressCountry, 200));
+  }
+  return placePart(plain(value, 200));
+}
+
+/** One jobLocation as a place line: "Austin, TX, United States" (locality, region, country; postal address or text). */
 function placeLine(value: unknown): string | null {
-  if (!isRecord(value)) return plain(value, 300);
+  if (!isRecord(value)) return placePart(plain(value, 300));
   const address = isRecord(value.address) ? value.address : value.address === undefined ? value : null;
-  if (!address) return plain(value.address, 300) ?? plain(value.name, 300);
+  if (!address) return placePart(plain(value.address, 300)) ?? placePart(plain(value.name, 300));
   const country = isRecord(address.addressCountry) ? placeName(address.addressCountry) : plain(address.addressCountry, 100);
-  const parts = [plain(address.addressLocality, 100), plain(address.addressRegion, 100), country].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join(', ') : (plain(value.name, 300) ?? null);
+  return (
+    placeOfParts(plain(address.addressLocality, 100), plain(address.addressRegion, 100), country) ?? placePart(plain(value.name, 300))
+  );
 }
 
 /** baseSalary (MonetaryAmount; its value a QuantitativeValue or a number) as a RawSalary. */

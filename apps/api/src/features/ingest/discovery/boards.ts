@@ -1,5 +1,5 @@
 import { JOB_SOURCE_KIND_PLATFORM, type JobSourceKind } from '@tailorit/shared';
-import { isEmployerPlatformHost, isSharedPlatformHost } from '../career/platforms'; // v30 FIX-A (REQ-5)
+import { ICIMS_SERVICE_HOST, icimsBoardOf, isEmployerPlatformHost, isIcimsBoardHost, isSharedPlatformHost } from '../career/platforms'; // v30 FIX-A (REQ-5); v37 BOARDS: iCIMS; v37 FIX-37A
 import { isRefusedPageHost, isSiteHost, normalHost } from '../../job-reviews/hosts';
 import { ashbyBoard } from '../adapters/ashby';
 import { bamboohrCompany } from '../adapters/bamboohr'; // v30 INT-4 (S2 edit A)
@@ -29,13 +29,16 @@ import { careerSiteSourceOf } from '../career/config'; // v30 INT-4 (S2 edit A)
 //   personio     the tenant, lower case; a tenant on Personio's .com host keeps it: <tenant>.jobs.personio.com (v30 FIX-A)
 //   recruitee, breezy, bamboohr: the tenant, its host's first label, lower case (S3's feed kinds)
 //   career_site the host, lower case (only while SITE_READER_CAREER_PAGES is on, for discovery's own signals)
+//   icims       v37 BOARDS: the employer's iCIMS host's first label, lower case (careers-acme.icims.com: careers-acme;
+//               career/platforms.ts ICIMS_BOARD_HOST), from any page on that host; never a career site any more
 //
 // `validates`: the four public APIs, and (v30 INT-4, S2's edit A) S3's kinds and S5's career sites, each `configOf` the
 // config its adapter reads: a Workday career site `{ host, tenant, careerSite }` (adapters/workdaySite.ts), a feed
 // `{ company }` (adapters/personio.ts, recruitee.ts, breezy.ts, bamboohr.ts, their normalisers), a career site
 // `{ host }` (career/config.ts careerSiteSourceOf). Validation still reads a kind only when the worker may run it and
-// its terms are recorded (validate.ts validatableKinds): Breezy and BambooHR have no recorded terms, so their candidates
-// wait; career sites wait while SITE_READER_CAREER_PAGES is off (scheduler.ts runnableKinds).
+// its terms are recorded (validate.ts validatableKinds): Breezy has no recorded terms, so its candidates wait (v37 BOARDS:
+// BambooHR's and iCIMS's are recorded, sources.ts KIND_TERMS); career sites wait while SITE_READER_CAREER_PAGES is off
+// (scheduler.ts runnableKinds).
 
 /** One kind of board discovery knows. */
 export interface BoardKind {
@@ -119,6 +122,8 @@ export const BOARD_KINDS: Readonly<Partial<Record<JobSourceKind, BoardKind>>> = 
     configOf: (name) => careerSiteSourceOf(name)?.config ?? { host: name },
     validates: true,
   }),
+  // v37 BOARDS (SP v37 PLAN I1, I5): an employer's iCIMS site, config `{ board }` (adapters/icims.ts).
+  icims: boardKind('icims', 'board', icimsBoardOf, { validates: true }),
 };
 
 /** The board's name as candidates keep it, or null when the kind is no board or the name is none it reads. */
@@ -248,6 +253,11 @@ function rawBoardOf(url: URL): { kind: JobSourceKind; raw: string } | null {
   const bamboo = tenantOf(host, '.bamboohr.com');
   // A BambooHR tenant's own host serves its staff too: only its careers pages name a board.
   if (bamboo && ['careers', 'jobs'].includes(parts[0]?.toLowerCase() ?? '')) return { kind: 'bamboohr', raw: bamboo };
+  // v37 BOARDS (SP v37 PLAN I5): any page on one employer's iCIMS host names its site (never iCIMS's own hosts).
+  // v37 FIX-37A (F11): a host iCIMS runs for itself (its developers', community, status pages) only by a posting's page.
+  if (isIcimsBoardHost(host) && (!ICIMS_SERVICE_HOST.test(host) || (parts[0] === 'jobs' && /^\d{1,12}$/.test(parts[1] ?? '')))) {
+    return { kind: 'icims', raw: host };
+  }
   return null;
 }
 

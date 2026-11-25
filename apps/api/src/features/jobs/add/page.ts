@@ -19,6 +19,8 @@ import { readWaitsForAdmin, settleHeldAfterRead } from './held';
 import { dateImported } from './import-time'; // v36 IMPORTTIME
 import { linkRejected } from './verification';
 import { isWorkdayPageHost, pauseOfHold, type LinkRead, type ReadPause } from './verdict'; // v37 CLOSED (C1, C3, C4); v37 INT-A pauseOfHold
+import { readBoardLinkToSharedJob } from './board-link'; // v37 BOARDS
+import { termsRefusalOfLink } from '../../ingest/terms'; // v37 FIX-37B (E2)
 
 // v31 LINK (D3, docs/design/v3.1/21-jobs-from-links.md §4): an added job's own page, read once by TailorIT for its
 // schema.org JobPosting, when no ATS API reads the posting. The read goes through the shared reader (core/seams
@@ -182,6 +184,11 @@ export interface PageReadOptions {
   approved?: boolean;
   /** v35 INT-A: an admin import's read (ImportRead). */
   importRead?: ImportRead;
+  /**
+   * v37 FIX-37A (REVIEW37-beh F9): a queued read's budget (LINK_QUEUE_READ_TIMEOUT_MS) for a BambooHR or iCIMS link
+   * (jobs/add/board-link.ts); a person's read keeps ADD_JOB_FETCH_TIMEOUT_MS.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -190,6 +197,14 @@ export interface PageReadOptions {
  * (its shared form, after the reader's redirects on the same domain), and the link added is one of its keys too.
  */
 export async function readPageToSharedJob(deps: AppDeps, url: string, options: PageReadOptions = {}): Promise<PageJobRead> {
+  // v37 FIX-37B (SP v37 FIXES-37 E2): a board (or a career site's host) whose source's terms an admin recorded as not
+  // allowing automated access is never read, whoever asks: nothing is sent (ingest/terms.ts).
+  if (await termsRefusalOfLink(deps.db, url)) return unreadable('terms');
+  // v37 BOARDS (SP v37 PLAN B4, I4): a BambooHR opening or an iCIMS posting is read as its board's run reads it (the
+  // opening's detail JSON; the posting's ?in_iframe=1 page, which holds its JobPosting) and kept under the board's
+  // source, made off: never as a career page (jobs/add/board-link.ts).
+  const board = await readBoardLinkToSharedJob(deps, url, options);
+  if (board) return board;
   const read = await readJobPage(deps, url);
   if (read.kind !== 'posting') return read;
   const address = sharedAddress(read.finalUrl) ?? sharedAddress(url);

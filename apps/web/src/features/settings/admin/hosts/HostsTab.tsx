@@ -80,6 +80,9 @@ export function HostsTab() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor,
     placeholderData: keepPreviousData,
+    // v37 TRANSFER (PLAN T3): read again each time the tab opens: a source turned on anywhere (Sources, a run's Sources
+    // found) may have added a host since (Sources also marks this list stale when it turns one on).
+    refetchOnMount: 'always',
   });
   const items = useMemo(() => hosts.data?.pages.flatMap((page) => page.items) ?? [], [hosts.data]);
   const total = hosts.data?.pages[0]?.total ?? 0;
@@ -195,7 +198,7 @@ export function HostsTab() {
       empty={
         narrowed
           ? { title: 'No host matches', description: 'Try another search.', card: false }
-          : { size: 'sm', title: 'No hosts yet', description: 'A host appears once a reader asks it.' }
+          : { size: 'sm', title: 'No hosts yet', description: 'A host appears when a source of it is turned on, or when a reader asks it.' } // v37 TRANSFER
       }
       toolbar={
         <p className="mb-3 text-sm text-muted-foreground" aria-live="polite">

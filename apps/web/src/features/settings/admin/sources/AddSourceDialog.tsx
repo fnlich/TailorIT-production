@@ -12,14 +12,16 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Select } from '@/components/ui/Select';
 import { ApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
+import { focusSoon } from '@/lib/focusLater'; // v37 FIX-37B (ux L7)
 import type { AddableKind, NewSourceBody } from '../types';
 import { createSource, testLake, testSource } from './api';
-import { addableKindItems, careerSiteHost, feedNote, workdayAddressProblem } from './sources';
+import { addableKindItems, bamboohrCompanyOf, careerSiteHost, companyNameHint, feedNote, icimsBoardOfInput, workdayAddressProblem } from './sources'; // v37 FIX-37A: companyNameHint
 
 // "Add source" (v2.0, moved out of SourcesTab by v30 S1-WEB unchanged): a Greenhouse, Lever, Ashby or Workable board,
 // free_tailor's lake or the demo jobs, tested before it is saved. Discovery (12 §4) adds most boards from v3.0 on.
 // v36 SOURCES (SP v36 PLAN S4): "Turn on now", ticked by default: ticked, the source is added on (the server records the
 // admin who turned it on); unticked, it is added off and runs only once an admin turns it on in the list.
+// v37 BOARDS (SP v37 PLAN B4, I1): a BambooHR company (its name or careers address) and an iCIMS site (its address).
 
 /** v30 INT-0: no "Demo jobs" in a production build (dev-only, like app/(dev)/). */
 const KIND_ITEMS = addableKindItems(process.env.NODE_ENV === 'production');
@@ -40,6 +42,9 @@ interface Draft {
   siteUrl: string;
   /** v35 OPSWEB (PLAN H7): any page of a Workday career site. */
   workdayUrl: string;
+  /** v37 BOARDS: a BambooHR company's name or careers address; an iCIMS site's address. */
+  bambooCompany: string;
+  icimsSite: string;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -55,6 +60,8 @@ const EMPTY_DRAFT: Draft = {
   geo: '', // v30 S4
   siteUrl: '', // v30 FIX-WEB
   workdayUrl: '', // v35 OPSWEB
+  bambooCompany: '', // v37 BOARDS
+  icimsSite: '', // v37 BOARDS
 };
 
 /**
@@ -62,7 +69,10 @@ const EMPTY_DRAFT: Draft = {
  * (sources.ts feedNote, its numbers from the constants: v30 FIX-WEB, REQ-7). v30 FIX-WEB (REQ-5): a career site added
  * by hand is the same: no Test (the site reader waits for its switch and the identity).
  */
-const FEED_KINDS: readonly AddableKind[] = ['usajobs', 'himalayas', 'jobicy', 'career_site', 'workday_site']; // v35 OPSWEB: Workday too
+const FEED_KINDS: readonly AddableKind[] = ['usajobs', 'himalayas', 'jobicy', 'career_site', 'workday_site', 'bamboohr', 'icims']; // v35 OPSWEB: Workday too; v37 BOARDS: BambooHR, iCIMS
+
+/** v37 BOARDS: the API's field of each kind whose words go under its own field (not twice in a notice). */
+const FIELD_OF: Partial<Record<AddableKind, string>> = { workday_site: 'config.url', bamboohr: 'config.company', icims: 'config.board' };
 
 function bodyOf(kind: AddableKind, draft: Draft): NewSourceBody {
   const company: Record<string, string> = draft.companyName.trim() ? { companyName: draft.companyName.trim() } : {};
@@ -93,6 +103,11 @@ function bodyOf(kind: AddableKind, draft: Draft): NewSourceBody {
     // v35 OPSWEB (PLAN H7): the page pasted; the API reads the host, tenant and site from it.
     case 'workday_site':
       return { kind, name, config: { url: draft.workdayUrl.trim(), ...company } };
+    // v37 BOARDS (PLAN B4, I1): what was typed; the API reads the company or the site from it.
+    case 'bamboohr':
+      return { kind, name, config: { company: draft.bambooCompany.trim(), ...company } };
+    case 'icims':
+      return { kind, name, config: { board: draft.icimsSite.trim(), ...company } };
   }
 }
 
@@ -117,7 +132,10 @@ export function AddSourceDialog({
   const [turnOn, setTurnOn] = useState(true); // v36 SOURCES
   const [outcome, setOutcome] = useState<TestOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** v35 OPSWEB: the API's words about the Workday address (its `config.url` field), shown under the field. */
+  /**
+   * v35 OPSWEB: the API's words about the Workday address (its `config.url` field), shown under the field. v37 BOARDS: and
+   * about a BambooHR company or an iCIMS site (`config.company`, `config.board`).
+   */
   const [urlError, setUrlError] = useState<string | null>(null);
   const constants = usePublicConstants();
   const note = feedNote(
@@ -129,7 +147,7 @@ export function AddSourceDialog({
   const set = (key: keyof Draft) => (event: { target: { value: string } }) => {
     setDraft((previous) => ({ ...previous, [key]: event.target.value }));
     setOutcome(null);
-    if (key === 'workdayUrl') setUrlError(null);
+    if (key === 'workdayUrl' || key === 'bambooCompany' || key === 'icimsSite') setUrlError(null); // v37 BOARDS
   };
 
   const reset = () => {
@@ -167,18 +185,23 @@ export function AddSourceDialog({
       onOpenChange(false);
     },
     onError: (failure) => {
-      // v35 OPSWEB: a Workday address the API cannot read a site from: its words under the field, not twice.
-      const field = failure instanceof ApiError ? failure.fields?.['config.url'] : undefined;
-      if (kind === 'workday_site' && field) {
+      // v35 OPSWEB: a Workday address the API cannot read a site from: its words under the field, not twice. v37 BOARDS:
+      // a BambooHR company's and an iCIMS site's too.
+      const key = FIELD_OF[kind];
+      const field = failure instanceof ApiError && key ? failure.fields?.[key] : undefined;
+      if (field) {
         setUrlError(userMessage(failure));
         return;
       }
       setError(userMessage(failure));
+      // v37 FIX-37B (the ux review's L7): focus stays on Add source (its busy state had dropped it to the page).
+      focusSoon(['[data-add-source-submit]']);
     },
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (missing || create.isPending) return; // v37 FIX-37B: Add source stays focusable while off (Enter in a field submits)
     setError(null);
     create.mutate();
   };
@@ -190,9 +213,24 @@ export function AddSourceDialog({
     (kind === 'ashby' && !draft.board.trim()) ||
     (kind === 'workable' && !draft.account.trim()) ||
     (kind === 'career_site' && careerSiteHost(draft.siteUrl) === null) || // v30 FIX-WEB
-    (kind === 'workday_site' && (!draft.workdayUrl.trim() || workdayAddressProblem(draft.workdayUrl) !== null)); // v35 OPSWEB
+    (kind === 'workday_site' && (!draft.workdayUrl.trim() || workdayAddressProblem(draft.workdayUrl) !== null)) || // v35 OPSWEB
+    (kind === 'bamboohr' && bamboohrCompanyOf(draft.bambooCompany) === null) || // v37 BOARDS
+    (kind === 'icims' && icimsBoardOfInput(draft.icimsSite) === null); // v37 BOARDS
   const siteUrlError = kind === 'career_site' && draft.siteUrl.trim() !== '' && careerSiteHost(draft.siteUrl) === null;
   const workdayError = kind === 'workday_site' ? (workdayAddressProblem(draft.workdayUrl) ?? urlError) : null; // v35 OPSWEB
+  // v37 BOARDS: what was typed names no company or site (said under the field; the API checks again).
+  const bambooError =
+    kind === 'bamboohr'
+      ? draft.bambooCompany.trim() && bamboohrCompanyOf(draft.bambooCompany) === null
+        ? 'Enter the name in <name>.bamboohr.com, or an address on it.'
+        : urlError
+      : null;
+  const icimsError =
+    kind === 'icims'
+      ? draft.icimsSite.trim() && icimsBoardOfInput(draft.icimsSite) === null
+        ? 'Enter an address on <name>.icims.com, such as careers-acme.icims.com.'
+        : urlError
+      : null;
 
   return (
     <Dialog
@@ -211,7 +249,11 @@ export function AddSourceDialog({
             ? 'About 120 fictional postings from 15 made-up companies, dated from today.'
             : kind === 'workday_site' // v35 OPSWEB (PLAN H7)
               ? "Reads the site's postings on its schedule, one request at a time, once BOT_USER_AGENT is set and its robots.txt allows it."
-              : 'Where TailorIT should read jobs from.')
+              : kind === 'bamboohr' // v37 BOARDS (PLAN B1)
+                ? "Reads the company's openings and each one's full posting on its schedule, one request at a time, once BOT_USER_AGENT is set."
+                : kind === 'icims' // v37 BOARDS (PLAN I2)
+                  ? "Reads the site's sitemap and each posting's page on its schedule, one request at a time, once BOT_USER_AGENT is set."
+                  : 'Where TailorIT should read jobs from.')
         }
         size="lg"
       >
@@ -308,8 +350,43 @@ export function AddSourceDialog({
               />
             </Field>
           )}
-          {(kind === 'greenhouse' || kind === 'lever' || kind === 'ashby' || kind === 'workable' || kind === 'career_site' || kind === 'workday_site') && (
-            <Field label="Company name" optional hint="Shown when the board doesn't name the company.">
+          {/* v37 BOARDS (PLAN B4, I1): a BambooHR company and an iCIMS site, by name or address. */}
+          {kind === 'bamboohr' && (
+            <Field
+              label="Company on BambooHR"
+              hint="The name in <name>.bamboohr.com, or its careers page's address."
+              error={bambooError || undefined}
+            >
+              <Input
+                value={draft.bambooCompany}
+                onChange={set('bambooCompany')}
+                placeholder="https://acme.bamboohr.com/careers"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Field>
+          )}
+          {kind === 'icims' && (
+            <Field label="iCIMS site" hint="The site's address or any page of it, such as careers-acme.icims.com." error={icimsError || undefined}>
+              <Input
+                value={draft.icimsSite}
+                onChange={set('icimsSite')}
+                placeholder="careers-acme.icims.com"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="url"
+              />
+            </Field>
+          )}
+          {(kind === 'greenhouse' ||
+            kind === 'lever' ||
+            kind === 'ashby' ||
+            kind === 'workable' ||
+            kind === 'career_site' ||
+            kind === 'workday_site' ||
+            kind === 'bamboohr' ||
+            kind === 'icims') && (
+            <Field label="Company name" optional hint={companyNameHint(kind)}>
               <Input value={draft.companyName} onChange={set('companyName')} autoComplete="off" />
             </Field>
           )}
@@ -339,7 +416,7 @@ export function AddSourceDialog({
                 Test
               </Button>
             )}
-            <Button type="submit" loading={create.isPending} disabled={missing}>
+            <Button type="submit" loading={create.isPending} disabled={missing} focusableWhenDisabled data-add-source-submit="">
               Add source
             </Button>
           </DialogFooter>

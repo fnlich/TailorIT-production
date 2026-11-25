@@ -331,8 +331,10 @@ export interface RecheckPostingResult {
  * read through ingest/postings.ts, under the host's pace (crawl_hosts) and today's identity (the read today's liveness
  * check makes: no assertNewReadAllowed). A failed read answers `unreadable`; v37 INT-A: a held host or the Workday
  * lane's pause (Retry-After, the breaker, a bot check, an admin's hold), or a read that sent nothing, answers
- * `unreadable` with `retryAt` (try later: wait for it); a platform with no per-posting read (SmartRecruiters, iCIMS, Taleo, a page job, a career site while S5
- * is off) `not_possible`, with no request. `live` may refresh the posting as a liveness read does; `gone` closes
+ * `unreadable` with `retryAt` (try later: wait for it); a platform with no per-posting read (SmartRecruiters, Taleo, a page job, a career site while S5
+ * is off; v37 INT-B: a BambooHR or iCIMS link whose source's terms an admin set to not allowed) `not_possible`, with no
+ * request. v37 BOARDS: BambooHR openings and iCIMS postings are read (their detail JSON, their ?in_iframe=1 page), once
+ * BOT_USER_AGENT is set and with it. `live` may refresh the posting as a liveness read does; `gone` closes
  * nothing (the caller closes through closeLink when the review is approved). The budget (EXT_RECHECKS_PER_DAY), one
  * check per review at a time and the 6-hour floor are the caller's. Caller: X1-API's re-check queue.
  */

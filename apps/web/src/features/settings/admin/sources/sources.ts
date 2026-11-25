@@ -35,6 +35,8 @@ const ADDABLE_KIND_ITEMS: ReadonlyArray<{ value: AddableKind; label: string }> =
   { value: 'jobicy', label: 'Jobicy' },
   { value: 'career_site', label: 'Career site' }, // v30 FIX-WEB (REQ-5)
   { value: 'workday_site', label: 'Workday career site' }, // v35 OPSWEB (PLAN H7)
+  { value: 'bamboohr', label: 'BambooHR' }, // v37 BOARDS (PLAN B4)
+  { value: 'icims', label: 'iCIMS' }, // v37 BOARDS (PLAN I1)
   { value: 'ft_lake', label: 'free_tailor lake' },
   { value: 'seed', label: 'Demo jobs' },
 ];
@@ -105,6 +107,11 @@ export function sourceDetail(source: SourceWithSettings): string | null {
     // v30 FIX-WEB (REQ-5): a career site reads its own host.
     case 'career_site':
       return text('host') ? `Career site ${text('host')}` : null;
+    // v37 BOARDS (PLAN B1, I1): a BambooHR company's careers list, an iCIMS site's sitemap.
+    case 'bamboohr':
+      return text('company') ? `Company ${text('company')} (${text('company')}.bamboohr.com)` : null;
+    case 'icims':
+      return text('board') ? `iCIMS site ${text('board')}.icims.com` : null;
     default:
       return null;
   }
@@ -298,7 +305,8 @@ const WAITING_TIP: Record<JobSourceWaitingReason, string> = {
   identity: 'TailorIT reads this site only under a named bot; set BOT_USER_AGENT in the server settings and it starts by itself.',
   outside_key: 'This feed needs its API key; add it to the server settings and the source starts by itself.',
   career_pages_off: 'Career page reads are off; turn on Read career pages in Admin › Constants and it starts by itself.',
-  terms: "Its site's terms are not recorded as allowing automated reads; record them on its host in Admin › Hosts.",
+  // v37 FIX-37B (E8): terms are recorded on the source itself (its sheet's Terms), since v3.7 for every kind.
+  terms: "Its terms don't allow automated reads, so TailorIT doesn't read it; change them under Terms in its details.",
   robots_pending: "TailorIT reads its host's robots.txt first, then the source starts by itself.",
   robots_disallowed: "The site's robots.txt asks automated readers not to read it; the source starts by itself if that changes.",
   robots_unreadable: "Its host's robots.txt could not be read; TailorIT tries again daily and the source starts by itself.",
@@ -368,8 +376,21 @@ export function offRunNowHint(row: Pick<AdminSourceRow, 'enabled' | 'kind'>, t: 
   return t('MSG_INGEST_SOURCE_OFF');
 }
 
-/** "Waiting for an admin"'s "?": what it means and what ends it, in one sentence. */
-export const WAITING_FOR_ADMIN_TIP = 'TailorIT found and checked this board; it stays off and never runs until you turn it on.';
+/**
+ * v37 FIX-37B (SP v37 FIXES-37 E8, the ux review's M2): why Run now is off for a source whose recorded terms don't allow
+ * automated access, in the server's words for its refusal (MSG_INGEST_SOURCE_TERMS: "Its terms are Forbidden: TailorIT
+ * doesn't read it."), or null when its terms let it run (or a kind that runs while off, or one never run).
+ */
+export function termsRunNowHint(row: Pick<AdminSourceRow, 'termsStatus' | 'kind'>, t: MessageRenderer): string | null {
+  if (RUNS_WHILE_OFF_KINDS.includes(row.kind) || isUnrun(row) || termsLetRun(row.termsStatus)) return null;
+  return t('MSG_INGEST_SOURCE_TERMS', { status: JOB_SOURCE_TERMS_LABEL[row.termsStatus] });
+}
+
+/**
+ * "Waiting for an admin"'s "?": what it means and what ends it, in one sentence. v37 INT-B (TRANSFER E4): a source
+ * imported from a file waits too, and TailorIT did not find it.
+ */
+export const WAITING_FOR_ADMIN_TIP = 'TailorIT found this board, or an admin imported it; it stays off and never runs until you turn it on.';
 
 /** "Nov 23, 2026": an enable's day, in the viewer's time. */
 function dayText(value: string): string {
@@ -427,3 +448,94 @@ export function turnedOffWords(notice: TurnedOffCounts): {
 export function formatCount(count: number): string {
   return count.toLocaleString('en-US');
 }
+
+// v37 BOARDS (SP v37 PLAN B4, I1): Add source's BambooHR and iCIMS fields, read as the API reads them (it checks again).
+
+/**
+ * iCIMS's own hosts' first labels: never an employer's site (the API's career/platforms.ts ICIMS_BOARD_HOST). v37 FIX-37A
+ * (REVIEW37-beh F11): the shared lookup's rule (www, api, login; internal-<co> below), as the API's now.
+ */
+const ICIMS_OWN_LABELS = new Set(['www', 'api', 'login']);
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** The host an address or bare host names (lower case), or the text itself when it names none. */
+function hostOfInput(input: string): string {
+  const text = input.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//.test(text) && !text.includes('/') && !text.includes('.')) return text;
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`).hostname.replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * v37 FIX-37B (the ux review's L1): BambooHR's own hosts' first labels: never a company's (the API's router refuses them
+ * too).
+ */
+export const BAMBOOHR_OWN_LABELS: ReadonlySet<string> = new Set([
+  'www', 'app', 'api', 'help', 'marketing', 'support', 'status', 'login', 'partners', 'marketplace', 'developers', 'docs', 'blog', 'static', 'cdn',
+]);
+
+/**
+ * A BambooHR company from what an admin typed: its name ("acme") or an address on <name>.bamboohr.com; null when it
+ * names none (v37 FIX-37B: or one of BambooHR's own hosts, www.bamboohr.com).
+ */
+export function bamboohrCompanyOf(input: string): string | null {
+  const host = hostOfInput(input);
+  const label = host.includes('.') ? (host.endsWith('.bamboohr.com') ? host.slice(0, -'.bamboohr.com'.length) : '') : host;
+  return DNS_LABEL.test(label) && !BAMBOOHR_OWN_LABELS.has(label) ? label : null;
+}
+
+/**
+ * An iCIMS site's board from what an admin typed: its board ("careers-acme"), its host or any page of it; null when it
+ * names none (another domain, iCIMS's own hosts, an employees' internal-<co> portal).
+ */
+export function icimsBoardOfInput(input: string): string | null {
+  const host = hostOfInput(input);
+  const label = host.includes('.') ? (host.endsWith('.icims.com') ? host.slice(0, -'.icims.com'.length) : '') : host;
+  return DNS_LABEL.test(label) && !ICIMS_OWN_LABELS.has(label) && !label.startsWith('internal-') ? label : null;
+}
+// end v37 BOARDS
+
+/**
+ * v37 FIX-37A (SP v37 FIXES-37 E6, REVIEW37-ux M4): Add source's Company name tip. A BambooHR board never names its
+ * company: TailorIT reads the name from the company's careers page once (adapters/bamboohr.ts), unless one is typed.
+ */
+export function companyNameHint(kind: AddableKind): string {
+  return kind === 'bamboohr'
+    ? "BambooHR doesn't name the company: TailorIT reads it from the company's careers page once. Type it to choose it yourself."
+    : "Shown when the board doesn't name the company.";
+}
+
+// v37 BOARDS (SP v37 PLAN B3): a source's Terms editor (status, terms page, note), every kind's. The API checks again.
+
+/** job_sources.terms_note's limit (its CHECK; the PATCH route's). */
+export const TERMS_NOTE_MAX = 1000;
+
+/** The statuses the editor offers, in the order an admin decides them. */
+export const TERMS_STATUS_OPTIONS: ReadonlyArray<{ value: JobSourceTermsStatus; label: string }> = (
+  ['allowed', 'allowed_with_conditions', 'needs_contract', 'forbidden', 'unchecked'] as const
+).map((value) => ({ value, label: JOB_SOURCE_TERMS_LABEL[value] }));
+
+/** Why the terms page cannot be saved (an https address, or nothing), or null. */
+export function termsUrlProblem(url: string): string | null {
+  const text = url.trim();
+  return text && !/^https:\/\/\S+$/.test(text) ? 'Give the terms page as an https address.' : null;
+}
+
+/** Why the note cannot be saved (too long), or null. */
+export function termsNoteProblem(note: string): string | null {
+  return note.trim().length > TERMS_NOTE_MAX ? `Keep the note under ${formatCount(TERMS_NOTE_MAX)} characters.` : null;
+}
+
+/** The PATCH body of the editor's fields: an empty page or note clears it. */
+export function termsBodyOf(status: JobSourceTermsStatus, url: string, note: string) {
+  return { termsStatus: status, termsUrl: url.trim() || null, termsNote: note.trim() || null };
+}
+
+/** Whether the scheduler may run a source of this status (the words under the status: what it changes). */
+export function termsLetRun(status: JobSourceTermsStatus): boolean {
+  return (JOB_SOURCE_RUNNABLE_TERMS as readonly JobSourceTermsStatus[]).includes(status);
+}
+// end v37 BOARDS (terms)

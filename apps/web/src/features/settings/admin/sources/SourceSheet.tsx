@@ -9,16 +9,23 @@ import {
 } from '@tailorit/shared/sourcing';
 import { PauseIcon } from '@phosphor-icons/react/Pause';
 import { PlayIcon } from '@phosphor-icons/react/Play';
-import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { RowDetailSheet } from '@/components/queue';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { ArrowsClockwiseIcon } from '@/components/ui/icons';
+import { Field } from '@/components/ui/Field';
+import { ArrowSquareOutIcon, ArrowsClockwiseIcon } from '@/components/ui/icons';
+import { Input, Textarea } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { Select } from '@/components/ui/Select';
+import { useToast } from '@/components/ui/Toast';
+import { userMessage } from '@/lib/api';
+import { focusSoon } from '@/lib/focusLater'; // v37 FIX-37B (ux M1)
 import { relativeTime } from '@/lib/format';
 import { RunStatusBadge } from '../runs/parts';
 import { sourcePausedText } from '../runs/pause'; // v31 RUNS
-import { fetchSourceSettings, sourceKeys, type SourceSettings } from './api';
+import { fetchSourceSettings, saveSourceTerms, sourceKeys, type SourceSettings } from './api';
 import {
   TIER_TONE,
   failureText,
@@ -30,7 +37,12 @@ import {
   scheduleText,
   sourceDetail,
   sourceLine,
+  termsBodyOf, // v37 BOARDS
+  termsLetRun, // v37 BOARDS
+  termsNoteProblem, // v37 BOARDS
   termsTone,
+  termsUrlProblem, // v37 BOARDS
+  TERMS_STATUS_OPTIONS, // v37 BOARDS
   turnedOnText,
   waitingTip,
   WAITING_FOR_ADMIN_TIP,
@@ -41,6 +53,8 @@ import {
 // its host and company, and what it reads. The row is CT's AdminSourceRow; its settings come from its own route.
 // v31 RUNS: whether an admin paused it (by whom, since when), and its Pause or Continue beside Run now.
 // v36 SOURCES (PLAN S8): "Waiting for an admin" (found, never turned on), and who turned it on and when.
+// v37 BOARDS (SP v37 PLAN B3): its recorded terms in full (status, terms page, note, when checked), and in the sheet a
+// Terms editor for every kind (PATCH /api/admin/sources/:id: only allowed terms let the scheduler and Run now run it).
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -60,17 +74,170 @@ function When({ value, now }: { value: string | null; now: number }) {
   );
 }
 
+/** v37 BOARDS: a source's recorded terms: its status, terms page, note and when they were checked (read only). */
+export function TermsFacts({
+  status,
+  settings,
+  now,
+}: {
+  status: AdminSourceRow['termsStatus'];
+  settings: Pick<SourceSettings, 'termsUrl' | 'termsNote' | 'termsCheckedAt'> | null;
+  now: number;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-1.5" data-source-terms={status}>
+      <Badge tone={termsTone(status)}>{JOB_SOURCE_TERMS_LABEL[status]}</Badge>
+      {settings?.termsUrl && (
+        <a
+          href={settings.termsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex max-w-full items-center gap-1 text-[13px] font-medium break-all text-primary-ink underline underline-offset-2"
+        >
+          Terms page
+          <ArrowSquareOutIcon size={12} aria-hidden="true" />
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      )}
+      {settings?.termsNote && <p className="text-[13px] leading-5 break-words whitespace-pre-line text-muted-foreground">{settings.termsNote}</p>}
+      {settings?.termsCheckedAt && <p className="text-[12px] text-subtle-foreground">Checked {relativeTime(settings.termsCheckedAt, now)}</p>}
+    </div>
+  );
+}
+
+/** v37 FIX-37B (ux M1): the editor's controls focus moves between (the sheet holds one source's at a time). */
+const termsIds = (id: number) => ({ edit: `source-${id}-terms-edit`, status: `source-${id}-terms-status` });
+
+/**
+ * v37 BOARDS (SP v37 PLAN B3): the sheet's Terms editor: the recorded terms, and Edit terms (status, terms page, note):
+ * saved by PATCH; its checked time moves. Only "Allowed" and "Allowed with conditions" let the source run.
+ * v37 FIX-37B (the ux review's M1): focus stays in the sheet: Edit terms opens the editor on its Status; Cancel and Save
+ * terms come back to Edit terms, a polite status line saying what was saved. The note is not cut at its limit (L4: the
+ * field says it is too long), and the fields are 44 px tall on a phone (L5). `onSaved` hands the saved row to the list
+ * (its Run now's reason follows the new terms at once).
+ */
+export function TermsEditor({
+  source,
+  settings,
+  now,
+  onSaved,
+}: {
+  source: AdminSourceRow;
+  settings: SourceSettings | null;
+  now: number;
+  onSaved?: (row: AdminSourceRow) => void;
+}) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const ids = termsIds(source.id);
+  /** The status last saved here (the sheet's row is the list's, refreshed once it reloads). */
+  const [saved, setSaved] = useState<AdminSourceRow['termsStatus'] | null>(null);
+  const shown = saved ?? source.termsStatus;
+  const [editing, setEditing] = useState(false);
+  const [status, setStatus] = useState(shown);
+  const [url, setUrl] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  /** v37 FIX-37B (M1): what the polite status line says (the last save). */
+  const [said, setSaid] = useState('');
+  const urlProblem = termsUrlProblem(url);
+  const noteProblem = termsNoteProblem(note);
+  const backToEdit = () => focusSoon([`#${ids.edit}`]);
+  const save = useMutation({
+    mutationFn: () => saveSourceTerms(source.id, termsBodyOf(status, url, note)),
+    onSuccess: (row) => {
+      setSaved(row.termsStatus);
+      setEditing(false);
+      const effect = termsLetRun(row.termsStatus) ? 'It may run on its schedule once it is on.' : 'It does not run until its terms allow it.';
+      setSaid(`Terms saved: ${JOB_SOURCE_TERMS_LABEL[row.termsStatus]}. ${effect}`);
+      onSaved?.(row);
+      backToEdit();
+      void queryClient.invalidateQueries({ queryKey: sourceKeys.all });
+      toast.success('Terms saved', effect);
+    },
+    onError: (failure) => setError(userMessage(failure)),
+  });
+  const start = () => {
+    setStatus(shown);
+    setUrl(settings?.termsUrl ?? '');
+    setNote(settings?.termsNote ?? '');
+    setError(null);
+    setSaid('');
+    setEditing(true);
+    focusSoon([`#${ids.status}`]);
+  };
+  const cancel = () => {
+    setEditing(false);
+    backToEdit();
+  };
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (urlProblem || noteProblem) return;
+    setError(null);
+    save.mutate();
+  };
+  return (
+    <>
+      {/* v37 FIX-37B (M1): a status line that stays, so the save is read aloud where focus came back. */}
+      <p role="status" className="sr-only" data-terms-said="">
+        {said}
+      </p>
+      {!editing ? (
+        <div className="flex flex-col items-start gap-2">
+          <TermsFacts status={shown} settings={settings} now={now} />
+          <Button id={ids.edit} variant="outline" size="sm" className="max-sm:min-h-11" onClick={start} disabled={!settings}>
+            Edit terms
+          </Button>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="flex min-w-0 flex-col gap-3" aria-label="Terms" data-terms-editor="">
+          <Field label="Status" hint="Only Allowed and Allowed with conditions let it run.">
+            <Select id={ids.status} options={TERMS_STATUS_OPTIONS} value={status} onValueChange={setStatus} className="max-sm:h-11" />
+          </Field>
+          <Field label="Terms page" optional hint="The page that says whether automated reading is allowed." error={urlProblem ?? undefined}>
+            <Input
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://www.example.com/terms"
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              className="max-sm:h-11"
+            />
+          </Field>
+          <Field label="Note" optional hint="What you checked, when, and on what conditions." error={noteProblem ?? undefined}>
+            <Textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} />
+          </Field>
+          {error && <Notice tone="error">{error}</Notice>}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" size="sm" className="max-sm:min-h-11" loading={save.isPending} disabled={Boolean(urlProblem || noteProblem)}>
+              Save terms
+            </Button>
+            <Button variant="ghost" size="sm" className="max-sm:min-h-11" onClick={cancel} disabled={save.isPending}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+    </>
+  );
+}
+
 /** The facts of a source (drawn without a server in the web tests). */
 export function SourceDetails({
   source,
   settings,
   now,
   onShowHost,
+  terms,
 }: {
   source: AdminSourceRow;
   settings: SourceSettings | null;
   now: number;
   onShowHost?: (host: string) => void;
+  /** v37 BOARDS: the Terms row's content (the sheet's editor); its recorded terms, read only, by default. */
+  terms?: ReactNode;
 }) {
   const detail = settings ? sourceDetail({ kind: source.kind, config: settings.config }) : null;
   return (
@@ -127,9 +294,7 @@ export function SourceDetails({
           Access
         </h3>
         <dl className="mt-1 divide-y divide-divider-soft">
-          <Fact label="Terms">
-            <Badge tone={termsTone(source.termsStatus)}>{JOB_SOURCE_TERMS_LABEL[source.termsStatus]}</Badge>
-          </Fact>
+          <Fact label="Terms">{terms ?? <TermsFacts status={source.termsStatus} settings={settings} now={now} />}</Fact>
           <Fact label="robots.txt">
             <Badge tone={robotsTone(source.robotsStatus)}>{JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}</Badge>
           </Fact>
@@ -177,6 +342,7 @@ export function SourceSheet({
   onPauseToggle,
   pauseBusy = false,
   pausedHint = null,
+  onTermsSaved,
 }: {
   source: AdminSourceRow | null;
   open: boolean;
@@ -192,8 +358,10 @@ export function SourceSheet({
   onPauseToggle?: (source: AdminSourceRow) => void;
   /** Its Pause or Continue is on its way. */
   pauseBusy?: boolean;
-  /** Why Run now waits (the source, or every run, is paused; v36 SOURCES: or it is off), or null. */
+  /** Why Run now waits (the source, or every run, is paused; v36 SOURCES: or it is off; v37 FIX-37B: or its terms), or null. */
   pausedHint?: string | null;
+  /** v37 FIX-37B (E8): the Terms editor saved the source's terms (the list's row takes them). */
+  onTermsSaved?: (row: AdminSourceRow) => void;
 }) {
   const settings = useQuery({
     queryKey: sourceKeys.detail(source?.id ?? 0),
@@ -209,9 +377,14 @@ export function SourceSheet({
       description={source ? sourceLine(source) : undefined}
       footer={(item) => {
         const hint = pausedHint ?? runNowHint({ kind: item.kind });
+        const whyId = `source-${item.id}-sheet-run-why`; // v37 FIX-37B (E8): Run now is described by why it is off
         return (
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {hint && <p className="mr-auto max-w-sm text-[13px] text-muted-foreground">{hint}</p>}
+            {hint && (
+              <p id={whyId} className="mr-auto max-w-sm text-[13px] text-muted-foreground" data-source-sheet-run-why="">
+                {hint}
+              </p>
+            )}
             <Button variant="outline" onClick={() => onShowRuns(item.id)}>
               See runs
             </Button>
@@ -234,7 +407,10 @@ export function SourceSheet({
                 icon={<ArrowsClockwiseIcon size={16} />}
                 loading={running}
                 disabled={item.running || pausedHint !== null}
+                focusableWhenDisabled // v37 FIX-37B: off with a reason, still reached and read
+                aria-describedby={hint ? whyId : undefined}
                 onClick={() => onRun(item)}
+                data-source-sheet-run-now=""
               >
                 {item.running ? 'Running' : 'Run now'}
               </Button>
@@ -243,7 +419,16 @@ export function SourceSheet({
         );
       }}
     >
-      {(item) => <SourceDetails source={item} settings={settings.data ?? null} now={now} onShowHost={onShowHost} />}
+      {(item) => (
+        <SourceDetails
+          source={item}
+          settings={settings.data ?? null}
+          now={now}
+          onShowHost={onShowHost}
+          // v37 BOARDS (PLAN B3): the Terms editor, afresh for each source.
+          terms={<TermsEditor key={item.id} source={item} settings={settings.data ?? null} now={now} onSaved={onTermsSaved} />}
+        />
+      )}
     </RowDetailSheet>
   );
 }

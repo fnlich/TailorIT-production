@@ -3,6 +3,7 @@ import type { AppDeps } from '../../../core/context';
 import type { DbQueries, DbTx } from '../../../core/db/types';
 import type { DiscoveryOfferInput, DiscoveryOfferResult, OfferToDiscovery } from '../../../core/seams';
 import { BOARD_KINDS, boardNameOf, candidateName } from './boards';
+import { icimsBoardOf } from '../career/platforms'; // v37 BOARDS
 
 // v30 X1-API (wave 3), then S2's (wave 4): offerToDiscovery, the seam that makes a board a discovery candidate
 // (docs/design/part2/12-job-sourcing.md §4.1, 14-extension-reports.md §5.2 step 3, §5.3 step 2, core/seams.ts
@@ -73,6 +74,10 @@ export interface BoardSourceRow {
   discoveredVia?: string | null;
   /** v36 SOURCES: when an admin last turned it on (null: never). */
   enabledAt?: string | null;
+  /** v37 BOARDS: its kind (an iCIMS board's sources include a career site an admin keeps on its host). */
+  kind?: JobSourceKind;
+  /** v37 INT-B (the terms gate): its recorded terms status (validate.ts reads no board whose source's terms say no). */
+  termsStatus?: string | null;
 }
 
 /** A board to look up: its kind and its name as candidateName keeps it. */
@@ -102,13 +107,25 @@ const refKey = (kind: JobSourceKind, name: string) => `${kind}\n${name}`;
  * first: one statement for the whole list. Each board finds its sources by three index lookups, at most: its name in
  * any case (idx_job_sources_name_ci), the board its config names (idx_job_sources_board), and for a Workday career site
  * its tenant and site (idx_job_sources_workday_site). The board its config names then decides (boardNameOf), as before.
+ * v37 BOARDS (SP v37 PLAN I5): an iCIMS board's include the career site on its host that an admin turned on (migration
+ * 0063 left those as they were), by idx_job_sources_host: one source per host.
  */
 export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[]): Promise<Map<string, BoardSourceRow[]>> {
   const found = new Map<string, BoardSourceRow[]>();
   if (boards.length === 0) return found;
   const keyed = boards.map((board, i) => ({ i, kind: board.kind, name: board.name, ...lookupKeyOf(board.kind, board.name) }));
-  const rows = await t.all<{ i: number; id: number; enabled: boolean; name: string; config: string; discovered_via: string | null; enabled_at: string | null }>(
-    `SELECT b.i, s.id, s.enabled, s.name, s.config::text AS config, s.discovered_via, s.enabled_at
+  const rows = await t.all<{
+    i: number;
+    id: number;
+    kind: JobSourceKind;
+    enabled: boolean;
+    name: string;
+    config: string;
+    discovered_via: string | null;
+    enabled_at: string | null;
+    terms_status: string | null; // v37 INT-B
+  }>(
+    `SELECT b.i, s.id, s.kind, s.enabled, s.name, s.config::text AS config, s.discovered_via, s.enabled_at, s.terms_status
      FROM json_to_recordset(CAST(? AS json)) AS b(i integer, kind text, name text, board text, tenant text, site text)
      CROSS JOIN LATERAL (
        SELECT n.id FROM job_sources n WHERE n.kind = b.kind AND lower(n.name) = lower(b.name)
@@ -120,6 +137,9 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
          WHERE b.site IS NOT NULL AND w.kind = 'workday_site'
            AND ${WORKDAY_SITE_KEY_SQL.tenant.replace(/config->>/g, 'w.config->>')} = b.tenant
            AND ${WORKDAY_SITE_KEY_SQL.site.replace(/config->>/g, 'w.config->>')} = b.site
+       UNION
+       SELECT h.id FROM job_sources h
+         WHERE b.kind = 'icims' AND b.board IS NOT NULL AND h.kind = 'career_site' AND h.host = lower(b.board) || '.icims.com'
      ) f
      JOIN job_sources s ON s.id = f.id
      ORDER BY b.i, s.id`,
@@ -134,18 +154,25 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
       config = {};
     }
     // The board its config names decides; a source whose config names none (an older row) is matched by its name.
-    const named = boardNameOf(board.kind, config);
+    // v37 BOARDS: an iCIMS board's career site is matched by its host, and only as the site's reading source (never Add
+    // job's keeper of its links: 0063 made those iCIMS sources).
+    const other = row.kind !== board.kind;
+    const named = other ? icimsBoardOf(typeof config.host === 'string' ? config.host : '') || null : boardNameOf(board.kind, config);
     if ((named ?? row.name).toLowerCase() !== board.name.toLowerCase()) continue;
-    const key = refKey(board.kind, board.name);
-    const list = found.get(key) ?? [];
-    list.push({
+    const source: BoardSourceRow = {
       id: row.id,
       enabled: row.enabled === true,
       name: row.name,
       config,
       discoveredVia: row.discovered_via ?? null,
       enabledAt: row.enabled_at ?? null, // v36 SOURCES
-    });
+      kind: row.kind, // v37 BOARDS
+      termsStatus: row.terms_status ?? null, // v37 INT-B
+    };
+    if (other && (named === null || isLinkKeeper(source))) continue;
+    const key = refKey(board.kind, board.name);
+    const list = found.get(key) ?? [];
+    list.push(source);
     found.set(key, list);
   }
   return found;

@@ -9,6 +9,8 @@ import {
   AdminSourcesBulkBodySchema,
   AdminSourcesFilterSchema,
   AdminSourcesQuerySchema,
+  AdminSourcesImportJsonBodySchema, // v37 TRANSFER
+  hasUnstorableText, // v37 FIX-37B (F5)
   IsoDate,
   ImportMappingInputSchema,
   JOB_SOURCE_TERMS_STATUSES,
@@ -16,6 +18,7 @@ import {
 import { adminRouter, type AdminActor } from '../../core/admin/index';
 import { nowIso, type AppDeps } from '../../core/context';
 import { getFileStore } from '../../core/files/index';
+import { contentDisposition } from '../../core/files/names'; // v37 TRANSFER
 import { refuse } from '../../core/http/refuse';
 import { conflict, notFound, validationFailed } from '../../core/http/errors';
 import { parseInput } from '../../core/http/validate';
@@ -26,6 +29,8 @@ import { leverSite } from './adapters/lever';
 import { importFilePath, tablePostings } from './adapters/tabular';
 import { workableAccount } from './adapters/workable';
 import { workdaySiteOfPage } from './adapters/workdaySite'; // v35 ADMIN
+import { bamboohrCompany } from './adapters/bamboohr'; // v37 BOARDS
+import { icimsBoardOf, isIcimsBoardHost } from './career/platforms'; // v37 BOARDS
 import { boardNameOf } from './discovery/boards'; // v35 ADMIN
 import { isLinkKeeper, sourcesOfBoard } from './discovery/offer'; // v35 ADMIN
 import { waitingOfSources } from './waiting'; // v35 ADMIN
@@ -45,6 +50,7 @@ import { sourcingDailyReport } from './scheduler-report';
 import { continueAllRuns, continueRun, continueSource, pauseAllRuns, pauseRun, pauseSource } from './pause'; // v31 RUNS
 import { runsPausedState } from './pause-state'; // v31 RUNS
 import { dismissTurnedOff, turnedOffNotice } from './turned-off'; // v36 SOURCES
+import { exportSources, importSources, planImport, readSourcesFile } from './source-transfer'; // v37 TRANSFER
 import {
   adminRun,
   adminRuns,
@@ -62,9 +68,11 @@ import {
   runSourcesAll,
   runsOptionsOf,
   sourcesAll,
+  termsParams, // v37 FIX-37B
   type BulkWords,
   type SourcesWaiting,
 } from './sources';
+import { termsRefusalOfBoards } from './terms'; // v37 FIX-37B (E2)
 import {
   IMPORT_FIELD_LABEL,
   REQUIRED_IMPORT_FIELDS,
@@ -136,6 +144,42 @@ const WorkdaySiteConfig = z.object({
   url: z.string().trim().min(1, 'Paste a page of the Workday career site.').max(2048, 'Paste a shorter address of the career site.'),
   companyName,
 });
+/**
+ * v37 BOARDS (SP v37 PLAN B4): a BambooHR company, by its name or any address on its host
+ * (https://acme.bamboohr.com/careers, .../careers/41).
+ */
+const BamboohrConfig = z.object({
+  company: z.string().trim().min(1, "Enter the company's BambooHR name or careers address.").max(2048, 'Paste a shorter address.'),
+  companyName,
+});
+/** v37 BOARDS (SP v37 PLAN I1): an iCIMS site, by its board (careers-acme), its host or any address on it. */
+const IcimsConfig = z.object({
+  board: z.string().trim().min(1, 'Enter the iCIMS site address (careers-acme.icims.com).').max(2048, 'Paste a shorter address.'),
+  companyName,
+});
+/** The words of a BambooHR name or address TailorIT cannot read a company from. */
+const NO_BAMBOOHR = "Enter the company's name on BambooHR, or an address on <company>.bamboohr.com.";
+/** The words of an iCIMS address TailorIT cannot read a site from. */
+const NO_ICIMS = "Enter the iCIMS site's address, such as careers-acme.icims.com.";
+
+/**
+ * v37 BOARDS: a BambooHR source's config as stored, or the field's refusal. v37 FIX-37B (the ux review's L1): never
+ * BambooHR's own hosts (www.bamboohr.com, app.bamboohr.com): bamboohrCompany refuses their labels (v37 INT-2b: the one
+ * list, adapters/bamboohr.ts BAMBOOHR_OWN_LABELS).
+ */
+function bamboohrConfig(input: z.infer<typeof BamboohrConfig>): Record<string, unknown> {
+  const company = bamboohrCompany(input.company);
+  if (!company) throw validationFailed(NO_BAMBOOHR, { 'config.company': 'Enter the name in <name>.bamboohr.com, or its address.' });
+  return { company, ...(input.companyName ? { companyName: input.companyName } : {}) };
+}
+
+/** v37 BOARDS: an iCIMS source's config as stored, or the field's refusal. */
+function icimsConfig(input: z.infer<typeof IcimsConfig>): Record<string, unknown> {
+  const board = icimsBoardOf(input.board);
+  if (!board) throw validationFailed(NO_ICIMS, { 'config.board': 'Enter an address on <name>.icims.com.' });
+  return { board, ...(input.companyName ? { companyName: input.companyName } : {}) };
+}
+
 /** The words of a Workday address TailorIT cannot read a career site from. */
 const NO_WORKDAY_SITE =
   'Paste a page of a Workday career site: an address on <company>.myworkdayjobs.com that names the site, or on wd<n>.myworkdaysite.com/recruiting/<company>/<site>.';
@@ -153,19 +197,27 @@ const CareerSiteConfig = z.object({
   companyName,
 });
 
-/** A career site's config as stored (career/config.ts's reading of it), or the host field's refusal. */
-function careerSiteConfig(input: z.infer<typeof CareerSiteConfig>): Record<string, unknown> {
+/**
+ * A career site's config as stored (career/config.ts's reading of it), or the host field's refusal. v37 BOARDS: `kept`, a
+ * career site's own host (its settings change; one an admin turned on before v3.7 may be on an iCIMS host).
+ */
+function careerSiteConfig(input: z.infer<typeof CareerSiteConfig>, kept: string | null = null): Record<string, unknown> {
+  let checked: ReturnType<typeof careerSiteConfigOf>;
   try {
-    const checked = careerSiteConfigOf(input);
-    return {
-      host: checked.host,
-      ...(checked.sitemaps.length > 0 ? { sitemaps: checked.sitemaps } : {}),
-      ...(checked.postingPaths.length > 0 ? { postingPaths: checked.postingPaths } : {}),
-      ...(checked.companyName ? { companyName: checked.companyName } : {}),
-    };
+    checked = careerSiteConfigOf(input);
   } catch (error) {
     throw validationFailed((error as Error).message, { 'config.host': 'Give a host name TailorIT may read (careers.example.org).' });
   }
+  // v37 BOARDS (SP v37 PLAN I1, I5): an iCIMS host is an iCIMS source's, never a career site's (one source per host).
+  if (isIcimsBoardHost(checked.host) && checked.host !== kept) {
+    throw validationFailed(`${checked.host} is an iCIMS site: add it as iCIMS.`, { 'config.host': 'Add this site as iCIMS.' });
+  }
+  return {
+    host: checked.host,
+    ...(checked.sitemaps.length > 0 ? { sitemaps: checked.sitemaps } : {}),
+    ...(checked.postingPaths.length > 0 ? { postingPaths: checked.postingPaths } : {}),
+    ...(checked.companyName ? { companyName: checked.companyName } : {}),
+  };
 }
 
 const CreateSourceBody = z.discriminatedUnion('kind', [
@@ -183,6 +235,9 @@ const CreateSourceBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('career_site'), name, enabled, config: CareerSiteConfig }),
   // v35 ADMIN (PLAN H7): a Workday career site; it runs by itself once BOT_USER_AGENT is set and robots.txt allows it.
   z.object({ kind: z.literal('workday_site'), name, enabled, config: WorkdaySiteConfig }),
+  // v37 BOARDS (SP v37 PLAN B4, I1): a BambooHR company and an iCIMS site; each runs once BOT_USER_AGENT is set.
+  z.object({ kind: z.literal('bamboohr'), name, enabled, config: BamboohrConfig }),
+  z.object({ kind: z.literal('icims'), name, enabled, config: IcimsConfig }),
 ]);
 
 /** v30 S4: a feed source's settings as stored (only the keys given), and the name it gets when none is typed. */
@@ -214,7 +269,14 @@ const PatchSourceBody = z.object({
   // v30 S1-API: the source's recorded terms (the owner's rule: only allowed sources run) and its place in the queue.
   termsStatus: z.enum(JOB_SOURCE_TERMS_STATUSES).optional(),
   termsUrl: z.string().trim().max(2000).regex(/^https:\/\/\S+$/, 'Give the terms page as an https address.').nullable().optional(),
-  termsNote: z.string().trim().max(1000, 'Keep the note under 1,000 characters.').nullable().optional(),
+  // v37 FIX-37B (the beh review's F5): a note TailorIT can't store (a NUL, a control character) is refused with why.
+  termsNote: z
+    .string()
+    .trim()
+    .max(1000, 'Keep the note under 1,000 characters.')
+    .refine((text) => !hasUnstorableText(text, true), "The note has characters that can't be stored: remove them.")
+    .nullable()
+    .optional(),
   priority: z.number().int().min(-100).max(100).optional(),
 });
 
@@ -347,13 +409,30 @@ async function createSource(deps: AppDeps, input: unknown, actor: AdminActor) {
       label = body.name || board;
       break;
     }
+    // v37 BOARDS (SP v37 PLAN B4, I1, I5): named by the board unless the admin names it; one source per board (an iCIMS
+    // site's career-site source an admin turned on counts: discovery/offer.ts sourcesOfBoards).
+    case 'bamboohr':
+    case 'icims': {
+      config = body.kind === 'bamboohr' ? bamboohrConfig(body.config) : icimsConfig(body.config);
+      const board = boardNameOf(body.kind, config)!;
+      const existing = (await sourcesOfBoard(db, body.kind, board)).find((source) => !isLinkKeeper(source));
+      if (existing) {
+        // v37 FIX-37B (the ux review's L7): where it is and what state it is in (the admin is in Sources already).
+        throw conflict(
+          `TailorIT has this ${SOURCE_KIND_LABEL[body.kind]} site already: "${existing.name}", ${existing.enabled ? 'on' : 'off'}. ` +
+            `Search the list for it${existing.enabled ? '' : ' to turn it on'}.`,
+        );
+      }
+      label = body.name || board;
+      break;
+    }
   }
   const taken = () => conflict(`A ${SOURCE_KIND_LABEL[body.kind]} source named "${label}" already exists.`);
   if (await findSourceRecord(db, body.kind, label)) throw taken();
   // Null: the name was taken after the look (UNIQUE(kind, name)).
   const created = await insertSource(db, { kind: body.kind, name: label, config }, nowIso(deps));
   if (!created) throw taken();
-  if (body.enabled !== false && !(await sourceOptedOut(db, created.id))) await enableSources(db, [created.id], actor, nowIso(deps)); // v36 SOURCES
+  if (body.enabled !== false && !(await sourceOptedOut(db, created.id))) await enableSources(db, [created.id], actor, nowIso(deps), hostPace(deps)); // v36 SOURCES; v37 TRANSFER: its host's row
   return { body, source: (await adminSource(db, created.id, false, nowIso(deps), waitingIn(deps)))! }; // v35 ADMIN: why it waits
 }
 
@@ -365,7 +444,28 @@ const bulkWords = (deps: AppDeps): BulkWords => ({
   optedOut: constantsOf(deps).message('MSG_INGEST_SOURCE_OPTED_OUT'),
   paused: constantsOf(deps).message('MSG_INGEST_SOURCE_PAUSED'),
   off: constantsOf(deps).message('MSG_INGEST_SOURCE_OFF'), // v36 SOURCES
+  hostPaceMs: hostPace(deps), // v37 TRANSFER
+  terms: (status) => constantsOf(deps).message('MSG_INGEST_SOURCE_TERMS', termsParams(status)), // v37 FIX-37B (E8)
 });
+
+/** v37 TRANSFER (PLAN T3): the pace of a host row an enable adds (enableSources): INGEST_HOST_MIN_INTERVAL_MS. */
+const hostPace = (deps: AppDeps) => constantsOf(deps).get('INGEST_HOST_MIN_INTERVAL_MS');
+
+/**
+ * v37 TRANSFER (PLAN T2): the text of a sources file: the multipart `file` (the web; UPLOAD_MAX_MB), or a JSON body
+ * {fileName?, content} (scripts, tests).
+ */
+function sourcesFileText(req: Request): { fileName: string; text: string } {
+  const file = req.file;
+  if (file) {
+    const buffer = file.buffer;
+    const text =
+      buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe ? buffer.subarray(2).toString('utf16le') : buffer.toString('utf8');
+    return { fileName: (file.originalname || 'sources.json').slice(0, 200), text };
+  }
+  const body = parseInput(AdminSourcesImportJsonBodySchema, req.body ?? {}, 'sources file');
+  return { fileName: body.fileName, text: body.content };
+}
 
 /**
  * PATCH /api/admin/sources/:id: its name, whether it runs daily, whether it closes missing postings, its settings. v36
@@ -413,7 +513,13 @@ async function patchSource(
       config = merged;
     } else if (source.kind === 'career_site') {
       // v30 FIX-A (REQ-5): its host, sitemaps, posting paths and employer name.
-      config = careerSiteConfig(parseInput(CareerSiteConfig, merged, 'source settings'));
+      config = careerSiteConfig(parseInput(CareerSiteConfig, merged, 'source settings'), source.host ?? null); // v37 BOARDS: its own host kept
+    } else if (source.kind === 'bamboohr') {
+      // v37 BOARDS: its company (a name or an address) and employer name.
+      config = { ...merged, ...bamboohrConfig(parseInput(BamboohrConfig, merged, 'source settings')) };
+    } else if (source.kind === 'icims') {
+      // v37 BOARDS: its site (a board, a host or an address) and employer name.
+      config = { ...merged, ...icimsConfig(parseInput(IcimsConfig, merged, 'source settings')) };
     } else if (source.kind === 'usajobs' || source.kind === 'himalayas' || source.kind === 'jobicy') {
       // v30 S4: the feeds' search settings.
       const schema = { usajobs: UsajobsConfigSchema, himalayas: HimalayasConfigSchema, jobicy: JobicyConfigSchema }[source.kind];
@@ -459,7 +565,7 @@ async function patchSource(
           priority: patch.priority ?? null,
         },
       );
-      if (turnOn) await enableSources(t, [id], actor, now); // v36 SOURCES (PLAN S1)
+      if (turnOn) await enableSources(t, [id], actor, now, hostPace(deps)); // v36 SOURCES (PLAN S1); v37 TRANSFER: its host's row
     },
     { label: 'patch source' },
   );
@@ -540,6 +646,7 @@ function testLake(deps: AppDeps, input: unknown) {
 export function createSourcesRouter(deps: AppDeps): Router {
   const db = deps.db;
   const running = (id: number) => deps.services.ingest?.isRunning(id) ?? false;
+  const upload: RequestHandler = (req, res, next) => getFileStore(deps).uploadSingle('file', { required: false })(req, res, next); // v37 TRANSFER
   return adminRouter(deps, {
     resource: 'job source',
     id: Id,
@@ -586,6 +693,46 @@ export function createSourcesRouter(deps: AppDeps): Router {
       );
       // end v36 SOURCES
 
+      // v37 TRANSFER (PLAN T1, T2): the sources file. Export: the sources the filter shows, as a file to save (never
+      // cached). Import: a preview of what the file would do, then the import (every source it makes is off and waits
+      // for an admin; never enableSources), audited with its counts. source-transfer.ts holds the rules.
+      router.get(
+        '/export',
+        handle(async (req) => {
+          const filter = parseInput(AdminSourcesFilterSchema, req.query, 'query');
+          const made = await exportSources(deps, filter, nowIso(deps));
+          const res = req.res!;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Content-Disposition', contentDisposition(made.fileName));
+          res.setHeader('Cache-Control', 'no-store');
+          res.setHeader('X-Sources-Left-Out', String(made.leftOut));
+          res.status(200).send(`${JSON.stringify(made.file, null, 2)}
+`);
+          return undefined;
+        }),
+      );
+      router.post(
+        '/import/preview',
+        upload,
+        handle(async (req) => {
+          const { fileName, text } = sourcesFileText(req);
+          const file = readSourcesFile(deps, fileName, text);
+          return (await planImport(db, file.fileName, file.entries)).result;
+        }),
+      );
+      router.post(
+        '/import',
+        upload,
+        handle(async (req, actor) => {
+          const { fileName, text } = sourcesFileText(req);
+          const file = readSourcesFile(deps, fileName, text);
+          const { result, ids } = await importSources(deps, file.fileName, file.entries, nowIso(deps));
+          await audit({ action: 'import_file', ids: ids.length > 0 ? ids : ['none'], actor, change: { fileName: result.fileName, counts: result.counts } });
+          return result;
+        }),
+      );
+      // end v37 TRANSFER
+
       // A route answering with its own status sets it on req.res; handle sends the JSON (or nothing once ended).
       router.post(
         '/',
@@ -611,6 +758,13 @@ export function createSourcesRouter(deps: AppDeps): Router {
                   : body.kind === 'workable'
                     ? { ...body.config, account: workableAccount(body.config.account) }
                     : body.config;
+          // v37 FIX-37B (SP v37 FIXES-37 E2, E8): a board a source of which has terms that don't allow automated access is
+          // not read by a Test either (nothing sent): the words Run now gives.
+          const board = body.kind === 'ft_lake' ? null : boardNameOf(body.kind, config);
+          const refusal = board ? await termsRefusalOfBoards(db, [{ kind: body.kind, name: board }]) : null;
+          if (refusal) {
+            return { ok: false, message: constantsOf(deps).message('MSG_INGEST_SOURCE_TERMS', termsParams(refusal.status)), count: 0, samples: [], companyName: null };
+          }
           return requireIngest(deps).test(body.kind, config);
         }),
       );

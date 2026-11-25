@@ -79,6 +79,7 @@ const CANDIDATE_KINDS: readonly JobSourceKind[] = [
   'recruitee',
   'breezy',
   'bamboohr',
+  'icims', // v37 BOARDS (SP v37 PLAN I5): an employer's iCIMS site
   'career_site',
 ];
 const KIND_LABELS = Object.fromEntries(CANDIDATE_KINDS.map((kind) => [kind, JOB_SOURCE_KIND_LABEL[kind]])) as Record<JobSourceKind, string>;

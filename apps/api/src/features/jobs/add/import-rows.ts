@@ -159,6 +159,8 @@ export function rowProblemText(
   if (row.result !== 'failed') return null;
   if (row.reason === 'no_link') return constants.message('MSG_JOB_IMPORT_ROW_NO_LINK');
   if (row.reason === 'unreadable_host') return constants.message('MSG_JOB_IMPORT_ROW_HOST', { host: row.host ?? '' });
+  // v37 FIX-37B (E8): its board's terms say no (an admin's record).
+  if (row.reason === 'terms') return constants.message('MSG_JOB_IMPORT_ROW_TERMS', { host: row.host ?? '' });
   return constants.message('MSG_JOB_ADD_REFUSED_LINK');
 }
 

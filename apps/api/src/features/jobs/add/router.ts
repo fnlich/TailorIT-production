@@ -74,7 +74,9 @@ export function addJobResultOf(deps: Deps, outcome: AddJobByLinkOutcome, retry =
     ? 'MSG_JOB_RETRY_CLOSED'
     : outcome.state === 'private_unverified'
       ? outcome.needsDetails
-        ? 'MSG_JOB_ADD_NEEDS_DETAILS'
+        ? outcome.reason === 'terms'
+          ? 'MSG_JOB_VERIFY_TERMS' // v37 FIX-37B (E8): the agreed words say it all (the web adds no second line)
+          : 'MSG_JOB_ADD_NEEDS_DETAILS'
         : retry
           ? 'MSG_JOB_ONLY_YOU_UNTIL_VERIFIED'
           : 'MSG_JOB_ADD_PRIVATE'

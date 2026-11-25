@@ -6,6 +6,9 @@ import { leverHost, leverPosting } from './adapters/lever';
 import { readWorkableAccountName, readWorkablePosting, workablePostingUrl } from './adapters/workable';
 import { readWorkdayPosting, workdayPostingUrl, workdayTenant, type WorkdayRef } from './adapters/workday';
 import type { HttpAnswer, IngestHttp } from './http';
+import { bamboohrDetailUrl, readBamboohrPosting } from './adapters/bamboohr'; // v37 BOARDS
+import { icimsContentUrl, icimsPostingRef, icimsSiteOf, readIcimsPosting } from './adapters/icims'; // v37 BOARDS
+import { feedHostOf } from './sources'; // v37 BOARDS
 import { IngestError, type RawPosting } from './types';
 
 // One posting by its board and id: Greenhouse (/v1/boards/{token}/jobs/{id}?pay_transparency=true, the endpoint a run
@@ -20,9 +23,13 @@ import { IngestError, type RawPosting } from './types';
 // For the extension's Add job (features/autofill/jobs.ts) and the daily check of jobs that no enabled source lists
 // (liveness.ts). Through the shared HTTP client: one request a second per host, taking turns with the runs.
 
-/** A posting on a board TailorIT can ask about one posting at a time. */
+/**
+ * A posting on a board TailorIT can ask about one posting at a time. v37 BOARDS (SP v37 PLAN B1, I2): a BambooHR opening
+ * (its detail) and an iCIMS posting (its content page), new kinds of read: their callers read them only once
+ * BOT_USER_AGENT is set, and with it (recheck.ts: NEW_READ_KIND_OF; jobs/add/board-link.ts).
+ */
 export interface PostingRef {
-  kind: 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'workday';
+  kind: 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'workday' | 'bamboohr' | 'icims';
   /**
    * The Greenhouse board token, the Lever site, the Ashby job board's name, the Workable account or the Workday tenant
    * (in lower case).
@@ -36,6 +43,15 @@ export interface PostingRef {
   region: 'global' | 'eu';
   /** A Workday posting's host, site, location and name (its read needs them; its board is the tenant). */
   workday?: WorkdayPostingRef;
+  /** v37 BOARDS: an iCIMS posting's page (https://<board>.icims.com/jobs/<id>/[<slug>/]job; its board is the host's label). */
+  page?: string;
+}
+
+/** v37 BOARDS: an iCIMS posting's page, the ref's own (on its board's host, naming its id), else its plain page. */
+function icimsPageOf(ref: PostingRef): string {
+  const site = icimsSiteOf({ board: ref.board });
+  const own = ref.page ? icimsPostingRef(ref.page, site.host) : null;
+  return own && own.id === ref.externalId ? own.page : `https://${site.host}/jobs/${encodeURIComponent(ref.externalId)}/job`;
 }
 
 /** A Workday posting's reference for its reader, or an IngestError when the ref lacks its address parts. */
@@ -74,6 +90,9 @@ export function postingApiUrl(ref: PostingRef): string {
   if (ref.kind === 'ashby') return `${ASHBY_API}/${board}?includeCompensation=true`;
   if (ref.kind === 'workable') return workablePostingUrl(ref.board, ref.externalId);
   if (ref.kind === 'workday') return workdayPostingUrl(workdayRefOf(ref));
+  // v37 BOARDS
+  if (ref.kind === 'bamboohr') return bamboohrDetailUrl(feedHostOf('bamboohr', { company: ref.board }) ?? `${ref.board}.bamboohr.com`, ref.externalId);
+  if (ref.kind === 'icims') return icimsContentUrl(icimsPageOf(ref));
   return ref.kind === 'greenhouse'
     ? `${GREENHOUSE_API}/${board}/jobs/${id}?pay_transparency=true`
     : `${leverHost(ref.region)}/v0/postings/${board}/${id}?mode=json`;
@@ -85,6 +104,8 @@ const LABELS: Record<PostingRef['kind'], string> = {
   ashby: 'Ashby',
   workable: 'Workable',
   workday: 'Workday',
+  bamboohr: 'BambooHR', // v37 BOARDS
+  icims: 'iCIMS', // v37 BOARDS
 };
 
 interface FetchOptions {
@@ -97,6 +118,8 @@ interface FetchOptions {
   shareWhileReading?: boolean;
   /** Workable accounts' names shared between calls (the daily check: each account's list read once). */
   names?: WorkableNames;
+  /** v37 BOARDS: the time an iCIMS posting's validThrough is judged at (default: the clock's now). */
+  now?: () => Date;
 }
 
 /**
@@ -169,6 +192,19 @@ export async function fetchPosting(http: IngestHttp, ref: PostingRef, options: F
   if (ref.kind === 'workable') return workablePostingOf(http, ref, options);
   if (ref.kind === 'workday') {
     return readWorkdayPosting(http, workdayRefOf(ref), str(options.config?.companyName), options.signal);
+  }
+  // v37 BOARDS (SP v37 PLAN B1, I2): a BambooHR opening's detail; an iCIMS posting's content page (gone: 404, 410, or a
+  // past validThrough). Each is named by the source's companyName, else as its run names it.
+  if (ref.kind === 'bamboohr') {
+    const companyName = str(options.config?.companyName) ?? nameFromSlug(ref.board);
+    const raw = await readBamboohrPosting(http, ref.board, ref.externalId, companyName, options.signal);
+    return raw ? { found: true, raw } : { found: false };
+  }
+  if (ref.kind === 'icims') {
+    const site = icimsSiteOf({ board: ref.board, companyName: options.config?.companyName });
+    const page = icimsPageOf(ref);
+    const read = await readIcimsPosting(http, site, { id: ref.externalId, page }, { signal: options.signal, now: (options.now ?? (() => new Date()))() });
+    return read.found ? { found: true, raw: read.raw } : { found: false };
   }
   const answer = await http.getJson(postingApiUrl(ref), { signal: options.signal, allow: [404] });
   if (answer.status === 404) return { found: false };

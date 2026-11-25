@@ -159,8 +159,9 @@ function AddJob() {
           rate and location: TailorIT uses them only when it cannot read the link, and the rate only when the posting names no
           pay. A link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read
           (a Retry read that finds the posting closed marks that job closed). When the site has asked TailorIT to slow down (Workday
-          sites often do), Add job says when to try again and keeps nothing. You can add {get('JOB_ADDS_PER_HOUR')} links an
-          hour.
+          sites often do), Add job says when to try again and keeps nothing. Some companies&apos; job sites TailorIT doesn&apos;t
+          read at all (their terms say no): add the title and company to save such a job for yourself. You can add{' '}
+          {get('JOB_ADDS_PER_HOUR')} links an hour.
         </li>
         <li>
           <Ui>File</Ui> (.csv, .tsv, .txt, .json or .xlsx) or <Ui>{sheet}</Ui> (share it with TailorIT&apos;s reader address
@@ -198,7 +199,7 @@ function AddJob() {
         </li>
         <li>
           <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.closed}</Ui>: the posting has closed. <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.failed}</Ui>: not a
-          job link TailorIT may read (a site it never reads, a row over the day&apos;s limit), with why.{' '}
+          job link TailorIT may read (a site it never reads or whose terms say no, a row over the day&apos;s limit), with why.{' '}
           <Ui>{JOB_IMPORT_ROW_RESULT_LABEL.repeated}</Ui>: the same link as a row above it.
         </li>
       </Bullets>

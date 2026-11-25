@@ -464,7 +464,7 @@ export function outcomeOfDoneRow(
   }
   // Nothing stored: a row with no title and company needs them; any other could not be imported.
   if (reason === null) return gone;
-  const fixable = reason !== 'unreadable_host' && reason !== 'invalid_link' && reason !== 'opted_out' && reason !== 'rejected';
+  const fixable = reason !== 'unreadable_host' && reason !== 'invalid_link' && reason !== 'opted_out' && reason !== 'rejected' && reason !== 'terms'; // v37 FIX-37B
   const parsed = JobRowDetailsSchema.safeParse(jsonOf(details) ?? {});
   const named = parsed.success && Boolean(parsed.data.title?.trim()) && Boolean(parsed.data.company?.trim());
   return fixable && !named ? { result: 'needs_details', reason, jobId: null } : { result: 'failed', reason, jobId: null };
@@ -668,14 +668,15 @@ function outcomeMessage(
   if (row.reason === 'waiting_review') return constants.message('MSG_JOB_IMPORT_ROW_WAITING');
   if (row.reason === 'day_limit') return `${label}: ${constants.message('MSG_JOB_IMPORT_ROW_OVER_DAY', { hours: 24 })}`;
   if (row.reason === 'no_link') return `${label}: ${constants.message('MSG_JOB_IMPORT_ROW_NO_LINK')}`;
-  if (row.result === 'failed' && row.reason === 'unreadable_host') {
+  if (row.result === 'failed' && (row.reason === 'unreadable_host' || row.reason === 'terms')) {
     let host = '';
     try {
       host = row.url ? new URL(row.url).hostname : '';
     } catch {
       host = '';
     }
-    return rowProblemText(deps, { result: 'failed', reason: 'unreadable_host', repeatsRow: null, host }) ?? label;
+    // v37 FIX-37B (E8): a board whose terms say no: "TailorIT doesn't read <host>: its terms say no."
+    return rowProblemText(deps, { result: 'failed', reason: row.reason, repeatsRow: null, host }) ?? label;
   }
   if (row.reason && (JOB_VERIFY_REASONS as readonly string[]).includes(row.reason) && row.result !== 'added' && row.result !== 'reposted') {
     const reason = row.reason as JobVerifyReason;

@@ -8,7 +8,7 @@ import { JobCreditSchema } from '../jobs/dto';
 /** A kind's name (the table's check). */
 export const JOB_SOURCE_KIND_PATTERN = /^[a-z][a-z0-9_]{1,39}$/;
 
-/** Every kind of job source, in 0904's order, then 0908's. */
+/** Every kind of job source, in 0904's order, then 0908's, then (v37 BOARDS) 0063's. */
 export const JOB_SOURCE_KINDS = [
   'greenhouse',
   'lever',
@@ -34,6 +34,8 @@ export const JOB_SOURCE_KINDS = [
   'ft_lake',
   'seed',
   'ext_page',
+  // v37 BOARDS (SP v37 PLAN I1): an employer's iCIMS site, <board>.icims.com, read by its sitemap (migration 0063's row).
+  'icims',
 ] as const;
 export type JobSourceKind = (typeof JOB_SOURCE_KINDS)[number];
 
@@ -63,6 +65,7 @@ export const JOB_SOURCE_KIND_LABEL: Record<JobSourceKind, string> = {
   ft_lake: 'free_tailor lake',
   seed: 'Demo seed',
   ext_page: 'A page job an admin published',
+  icims: 'iCIMS', // v37 BOARDS
 };
 
 /**
@@ -100,6 +103,7 @@ export const ADMIN_SOURCE_LIST_KINDS = [
   'ft_lake',
   'seed',
   'ext_page',
+  'icims', // v37 BOARDS
 ] as const satisfies readonly Exclude<JobSourceKind, (typeof JOB_SOURCE_IMPORT_KINDS)[number]>[];
 export type AdminSourceListKind = (typeof ADMIN_SOURCE_LIST_KINDS)[number];
 // end v35 ADMIN
@@ -133,6 +137,7 @@ export const JOB_SOURCE_KIND_PLATFORM: Partial<Record<JobSourceKind, string>> = 
   breezy: 'breezy',
   bamboohr: 'bamboohr',
   career_site: 'site',
+  icims: 'icims', // v37 BOARDS: 'icims:<board>' (careers-acme), the board its config names
 };
 
 /** A kind's credit line on its jobs' cards (job_source_kinds.attribution; 12 §3.6-3.7): the job card's credit. */

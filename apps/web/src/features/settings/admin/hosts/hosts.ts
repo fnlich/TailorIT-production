@@ -47,7 +47,8 @@ export function holdText(host: Pick<AdminHostRow, 'holdUntil' | 'holdReason' | '
 // v37 LANE (SP v37 PLAN W10): the Workday lane's row. Every Workday site takes its turns on it ("Workday (all sites)"):
 // its gap is the Workday gap constant (v37 FIX-LANE: or wider after 429s), its failures are 429 answers, and a 429
 // pauses every Workday site. v37 FIX-LANE (the generic lane): a lane is any platform the server registers (only Workday
-// in v3.6.1); its words name its platform (`platform`: "Workday"), never Workday by itself.
+// in v3.6.1; v37 INT-2b: BambooHR and iCIMS too); its words name its platform (`platform`: "Workday", "BambooHR",
+// "iCIMS"), never Workday by itself.
 
 /** A row's name: a lane's ("Workday (all sites)"), else its host. */
 export function hostName(host: Pick<AdminHostRow, 'host' | 'label'>): string {

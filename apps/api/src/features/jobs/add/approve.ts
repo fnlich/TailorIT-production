@@ -72,6 +72,8 @@ export interface ApprovalOutcome {
 const REFUSED = {
   closed: 'TailorIT found this posting closed, so there is nothing to publish. Retry read to check it again.',
   site: 'TailorIT never publishes jobs from this site (a job board or a sign-in page).',
+  // v37 FIX-37B (E2, E8): its board's terms (an admin's record) don't allow automated access.
+  terms: "Its board's terms say no to automated reading, so its jobs are never published.",
   optedOutSite: 'This site asked TailorIT not to read it, so its jobs are never published.',
   rejected: 'An admin rejected this link, so it is never published.',
   optedOutCompany: 'This company asked TailorIT not to list its jobs, so this job is never published.',
@@ -427,6 +429,7 @@ export async function approveUnverifiedJob(
   // listedSql), so it is approved whatever it says too.
   if (!constantsOf(deps).get('EXT_NEW_PAGE_JOBS_REVIEW') && !fromImport) throw conflict(REFUSED.listOff);
   if (row.reason === 'unreadable_host') throw conflict(REFUSED.site);
+  if (row.reason === 'terms') throw conflict(REFUSED.terms); // v37 FIX-37B
   if (row.reason === 'rejected') throw conflict(REFUSED.rejected);
   if (!row.active || row.reason === 'closed') throw conflict(REFUSED.closed);
   if (row.reason === 'opted_out' || (await linkOptedOut(deps.db, row.url_key))) throw conflict(REFUSED.optedOutCompany);

@@ -6,6 +6,7 @@ import {
   AdminSourcesTurnedOffSchema, // v36 SOURCES
   AdminSourcesAllResultSchema,
   AdminSourcesBulkResultSchema,
+  AdminSourcesImportResultSchema, // v37 TRANSFER
   AdminSourcesListSchema,
   JobSourcePurgeSchema,
   type AdminSourceAllAction,
@@ -14,13 +15,16 @@ import {
   type AdminSourceBulkAction,
   type AdminSourceRow,
   type AdminSourcesBulkResult,
+  type AdminSourcesImportResult, // v37 TRANSFER
   type AdminSourcesList,
   type AdminSourcesTurnedOff, // v36 SOURCES
   type JobSourcePurge,
   type JobSourcePurgeRequest,
   type JobSourcePurgeState,
+  type JobSourceTermsStatus, // v37 BOARDS
 } from '@tailorit/shared/sourcing';
-import { api } from '@/lib/api';
+import { ApiError, UNREACHABLE_MESSAGE, api } from '@/lib/api';
+import { profileHeaders } from '@/lib/profile'; // v37 TRANSFER
 import type { AddableKind, LakeTestResult, NewSourceBody, SourceTestResult } from '../types';
 import { sourcesAllFilter, sourcesFilterQuery, sourcesQuery, type SourceFilters } from './filters';
 
@@ -55,6 +59,10 @@ export const SourceSettingsSchema = z.object({
   id: z.number().int(),
   name: z.string(),
   config: z.record(z.string(), z.unknown()).default({}),
+  // v37 BOARDS (SP v37 PLAN B3): its recorded terms (absent from a server before v3.0's detail fields).
+  termsUrl: z.string().nullable().optional(),
+  termsNote: z.string().nullable().optional(),
+  termsCheckedAt: z.string().nullable().optional(),
 });
 export type SourceSettings = z.infer<typeof SourceSettingsSchema>;
 
@@ -110,6 +118,113 @@ export function dismissTurnedOff(): Promise<AdminSourcesTurnedOff> {
   return api.post<AdminSourcesTurnedOff>('/api/admin/sources/turned-off/dismiss', undefined, { schema: AdminSourcesTurnedOffSchema });
 }
 // end v36 SOURCES
+
+// v37 BOARDS (SP v37 PLAN B3): a source's recorded terms (the route v3.0 made; the web had no editor).
+
+/** What the Terms editor saves: the status, and the terms page and note (null clears them). */
+export interface SourceTermsBody {
+  termsStatus: JobSourceTermsStatus;
+  termsUrl: string | null;
+  termsNote: string | null;
+}
+
+/** PATCH /api/admin/sources/:id {termsStatus, termsUrl, termsNote}: records the terms (their checked time moves). */
+export function saveSourceTerms(id: number, body: SourceTermsBody): Promise<AdminSourceRow> {
+  return api.patch<AdminSourceRow>(`/api/admin/sources/${id}`, body, { schema: AdminSourceRowSchema });
+}
+// end v37 BOARDS
+// v37 TRANSFER (SP v37 PLAN T1, T2): the sources file. Export saves the sources the filter shows; Import sends a file
+// for its preview, then imports it (every source it adds is off and waits for an admin).
+
+/** The export's address for the filter shown (the list's own filter query: sourcesFilterQuery). */
+export function sourcesExportPath(filters: SourceFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(sourcesFilterQuery(filters))) {
+    if (value === undefined || value === null || value === '') continue;
+    for (const each of Array.isArray(value) ? value : [value]) params.append(key, String(each));
+  }
+  const search = params.toString();
+  return `/api/admin/sources/export${search ? `?${search}` : ''}`;
+}
+
+/** v37 FIX-37B (L9): tailorit-sources-YYYY-MM-DD.json, the day as the viewer's clock reads it. */
+export function exportFileNameOn(now: Date): string {
+  const two = (value: number) => String(value).padStart(2, '0');
+  return `tailorit-sources-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}.json`;
+}
+
+/** An export: its file to save, how many sources it holds, and how many shown it left out (kinds a file never holds). */
+export interface SourcesExportFile {
+  fileName: string;
+  blob: Blob;
+  count: number;
+  leftOut: number;
+}
+
+/**
+ * GET /api/admin/sources/export?<filter>: the sources file, as the API wrote it (v37 FIX-37B: named by the viewer's day,
+ * exportFileNameOn). A refusal (too many sources shown) throws an ApiError with the server's words.
+ */
+export async function downloadSourcesExport(filters: SourceFilters, now: Date = new Date()): Promise<SourcesExportFile> {
+  const path = sourcesExportPath(filters);
+  let response: Response;
+  try {
+    response = await fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json', ...profileHeaders(path) } });
+  } catch {
+    throw new ApiError({ status: 0, code: 'internal', message: UNREACHABLE_MESSAGE, path });
+  }
+  if (!response.ok) {
+    let message = '';
+    let code = '';
+    try {
+      const body = (await response.json()) as { error?: { message?: unknown; code?: unknown } | string };
+      const error = body.error;
+      message = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : '';
+      code = typeof error === 'object' && typeof error?.code === 'string' ? error.code : '';
+    } catch {
+      // not JSON
+    }
+    throw new ApiError({
+      status: response.status,
+      code: (code || (response.status === 400 ? 'validation_failed' : response.status === 403 ? 'forbidden' : 'internal')) as ApiError['code'],
+      message: message || 'The sources did not export. Please try again.',
+      path,
+    });
+  }
+  const text = await response.text();
+  let count = 0;
+  try {
+    const sources = (JSON.parse(text) as { sources?: unknown }).sources;
+    count = Array.isArray(sources) ? sources.length : 0;
+  } catch {
+    count = 0;
+  }
+  const leftOut = Number(response.headers.get('X-Sources-Left-Out') ?? 0);
+  return {
+    // v37 FIX-37B (the ux review's L9): named by the viewer's own day (the server names it by its UTC day).
+    fileName: exportFileNameOn(now),
+    blob: new Blob([text], { type: 'application/json' }),
+    count,
+    leftOut: Number.isFinite(leftOut) ? leftOut : 0,
+  };
+}
+
+function sourcesFileForm(file: File): FormData {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  return form;
+}
+
+/** POST /api/admin/sources/import/preview: what the file would do (new, already there, renamed, not valid). Saves nothing. */
+export function previewSourcesFile(file: File): Promise<AdminSourcesImportResult> {
+  return api.post<AdminSourcesImportResult>('/api/admin/sources/import/preview', sourcesFileForm(file), { schema: AdminSourcesImportResultSchema });
+}
+
+/** POST /api/admin/sources/import: adds the file's new sources, each off and waiting for an admin. */
+export function importSourcesFile(file: File): Promise<AdminSourcesImportResult> {
+  return api.post<AdminSourcesImportResult>('/api/admin/sources/import', sourcesFileForm(file), { schema: AdminSourcesImportResultSchema });
+}
+// end v37 TRANSFER
 
 /** DELETE /api/admin/sources/:id (v2.0's route). */
 export function deleteSource(id: number) {

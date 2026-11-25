@@ -7,6 +7,9 @@ import {
   JOB_SOURCE_IMPORT_KINDS,
   JobImportCountsSchema, // v35 INT-A
   JOB_SOURCE_KIND_LABEL,
+  JOB_SOURCE_READ_FORBIDDING_TERMS, // v37 INT-2b
+  JOB_SOURCE_RUNNABLE_TERMS, // v37 INT-B
+  JOB_SOURCE_TERMS_LABEL, // v37 FIX-37B
   JobSourceRunSchema,
   SHEET_SOURCE_LABEL,
   SheetSourceConfigSchema,
@@ -23,6 +26,7 @@ import {
   type AdminSourcesQuery,
   type JobSourceKind,
   type JobSourceRun,
+  type JobSourceTermsStatus, // v37 FIX-37B
   type JobSourceWaiting,
 } from '@tailorit/shared';
 import { constantDefault } from '@tailorit/shared/constants'; // v36 SOURCES
@@ -33,6 +37,8 @@ import { turnedOffSql } from './turned-off'; // v36 SOURCES
 import type { DbQueries, SqlParams } from '../../core/db/types';
 import { validationFailed } from '../../core/http/errors';
 import { isWorkdayHost } from './adapters/workday'; // v30 S3
+import { icimsBoardOf, icimsHostOf } from './career/platforms'; // v37 BOARDS
+import { laneSql, onLaneSql } from './hosts'; // v37 INT-B (LANE W1 + TRANSFER T3); v37 INT-2b: every lane
 import {
   RUN_STATUSES,
   RUN_TRIGGERS,
@@ -235,6 +241,11 @@ export function hostOf(kind: string, config: Record<string, unknown>): string | 
     // v30 S5: a career site's own host (its config's host, as career/config.ts reads it).
     case 'career_site':
       return careerHostOfConfig(config);
+    // v37 BOARDS (SP v37 PLAN I1): an iCIMS source's board's host (config `board`: careers-acme -> careers-acme.icims.com).
+    case 'icims': {
+      const board = icimsBoardOf(typeof config.board === 'string' ? config.board : '');
+      return board ? icimsHostOf(board) : null;
+    }
     default:
       return null;
   }
@@ -262,11 +273,30 @@ export function feedHostOf(kind: string, config: Record<string, unknown>): strin
 }
 
 /**
+ * v37 BOARDS (SP v37 PLAN B2): a BambooHR source's recorded terms note (job_sources.terms_note, at most 1,000 characters),
+ * word for word as migration 0063 writes it.
+ */
+export const BAMBOOHR_TERMS_NOTE =
+  '2026-11-24: the owner decided TailorIT reads BambooHR careers lists. Checked that day: the list (/careers/list) and ' +
+  "each opening's detail (/careers/<id>/detail) are the public careers JSON the company's own careers page loads " +
+  "(BambooHR documents no such API; its own API needs a customer's key); robots.txt allows everything. Conditions: one " +
+  'request at a time per host, with the bot user agent (BOT_USER_AGENT); the apply form is never read or stored.';
+
+/**
+ * v37 BOARDS (SP v37 PLAN I3): an iCIMS source's recorded terms note, word for word as migration 0063 writes it.
+ */
+export const ICIMS_TERMS_NOTE =
+  '2026-11-24: the owner decided TailorIT reads iCIMS career sites. Checked that day: robots.txt names the sitemap ' +
+  '(/sitemap.xml) and allows the job pages (/jobs/<id>/<slug>/job; it disallows the referral, login and candidate ' +
+  "pages, never read); each job page's content (?in_iframe=1) carries one schema.org JobPosting and says index,follow. " +
+  'Conditions: one request at a time per host, with the bot user agent (BOT_USER_AGENT).';
+
+/**
  * The terms recorded for each kind TailorIT reads today (12 §3.1, §3.11, read 2026-11-14: "use"): the owner's rule
  * that only sources allowing automated access run. A kind not listed starts `unchecked` and never runs until an admin
  * (or its package) records its terms.
  */
-export const KIND_TERMS: Partial<Record<string, { status: 'allowed' | 'allowed_with_conditions'; url: string | null }>> = {
+export const KIND_TERMS: Partial<Record<string, { status: 'allowed' | 'allowed_with_conditions'; url: string | null; note?: string }>> = {
   greenhouse: { status: 'allowed', url: 'https://developers.greenhouse.io/job-board.html' },
   lever: { status: 'allowed', url: 'https://github.com/lever/postings-api' },
   ashby: { status: 'allowed', url: 'https://developers.ashbyhq.com/docs/public-job-posting-api' },
@@ -281,7 +311,7 @@ export const KIND_TERMS: Partial<Record<string, { status: 'allowed' | 'allowed_w
   // v30 S3 (12 §3.2-3.3; the docs read 2026-11-16, SP\p2\build\S3.md): a Workday career site's own sitemap (the owner's
   // answer to question 11: sitemaps only) and per-posting reads; Personio's documented XML feed, which the employer turns
   // on; Recruitee's documented careers API, open until 2027-02-10 (then each employer's token: the adapter stops). Breezy
-  // and BambooHR are undocumented: no entry, so `unchecked`, never run until an admin records their terms.
+  // is undocumented: no entry, so `unchecked`, never run until an admin records its terms (v37 BOARDS: BambooHR's below).
   workday_site: { status: 'allowed', url: null },
   personio: { status: 'allowed', url: 'https://developer.personio.de/v1.0/reference/get_xml' },
   recruitee: { status: 'allowed_with_conditions', url: 'https://docs.recruitee.com/reference/offers' },
@@ -294,7 +324,37 @@ export const KIND_TERMS: Partial<Record<string, { status: 'allowed' | 'allowed_w
   // v30 S5: career sites' own terms cannot be read site by site (12 §3.4): reading them at all waits for the owner's
   // lawyer's view (SITE_READER_CAREER_PAGES, off), and robots.txt decides every read.
   career_site: { status: 'allowed_with_conditions', url: null },
+  // v37 BOARDS (SP v37 PLAN B2, I3): the owner decided on 2026-11-24 that TailorIT reads BambooHR careers lists and iCIMS
+  // career sites; each source starts "allowed with conditions" with the dated note of that decision and the facts read
+  // that day (migration 0063 writes the same on the sources still unchecked with no note).
+  bamboohr: { status: 'allowed_with_conditions', url: null, note: BAMBOOHR_TERMS_NOTE },
+  icims: { status: 'allowed_with_conditions', url: null, note: ICIMS_TERMS_NOTE },
 };
+
+/**
+ * v37 INT-B: whether a source's recorded terms let it be read (JOB_SOURCE_RUNNABLE_TERMS; none recorded: unchecked).
+ * v37 FIX-37B (SP v37 FIXES-37 E2): the one check of every path, for every kind: the scheduler and Run now (the source),
+ * Add source's Test, every link's read, the re-checks and discovery (the board's sources: ingest/terms.ts).
+ */
+export const termsAllowReads = (status: string | null | undefined): boolean =>
+  (JOB_SOURCE_RUNNABLE_TERMS as readonly string[]).includes(status ?? 'unchecked');
+
+/**
+ * v37 INT-2b (the coordinator's ruling on SP v37 FIXES-37 E2, binding): whether a source's recorded terms say no
+ * (Forbidden, Needs a contract: JOB_SOURCE_READ_FORBIDDING_TERMS), so its board is never READ by any path: the
+ * board-level gate (ingest/terms.ts: links, imports, the link queue, Retry read, re-checks, discovery, Add source's
+ * Test). Not checked does not stop those reads: it only keeps the source from running (termsAllowReads).
+ */
+export const termsForbidReads = (status: string | null | undefined): boolean =>
+  (JOB_SOURCE_READ_FORBIDDING_TERMS as readonly string[]).includes(status ?? 'unchecked');
+
+/**
+ * v37 FIX-37B (SP v37 FIXES-37 E8): why a source whose terms don't allow automated access is not read, in the agreed words
+ * (MSG_INGEST_SOURCE_TERMS: "Its terms are Forbidden: TailorIT doesn't read it."): Run now's refusal, a bulk Run now's row.
+ */
+export const termsParams = (status: string | null | undefined): { status: string } => ({
+  status: JOB_SOURCE_TERMS_LABEL[(status ?? 'unchecked') as JobSourceTermsStatus] ?? JOB_SOURCE_TERMS_LABEL.unchecked,
+});
 
 /** Kinds that read no outside host: robots.txt does not apply (12 §1: keyed APIs are `not_applicable` too). */
 export const NO_ROBOTS_KINDS: readonly string[] = [
@@ -316,9 +376,9 @@ export const NO_ROBOTS_KINDS: readonly string[] = [
  */
 export const NEW_SOURCE_COLUMNS =
   'job_sources(kind, name, config, deactivate_missing, host, terms_status, terms_url, terms_checked_at, robots_status, ' +
-  'created_at, updated_at)';
+  'created_at, updated_at, terms_note)';
 /** NEW_SOURCE_COLUMNS' placeholders. */
-export const NEW_SOURCE_PLACEHOLDERS = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+export const NEW_SOURCE_PLACEHOLDERS = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
 
 /** The values of a new source's row, in NEW_SOURCE_COLUMNS' order. */
 export function newSourceValues(source: NewSource, now: string) {
@@ -337,6 +397,7 @@ export function newSourceValues(source: NewSource, now: string) {
     NO_ROBOTS_KINDS.includes(source.kind) ? 'not_applicable' : 'unchecked',
     now,
     now,
+    terms?.note ?? null, // v37 BOARDS: the kind's dated terms note (BambooHR, iCIMS)
   ];
 }
 
@@ -357,17 +418,54 @@ export interface EnablingAdmin {
  * v36 FIX-SRC (the final data review's D2): a career site turned on loses Add job's mark (config `addedBy`), which a
  * keeper discovery adopted keeps while it waits: its pages are its own runs' from then on (the scheduler's), never the
  * weekly page re-read's (jobs/add/recheck.ts), also if an admin turns it off again.
+ * v37 TRANSFER (SP v37 PLAN T3): in the same statement, each host of the sources it turned on gets its crawl_hosts row
+ * when it has none (Admin › Hosts lists it before its first request): paced `hostPaceMs` apart (the routes pass
+ * INGEST_HOST_MIN_INTERVAL_MS), or by the host's robots.txt Crawl-delay when that is longer, as the robots store writes
+ * it; a host's row that is there is left as it is. Every way of turning a source on comes here, so every way adds it.
+ * v37 INT-B (LANE W1): a Workday source's requests take their turns on the one Workday lane (hosts.ts WORKDAY_LANE): its
+ * row is added too when a Workday source is turned on (its own pace 0: WORKDAY_MIN_INTERVAL_MS rules, read at each
+ * turn), so Admin › Hosts holds a real lane row (Hold works on it) from the turn-on. The tenant's own row stays (its
+ * holds and backoff are its own). v37 INT-2b (E1): every registered lane alike (laneSql / onLaneSql over the turned-on
+ * hosts: Workday's, BambooHR's, iCIMS's), one row per lane key.
  */
-export async function enableSources(db: DbQueries, ids: readonly number[], admin: EnablingAdmin | null, now: string): Promise<number[]> {
+export async function enableSources(
+  db: DbQueries,
+  ids: readonly number[],
+  admin: EnablingAdmin | null,
+  now: string,
+  hostPaceMs: number = constantDefault('INGEST_HOST_MIN_INTERVAL_MS') as number, // v37 TRANSFER
+): Promise<number[]> {
   if (ids.length === 0) return [];
   const rows = await db.all<{ id: number }>(
-    `UPDATE job_sources SET enabled = true, enabled_at = CAST(@now AS timestamptz), enabled_by = @by, updated_at = CAST(@now AS timestamptz),
-       config = CASE WHEN kind = 'career_site' THEN config - 'addedBy' ELSE config END,
-       next_run_at = CASE WHEN kind = ANY(string_to_array(@scheduled, ','))
-         THEN LEAST(COALESCE(next_run_at, CAST(@now AS timestamptz)), CAST(@now AS timestamptz)) ELSE next_run_at END
-     WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[])) AND NOT enabled AND NOT (kind = ANY(string_to_array(@unrun, ',')))
-     RETURNING id`,
-    { now, by: admin?.id ?? null, ids: ids.join(','), scheduled: SCHEDULED_KINDS.join(','), unrun: UNRUN_KINDS.join(',') },
+    `WITH turned AS (
+       UPDATE job_sources SET enabled = true, enabled_at = CAST(@now AS timestamptz), enabled_by = @by, updated_at = CAST(@now AS timestamptz),
+         config = CASE WHEN kind = 'career_site' THEN config - 'addedBy' ELSE config END,
+         next_run_at = CASE WHEN kind = ANY(string_to_array(@scheduled, ','))
+           THEN LEAST(COALESCE(next_run_at, CAST(@now AS timestamptz)), CAST(@now AS timestamptz)) ELSE next_run_at END
+       WHERE id = ANY(CAST(string_to_array(@ids, ',') AS bigint[])) AND NOT enabled AND NOT (kind = ANY(string_to_array(@unrun, ',')))
+       RETURNING id, host
+     ), hosts AS (
+       INSERT INTO crawl_hosts(host, min_interval_ms, next_slot_at, updated_at)
+       SELECT h.host, GREATEST(CAST(@pace AS integer), COALESCE(r.crawl_delay_s, 0) * 1000), CAST(@now AS timestamptz), CAST(@now AS timestamptz)
+       FROM (SELECT DISTINCT host FROM turned WHERE host IS NOT NULL AND host <> '') h
+       LEFT JOIN site_robots r ON r.host = h.host AND r.status <> 'unreachable'
+       ORDER BY h.host
+       ON CONFLICT (host) DO NOTHING
+     ), lane AS (
+       INSERT INTO crawl_hosts(host, min_interval_ms, next_slot_at, updated_at)
+       SELECT DISTINCT ${laneSql('turned.host')}, 0, CAST(@now AS timestamptz), CAST(@now AS timestamptz)
+       FROM turned WHERE ${onLaneSql('turned.host')}
+       ON CONFLICT (host) DO NOTHING
+     )
+     SELECT id FROM turned`,
+    {
+      now,
+      by: admin?.id ?? null,
+      ids: ids.join(','),
+      scheduled: SCHEDULED_KINDS.join(','),
+      unrun: UNRUN_KINDS.join(','),
+      pace: Math.max(0, Math.round(hostPaceMs)), // v37 TRANSFER
+    },
   );
   return rows.map((row) => Number(row.id));
 }
@@ -867,7 +965,6 @@ const SKIP_WORDS = {
   already_enabled: 'It is on already.',
   already_disabled: 'It is off already.',
   never_run: 'This kind of source is never run, so it cannot be turned on or run.',
-  terms: 'Its terms do not allow automated access yet.',
   robots: "Its host's robots.txt does not allow it (or has not been read yet).",
   not_scheduled: 'This kind of source runs only by hand (Run now).',
   /** v30 FIX-A: its company opted out (the words are MSG_INGEST_SOURCE_OPTED_OUT's, given by the route). */
@@ -923,7 +1020,10 @@ export async function bulkSources(
     } else if (UNRUN_KINDS.includes(source.kind)) skip('never_run');
     else if (!SCHEDULED_KINDS.includes(source.kind)) skip('not_scheduled');
     else if (!source.enabled) skip('disabled');
-    else if (!['allowed', 'allowed_with_conditions'].includes(source.termsStatus ?? '')) skip('terms');
+    else if (!termsAllowReads(source.termsStatus)) {
+      // v37 FIX-37B (E8): by its status, in Run now's words.
+      results.push({ id, outcome: 'skipped', message: words.terms?.(source.termsStatus) ?? fillTerms(source.termsStatus) });
+    }
     else if (!['allowed', 'not_applicable'].includes(source.robotsStatus ?? '')) skip('robots');
     else if (source.pausedAt) skip('paused'); // v31 RUNS: run now waits for Continue
     else chosen.push(id);
@@ -931,8 +1031,8 @@ export async function bulkSources(
   let changed = chosen;
   if (chosen.length > 0 && body.action === 'enable') {
     // v36 SOURCES (PLAN S1): through the one writer of "on", recording the admin; a source turned on is due at once (a
-    // kind the worker runs). One turned on meanwhile is on already.
-    const turned = new Set(await enableSources(db, chosen, admin, now));
+    // kind the worker runs). One turned on meanwhile is on already. v37 TRANSFER: its host's row at the route's pace.
+    const turned = new Set(await enableSources(db, chosen, admin, now, words.hostPaceMs));
     for (const id of chosen) {
       results.push(turned.has(id) ? { id, outcome: 'done' } : { id, outcome: 'skipped', message: SKIP_WORDS.already_enabled });
     }
@@ -961,6 +1061,15 @@ export interface BulkWords {
   paused?: string;
   /** v36 SOURCES: run now on a source that is off (MSG_INGEST_SOURCE_OFF). */
   off?: string;
+  /** v37 TRANSFER (PLAN T3): the pace of a host row an enable adds (INGEST_HOST_MIN_INTERVAL_MS; its default if absent). */
+  hostPaceMs?: number;
+  /** v37 FIX-37B (E8): run now on a source whose terms don't allow reading (MSG_INGEST_SOURCE_TERMS by its status). */
+  terms?: (status: string | null | undefined) => string;
+}
+
+/** v37 FIX-37B (E8): MSG_INGEST_SOURCE_TERMS' default words for a status (a route passes the admin's words). */
+function fillTerms(status: string | null | undefined): string {
+  return String(constantDefault('MSG_INGEST_SOURCE_TERMS')).replace('{status}', termsParams(status).status);
 }
 
 /**

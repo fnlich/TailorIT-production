@@ -173,6 +173,11 @@ export interface GetJsonOptions {
   /** Answer the body as text, unparsed (`data` is a string): a site's robots.txt (robots.ts). */
   text?: boolean;
   /**
+   * v37 FIX-37A (REVIEW37-beh F7): the Accept header, for a read of a page (text/html) or a sitemap (XML); absent:
+   * text/plain for a `text` read, else application/json.
+   */
+  accept?: string;
+  /**
    * The hosts a redirect may lead to (lower case, no trailing dot): Workday's reads stay on Workday's hosts. Any host
    * assertRedirectAllowed allows when absent.
    */
@@ -516,7 +521,7 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
     const headers: Record<string, string> = {
       ...Object.fromEntries(own),
       'User-Agent': options.userAgent,
-      Accept: asText ? 'text/plain' : 'application/json',
+      Accept: request.accept ?? (asText ? 'text/plain' : 'application/json'), // v37 FIX-37A (F7)
     };
     if (etag) headers['If-None-Match'] = etag;
     if (lastModified) headers['If-Modified-Since'] = lastModified;

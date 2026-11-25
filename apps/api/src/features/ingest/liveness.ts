@@ -5,6 +5,8 @@ import { greenhouseToken } from './adapters/greenhouse';
 import { leverSite } from './adapters/lever';
 import { workableAccount } from './adapters/workable';
 import { workdayTenant } from './adapters/workday';
+import { bamboohrCompany } from './adapters/bamboohr'; // v37 BOARDS
+import { icimsBoardOf } from './career/platforms'; // v37 BOARDS
 import type { IngestHttp } from './http';
 import { sourceHashOf } from './normalize';
 import { fetchPosting, type AshbyBoardReads, type PostingRef, type WorkableNames } from './postings';
@@ -32,7 +34,8 @@ export { ADDED_BY_AUTOFILL } from './types';
  * (S3's workday_site) too: its posting is read as Add job's Workday posting is (the job's own page link), a new kind of
  * read, so the re-check reads it only once BOT_USER_AGENT is set, and with it (recheck.ts).
  */
-export const READABLE_KINDS = ['greenhouse', 'lever', 'ashby', 'workable', 'workday', 'workday_site'] as const;
+// v37 BOARDS: and a BambooHR opening's and an iCIMS posting's (new kinds of read, as a Workday site's).
+export const READABLE_KINDS = ['greenhouse', 'lever', 'ashby', 'workable', 'workday', 'workday_site', 'bamboohr', 'icims'] as const;
 
 /** A link to read: its source (kind and config) and posting id, and its job's own link (Workday's address parts). */
 export interface LinkToRead {
@@ -74,6 +77,18 @@ export function postingRefOf(link: LinkToRead): PostingRef | null {
     const board = leverSite(typeof config.site === 'string' ? config.site : '');
     const region = typeof config.region === 'string' && config.region.toLowerCase() === 'eu' ? 'eu' : 'global';
     return board ? { kind: 'lever', board, externalId: sourceJobId, region } : null;
+  }
+  // v37 BOARDS (SP v37 PLAN B1, I2): a BambooHR opening by its company and id; an iCIMS posting by its board, its id and
+  // its job's own page (postings.ts reads that page when it is the posting's, else its plain page).
+  if (source.kind === 'bamboohr') {
+    const company = bamboohrCompany(typeof config.company === 'string' ? config.company : '');
+    return company && /^\d{1,20}$/.test(sourceJobId) ? { kind: 'bamboohr', board: company, externalId: sourceJobId, region: 'global' } : null;
+  }
+  if (source.kind === 'icims') {
+    const board = icimsBoardOf(typeof config.board === 'string' ? config.board : '');
+    return board && /^\d{1,12}$/.test(sourceJobId)
+      ? { kind: 'icims', board, externalId: sourceJobId, region: 'global', page: link.jobUrl }
+      : null;
   }
   return null;
 }

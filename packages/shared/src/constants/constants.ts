@@ -3016,6 +3016,98 @@ export const CONSTANTS = {
   ),
   MSG_JOB_IMPORT_ROW_LATER: message('Import results: a row waits to be read again', 'TailorIT reads the link again after {time}.', ['time'] as const),
   // end v37 FIX-REV
+  // v37 BOARDS (SP v37 PLAN B1, I2): a BambooHR run reads its list, then each opening's own detail; an iCIMS run reads
+  // its sitemap, then each posting's page. Each reads new postings first, then (iCIMS) the ones its sitemap no longer
+  // lists, then the ones not read for some days, at most this many a run (one request each, at the host's pace).
+  BAMBOOHR_READS_PER_RUN: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'jobs', min: 1, max: 2000,
+    label: 'BambooHR openings read per run',
+    help: "Openings one run of a BambooHR source reads in full (one request each, at the host's pace); the rest wait.",
+  },
+  BAMBOOHR_RECHECK_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: false, group: 'jobs', min: 1, max: 29,
+    label: 'BambooHR openings read again (days)',
+    help: "An opening its list still names is read in full again after this many days (under the unverified jobs' 30).",
+  },
+  ICIMS_READS_PER_RUN: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'jobs', min: 1, max: 2000,
+    label: 'iCIMS postings read per run',
+    help: "Postings one run of an iCIMS source reads (one page each, at the host's pace); the rest wait for the next run.",
+  },
+  ICIMS_RECHECK_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: false, group: 'jobs', min: 1, max: 29,
+    label: 'iCIMS postings read again (days)',
+    help: "An iCIMS posting its sitemap still lists is read again after this many days (under the unverified jobs' 30).",
+  },
+  ICIMS_UNLISTED_RECHECK_HOURS: {
+    kind: 'int', default: 24, adminEditable: true, public: false, group: 'jobs', min: 1, max: 720,
+    label: 'Unlisted iCIMS postings read again (hours)',
+    help: "An iCIMS posting its sitemap no longer lists is read again after this many hours, to see whether it closed.",
+  },
+  // B3: Run now on a source whose recorded terms do not allow automated access (the scheduler never runs one either).
+  // v37 FIX-37B (SP v37 FIXES-37 E8): by its status, in the agreed words ({status}: JOB_SOURCE_TERMS_LABEL's, "Forbidden").
+  MSG_INGEST_SOURCE_TERMS: message('Source terms: no run starts', "Its terms are {status}: TailorIT doesn't read it.", ['status'] as const),
+  // end v37 BOARDS
+  // v37 TRANSFER (SP v37 PLAN T1, T2): Admin › Sources' sources file: an import takes, and an export writes, at most this
+  // many sources (an export always fits an import); the refusals past it, and of a file that is no sources file.
+  ADMIN_SOURCES_IMPORT_MAX: {
+    kind: 'int', default: 5000, adminEditable: true, public: true, group: 'jobs', min: 1, max: 20_000,
+    label: 'Sources a file holds',
+    help: 'The most sources one Admin › Sources import takes, and one export writes.',
+  },
+  MSG_ADMIN_SOURCES_FILE_TOO_MANY: message(
+    'Sources import: too many sources in a file',
+    'This file holds {count} sources; a file may hold at most {max}. Split it and import each part.',
+    ['count', 'max'] as const,
+  ),
+  MSG_ADMIN_SOURCES_EXPORT_TOO_MANY: message(
+    'Sources export: too many sources shown',
+    '{count} sources match; a file holds at most {max}. Narrow the filters (a kind, a search) and export each part.',
+    ['count', 'max'] as const,
+  ),
+  MSG_ADMIN_SOURCES_FILE_INVALID: message(
+    'Sources import: not a sources file',
+    "This isn't a TailorIT sources file. Choose a file saved by Export in Admin › Sources.",
+  ),
+  MSG_ADMIN_SOURCES_FILE_UP_TO: message('Sources import: sources a file takes', 'Up to {max} sources a file.', ['max'] as const),
+  // end v37 TRANSFER
+  // v37 FIX-37B (SP v37 FIXES-37 E2, E8): a board whose source's terms an admin recorded as not allowing automated access
+  // is never read, by any path: a person's link to it (JOB_VERIFY_REASON_MESSAGE `terms`), and an import's row of it.
+  MSG_JOB_VERIFY_TERMS: message(
+    "Verify: a board whose terms don't allow reading",
+    "TailorIT doesn't read this company's job site. Add the title and company to save it for yourself.",
+  ),
+  MSG_JOB_IMPORT_ROW_TERMS: message(
+    "Import row: a board whose terms don't allow reading",
+    "TailorIT doesn't read {host}: its terms say no.",
+    ['host'] as const,
+  ),
+  // end v37 FIX-37B
+  // v37 INT-2b (SP v37 FIXES-37 E1, the v3.7 review's F1): BambooHR and iCIMS answer every company from one limit, as
+  // Workday does, so each has a lane in ingest/hosts.ts's registry: one request at a time to all of the platform, at
+  // least its gap apart, and at most this many of its boards checked by discovery in a clock hour. The lanes' adaptive
+  // rules (pause, widened gap, breaker) are the LANE_* constants.
+  BAMBOOHR_MIN_INTERVAL_MS: {
+    kind: 'int', default: 2000, adminEditable: true, public: false, group: 'jobs', min: 1000, max: 600_000,
+    label: 'BambooHR gap (ms)',
+    help: 'The least time between two requests to any BambooHR company, as all of them share one lane.',
+  },
+  BAMBOOHR_DISCOVERY_PER_HOUR: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'jobs', min: 0, max: 3600,
+    label: 'BambooHR boards checked an hour',
+    help: 'How many BambooHR boards discovery may check in an hour (0 stops those checks), so it never takes the lane from the runs.',
+  },
+  ICIMS_MIN_INTERVAL_MS: {
+    kind: 'int', default: 2000, adminEditable: true, public: false, group: 'jobs', min: 1000, max: 600_000,
+    label: 'iCIMS gap (ms)',
+    help: 'The least time between two requests to any iCIMS site, as all of them share one lane.',
+  },
+  ICIMS_DISCOVERY_PER_HOUR: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'jobs', min: 0, max: 3600,
+    label: 'iCIMS boards checked an hour',
+    help: 'How many iCIMS boards discovery may check in an hour (0 stops those checks), so it never takes the lane from the runs.',
+  },
+  // end v37 INT-2b
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

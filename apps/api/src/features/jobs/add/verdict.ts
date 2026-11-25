@@ -5,6 +5,7 @@ import { AppError } from '../../../core/http/errors';
 import { lanePauseOf } from '../../ingest/hosts'; // v37 INT-A (one pause signal); v37 FIX-LANE (any lane, its name)
 import { HostHeldError, type HostHoldReason } from '../../ingest/http';
 import { RobotsRefusal } from '../../ingest/robots';
+import { TermsRefusalError } from '../../ingest/terms'; // v37 FIX-37B (E2)
 import { IngestError } from '../../ingest/types';
 
 // v37 CLOSED (SP v37 PLAN.md C1, C3): the one verdict on TailorIT's read of a job link, for every path that reads one
@@ -15,7 +16,8 @@ import { IngestError } from '../../ingest/types';
 //   - try later: the site failed for now or paused TailorIT: a 429, a held host or Workday's paused lane, a 5xx, a
 //     timeout, a robots.txt that could not be read (`unavailable`), a sign-in wall or a bot check (`blocked`);
 //   - can't read: the read's lasting word: robots.txt disallows it, no posting on the page, an address that names no
-//     posting, a site TailorIT never reads, page reads not set up, an opt-out, an admin's rejection.
+//     posting, a site TailorIT never reads, page reads not set up, an opt-out, an admin's rejection; v37 FIX-37B (E2):
+//     a board whose source's terms an admin recorded as not allowing automated access (`terms`, nothing sent).
 // A read while the site's host (or every Workday site: the LANE package's `workday.lane`) is paused carries the pause
 // (`pause`: its end, the site's name, and whether the site asked TailorIT to slow down): the link queue reads it again
 // after the pause without using a try (queue.ts), and a person's read answers at once with the time to try again
@@ -81,6 +83,8 @@ export function pauseOf(error: unknown, site: string): ReadPause | null {
 export function atsFailure(error: unknown, site: string): LinkRead {
   if (!(error instanceof AppError)) throw error;
   if (error.code === 'not_found') return { kind: 'closed' };
+  // v37 FIX-37B (E2): the board's source has terms that don't allow automated access: nothing was read.
+  if (error.cause instanceof TermsRefusalError) return { kind: 'unreadable', reason: 'terms' };
   if (error.code === 'unsupported') {
     return { kind: 'unreadable', reason: error.cause instanceof RobotsRefusal ? 'robots' : 'unlisted' };
   }

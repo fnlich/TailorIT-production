@@ -10,7 +10,7 @@ import { laneKeyOf, laneOfHost, WORKDAY_LANE_SPEC, type LaneSpec } from '../host
 import { RobotsRefusal } from '../robots';
 import { NOT_FOUND_DAYS, NOT_FOUND_DROP_AFTER, runnableKinds } from '../scheduler';
 import { requireIngest } from '../service';
-import { hostOf, KIND_TERMS, NEW_SOURCE_COLUMNS, NEW_SOURCE_PLACEHOLDERS, newSourceValues } from '../sources';
+import { hostOf, KIND_TERMS, NEW_SOURCE_COLUMNS, NEW_SOURCE_PLACEHOLDERS, newSourceValues, termsForbidReads } from '../sources'; // v37 INT-B gate; v37 INT-2b: the terms that say no
 import { IngestError, SourceNotFoundError, type SourceAdapter, type SourceKind, type SourceRecord } from '../types';
 import { BOARD_KINDS } from './boards';
 import { isLinkKeeper, optedOut, sourcesOfBoard } from './offer';
@@ -381,7 +381,13 @@ export async function validateCandidates(deps: AppDeps, options: ValidationOptio
         await recordCandidate(t, candidate.id, { status: 'forbidden', attempts: 0, nextCheckAt: null, checkedAt: null, lastError: null });
         return 'forbidden' as const;
       }
-      const reading = (await sourcesOfBoard(t, candidate.kind, candidate.name)).find((source) => !isLinkKeeper(source));
+      const sources = await sourcesOfBoard(t, candidate.kind, candidate.name);
+      // v37 INT-B (the terms gate): Add job's keeper of a board whose terms an admin set to not allowed is linked, unread,
+      // as a reading source is: discovery never reads a board an admin's terms say no to. v37 FIX-37B (SP v37 FIXES-37
+      // E2): every kind's, not only BambooHR's and iCIMS's (ingest/terms.ts).
+      // v37 INT-2b (the coordinator's ruling): Forbidden and Needs a contract (termsForbidReads), not Not checked.
+      const gated = (source: (typeof sources)[number]) => termsForbidReads(source.termsStatus);
+      const reading = sources.find((source) => !isLinkKeeper(source)) ?? sources.find(gated);
       if (reading) {
         await recordCandidate(t, candidate.id, { status: 'valid', attempts: 0, nextCheckAt: null, checkedAt: null, lastError: null, sourceId: reading.id });
         return 'linked' as const;

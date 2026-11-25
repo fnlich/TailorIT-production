@@ -6,7 +6,9 @@ import { greenhouseToken } from './adapters/greenhouse';
 import { leverSite } from './adapters/lever';
 import { workableAccount } from './adapters/workable';
 import { workdaySiteOf } from './adapters/workdaySite';
-import { boardNameOf, candidateName } from './discovery/boards';
+import { boardNameOf, boardOfUrl, candidateName } from './discovery/boards';
+import { bamboohrCompany } from './adapters/bamboohr'; // v37 BOARDS
+import { icimsBoardOf } from './career/platforms'; // v37 BOARDS
 import { isLinkKeeper, sourcesOfBoard } from './discovery/offer';
 import { NEW_SOURCE_COLUMNS, NEW_SOURCE_PLACEHOLDERS, newSourceValues } from './sources';
 import { IngestError } from './types';
@@ -28,8 +30,14 @@ import { IngestError } from './types';
 // (SP v36 PLAN S1: only an admin's action turns a source on, through sources.ts enableSources).
 // A board of a company that opted out still becomes a source, off: the opt-out gate keeps it off and unread.
 
-/** The kinds of board an import may find (a board TailorIT reads in full). */
-export const IMPORT_BOARD_KINDS = ['greenhouse', 'lever', 'ashby', 'workable', 'workday_site'] as const;
+/**
+ * The kinds of board an import may find (a board TailorIT reads in full). v37 BOARDS (SP v37 PLAN B4, I4): a BambooHR
+ * company and an iCIMS site too (importBoardOfUrl names them from a link).
+ */
+export const IMPORT_BOARD_KINDS = ['greenhouse', 'lever', 'ashby', 'workable', 'workday_site', 'bamboohr', 'icims'] as const;
+/** v37 BOARDS: the refusal of a board kind an import does not find. */
+const NO_IMPORT_KIND =
+  'An import finds only Greenhouse, Lever, Ashby and Workable boards, Workday career sites, BambooHR companies and iCIMS sites.';
 export type ImportBoardKind = (typeof IMPORT_BOARD_KINDS)[number];
 
 /** A board an import found, as rememberImportBoard takes it. */
@@ -78,8 +86,13 @@ function boardConfigOf(input: ImportBoardInput): Record<string, unknown> {
       const site = workdaySiteOf(config);
       return { host: site.host, tenant: site.tenant, careerSite: site.careerSite };
     }
+    // v37 BOARDS
+    case 'bamboohr':
+      return { company: named(bamboohrCompany(text(config.company) || input.name), 'BambooHR company') };
+    case 'icims':
+      return { board: named(icimsBoardOf(text(config.board) || input.name), 'iCIMS site') };
     default:
-      throw new IngestError('An import finds only Greenhouse, Lever, Ashby and Workable boards and Workday career sites.');
+      throw new IngestError(NO_IMPORT_KIND);
   }
 }
 
@@ -109,9 +122,7 @@ export async function rememberImportBoard(
   t: DbQueries,
   input: ImportBoardInput,
 ): Promise<ImportBoardResult> {
-  if (!(IMPORT_BOARD_KINDS as readonly string[]).includes(input.kind)) {
-    throw new IngestError('An import finds only Greenhouse, Lever, Ashby and Workable boards and Workday career sites.');
-  }
+  if (!(IMPORT_BOARD_KINDS as readonly string[]).includes(input.kind)) throw new IngestError(NO_IMPORT_KIND); // v37 BOARDS
   const board = boardConfigOf(input);
   const name = boardNameOf(input.kind, board) ?? candidateName(input.kind, input.name);
   if (!name) throw new IngestError('The import named no board TailorIT reads.');
@@ -184,4 +195,16 @@ export function importBoardOfPosting(posting: AddablePosting | null): Omit<Impor
     default:
       return null;
   }
+}
+
+/**
+ * v37 BOARDS (SP v37 PLAN B4, I4): the BambooHR company or iCIMS site a link names (any page on its host that names it:
+ * a BambooHR careers page, any iCIMS page), as rememberImportBoard takes it, or null (the other boards come from
+ * importBoardOfPosting). For an admin import's link, whatever its read gave (C7).
+ */
+export function importBoardOfUrl(address: string): Omit<ImportBoardInput, 'runId' | 'companyName'> | null {
+  const board = boardOfUrl(address);
+  if (board?.kind === 'bamboohr') return { kind: 'bamboohr', name: board.name, config: { company: board.name } };
+  if (board?.kind === 'icims') return { kind: 'icims', name: board.name, config: { board: board.name } };
+  return null;
 }

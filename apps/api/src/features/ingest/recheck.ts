@@ -1,3 +1,4 @@
+import { JOB_SOURCE_READ_FORBIDDING_TERMS } from '@tailorit/shared'; // v37 INT-2b
 import { nowIso } from '../../core/context';
 import { newReadsAllowed } from '../../core/http/identity';
 import type { JobLinkRef, RecheckPosting, RecheckPostingResult } from '../../core/seams';
@@ -8,6 +9,7 @@ import { postingApiUrl } from './postings';
 import { NEW_READ_KIND_OF } from './scheduler';
 import { requireIngest } from './service';
 import { toSourceRecord, type SourceRow } from './sources';
+import { termsRefusalOfSource } from './terms'; // v37 FIX-37B (E2)
 import { SCHEDULED_KINDS } from './types';
 
 // v30 S1-API: the server's re-check of a reported posting (core/seams.ts RecheckPosting; 14 §5.1 step 3, §2.5), for
@@ -20,7 +22,11 @@ import { SCHEDULED_KINDS } from './types';
 //   3. the answer: `live` (the posting is stored again, as a run stores it), `gone` (nothing closes: the caller closes
 //      through closeLink when the review is approved), `unreadable` (a failed read; a robots.txt refusal; v37 INT-A:
 //      with `retryAt` for a held host, asked nothing) or `not_possible` (no link of a kind with a per-posting read: a page job, SmartRecruiters,
-//      iCIMS, a career site while S5's reader is off; no request).
+//      Taleo, a career site while S5's reader is off; no request).
+// v37 INT-B (BOARDS B1, I2): a BambooHR opening's link (its detail JSON) and an iCIMS posting's (its ?in_iframe=1 page)
+// are read too, new kinds of read (only with BOT_USER_AGENT, with it). v37 FIX-37B (SP v37 FIXES-37 E2): every kind's
+// link is read only while no source of its board says no (ingest/terms.ts termsRefusalOfSource; v37 INT-2b: Forbidden or
+// Needs a contract, termsForbidReads; Not checked reads, as in v3.6): a board whose terms say no is never read here.
 // The budget (EXT_RECHECKS_PER_DAY), one check per review at a time and the 6-hour floor are the caller's.
 // v30 FIX-A (INT-4 open item S3 C): a Workday career site's link (workday_site, a new kind of read) is read too, once
 // BOT_USER_AGENT is set and with it (the service's botHttp); while it is a placeholder such a link is `not_possible`.
@@ -70,22 +76,27 @@ export const recheckPosting: RecheckPosting = async (deps, input) => {
     `SELECT s.*, l.source_job_id, j.apply_url AS job_url FROM job_source_links l
      JOIN job_sources s ON s.id = l.source_id JOIN jobs j ON j.id = l.job_id
      WHERE l.job_id = @job AND s.kind = ANY(string_to_array(@kinds, ','))
+       AND NOT (COALESCE(s.terms_status, 'unchecked') = ANY(string_to_array(@forbidding, ','))) -- v37 FIX-37B (E2); v37 INT-2b: the terms that say no (termsForbidReads)
        AND ${input.link ? 'l.source_id = @source AND l.source_job_id = @posting' : 'l.missing_since IS NULL'}
      ORDER BY l.last_seen_at DESC, l.source_id`,
     {
       job: input.jobId,
       kinds: READABLE_KINDS.join(','),
+      forbidding: JOB_SOURCE_READ_FORBIDDING_TERMS.join(','), // v37 INT-2b
       ...(input.link ? { source: input.link.sourceId, posting: input.link.sourceJobId } : {}),
     },
   );
-  const readable = links
-    .map((row) => {
-      const link: LinkToRead = { source: toSourceRecord(row), sourceJobId: row.source_job_id, jobUrl: row.job_url };
-      // A new kind's posting is read only with BOT_USER_AGENT (v30 FIX-A).
-      if (NEW_READ_KIND_OF[row.kind] && !newReadsAllowed(deps)) return { link, ref: null };
-      return { link, ref: postingRefOf(link) };
-    })
-    .find((entry) => entry.ref !== null);
+  let readable: { link: LinkToRead; ref: ReturnType<typeof postingRefOf> } | undefined;
+  for (const row of links) {
+    const link: LinkToRead = { source: toSourceRecord(row), sourceJobId: row.source_job_id, jobUrl: row.job_url };
+    // A new kind's posting is read only with BOT_USER_AGENT (v30 FIX-A).
+    const ref = NEW_READ_KIND_OF[row.kind] && !newReadsAllowed(deps) ? null : postingRefOf(link);
+    // v37 FIX-37B (E2): nor while another source of its board (or of its job's link's) has terms that say no.
+    if (ref && !(await termsRefusalOfSource(db, link.source, link.jobUrl))) {
+      readable = { link, ref };
+      break;
+    }
+  }
   if (!readable?.ref) return answer('not_possible', input.link ?? null, sourceMadeDue);
   const ref = readable.ref;
   const linkRef: JobLinkRef = { sourceId: readable.link.source.id, sourceJobId: readable.link.sourceJobId };

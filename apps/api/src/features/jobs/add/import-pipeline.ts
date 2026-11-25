@@ -197,7 +197,7 @@ async function settlePersonLink(deps: AppDeps, row: ImportQueueRow, userId: stri
   if (first.jobId !== null) return done('known', first.reason, first.jobId);
   const reason = first.reason ?? 'unavailable';
   if (TRY_LATER_REASONS.has(reason) && !lastTry) return { retry: true, reason, ...(held ? { until: held.until } : {}) };
-  if (reason === 'unreadable_host') return done('failed', reason, null);
+  if (reason === 'unreadable_host' || reason === 'terms') return done('failed', reason, null); // v37 FIX-37B (E8): terms too
   if (!rowHasTitleAndCompany(details)) return done('needs_details', reason, null);
   // v37 CLOSED (C3): the read's reason without its pause (its last try: the person's own job from the row).
   const known: Extract<LinkRead, { kind: 'closed' | 'unreadable' }> =
@@ -559,7 +559,7 @@ async function settleAdminRead(deps: AppDeps, row: ImportQueueRow, details: JobR
         if (state.active) await closeGoneJob(deps, found.id);
         return done('closed', 'closed', found.id);
       }
-      if (read.reason === 'unreadable_host') return done('failed', read.reason, null);
+      if (read.reason === 'unreadable_host' || read.reason === 'terms') return done('failed', read.reason, null); // v37 FIX-37B (E8)
       await landed(found.id);
       return unreadableKnown(deps, row, runId, url, { id: found.id, active: state.active, held: state.held }, read.reason, rejected);
     });
@@ -579,7 +579,7 @@ async function settleAdminRead(deps: AppDeps, row: ImportQueueRow, details: JobR
       return done('reposted', null, read.jobId);
     }
     if (read.kind === 'closed') return done('closed', 'closed', null);
-    if (read.reason === 'unreadable_host') return done('failed', read.reason, null);
+    if (read.reason === 'unreadable_host' || read.reason === 'terms') return done('failed', read.reason, null); // v37 FIX-37B (E8)
     if (!rowHasTitleAndCompany(details)) return done('needs_details', read.reason, null);
     const source = (row.source_id !== null ? await getSourceRecord(deps.db, Number(row.source_id)) : null) ?? (await pastedLinksSource(deps.db, nowIso(deps)));
     const made = await jobFromRow(deps, source, { url, details, reason: read.reason });

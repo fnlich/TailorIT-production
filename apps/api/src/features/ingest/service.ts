@@ -17,7 +17,7 @@ import { assertRobotsAllow, RobotsRefusal, useRobotsStore } from './robots';
 import { holdsSavedJob, NEW_READ_KIND_OF, nextScheduleOf, type RunOutcome } from './scheduler';
 import { sourceOptedOut } from './opt-out-gate'; // v30 FIX-A
 import { CareerPagesOffError, careerPagesOn } from './career/switch'; // v30 FIX-A (REQ-5)
-import { adminRun, getSourceRecord, kindLabelOf, type AdminRunDetail } from './sources';
+import { adminRun, getSourceRecord, kindLabelOf, termsAllowReads, termsParams, type AdminRunDetail } from './sources'; // v37 FIX-37B: terms
 import {
   BATCH_SIZE,
   createIngestStore,
@@ -583,7 +583,7 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
              last_modified = CASE WHEN CAST(@dropValidators AS boolean) THEN NULL
                WHEN CAST(@newValidators AS boolean) THEN CAST(@lastModified AS text) ELSE last_modified END,
              suspect_at = CASE WHEN CAST(@suspect AS boolean) THEN CAST(@now AS timestamptz) WHEN CAST(@complete AS boolean) THEN NULL ELSE suspect_at END,
-             open_jobs = CASE WHEN CAST(@complete AS boolean) THEN CAST(@open AS integer) ELSE open_jobs END,
+             open_jobs = CAST(@open AS integer),
              consecutive_failures = CAST(@failures AS smallint), tier = @tier,
              cadence = CAST(@cadenceMs AS bigint) * interval '1 millisecond',
              next_run_at = CASE WHEN CAST(@scheduled AS boolean) THEN CAST(@nextRunAt AS timestamptz) ELSE next_run_at END,
@@ -605,6 +605,9 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
             suspect: Boolean(end.suspect),
             etag: end.validators?.etag ?? null,
             lastModified: end.validators?.lastModified ?? null,
+            // v37 FIX-37A (E7, REVIEW37-ux M5): the live jobs the source holds, written at every run's end (a paused run
+            // keeps its own: finishPaused): a run that reads part of a board (an iCIMS site, a Workday career site) is
+            // never complete, and its row, sheet, Open jobs sort and daily report read 0 open jobs.
             open,
             failures: next.consecutiveFailures,
             tier: next.tier,
@@ -746,7 +749,10 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
         // v31 RUNS: a run paused once its batches were saved closes nothing (markMissing is not reached).
         stopHere();
 
-        if (!result.complete) {
+        if (!result.complete && result.readAll) {
+          // v37 FIX-37A (E9): every planned posting read and none failed: succeeded; still nothing closes by absence.
+          runLog.add("Every planned posting was read. This board's listing never closes a posting by its absence, so none was marked missing.");
+        } else if (!result.complete) {
           end.status = 'partial';
           runLog.add('The listing was incomplete, so no posting was marked missing.');
         } else {
@@ -877,6 +883,12 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
     }
     if ((!source.enabled || !source.enabledAt) && !RUNS_WHILE_OFF_KINDS.includes(source.kind)) {
       throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_OFF'); // v36 SOURCES
+    }
+    // v37 BOARDS (SP v37 PLAN B3): as the scheduler, bulk Run now and the waiting reasons do, only a source whose recorded
+    // terms allow automated access runs (a kind that runs while off, an import's record, has its kind's terms).
+    // v37 FIX-37B (SP v37 FIXES-37 E2, E8): the one check (termsAllowReads), refused in the agreed words by its status.
+    if (!RUNS_WHILE_OFF_KINDS.includes(source.kind) && !termsAllowReads(source.termsStatus)) {
+      throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_TERMS', termsParams(source.termsStatus));
     }
     // v30 FIX-A (REQ-5): a career site (made by hand or by discovery) runs only while "Read career pages" is on.
     if (source.kind === 'career_site' && !careerPagesOn(deps)) throw validationFailed(new CareerPagesOffError().message);

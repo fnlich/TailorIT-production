@@ -183,6 +183,7 @@ export async function readLink(
   return readPageToSharedJob(deps, options.readAt ?? url, {
     approved: options.approved === true,
     ...(options.importRead ? { importRead: options.importRead } : {}),
+    ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}), // v37 FIX-37A (F9): a BambooHR/iCIMS link's budget too
   });
 }
 

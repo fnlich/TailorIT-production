@@ -48,6 +48,9 @@ export const SOURCE_KINDS = [
   'jobicy',
   // v30 S5: employers' career sites, read through the shared reader (adapters/careerSite.ts; off by default).
   'career_site',
+  // v37 BOARDS (SP v37 PLAN I1): an employer's iCIMS site (<board>.icims.com), read by its sitemap through the ingest
+  // client (adapters/icims.ts): a new kind of read (scheduler.ts NEW_READ_KIND_OF).
+  'icims',
 ] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
@@ -77,6 +80,7 @@ export const SCHEDULED_KINDS: readonly SourceKind[] = [
   // v30 S5: a career site runs on the due queue too, once SITE_READER_CAREER_PAGES and BOT_USER_AGENT allow it
   // (scheduler.ts runnableKinds).
   'career_site',
+  'icims', // v37 BOARDS: due at once when an admin turns it on, like the feeds
 ];
 
 /**
@@ -112,6 +116,7 @@ export const SOURCE_PRECEDENCE: Record<SourceKind, number> = {
   himalayas: 2,
   jobicy: 2,
   career_site: 3, // v30 S5 (job_source_kinds' precedence: below the ATS APIs)
+  icims: 4, // v37 BOARDS (0063's row: the ATS's own posting data, as a Workday career site's)
 };
 
 /** What a source Add job made carries in its config (`addedBy`; liveness.ts names it ADDED_BY_AUTOFILL too). */
@@ -156,6 +161,7 @@ export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   himalayas: 'Himalayas', // v30 S4
   jobicy: 'Jobicy', // v30 S4
   career_site: 'Career site', // v30 S5
+  icims: 'iCIMS', // v37 BOARDS
 };
 
 export const RUN_TRIGGERS = ['schedule', 'manual', 'upload', 'startup'] as const;
@@ -364,6 +370,12 @@ export interface FetchResult {
    * the hold's end (ISO). The source's next run is due after it, as for a run a hold stopped at its start.
    */
   heldUntil?: string | null;
+  /**
+   * v37 FIX-37A (SP v37 FIXES-37 E9, REVIEW37-ux L14): a run of a board whose listing is never complete (an iCIMS site,
+   * a Workday career site: `complete` stays false, so nothing closes by absence) that read every posting it planned,
+   * none failed and none due left for later: it succeeded, not partial.
+   */
+  readAll?: boolean;
 }
 
 export interface AdapterContext {

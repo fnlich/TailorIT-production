@@ -223,6 +223,167 @@ export const AdminSourcesAllResultSchema = z.object({
 export type AdminSourcesAllResult = z.infer<typeof AdminSourcesAllResultSchema>;
 // end v35 ADMIN
 
+// v37 TRANSFER (PLAN T1, T2, T4) -----------------------------------------------------------------------------------
+// Admin › Sources › Export writes the sources the filter shows into a sources file (GET /api/admin/sources/export?<filter>:
+// tailorit-sources-YYYY-MM-DD.json); Admin › Sources › Import reads one (POST /api/admin/sources/import/preview, then
+// POST /api/admin/sources/import: a multipart `file`, or JSON {fileName?, content}). The file names each source's kind,
+// name, board settings (an allow-list per kind), company name, priority, close-missing and terms: never an id, on or off,
+// runs, counts, an admin's email, a path on a server or an internal mark. Every source an import makes is off and waits
+// for an admin (found via `file`); a source already there is left exactly as it is.
+
+/** The sources file's `format` and `version`. */
+export const SOURCES_FILE_FORMAT = 'tailorit-sources';
+export const SOURCES_FILE_VERSION = 1;
+
+/**
+ * v37 FIX-37B (the beh review's F5): whether a text holds a character TailorIT can't store (PostgreSQL's text and jsonb
+ * refuse U+0000 and a lone surrogate) or that has no place in it: a control character (U+0000-U+001F, U+007F). `breaks`
+ * lets a note keep its tabs and line breaks.
+ */
+export function hasUnstorableText(text: string, breaks = false): boolean {
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) {
+      if (breaks && (code === 0x09 || code === 0x0a || code === 0x0d)) continue;
+      return true;
+    }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      i += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return true;
+  }
+  return false;
+}
+
+/** v37 FIX-37B (F5): a sources file entry's words when a text in it can't be stored. */
+export const SOURCES_FILE_UNSTORABLE = "It contains characters that can't be stored.";
+
+/** A source's recorded terms in a sources file: as Admin › Sources' terms are written (PATCH /api/admin/sources/:id). */
+export const SourcesFileTermsSchema = z.object({
+  status: z.enum(JOB_SOURCE_TERMS_STATUSES),
+  url: z
+    .string()
+    .trim()
+    .max(2000, 'Its terms link must be under 2,000 characters.')
+    .regex(/^https:\/\/\S+$/, 'Its terms link must be an https address.')
+    .refine((text) => !hasUnstorableText(text), SOURCES_FILE_UNSTORABLE) // v37 FIX-37B (F5)
+    .nullable()
+    .optional(),
+  note: z
+    .string()
+    .trim()
+    .max(1000, 'Its terms note must be under 1,000 characters.')
+    .refine((text) => !hasUnstorableText(text, true), SOURCES_FILE_UNSTORABLE) // v37 FIX-37B (F5): its line breaks kept
+    .nullable()
+    .optional(),
+});
+export type SourcesFileTerms = z.infer<typeof SourcesFileTermsSchema>;
+
+/**
+ * One source in a sources file, as an import reads it: the kind and config are checked per kind on the server (the board
+ * settings Add source and discovery take); the rest here. Absent fields take Add source's defaults.
+ */
+export const SourcesFileEntrySchema = z.object({
+  kind: z.string().trim().min(1, 'It names no kind of source.').max(40, 'It names no kind of source TailorIT knows.'),
+  /** Absent or empty: the board's name, as Add source names a source. */
+  name: z
+    .string()
+    .trim()
+    .max(100, 'Its name must be under 100 characters.')
+    .refine((text) => !hasUnstorableText(text), SOURCES_FILE_UNSTORABLE) // v37 FIX-37B (F5)
+    .optional(),
+  config: z.record(z.string(), z.unknown()).default({}),
+  companyName: z
+    .string()
+    .trim()
+    .max(200, 'Its company name must be under 200 characters.')
+    .refine((text) => !hasUnstorableText(text), SOURCES_FILE_UNSTORABLE) // v37 FIX-37B (F5)
+    .nullable()
+    .optional(),
+  priority: z.number().int().min(-100).max(100).default(0),
+  /** Close the jobs a complete run no longer lists (job_sources.deactivate_missing). */
+  deactivateMissing: z.boolean().default(true),
+  terms: SourcesFileTermsSchema.nullable().optional(),
+});
+export type SourcesFileEntry = z.infer<typeof SourcesFileEntrySchema>;
+
+/** A sources file as Export writes it. Import reads `sources` entry by entry (a bad entry is one invalid row). */
+export const SourcesFileSchema = z.object({
+  format: z.literal(SOURCES_FILE_FORMAT),
+  version: z.literal(SOURCES_FILE_VERSION),
+  exportedAt: IsoDateTime,
+  sources: z.array(
+    z.object({
+      kind: z.enum(JOB_SOURCE_KINDS),
+      name: z.string(),
+      config: z.record(z.string(), z.unknown()),
+      companyName: z.string().nullable(),
+      priority: z.number().int(),
+      deactivateMissing: z.boolean(),
+      terms: z.object({ status: z.enum(JOB_SOURCE_TERMS_STATUSES), url: z.string().nullable(), note: z.string().nullable() }),
+    }),
+  ),
+});
+export type SourcesFile = z.infer<typeof SourcesFileSchema>;
+
+/**
+ * What an import does with one entry: `new` (made, off, waiting for an admin), `exists` (a source already reads that
+ * board: left as it is), `renamed` (made under another name, " (2)", as another source holds the name), `invalid`
+ * (skipped, with why).
+ */
+export const ADMIN_SOURCES_IMPORT_OUTCOMES = ['new', 'exists', 'renamed', 'invalid'] as const;
+export type AdminSourcesImportOutcome = (typeof ADMIN_SOURCES_IMPORT_OUTCOMES)[number];
+
+/** One entry of a sources file, as the preview and the import answer it (the same words both times). */
+export const AdminSourcesImportEntrySchema = z.object({
+  /** Its place in the file, from 1. */
+  index: z.number().int().positive(),
+  /** As the file names it (an unknown kind too). */
+  kind: z.string(),
+  kindLabel: z.string(),
+  /** The name in the file (the board's name when the file gives none). */
+  name: z.string(),
+  outcome: z.enum(ADMIN_SOURCES_IMPORT_OUTCOMES),
+  /** new, renamed: the name it gets; exists: the name of the source that reads the board; invalid: null. */
+  sourceName: z.string().nullable(),
+  /** exists: that source's id (null when an earlier entry of this file adds the board). */
+  sourceId: z.number().int().nullable(),
+  /** invalid: why; exists: what holds the board, when it is this file. */
+  reason: z.string().nullable(),
+  /**
+   * v37 FIX-37B (SP v37 FIXES-37 E3): new, renamed: the terms the source gets: the file's, kept as written (`fromFile`),
+   * else its kind's record (the owner's decided BambooHR and iCIMS terms among them). exists, invalid: null (a source
+   * already there keeps its own).
+   */
+  terms: z.object({ status: z.enum(JOB_SOURCE_TERMS_STATUSES), fromFile: z.boolean() }).nullable().optional(),
+});
+export type AdminSourcesImportEntry = z.infer<typeof AdminSourcesImportEntrySchema>;
+
+/** The preview of a sources file, or what its import did: the same answer, `imported` aside. */
+export const AdminSourcesImportResultSchema = z.object({
+  fileName: z.string(),
+  total: z.number().int().nonnegative(),
+  counts: z.object({
+    new: z.number().int().nonnegative(),
+    exists: z.number().int().nonnegative(),
+    renamed: z.number().int().nonnegative(),
+    invalid: z.number().int().nonnegative(),
+  }),
+  entries: z.array(AdminSourcesImportEntrySchema),
+  /** False for the preview; true once the import made its sources. */
+  imported: z.boolean(),
+});
+export type AdminSourcesImportResult = z.infer<typeof AdminSourcesImportResultSchema>;
+
+/** POST /api/admin/sources/import[/preview] as JSON (scripts, tests): the file's text and name. */
+export const AdminSourcesImportJsonBodySchema = z.object({
+  fileName: z.string().trim().min(1).max(200).default('sources.json'),
+  content: z.string().min(1, 'The file is empty.'),
+});
+export type AdminSourcesImportJsonBody = z.infer<typeof AdminSourcesImportJsonBodySchema>;
+// end v37 TRANSFER
+
 // Runs ---------------------------------------------------------------------------------------------------------------
 
 /** One run of a source (job_source_runs). */

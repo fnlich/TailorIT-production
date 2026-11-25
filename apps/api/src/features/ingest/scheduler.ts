@@ -82,6 +82,7 @@ export const NEW_READ_KIND_OF: Readonly<Partial<Record<string, NewReadKind>>> = 
   recruitee: 'feed_read',
   breezy: 'feed_read',
   bamboohr: 'feed_read',
+  icims: 'feed_read', // v37 BOARDS (SP v37 PLAN I2): robots.txt, the sitemap and each posting's page, with BOT_USER_AGENT
   career_site: 'site_reader',
   usajobs: 'usajobs',
   himalayas: 'remote_api',

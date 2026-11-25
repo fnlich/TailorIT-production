@@ -151,7 +151,8 @@ export function SourceFiltersBar({
           onClick={() => onChange({ via: foundByImportOnly(filters) ? [] : ['import'] })}
           className="h-9"
         >
-          Found by import
+          {/* v37 FIX-37B (the ux review's L8): an admin's link import, apart from a sources file ("Imported from a file"). */}
+          Found by a link import
         </Chip>
         {/* v36 SOURCES (PLAN S8): the sources discovery or an import found that wait, off, for an admin, one click. */}
         <Chip

@@ -60,6 +60,9 @@ export const COMMON_CRAWL_QUERIES: readonly CrawlQuery[] = [
   { url: 'recruitee.com', match: 'domain' },
   { url: 'breezy.hr', match: 'domain' },
   { url: 'bamboohr.com', match: 'domain' },
+  // v37 BOARDS (SP v37 PLAN I5): employers' iCIMS sites (boards.ts reads their boards; iCIMS's own hosts are none). Last,
+  // so a crawl's progress through the earlier queries keeps its place.
+  { url: 'icims.com', match: 'domain' },
 ];
 
 /** The progress through the newest crawl. */

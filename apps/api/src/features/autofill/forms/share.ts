@@ -52,7 +52,7 @@ export async function shareOwnJob(
        FROM job_verifications v WHERE v.job_id = ?`,
       [jobId],
     );
-    return row !== undefined && row.reason !== 'unreadable_host' && !row.rejected;
+    return row !== undefined && row.reason !== 'unreadable_host' && row.reason !== 'terms' && !row.rejected; // v37 FIX-37B
   } catch (error) {
     deps.log.warn('[autofill] a submission could not offer its page job for review', error instanceof Error ? error.name : 'unknown');
     return false;
