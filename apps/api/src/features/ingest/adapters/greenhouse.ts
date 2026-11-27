@@ -1,4 +1,5 @@
 import { decodeHtmlEntities, htmlToText, type SalaryPeriod } from '@tailorit/shared';
+import { greenhouseToken } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's normaliser
 import { companySourceText } from '../../companies/about';
 import { IngestHttpError } from '../http';
 import { IngestError, SourceNotFoundError, type FetchFailure, type ListingValidators, type RawPosting, type RawSalary } from '../types';
@@ -12,12 +13,8 @@ import { conditionalOf, defineAdapter, notModifiedResult } from './define';
 export const GREENHOUSE_API = 'https://boards-api.greenhouse.io/v1/boards';
 export const PAY_CHECKS_PER_RUN = 50;
 
-/** The board token as typed: a token, or a board URL (boards.greenhouse.io/acme, job-boards.greenhouse.io/acme). */
-export function greenhouseToken(input: string): string {
-  const text = input.trim();
-  const fromUrl = /greenhouse\.io\/(?:v1\/boards\/|embed\/job_board\?for=)?([A-Za-z0-9_-]+)/i.exec(text);
-  return (fromUrl?.[1] ?? text).replace(/[^A-Za-z0-9_-]/g, '');
-}
+/** v38 FRAME: the board token as typed (the shared board registry's GREENHOUSE_BOARD normaliser). */
+export { greenhouseToken };
 
 interface MetadataReading {
   arrangement: string | null;

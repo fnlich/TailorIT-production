@@ -1,3 +1,5 @@
+import { boardDescriptorOfHost, LATER_BOARD_SOURCE_KINDS } from '@tailorit/shared/sourcing'; // v38 INT
+
 // v30 FIX-A (REV-REQ REQ-5; docs/design/part2/12-job-sourcing.md §3.4): the employers on ATS platforms with no public
 // API (iCIMS, Oracle, SuccessFactors, Taleo, UKG, Teamtailor) are what career pages are for, so a host such a platform
 // gives ONE employer is a career site, even though its registrable domain is the platform's. Only the per-employer
@@ -45,48 +47,90 @@ export function isEmployerPlatformHost(host: string): boolean {
   return EMPLOYER_PLATFORM_HOSTS.some((pattern) => pattern.test(name));
 }
 
+// v38 INT (SP v38 PLAN A9, FRAME open item 7) ------------------------------------------ board-kind hosts
+
+/**
+ * THE rule, kept here alone: a host a board kind claims (@tailorit/shared/sourcing boardDescriptorOfHost: a Teamtailor
+ * company's, Taleo's, Oracle's, UKG's, Avature's, Paylocity's...) is that kind's board, never a career site, even where
+ * the list above still names its host form (those employers' links read as their platform's postings now). Its readers:
+ * discovery/boards.ts careerSiteOfUrl and career/discover.ts careerSiteHostOf (so offerCareerSites) never offer one, and
+ * terms.ts keptCareerSiteOf still lets a career site a server kept on one from before answer for its links' terms.
+ */
+export function isBoardKindHost(host: string): boolean {
+  return boardDescriptorOfHost(host) !== null;
+}
+
+/**
+ * Whether a host is a board kind's since v3.8 (a kind of LATER_BOARD_SOURCE_KINDS: Teamtailor, Taleo, Oracle, UKG,
+ * Avature...): a career site may have been kept on it from before its kind existed (terms.ts keptCareerSiteOf). v3.7's
+ * kinds' hosts (Greenhouse's, iCIMS's...) were boards already: no career site was made there since.
+ */
+export function isNewBoardKindHost(host: string): boolean {
+  const owner = boardDescriptorOfHost(host);
+  return owner !== null && (LATER_BOARD_SOURCE_KINDS as readonly string[]).includes(owner.kind);
+}
+
+// v38 FIX-C (SP v38 FIXES-38 D3; REVIEW38-beh H2, M13) ------------------------------------------ hosts never read
+
+/**
+ * The board kinds whose hosts TailorIT never sends a request to, by any path (a link, a page read, a career site, its
+ * robots.txt), and the can't-read reason each answers: SAP SuccessFactors (robots.txt disallows every page), Phenom (an
+ * AWS WAF bot check on every request, robots.txt too) and JobDiva (a portal gated by Turnstile and reCAPTCHA). Their API
+ * descriptors' `posting.unreadable` is this map's (boards/successfactors.ts, phenom.ts and jobdiva.ts read it). Kept here
+ * (shared imports only) so the ingest client, the site reader's two callers, Add source and the sources file ask one
+ * rule with no import cycle.
+ */
+export const NEVER_READ_BOARD_KINDS = {
+  successfactors: 'robots',
+  phenom: 'bot_check',
+  jobdiva: 'bot_check',
+} as const satisfies Readonly<Record<string, 'robots' | 'bot_check' | 'needs_login'>>;
+
+/** A platform TailorIT never reads: its kind, its name and the can't-read reason its links answer. */
+export interface NeverReadPlatform {
+  kind: keyof typeof NEVER_READ_BOARD_KINDS;
+  label: string;
+  reason: (typeof NEVER_READ_BOARD_KINDS)[keyof typeof NEVER_READ_BOARD_KINDS];
+}
+
+/** The never-read platform a host (any case, a port or a trailing dot allowed) is one of, or null (see above). */
+export function neverReadPlatformOfHost(host: string): NeverReadPlatform | null {
+  const owner = boardDescriptorOfHost(host);
+  if (!owner || !Object.hasOwn(NEVER_READ_BOARD_KINDS, owner.kind)) return null;
+  const kind = owner.kind as NeverReadPlatform['kind'];
+  return { kind, label: owner.label, reason: NEVER_READ_BOARD_KINDS[kind] };
+}
+
+/** Why a platform is never read, in a few words (the refusal below). */
+const NEVER_READ_WHY: Record<NeverReadPlatform['reason'], string> = {
+  robots: 'its robots.txt asks every robot not to read any page',
+  bot_check: 'it checks every visitor for robots',
+};
+
+/**
+ * The refusal of a career site on a host TailorIT never reads (Add source, a sources file, a run of one kept from before,
+ * turning one on), in an admin's words; null for any other host.
+ */
+export function careerSiteRefusalOfHost(host: string): string | null {
+  const platform = neverReadPlatformOfHost(host);
+  if (!platform) return null;
+  const name = host.trim().toLowerCase().replace(/:\d+$/, '').replace(/\.+$/, '');
+  return `${name} is a ${platform.label} site, and TailorIT doesn't read ${platform.label}: ${NEVER_READ_WHY[platform.reason]}. It can't be a career site.`;
+}
+
+/**
+ * The dated note migration 0070 records on a career site it turned off on such a host (job_sources.terms_note, before the
+ * admin's own note): 0070_never_read_hosts.sql writes these words.
+ */
+export const NEVER_READ_CAREER_SITE_NOTE =
+  "2026-11-26: TailorIT doesn't read this platform (robots.txt or a bot check guards every page), so this career site was turned off and can't be turned on.";
+// end v38 FIX-C
+
 // v37 BOARDS ---------------------------------------------------------------------------------------------- iCIMS
 
-/**
- * One employer's iCIMS host (lower case): careers-acme.icims.com, jobs-acme.icims.com, acme.icims.com; never iCIMS's www,
- * api or login hosts nor an employees' internal-<co> portal. Its first label is the `icims` source's board.
- * v37 FIX-37A (REVIEW37-beh F11): exactly the shared lookup's rule (@tailorit/shared/autofill lookup.ts ICIMS_HOST, a
- * DNS label), so a link the lookup reads as an iCIMS posting is always a board here: careers.icims.com (iCIMS's own
- * careers portal) and every other label it accepts. Discovery offers no candidate from iCIMS's own service hosts
- * (ICIMS_SERVICE_HOST) unless the page is a posting.
- */
-export const ICIMS_BOARD_HOST = /^(?!(?:www|api|login)\.)(?!internal-)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.icims\.com$/;
-
-/** v37 FIX-37A (F11): hosts iCIMS runs for itself, never a portal of job pages (discovery/boards.ts). */
-export const ICIMS_SERVICE_HOST = /^(?:developer|developers|community|status|support|cdn|static)\.icims\.com$/;
-
-/** Whether a host (any case, a trailing dot allowed) is one employer's iCIMS host (ICIMS_BOARD_HOST). */
-export function isIcimsBoardHost(host: string): boolean {
-  return ICIMS_BOARD_HOST.test(host.toLowerCase().replace(/\.+$/, ''));
-}
-
-/**
- * The iCIMS board a name, host or address gives ("careers-acme", "careers-acme.icims.com",
- * "https://careers-acme.icims.com/jobs/1234/x/job"): its host's first label in lower case; '' when it names none (another
- * host, iCIMS's own, a label that is no DNS label).
- */
-export function icimsBoardOf(input: string): string {
-  const text = input.trim().toLowerCase();
-  if (!text) return '';
-  let host = text;
-  if (/^[a-z][a-z0-9+.-]*:\/\//.test(text) || text.includes('/')) {
-    try {
-      host = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`).hostname;
-    } catch {
-      return '';
-    }
-  } else if (!text.includes('.')) {
-    host = `${text}.icims.com`;
-  }
-  host = host.replace(/\.+$/, '');
-  return isIcimsBoardHost(host) ? host.slice(0, -'.icims.com'.length) : '';
-}
-
-/** An iCIMS board's host. */
-export const icimsHostOf = (board: string) => `${board}.icims.com`;
+// v38 FRAME: iCIMS's host rules and board normaliser moved, unchanged, to the shared board registry (ICIMS_BOARD,
+// @tailorit/shared/sourcing): one employer's iCIMS host (ICIMS_BOARD_HOST: never iCIMS's www, api or login hosts nor an
+// employees' internal-<co> portal; exactly the shared lookup's rule, v37 FIX-37A F11), iCIMS's own service hosts, and the
+// board a name, host or address gives.
+export { ICIMS_BOARD_HOST, ICIMS_SERVICE_HOST, icimsBoardOf, icimsHostOf, isIcimsBoardHost } from '@tailorit/shared/sourcing';
 // end v37 BOARDS

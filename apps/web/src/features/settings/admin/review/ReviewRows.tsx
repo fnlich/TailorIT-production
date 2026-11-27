@@ -7,11 +7,13 @@ import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
-import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, CheckIcon, XIcon } from '@/components/ui/icons';
+import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, CheckIcon, PencilSimpleIcon, XIcon } from '@/components/ui/icons';
 import { relativeTime } from '@/lib/format';
 import { ROW_ACTION, StateLine, useRowFocus } from '../../../../components/queue';
 import { evidenceLine, flagStateLine, isChecking, originLine, reviewStateLine, rowName } from './copy';
 import { ReportersDisclosure } from './Reporters';
+import { EDIT_COPY } from './edit/copy'; // v38 REVEDIT
+import { EditedBadge } from './edit/EditedBadge'; // v38 REVEDIT
 
 // v30 X1-WEB: Admin › Review's rows (14 §6.2), drawn like the Auto-apply page's Queue rows (components/queue's state
 // line and row focus): the job and its company, a new job's origin, how many people and the strongest signal, TailorIT's
@@ -92,6 +94,29 @@ export function RowActions({ children }: { children: ReactNode }) {
 /** A row button's 44 px touch target on a phone. */
 export const TOUCH = 'max-sm:h-11';
 
+/**
+ * v38 REVEDIT (SP v38 PLAN.md E1): "Edit job" on a row of every lane (the editor: edit/JobEditor.tsx). A quiet button:
+ * the row's decision stays its primary.
+ */
+export function EditJobButton({ name, onEdit, disabled = false }: { name: string; onEdit: () => void; disabled?: boolean }) {
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className={TOUCH}
+      icon={<PencilSimpleIcon size={14} aria-hidden="true" />}
+      disabled={disabled}
+      focusableWhenDisabled
+      aria-label={`${EDIT_COPY.button}: ${name}`}
+      aria-haspopup="dialog"
+      onClick={onEdit}
+      data-edit-job=""
+    >
+      {EDIT_COPY.button}
+    </Button>
+  );
+}
+
 export interface ReviewRowViewProps {
   row: AdminReviewRow;
   now: number;
@@ -104,9 +129,11 @@ export interface ReviewRowViewProps {
   onOpen: () => void;
   /** v32 ADMINAPP (E6): Retry read, on a waiting new job a read made (copy.ts retriesRead); absent: no button. */
   onRetry?: () => void;
+  /** v38 REVEDIT (PLAN E1): Edit job; absent: no button. */
+  onEdit?: () => void;
 }
 
-export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, outcome, onDecide, onOpen, onRetry }: ReviewRowViewProps) {
+export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, outcome, onDecide, onOpen, onRetry, onEdit }: ReviewRowViewProps) {
   const name = rowName(row.job);
   const pending = row.state === 'pending';
   const [rowRef, rowFocus] = useRowFocus<HTMLLIElement>(`${row.state}:${selectMode}`);
@@ -139,6 +166,7 @@ export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, 
                 Checking
               </Badge>
             )}
+            {row.job.adminEdited && <EditedBadge className="ml-2 align-middle" />}
           </p>
           <p className="text-[13px] leading-5 text-foreground" data-review-evidence="">
             {evidenceLine(row)}{' '}
@@ -208,6 +236,7 @@ export function ReviewRowView({ row, now, selectMode, checked, onChecked, busy, 
               Reopen
             </Button>
           )}
+          {onEdit && <EditJobButton name={name} onEdit={onEdit} disabled={busy} />}
           <Button size="sm" variant="ghost" className={TOUCH} aria-label={`Evidence: ${name}`} aria-haspopup="dialog" onClick={onOpen}>
             Evidence
           </Button>
@@ -232,9 +261,11 @@ export interface FlagRowViewProps {
   busy: boolean;
   outcome: string | null;
   onChange: (change: FlagChange) => void;
+  /** v38 REVEDIT (PLAN E1): Edit job; absent: no button. */
+  onEdit?: () => void;
 }
 
-export function FlagRowView({ flag, now, selectMode, checked, onChecked, busy, outcome, onChange }: FlagRowViewProps) {
+export function FlagRowView({ flag, now, selectMode, checked, onChecked, busy, outcome, onChange, onEdit }: FlagRowViewProps) {
   const name = rowName(flag.job);
   const open = flag.status === 'open';
   const [rowRef, rowFocus] = useRowFocus<HTMLLIElement>(`${flag.status}:${selectMode}`);
@@ -260,6 +291,7 @@ export function FlagRowView({ flag, now, selectMode, checked, onChecked, busy, o
                 Closed
               </Badge>
             )}
+            {flag.job.adminEdited && <EditedBadge className="ml-2 align-middle" />}
           </p>
           <p className="text-[13px] leading-5 font-medium text-foreground" data-flag-reason={flag.reason}>
             {/* v30 INT-3 (E0-WEB's note): a company report opens that company in Admin › Companies' editor. */}
@@ -329,6 +361,7 @@ export function FlagRowView({ flag, now, selectMode, checked, onChecked, busy, o
               Reopen
             </Button>
           )}
+          {onEdit && <EditJobButton name={name} onEdit={onEdit} disabled={busy} />}
         </RowActions>
       </div>
     </li>

@@ -12,7 +12,7 @@ import { readSitemap } from '../sitemap';
 import { IngestError, SourceNotFoundError, type AdapterContext, type FetchFailure, type RawPosting, type SourceRecord } from '../types';
 import { str } from './common';
 import { defineAdapter } from './define';
-import { BOARD_KINDS, boardOfUrl } from '../discovery/boards'; // v35 ADMIN
+import { boardOfAddress, workdaySiteConfig } from '@tailorit/shared/sourcing'; // v35 ADMIN; v38 FRAME: the board registry's reading
 import { isWorkdayHost, readWorkdayPosting, workdayTenant, type WorkdayRef } from './workday';
 
 // v30 S3: a Workday career site, listed by its own sitemap (docs/design/part2/12-job-sourcing.md §3.2, §8.1, §8.3, §11
@@ -89,7 +89,7 @@ export function workdaySiteOf(config: Record<string, unknown>): WorkdaySite {
  * host, tenant (lower case) and site (as written), or null. A posting's page (and its apply pages) is read by the shared
  * Workday parser (@tailorit/shared/autofill addablePosting, as Add job and the extension read it); any other page of the
  * site (its home, a search, a /details or /login page, with or without a locale) by discovery's reading of a Workday
- * address (discovery/boards.ts boardOfUrl). Checked as a source's config is (workdaySiteOf).
+ * address (discovery/boards.ts boardOfUrl; v38 FRAME: the board registry's, @tailorit/shared/sourcing boardOfAddress). Checked as a source's config is (workdaySiteOf).
  */
 export function workdaySiteOfPage(address: string): { host: string; tenant: string; careerSite: string } | null {
   const posting = addablePosting(parseAtsUrl(address));
@@ -97,8 +97,8 @@ export function workdaySiteOfPage(address: string): { host: string; tenant: stri
   if (posting?.kind === 'workday' && posting.workday) {
     config = { host: posting.workday.host, tenant: posting.board, careerSite: posting.workday.site };
   } else {
-    const board = boardOfUrl(address);
-    if (board?.kind === 'workday_site') config = BOARD_KINDS.workday_site!.configOf(board.name);
+    const board = boardOfAddress(address);
+    if (board?.kind === 'workday_site') config = workdaySiteConfig(board.name);
   }
   if (!config) return null;
   try {

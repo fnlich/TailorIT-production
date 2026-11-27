@@ -17,6 +17,7 @@ import { DATE_APPROVED_SQL } from './import-time'; // v36 IMPORTTIME
 import { linkNoticeTarget, noticeVerification } from './notify'; // v33 SHARE-6: linkNoticeTarget
 import { APPROVAL_LOCK, linkRejected, noteUnverified, ownJobsOfLink, type LinkAdder } from './verification'; // v33 SHARE-6: LinkAdder
 import { versionOf } from './versions';
+import { keepAdminEdits } from '../../job-reviews/edit/apply'; // v38 REVEDIT (PLAN E5)
 
 // v32 ADMINAPP (E6, the owner's "In admin review, admin should be able to approve manually"; the coordinator's decision
 // overrides v3.1's D2 "an admin never publishes captured content": the admin is now the verifier). An admin approves a
@@ -306,6 +307,8 @@ export async function publishCapturedIn(
     input.at,
     input.jobId,
   ]);
+  // v38 REVEDIT (SP v38 PLAN.md E5): an approval publishes the version an admin edited: its Apply link and company stay.
+  await keepAdminEdits(t, input.jobId, input.at);
   // SB-4: its note stays, with no adder: once the approval runs out the link is listed again (verification.ts LISTED),
   // and the weekly re-read moves its check time (approved.ts). A page review's job has none yet: one is made.
   const kept = await t.run('UPDATE job_verifications SET user_id = NULL WHERE job_id = ?', [input.jobId]);

@@ -3,3 +3,4 @@
 export * from './kinds';
 export * from './states';
 export * from './admin';
+export * from './boards/index'; // v38 FRAME: the board registry's shared part (SP v38 PLAN A1)

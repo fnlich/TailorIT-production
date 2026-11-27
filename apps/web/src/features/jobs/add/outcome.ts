@@ -40,7 +40,18 @@ export const ADD_JOB_COPY = {
   newImport: 'New import',
   done: 'Done',
   sheetsOff: "Google Sheet import isn't available on this server. Import the sheet as a file instead: in Google Sheets, File › Download › CSV.",
+  // v38 FIX-APP (SP v38 FIXES-38 D1): a posting TailorIT read that names no company: the person types it.
+  companyTitle: 'Add the company',
+  companyLabel: 'Company',
+  companyHint: "The employer's name, as its careers page shows it.",
+  companyRequired: 'Type the company.',
 } as const;
+
+/** v38 FIX-APP (REVIEW38-ux L7): what TailorIT read, under the outcome's title ("Robotics Engineer at Acme Robotics"). */
+export function readJobLine(job: { title: string; company: { name: string } } | null | undefined): string | null {
+  if (!job?.title) return null;
+  return job.company.name ? `${job.title} at ${job.company.name}` : job.title;
+}
 
 /**
  * v35 IMPORTWEB: the limits under a person's import ("Up to 200 rows a file or sheet. You can import 80 more rows
@@ -76,8 +87,9 @@ export interface AddOutcomeView {
   /**
    * The next step: open the job, type the details (title and company) for a job of one's own, or try another link; v37
    * FIX-REV (REVIEW361-ux L10): `later`, nothing wrong with the link (the site asked TailorIT to slow down): Close.
+   * v38 FIX-APP (D1): `company`, TailorIT read the posting and it names no company: type it, and the job is added.
    */
-  next: 'open' | 'details' | 'retry' | 'later';
+  next: 'open' | 'details' | 'retry' | 'later' | 'company';
 }
 
 /** A reason's words (each reason's message is a public constant). */
@@ -87,6 +99,8 @@ export function reasonText(reason: JobVerifyReason | null, t: MessageRenderer): 
 
 /** The dialog's view of an add's answer. */
 export function addOutcomeView(result: AddJobResult, t: MessageRenderer): AddOutcomeView {
+  // v38 FIX-APP (SP v38 FIXES-38 D1): read, but the posting names no company (the server's words say so).
+  if (result.needsCompany) return { tone: 'info', title: ADD_JOB_COPY.companyTitle, body: result.message, why: null, jobId: null, next: 'company' };
   switch (result.state) {
     case 'published':
       return { tone: 'success', title: 'Added to Jobs', body: result.message, why: null, jobId: result.jobId, next: 'open' };

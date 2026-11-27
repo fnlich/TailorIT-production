@@ -4,3 +4,4 @@
 export * from './bulk';
 export * from './enums';
 export * from './admin';
+export * from './edit'; // v38 REVEDIT (SP v38 PLAN.md E1-E6): an admin edits a job from Review

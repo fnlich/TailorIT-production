@@ -52,12 +52,10 @@ export function importBoardOfLink(page: PageReading, url: string): Omit<ImportBo
       return config ? { kind: 'workday_site', name: found.name, config } : null;
     }
     // v37 INT-B (BOARDS B4, I4; CLOSED C7): a BambooHR opening's or an iCIMS posting's link names its company or site,
-    // closed or not (their config as BOARDS' Add source writes it: {company} / {board}).
-    case 'bamboohr':
-    case 'icims':
-      return importBoardOfUrl(url);
+    // closed or not (their config as BOARDS' Add source writes it: {company} / {board}). v38 FRAME (SP v38 PLAN A9): so
+    // does every other importable board kind's (its descriptor's config).
     default:
-      return null;
+      return importBoardOfUrl(url);
   }
 }
 

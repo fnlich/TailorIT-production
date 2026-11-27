@@ -8,23 +8,32 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
 import { Notice } from '@/components/ui/Notice';
-import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Select } from '@/components/ui/Select';
 import { ApiError, userMessage } from '@/lib/api';
 import { usePublicConstants } from '@/lib/constants';
 import { focusSoon } from '@/lib/focusLater'; // v37 FIX-37B (ux L7)
-import type { AddableKind, NewSourceBody } from '../types';
+import { boardDescriptorOf } from '@tailorit/shared/sourcing'; // v38 FRAME
+import { FIELD_KINDS, type AddableKind, type NewSourceBody } from '../types';
 import { createSource, testLake, testSource } from './api';
-import { addableKindItems, bamboohrCompanyOf, careerSiteHost, companyNameHint, feedNote, icimsBoardOfInput, workdayAddressProblem } from './sources'; // v37 FIX-37A: companyNameHint
+import { addableKindItems, careerSiteHost, companyNameHint, feedNote, fieldBoardOf, POSTING_LINK, workdayAddressProblem } from './sources'; // v37 FIX-37A: companyNameHint; v38 FRAME: fieldBoardOf; v38 FIX-APP: POSTING_LINK
 
 // "Add source" (v2.0, moved out of SourcesTab by v30 S1-WEB unchanged): a Greenhouse, Lever, Ashby or Workable board,
 // free_tailor's lake or the demo jobs, tested before it is saved. Discovery (12 §4) adds most boards from v3.0 on.
 // v36 SOURCES (SP v36 PLAN S4): "Turn on now", ticked by default: ticked, the source is added on (the server records the
 // admin who turned it on); unticked, it is added off and runs only once an admin turns it on in the list.
 // v37 BOARDS (SP v37 PLAN B4, I1): a BambooHR company (its name or careers address) and an iCIMS site (its address).
+// v38 FRAME (SP v38 PLAN A10): every field-added board kind (its descriptor's `addSource`: BambooHR, iCIMS, each v3.8
+// platform) is one field, its words its descriptor's: what to type, its "?", what is wrong under it.
 
-/** v30 INT-0: no "Demo jobs" in a production build (dev-only, like app/(dev)/). */
-const KIND_ITEMS = addableKindItems(process.env.NODE_ENV === 'production');
+/**
+ * v30 INT-0: no "Demo jobs" in a production build (dev-only, like app/(dev)/). v38 INT (the ux note of ATS-A and ATS-B):
+ * with every v3.8 kind they are about 30, so Add source picks one from a labelled list, sorted by name (it was a row of
+ * tabs that scrolled sideways inside the dialog); the same kinds and values.
+ */
+const KIND_ITEMS = [...addableKindItems(process.env.NODE_ENV === 'production')].sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }));
+
+/** v38 INT: on a phone the dialog's controls are 44 px tall (the ✕, the kind list, Test and Add source). */
+const PHONE_TALL = 'max-sm:h-11';
 
 interface Draft {
   token: string;
@@ -42,9 +51,8 @@ interface Draft {
   siteUrl: string;
   /** v35 OPSWEB (PLAN H7): any page of a Workday career site. */
   workdayUrl: string;
-  /** v37 BOARDS: a BambooHR company's name or careers address; an iCIMS site's address. */
-  bambooCompany: string;
-  icimsSite: string;
+  /** v37 BOARDS: a BambooHR company's name or careers address, an iCIMS site's address (v38 FRAME: each field kind's, by kind). */
+  fields: Partial<Record<string, string>>;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -60,23 +68,32 @@ const EMPTY_DRAFT: Draft = {
   geo: '', // v30 S4
   siteUrl: '', // v30 FIX-WEB
   workdayUrl: '', // v35 OPSWEB
-  bambooCompany: '', // v37 BOARDS
-  icimsSite: '', // v37 BOARDS
+  fields: {}, // v37 BOARDS; v38 FRAME
 };
+
+/** v38 FRAME: whether a kind is added by its descriptor's one field. */
+const isFieldKind = (kind: AddableKind): boolean => (FIELD_KINDS as readonly string[]).includes(kind);
 
 /**
  * v30 S4: the feeds (12 §3.6-3.7): no Test (a new kind of read waits for BOT_USER_AGENT), each says what keeps it off
  * (sources.ts feedNote, its numbers from the constants: v30 FIX-WEB, REQ-7). v30 FIX-WEB (REQ-5): a career site added
  * by hand is the same: no Test (the site reader waits for its switch and the identity).
  */
-const FEED_KINDS: readonly AddableKind[] = ['usajobs', 'himalayas', 'jobicy', 'career_site', 'workday_site', 'bamboohr', 'icims']; // v35 OPSWEB: Workday too; v37 BOARDS: BambooHR, iCIMS
+const FEED_KINDS: readonly AddableKind[] = ['usajobs', 'himalayas', 'jobicy', 'career_site', 'workday_site', ...FIELD_KINDS]; // v35 OPSWEB: Workday too; v37 BOARDS: BambooHR, iCIMS; v38 FRAME: every field kind
 
 /** v37 BOARDS: the API's field of each kind whose words go under its own field (not twice in a notice). */
-const FIELD_OF: Partial<Record<AddableKind, string>> = { workday_site: 'config.url', bamboohr: 'config.company', icims: 'config.board' };
+const FIELD_OF: Partial<Record<AddableKind, string>> = {
+  workday_site: 'config.url',
+  // v38 FRAME: each field kind's (BambooHR's config.company, iCIMS's config.board).
+  ...Object.fromEntries(FIELD_KINDS.map((kind) => [kind, `config.${boardDescriptorOf(kind)!.addSource!.field}`])),
+};
 
 function bodyOf(kind: AddableKind, draft: Draft): NewSourceBody {
   const company: Record<string, string> = draft.companyName.trim() ? { companyName: draft.companyName.trim() } : {};
   const name = draft.name.trim() || undefined;
+  // v37 BOARDS (PLAN B4, I1): what was typed; the API reads the company or the site from it (v38 FRAME: every field kind).
+  const field = boardDescriptorOf(kind)?.addSource;
+  if (field && isFieldKind(kind)) return { kind, name, config: { [field.field]: (draft.fields[kind] ?? '').trim(), ...company } };
   switch (kind) {
     case 'greenhouse':
       return { kind, name, config: { token: draft.token.trim(), ...company } };
@@ -103,11 +120,8 @@ function bodyOf(kind: AddableKind, draft: Draft): NewSourceBody {
     // v35 OPSWEB (PLAN H7): the page pasted; the API reads the host, tenant and site from it.
     case 'workday_site':
       return { kind, name, config: { url: draft.workdayUrl.trim(), ...company } };
-    // v37 BOARDS (PLAN B4, I1): what was typed; the API reads the company or the site from it.
-    case 'bamboohr':
-      return { kind, name, config: { company: draft.bambooCompany.trim(), ...company } };
-    case 'icims':
-      return { kind, name, config: { board: draft.icimsSite.trim(), ...company } };
+    default:
+      return { kind, name, config: { ...company } };
   }
 }
 
@@ -144,10 +158,16 @@ export function AddSourceDialog({
     constants.t,
   );
 
-  const set = (key: keyof Draft) => (event: { target: { value: string } }) => {
+  const set = (key: Exclude<keyof Draft, 'fields'>) => (event: { target: { value: string } }) => {
     setDraft((previous) => ({ ...previous, [key]: event.target.value }));
     setOutcome(null);
-    if (key === 'workdayUrl' || key === 'bambooCompany' || key === 'icimsSite') setUrlError(null); // v37 BOARDS
+    if (key === 'workdayUrl') setUrlError(null);
+  };
+  /** v37 BOARDS; v38 FRAME: the field kind's one field (its own text per kind). */
+  const setField = (event: { target: { value: string } }) => {
+    setDraft((previous) => ({ ...previous, fields: { ...previous.fields, [kind]: event.target.value } }));
+    setOutcome(null);
+    setUrlError(null);
   };
 
   const reset = () => {
@@ -207,6 +227,8 @@ export function AddSourceDialog({
   };
 
   const canTest = kind !== 'seed' && !FEED_KINDS.includes(kind); // v30 S4
+  // v38 FIX-APP (SP v38 FIXES-38 D1): a platform that names no employer anywhere (ADP) needs its Company name.
+  const companyRequired = isFieldKind(kind) ? boardDescriptorOf(kind)?.addSource?.companyRequired : undefined;
   const missing =
     (kind === 'greenhouse' && !draft.token.trim()) ||
     (kind === 'lever' && !draft.site.trim()) ||
@@ -214,23 +236,17 @@ export function AddSourceDialog({
     (kind === 'workable' && !draft.account.trim()) ||
     (kind === 'career_site' && careerSiteHost(draft.siteUrl) === null) || // v30 FIX-WEB
     (kind === 'workday_site' && (!draft.workdayUrl.trim() || workdayAddressProblem(draft.workdayUrl) !== null)) || // v35 OPSWEB
-    (kind === 'bamboohr' && bamboohrCompanyOf(draft.bambooCompany) === null) || // v37 BOARDS
-    (kind === 'icims' && icimsBoardOfInput(draft.icimsSite) === null); // v37 BOARDS
+    (isFieldKind(kind) && fieldBoardOf(kind, draft.fields[kind] ?? '') === null) || // v37 BOARDS; v38 FRAME: every field kind
+    (companyRequired !== undefined && !draft.companyName.trim()); // v38 FIX-APP (D1): ADP's Company name
   const siteUrlError = kind === 'career_site' && draft.siteUrl.trim() !== '' && careerSiteHost(draft.siteUrl) === null;
   const workdayError = kind === 'workday_site' ? (workdayAddressProblem(draft.workdayUrl) ?? urlError) : null; // v35 OPSWEB
-  // v37 BOARDS: what was typed names no company or site (said under the field; the API checks again).
-  const bambooError =
-    kind === 'bamboohr'
-      ? draft.bambooCompany.trim() && bamboohrCompanyOf(draft.bambooCompany) === null
-        ? 'Enter the name in <name>.bamboohr.com, or an address on it.'
-        : urlError
-      : null;
-  const icimsError =
-    kind === 'icims'
-      ? draft.icimsSite.trim() && icimsBoardOfInput(draft.icimsSite) === null
-        ? 'Enter an address on <name>.icims.com, such as careers-acme.icims.com.'
-        : urlError
-      : null;
+  // v37 BOARDS: what was typed names no company or site (said under the field; the API checks again). v38 FRAME: every
+  // field kind's, in its descriptor's words.
+  const field = isFieldKind(kind) ? boardDescriptorOf(kind)?.addSource : undefined;
+  const fieldValue = draft.fields[kind] ?? '';
+  const fieldError = field ? (fieldValue.trim() && fieldBoardOf(kind, fieldValue) === null ? field.invalid : urlError) : null;
+  // v38 FIX-APP (D1): the API's word on a missing Company name, under its field.
+  const companyError = create.error instanceof ApiError ? (create.error.fields?.['config.companyName'] ?? null) : null;
 
   return (
     <Dialog
@@ -249,28 +265,29 @@ export function AddSourceDialog({
             ? 'About 120 fictional postings from 15 made-up companies, dated from today.'
             : kind === 'workday_site' // v35 OPSWEB (PLAN H7)
               ? "Reads the site's postings on its schedule, one request at a time, once BOT_USER_AGENT is set and its robots.txt allows it."
-              : kind === 'bamboohr' // v37 BOARDS (PLAN B1)
-                ? "Reads the company's openings and each one's full posting on its schedule, one request at a time, once BOT_USER_AGENT is set."
-                : kind === 'icims' // v37 BOARDS (PLAN I2)
-                  ? "Reads the site's sitemap and each posting's page on its schedule, one request at a time, once BOT_USER_AGENT is set."
-                  : 'Where TailorIT should read jobs from.')
+              : field // v37 BOARDS (PLAN B1, I2); v38 FRAME: the field kind's descriptor's
+                ? field.help
+                : 'Where TailorIT should read jobs from.')
         }
         size="lg"
+        closeClassName="max-sm:top-2.5 max-sm:right-2.5 max-sm:size-11"
       >
         <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
-          <SegmentedControl
-            aria-label="Source kind"
-            size="sm"
-            items={KIND_ITEMS}
-            value={kind}
-            onValueChange={(next) => {
-              setKind(next);
-              setOutcome(null);
-              setError(null);
-              setUrlError(null);
-            }}
-            className="max-w-full overflow-x-auto"
-          />
+          <Field label="Source kind">
+            <Select
+              options={KIND_ITEMS}
+              value={kind}
+              onValueChange={(next) => {
+                setKind(next);
+                setOutcome(null);
+                setError(null);
+                setUrlError(null);
+              }}
+              className={`w-full ${PHONE_TALL}`}
+              // v38 FIX-APP (REVIEW38-ux L9): the list's rows are 44 px on a phone too.
+              popupClassName="max-sm:[&_[role=option]]:min-h-11"
+            />
+          </Field>
           {kind === 'greenhouse' && (
             <Field label="Board token" hint="The name in boards.greenhouse.io/<token>, or the board's address.">
               <Input value={draft.token} onChange={set('token')} placeholder="gitlab" autoComplete="off" />
@@ -350,31 +367,21 @@ export function AddSourceDialog({
               />
             </Field>
           )}
-          {/* v37 BOARDS (PLAN B4, I1): a BambooHR company and an iCIMS site, by name or address. */}
-          {kind === 'bamboohr' && (
+          {/* v37 BOARDS (PLAN B4, I1): a BambooHR company and an iCIMS site, by name or address (v38 FRAME: every field kind). */}
+          {field && (
             <Field
-              label="Company on BambooHR"
-              hint="The name in <name>.bamboohr.com, or its careers page's address."
-              error={bambooError || undefined}
+              label={field.label}
+              // v38 FIX-APP (REVIEW38-ux L18): a job's own link is read once to find its board: said under the field.
+              hint={field.postingLink && fieldBoardOf(kind, fieldValue) === POSTING_LINK ? `${field.hint} ${field.postingLink}` : field.hint}
+              error={fieldError || undefined}
             >
               <Input
-                value={draft.bambooCompany}
-                onChange={set('bambooCompany')}
-                placeholder="https://acme.bamboohr.com/careers"
+                value={fieldValue}
+                onChange={setField}
+                placeholder={field.placeholder}
                 autoComplete="off"
                 spellCheck={false}
-              />
-            </Field>
-          )}
-          {kind === 'icims' && (
-            <Field label="iCIMS site" hint="The site's address or any page of it, such as careers-acme.icims.com." error={icimsError || undefined}>
-              <Input
-                value={draft.icimsSite}
-                onChange={set('icimsSite')}
-                placeholder="careers-acme.icims.com"
-                autoComplete="off"
-                spellCheck={false}
-                inputMode="url"
+                {...(field.inputMode ? { inputMode: field.inputMode } : {})}
               />
             </Field>
           )}
@@ -384,10 +391,9 @@ export function AddSourceDialog({
             kind === 'workable' ||
             kind === 'career_site' ||
             kind === 'workday_site' ||
-            kind === 'bamboohr' ||
-            kind === 'icims') && (
-            <Field label="Company name" optional hint={companyNameHint(kind)}>
-              <Input value={draft.companyName} onChange={set('companyName')} autoComplete="off" />
+            isFieldKind(kind)) && (
+            <Field label="Company name" optional={!companyRequired} required={Boolean(companyRequired)} hint={companyNameHint(kind)} error={companyError ?? undefined}>
+              <Input value={draft.companyName} onChange={set('companyName')} autoComplete="off" maxLength={200} />
             </Field>
           )}
           <Field label="Display name" optional hint="How it's listed here (the board's name by default).">
@@ -412,11 +418,11 @@ export function AddSourceDialog({
 
           <DialogFooter flush className="mt-2">
             {canTest && (
-              <Button variant="outline" onClick={() => test.mutate()} loading={test.isPending} disabled={missing}>
+              <Button variant="outline" onClick={() => test.mutate()} loading={test.isPending} disabled={missing} className={PHONE_TALL}>
                 Test
               </Button>
             )}
-            <Button type="submit" loading={create.isPending} disabled={missing} focusableWhenDisabled data-add-source-submit="">
+            <Button type="submit" loading={create.isPending} disabled={missing} focusableWhenDisabled data-add-source-submit="" className={PHONE_TALL}>
               Add source
             </Button>
           </DialogFooter>

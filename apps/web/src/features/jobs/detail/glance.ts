@@ -75,8 +75,12 @@ export function checkedLiveWhen(lastVerifiedAt: string | null | undefined, now: 
   return `${whole} ${whole === 1 ? 'day' : 'days'} ago`;
 }
 
-/** "Posted 3 days ago"; null without a date. */
-export function postedText(postedAt: string | null | undefined, now: DateInput): string | null {
+/**
+ * "Posted 3 days ago"; null without a date. v38 FIX-APP (SP v38 FIXES-38 D7; REVIEW38-ux L6): "First seen 3 days ago"
+ * when no read of the posting named a date (`known` false: the stored date is when TailorIT first saw it).
+ */
+export function postedText(postedAt: string | null | undefined, now: DateInput, known = true): string | null {
   const when = relativeTime(postedAt ?? null, now);
-  return when ? `Posted ${when}` : null;
+  if (!when) return null;
+  return known ? `Posted ${when}` : `First seen ${when}`;
 }

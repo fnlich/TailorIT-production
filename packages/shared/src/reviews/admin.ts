@@ -45,6 +45,8 @@ export const ReviewJobRefSchema = z.object({
   /** Held for review (a new job not approved yet). */
   held: z.boolean(),
   applyUrl: z.string(),
+  /** v38 REVEDIT (PLAN E4): an admin edited the job (Admin › Review is admins' only, so its rows always say it). */
+  adminEdited: z.boolean().optional(),
 });
 export type ReviewJobRef = z.infer<typeof ReviewJobRefSchema>;
 

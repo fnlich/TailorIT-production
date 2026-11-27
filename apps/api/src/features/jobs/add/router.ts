@@ -14,6 +14,7 @@ import {
   type UnverifiedApproval,
   type UnverifiedLinkDetail,
 } from '@tailorit/shared';
+import { isNeverReadLink } from '@tailorit/shared/sourcing'; // v38 FIX-APP (ux L3)
 import { adminRouter, PositiveId } from '../../../core/admin/index';
 import { actorOf, requireUser, userOf } from '../../../core/auth/guards'; // v33 SHARE-6: actorOf
 import { constantsOf } from '../../../core/constants/service';
@@ -70,20 +71,34 @@ export function addJobResultOf(deps: Deps, outcome: AddJobByLinkOutcome, retry =
   // v37 FIX-REV (REVIEW361-ux M5): a Retry read that found the posting closed closed the person's own job (pipeline.ts
   // verifyJob, C5): it says so ("This posting has closed, so TailorIT marked the job closed."), not that nothing was added.
   const retryClosed = retry && outcome.state === 'refused' && outcome.reason === 'closed';
-  const key = retryClosed
+  // v38 FIX-APP (D1): a posting read that names no company asks for it. v38 FIX-APP (ux L3): a job of a site TailorIT
+  // never reads is its adder's for good (no "until TailorIT can read it").
+  const key = outcome.needsCompany
+    ? 'MSG_JOB_ADD_NEEDS_COMPANY'
+    : retryClosed
     ? 'MSG_JOB_RETRY_CLOSED'
     : outcome.state === 'private_unverified'
       ? outcome.needsDetails
         ? outcome.reason === 'terms'
           ? 'MSG_JOB_VERIFY_TERMS' // v37 FIX-37B (E8): the agreed words say it all (the web adds no second line)
           : 'MSG_JOB_ADD_NEEDS_DETAILS'
-        : retry
+        : neverRead(outcome)
+          ? 'MSG_JOB_ADD_NEVER_READ'
+          : retry
           ? 'MSG_JOB_ONLY_YOU_UNTIL_VERIFIED'
           : 'MSG_JOB_ADD_PRIVATE'
       : outcome.state === 'refused' && outcome.reason
         ? JOB_VERIFY_REASON_MESSAGE[outcome.reason]
         : JOB_ADD_STATE_MESSAGE[outcome.state];
   return { ...outcome, message: constantsOf(deps).message(key) };
+}
+
+/**
+ * v38 FIX-APP (REVIEW38-ux L3): an outcome on a site TailorIT never reads: a reason that is the platform's lasting answer
+ * (a bot check on every page, the employer's own login), or a link on a platform it never reads (SuccessFactors' robots).
+ */
+function neverRead(outcome: Pick<AddJobByLinkOutcome, 'reason' | 'url'>): boolean {
+  return outcome.reason === 'bot_check' || outcome.reason === 'needs_login' || (outcome.reason === 'robots' && isNeverReadLink(outcome.url));
 }
 
 // v34 FANOUT (the FANOUT review, spec 16): one set of reads under way per app, shared with Add job to profiles
@@ -118,6 +133,7 @@ export function createJobLinksRouter(deps: AppDeps): Router {
       userId: user.id,
       origin: 'web',
       details: body.details ?? null,
+      ...(body.company ? { company: body.company } : {}), // v38 FIX-APP (D1): the company step's
       save: true,
       inFlight,
       ...(req.acting ? { actor: { id: actorOf(req).id, grantId: req.acting.grantId } } : {}), // v33 SHARE-6

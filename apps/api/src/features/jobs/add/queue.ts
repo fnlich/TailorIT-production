@@ -23,7 +23,7 @@ import { addJobByLink, isAddableLink } from './pipeline';
 import { settleImportLink } from './import-pipeline'; // v35 IMPORT
 import { recordQueueOutcome, repairImportRows, type QueueOutcome } from './import-store'; // v35 IMPORT; v35 FIX-STORE: repairImportRows
 import type { DbQueries } from '../../../core/db/types'; // v35 FIX-STORE
-import { laneKeyOf, laneSql, registeredLanes } from '../../ingest/hosts'; // v37 LANE (W8): Workday links on the one Workday lane; v37 INT-A laneSql; v37 FIX-LANE the lanes
+import { laneKeyOf, laneSql } from '../../ingest/hosts'; // v37 LANE (W8): Workday links on the one Workday lane; v37 INT-A laneSql (v38 INT: dueLinkLanes)
 
 // v31 LINK (docs/design/v3.1/21-jobs-from-links.md §5): the links an import (a CSV or JSON file, a Google Sheet's tab,
 // the free_tailor lake) or an admin's add (POST /api/admin/jobs/add) queues for TailorIT's own read. Only the link is
@@ -511,28 +511,68 @@ function legacyStateOf(outcome: QueueOutcome): JobAddState {
 }
 
 /**
- * The worker hook: a pass every LINK_QUEUE_TICK_MS (read at start), never two at once. v37 FIX-LANE (F3): a pass per
- * lane and one of every other host (LinkQueueLanes), each never two at once, so none waits for another.
+ * v38 INT (ATS-D's note; INT-BRIEF wiring 5): the passes with due links now (LinkQueueLanes: a registered lane's key, or
+ * `others` for every host on no lane), in one statement over the queue (dueByHostSql's "due"): with every v3.8 lane
+ * registered, a tick costs this one query, then a pass only where links wait.
+ */
+export async function dueLinkLanes(deps: Pick<AppDeps, 'db' | 'now'>): Promise<LinkQueueLanes[]> {
+  const at = deps.now().toISOString();
+  const rows = await deps.db.all<{ lane: string }>(
+    `SELECT DISTINCT CASE WHEN ${laneSql('host')} <> host THEN ${laneSql('host')} ELSE 'others' END AS lane
+     FROM job_link_queue WHERE state <> 'done' AND next_at <= ? AND (state = 'queued' OR lease_until < ?)`,
+    [at, at],
+  );
+  return rows.map((row) => row.lane).sort();
+}
+
+/**
+ * The worker's tick (startLinkQueueWorker; exported for its test): v37 FIX-LANE (F3) a pass per lane and one of every
+ * other host (LinkQueueLanes), each never two at once, so none waits for another. v38 INT: only the passes with due links
+ * (dueLinkLanes: one query a tick, never two at once), after Pause all's check and the import rows' repair the passes
+ * made before (a tick with an empty queue still repairs). `pass` is workLinkQueue (a test's own records the lanes).
+ */
+export function linkQueueTicker(
+  deps: AppDeps,
+  pass: (lanes: LinkQueueLanes) => Promise<number> = (lanes) => workLinkQueue(deps, undefined, { lanes }),
+): () => Promise<void> {
+  const running = new Set<LinkQueueLanes>();
+  const passOf = async (lanes: LinkQueueLanes) => {
+    if (running.has(lanes)) return;
+    running.add(lanes);
+    try {
+      const read = await pass(lanes);
+      if (read > 0) deps.log.debug(`[job-links] ${read} queued link(s) read`);
+    } catch (error) {
+      deps.log.warn('[job-links] a pass of the link queue failed; the next one runs on time', error instanceof Error ? error.name : 'unknown');
+    } finally {
+      running.delete(lanes);
+    }
+  };
+  let checking = false;
+  return async () => {
+    if (checking) return;
+    checking = true;
+    let lanes: LinkQueueLanes[] = [];
+    try {
+      if (await outsideWorkPaused(deps)) return; // v31 RUNS' Pause all (workLinkQueue checks it too)
+      await repairNow(deps); // v35 FIX-STORE (D2, D3): at most once a minute, as each pass did
+      lanes = await dueLinkLanes(deps);
+    } catch (error) {
+      deps.log.warn('[job-links] the link queue could not be read; the next tick tries again', error instanceof Error ? error.name : 'unknown');
+    } finally {
+      checking = false;
+    }
+    for (const lane of lanes) void passOf(lane);
+  };
+}
+
+/**
+ * The worker hook: a tick every LINK_QUEUE_TICK_MS (read at start): linkQueueTicker's passes, each never two at once.
  */
 export function startLinkQueueWorker(deps: AppDeps): () => void {
-  const passOf = (lanes: LinkQueueLanes) => {
-    let running = false;
-    return async () => {
-      if (running) return;
-      running = true;
-      try {
-        const read = await workLinkQueue(deps, undefined, { lanes });
-        if (read > 0) deps.log.debug(`[job-links] ${read} queued link(s) read`);
-      } catch (error) {
-        deps.log.warn('[job-links] a pass of the link queue failed; the next one runs on time', error instanceof Error ? error.name : 'unknown');
-      } finally {
-        running = false;
-      }
-    };
-  };
-  const passes = [...registeredLanes().map((lane) => passOf(lane.key)), passOf('others')];
+  const tick = linkQueueTicker(deps);
   const timer = setInterval(() => {
-    for (const pass of passes) void pass();
+    void tick();
   }, constantsOf(deps).get('LINK_QUEUE_TICK_MS'));
   timer.unref?.();
   return () => clearInterval(timer);

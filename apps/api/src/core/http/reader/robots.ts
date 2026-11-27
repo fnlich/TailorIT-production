@@ -10,6 +10,7 @@ import {
 } from '../../../features/ingest/robots';
 import { assertRedirectAllowed, MAX_REDIRECTS, OutboundRefusedError } from '../outbound';
 import { isAddressRefused } from './address';
+import { isChallengeAnswer } from './detect'; // v38 FIX-C (beh-L3)
 import type { SiteTransport } from './transport';
 
 // v30 E2: robots.txt for the shared site reader (docs/design/part2/13-company-enrichment.md §4 rule 2, 12 §1 test 2,
@@ -24,6 +25,9 @@ import type { SiteTransport } from './transport';
 // be read is not read again for ROBOTS_UNREACHABLE_RETRY_MS (any process), and a failed refresh keeps the last good
 // rules (at most ROBOTS_STALE_USE_MS old), which apply meanwhile. A Workday host's read takes the Workday lane's turn
 // and holds it until its answer (one request at a time to all of Workday).
+// v38 FIX-C (REVIEW38-beh L3): a robots.txt answered by a bot check (Cloudflare's challenge, AWS WAF's 202 challenge or
+// CAPTCHA: detect.ts isChallengeAnswer) is no file: the host is held as a bot check (botCheckHoldMs), nothing is kept, and
+// the read is refused as a held host's (HostHeldError, reason bot_check), never read as "no rules".
 
 /** What the reader's robots.txt read needs. */
 export interface RobotsReadContext {
@@ -37,7 +41,12 @@ export interface RobotsReadContext {
   /** The longest wait for the host's slot before the read is refused instead (HostHeldError). */
   maxTurnWaitMs: number;
   now: () => number;
+  /** v38 FIX-C (beh-L3): how long a bot check on robots.txt holds the host (INGEST_BOT_CHECK_HOLD_HOURS; default 24 hours). */
+  botCheckHoldMs?: number;
 }
+
+/** v38 FIX-C (beh-L3): the hold of a bot check when the reader names none (INGEST_BOT_CHECK_HOLD_HOURS' default). */
+const BOT_CHECK_HOLD_MS = 24 * 3_600_000;
 
 /**
  * The host's robots.txt (`host` as a URL's host: a name, with its port when not 443): the kept one when fresh, else
@@ -79,6 +88,12 @@ export async function robotsForHost(ctx: RobotsReadContext, host: string): Promi
     }
     if (lane) await ctx.gate.release?.(turnHost).catch(() => undefined);
     const { status } = answer;
+    // v38 FIX-C (beh-L3): a bot check answered for robots.txt holds the host; nothing is kept.
+    if (isChallengeAnswer(answer.headers)) {
+      await ctx.gate.record(url.host, { kind: 'bot_check', status }).catch(() => undefined);
+      const until = new Date(ctx.now() + (ctx.botCheckHoldMs ?? BOT_CHECK_HOLD_MS)).toISOString();
+      throw new HostHeldError(url.host, until, 'bot_check', { answered: status });
+    }
     await ctx.gate.record(url.host, status === 429 || status >= 500 ? { kind: 'failed', status } : { kind: 'answered', status }).catch(() => undefined);
     const location = status >= 300 && status < 400 ? answer.headers.get('location') : null;
     if (location) {

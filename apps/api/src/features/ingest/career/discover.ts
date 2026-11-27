@@ -5,7 +5,7 @@ import { offerToDiscovery } from '../../../core/seams';
 import { isCompanyDomain, registrableDomain } from '../../companies/domain';
 import { isRefusedPageHost, isSiteHost, normalHost } from '../../job-reviews/hosts';
 import { careerPagesOn, type CareerDeps } from './switch';
-import { isEmployerPlatformHost, isSharedPlatformHost } from './platforms'; // v30 FIX-A (REQ-5)
+import { isBoardKindHost, isEmployerPlatformHost, isSharedPlatformHost } from './platforms'; // v30 FIX-A (REQ-5); v38 INT: isBoardKindHost
 
 // v30 S5: finding career sites (docs/design/part2/12-job-sourcing.md §3.4 step 1, §3.5, §4.1 signal 2), behind
 // SITE_READER_CAREER_PAGES like the reads themselves (PLAN §5: "S5's career-page reads and the discovery of career
@@ -46,6 +46,10 @@ export function careerSiteHostOf(address: string | null | undefined): string | n
   const host = normalHost(url.hostname);
   if (!isSiteHost(host) || isRefusedPageHost(host)) return null;
   if (isSharedPlatformHost(host)) return null;
+  // v38 ATS-A (SP v38 PLAN A9, FRAME open item 7), ATS-C: a host a board kind claims (a Teamtailor company's, Taleo's,
+  // Avature's, Paycom's...) is that kind's board, never a career site (v38 INT: the one rule, platforms.ts isBoardKindHost,
+  // as discovery/boards.ts careerSiteOfUrl reads it; offerCareerSites below takes only this function's hosts).
+  if (isBoardKindHost(host)) return null;
   return isCompanyDomain(registrableDomain(host)) || isEmployerPlatformHost(host) ? host : null;
 }
 

@@ -72,6 +72,8 @@ export interface NormalizedCompany {
   links: Array<{ label: string; url: string }>;
   sponsorsH1b: boolean | null;
   logoPath: string | null;
+  /** v38 FRAME (A6): the company's logo on its platform (https), for the logo pipeline to copy; absent when none. */
+  logoSourceUrl?: string;
 }
 
 export interface NormalizedSalary {
@@ -238,7 +240,15 @@ export function normalizeCompany(raw: RawCompany): NormalizedCompany {
       .filter((link) => link.label && link.url),
     sponsorsH1b: typeof raw.sponsorsH1b === 'boolean' ? raw.sponsorsH1b : null,
     logoPath: text(raw.logoPath, 500),
+    // v38 FRAME (A6): only when given, so every other posting's company reads as before.
+    ...(httpsLogo(raw.logoSourceUrl) ? { logoSourceUrl: httpsLogo(raw.logoSourceUrl)! } : {}),
   };
+}
+
+/** v38 FRAME (A6): a platform's logo address as kept: https, at most 2,048 characters; null for any other. */
+function httpsLogo(value: unknown): string | null {
+  const url = cleanUrl(value);
+  return url && url.startsWith('https://') && url.length <= 2048 ? url : null;
 }
 
 const SALARY_CUE =

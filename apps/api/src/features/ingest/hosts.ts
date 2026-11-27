@@ -19,7 +19,7 @@ import type { DbQueries, SqlParams } from '../../core/db/types';
 import { notFound, validationFailed } from '../../core/http/errors';
 import { HostHeldError, sleepFor, type HostGate, type HostHoldReason, type HostOutcome } from './http';
 import { ROBOTS_STALE_USE_MS, type RobotsStore, type StoredRobots } from './robots';
-import { ICIMS_BOARD_HOST } from './career/platforms'; // v37 INT-2b (E1): the iCIMS lane's hosts
+import { BOARD_LANES, type RegisteredBoardLane } from '@tailorit/shared/sourcing'; // v38 FRAME: the lanes are the board registry's
 
 // v30 S1-API: the hosts TailorIT reads, shared by every process (12-job-sourcing.md §9.2, §9.4; 11-database.md
 // §5.3a). Two tables:
@@ -106,53 +106,64 @@ export interface LaneSpec {
   readonly discoveryPerHourKey: IntConstantKey;
 }
 
+// v38 FRAME (SP v38 PLAN A4): the lanes are the board registry's (@tailorit/shared/sourcing BOARD_LANES: each board
+// descriptor's `lane`, once per key, in the registry's order, its kinds those that declare it). A lane that names no
+// constants of its own takes LANE_DEFAULT_MIN_INTERVAL_MS and LANE_DEFAULT_DISCOVERY_PER_HOUR. Workday's, BambooHR's and
+// iCIMS's keep v3.7's words, hosts, kinds and constants.
+
+/**
+ * v38 FRAME (SP v38 PLAN A4): the lanes with constants of their own, by key (a platform that adds its own gap and
+ * discovery cap to the constants adds its line here); every other lane takes LANE_DEFAULT_MIN_INTERVAL_MS and
+ * LANE_DEFAULT_DISCOVERY_PER_HOUR. (Never in the shared descriptor: the web's bundle holds no server-only constant.)
+ */
+const LANE_CONSTANTS: Readonly<Record<string, Pick<LaneSpec, 'minIntervalKey' | 'discoveryPerHourKey'>>> = {
+  'workday.lane': { minIntervalKey: 'WORKDAY_MIN_INTERVAL_MS', discoveryPerHourKey: 'WORKDAY_DISCOVERY_PER_HOUR' },
+  'bamboohr.lane': { minIntervalKey: 'BAMBOOHR_MIN_INTERVAL_MS', discoveryPerHourKey: 'BAMBOOHR_DISCOVERY_PER_HOUR' },
+  'icims.lane': { minIntervalKey: 'ICIMS_MIN_INTERVAL_MS', discoveryPerHourKey: 'ICIMS_DISCOVERY_PER_HOUR' },
+};
+
+/** v38 FRAME: a registered board lane as the host gate reads it. */
+function laneSpecOf(lane: RegisteredBoardLane): LaneSpec {
+  return {
+    key: lane.key,
+    label: lane.label,
+    name: lane.name,
+    hosts: lane.hosts,
+    kinds: lane.kinds,
+    minIntervalKey: LANE_CONSTANTS[lane.key]?.minIntervalKey ?? 'LANE_DEFAULT_MIN_INTERVAL_MS',
+    discoveryPerHourKey: LANE_CONSTANTS[lane.key]?.discoveryPerHourKey ?? 'LANE_DEFAULT_DISCOVERY_PER_HOUR',
+  };
+}
+
+/** v37 FIX-LANE: the lanes (v38 FRAME: the board registry's). Read at each use, never copied at load. */
+const LANES: LaneSpec[] = BOARD_LANES.map(laneSpecOf);
+
+/** A registered lane by its key (one every Workday, BambooHR or iCIMS descriptor declares). */
+const registered = (key: string): LaneSpec => {
+  const lane = LANES.find((known) => known.key === key);
+  if (!lane) throw new Error(`The board registry declares no lane ${key}.`);
+  return lane;
+};
+
 /** v37 LANE: the crawl_hosts row every Workday request takes its turn on (it passes HostIdSchema). */
 export const WORKDAY_LANE = 'workday.lane';
+/** v37 FIX-LANE: the Workday lane's entry (v38 FRAME: the Workday descriptors'). */
+export const WORKDAY_LANE_SPEC: LaneSpec = registered(WORKDAY_LANE);
 /** v37 LANE: the Workday lane in words (Admin › Hosts, the lane's HostHeldError). */
-export const WORKDAY_LANE_LABEL = 'Workday (all sites)';
-
-/** v37 FIX-LANE: the Workday lane's entry. */
-export const WORKDAY_LANE_SPEC: LaneSpec = {
-  key: WORKDAY_LANE,
-  label: WORKDAY_LANE_LABEL,
-  name: 'Workday',
-  hosts: String.raw`(?:^|\.)(?:myworkdayjobs|myworkdaysite|myworkday)\.com$`,
-  kinds: ['workday', 'workday_site'],
-  minIntervalKey: 'WORKDAY_MIN_INTERVAL_MS',
-  discoveryPerHourKey: 'WORKDAY_DISCOVERY_PER_HOUR',
-};
+export const WORKDAY_LANE_LABEL = WORKDAY_LANE_SPEC.label;
 
 /**
  * v37 INT-2b (E1): BambooHR's lane: every company's careers host, <company>.bamboohr.com (one DNS label; the list, each
- * opening's detail and the careers page alike), at least BAMBOOHR_MIN_INTERVAL_MS apart.
+ * opening's detail and the careers page alike), at least BAMBOOHR_MIN_INTERVAL_MS apart (v38 FRAME: its descriptor's).
  */
-export const BAMBOOHR_LANE_SPEC: LaneSpec = {
-  key: 'bamboohr.lane',
-  label: 'BambooHR (all companies)',
-  name: 'BambooHR',
-  hosts: String.raw`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.bamboohr\.com$`,
-  kinds: ['bamboohr'],
-  minIntervalKey: 'BAMBOOHR_MIN_INTERVAL_MS',
-  discoveryPerHourKey: 'BAMBOOHR_DISCOVERY_PER_HOUR',
-};
+export const BAMBOOHR_LANE_SPEC: LaneSpec = registered('bamboohr.lane');
 
 /**
- * v37 INT-2b (E1): iCIMS's lane: every employer's iCIMS host, the API's one rule (career/platforms.ts ICIMS_BOARD_HOST:
- * never iCIMS's own www, api, login or internal- hosts; its lookahead reads the same in PostgreSQL), at least
- * ICIMS_MIN_INTERVAL_MS apart. A turned-on career site on such a host (kept as it was by 0063) takes it too.
+ * v37 INT-2b (E1): iCIMS's lane: every employer's iCIMS host (ICIMS_BOARD_HOST: never iCIMS's own www, api, login or
+ * internal- hosts; its lookahead reads the same in PostgreSQL), at least ICIMS_MIN_INTERVAL_MS apart. A turned-on career
+ * site on such a host (kept as it was by 0063) takes it too (v38 FRAME: its descriptor's).
  */
-export const ICIMS_LANE_SPEC: LaneSpec = {
-  key: 'icims.lane',
-  label: 'iCIMS (all sites)',
-  name: 'iCIMS',
-  hosts: ICIMS_BOARD_HOST.source,
-  kinds: ['icims'],
-  minIntervalKey: 'ICIMS_MIN_INTERVAL_MS',
-  discoveryPerHourKey: 'ICIMS_DISCOVERY_PER_HOUR',
-};
-
-/** v37 FIX-LANE: the lanes (v37 INT-2b: BambooHR's and iCIMS's after Workday's). Read at each use, never copied at load. */
-const LANES: LaneSpec[] = [WORKDAY_LANE_SPEC, BAMBOOHR_LANE_SPEC, ICIMS_LANE_SPEC];
+export const ICIMS_LANE_SPEC: LaneSpec = registered('icims.lane');
 /** Each lane's host pattern, compiled once. */
 const LANE_PATTERNS = new Map<LaneSpec, RegExp>();
 const patternOf = (lane: LaneSpec): RegExp => {

@@ -1,14 +1,10 @@
 import type { AddablePosting } from '@tailorit/shared/autofill';
 import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/types';
-import { ashbyBoard } from './adapters/ashby';
-import { greenhouseToken } from './adapters/greenhouse';
-import { leverSite } from './adapters/lever';
-import { workableAccount } from './adapters/workable';
-import { workdaySiteOf } from './adapters/workdaySite';
+import { JOB_SOURCE_KIND_LABEL, LATER_BOARD_SOURCE_KINDS, sourceNameOf, type BoardSourceKind } from '@tailorit/shared/sourcing'; // v38 FIX-APP: sourceNameOf
+import { apiBoardOf, BOARD_IMPORT_KINDS, boardSourceConfig } from './boards/index'; // v38 FRAME: the board registry
+import { importBoardConfig } from './boards/configs';
 import { boardNameOf, boardOfUrl, candidateName } from './discovery/boards';
-import { bamboohrCompany } from './adapters/bamboohr'; // v37 BOARDS
-import { icimsBoardOf } from './career/platforms'; // v37 BOARDS
 import { isLinkKeeper, sourcesOfBoard } from './discovery/offer';
 import { NEW_SOURCE_COLUMNS, NEW_SOURCE_PLACEHOLDERS, newSourceValues } from './sources';
 import { IngestError } from './types';
@@ -32,13 +28,21 @@ import { IngestError } from './types';
 
 /**
  * The kinds of board an import may find (a board TailorIT reads in full). v37 BOARDS (SP v37 PLAN B4, I4): a BambooHR
- * company and an iCIMS site too (importBoardOfUrl names them from a link).
+ * company and an iCIMS site too (importBoardOfUrl names them from a link). v38 FRAME (SP v38 PLAN A9): every board kind
+ * whose descriptor is `importable`, in the registry's order.
  */
-export const IMPORT_BOARD_KINDS = ['greenhouse', 'lever', 'ashby', 'workable', 'workday_site', 'bamboohr', 'icims'] as const;
-/** v37 BOARDS: the refusal of a board kind an import does not find. */
-const NO_IMPORT_KIND =
-  'An import finds only Greenhouse, Lever, Ashby and Workable boards, Workday career sites, BambooHR companies and iCIMS sites.';
-export type ImportBoardKind = (typeof IMPORT_BOARD_KINDS)[number];
+export const IMPORT_BOARD_KINDS: readonly BoardSourceKind[] = BOARD_IMPORT_KINDS;
+/** v37 BOARDS: the refusal of a board kind an import does not find (v38 FRAME: every importable kind's label after v3.7's). */
+const NO_IMPORT_KIND = LATER_BOARD_SOURCE_KINDS.some((kind) => IMPORT_BOARD_KINDS.includes(kind))
+  ? `An import finds only boards of ${IMPORT_BOARD_KINDS.map((kind) => JOB_SOURCE_KIND_LABEL[kind]).join(', ')}.`
+  : 'An import finds only Greenhouse, Lever, Ashby and Workable boards, Workday career sites, BambooHR companies and iCIMS sites.';
+export type ImportBoardKind = BoardSourceKind;
+
+/**
+ * v38 FRAME: the importable kinds whose boards a read posting's link names (importBoardOfPosting: the extension
+ * contract's five, whose set is pinned); every other one is named by its link's address (importBoardOfUrl).
+ */
+const POSTING_BOARD_KINDS: readonly string[] = ['greenhouse', 'lever', 'ashby', 'workable', 'workday_site'];
 
 /** A board an import found, as rememberImportBoard takes it. */
 export interface ImportBoardInput {
@@ -62,38 +66,16 @@ export interface ImportBoardResult {
 /** The longest company name a source's config keeps (the admin's Add source takes the same). */
 const COMPANY_NAME_MAX = 200;
 
-/** The config a board's source reads, from what the import gave (only the kind's own keys), or IngestError. */
+/**
+ * The config a board's source reads, from what the import gave (only the kind's own keys), or IngestError. v38 FRAME: its
+ * board descriptor's (./boards/configs.ts importBoardConfig: its config key read by its normaliser; Lever's region and a
+ * Workday career site's host, tenant and site by their own).
+ */
 function boardConfigOf(input: ImportBoardInput): Record<string, unknown> {
+  const board = apiBoardOf(input.kind);
+  if (!board?.importable) throw new IngestError(NO_IMPORT_KIND);
   const config = input.config ?? {};
-  const text = (value: unknown) => (typeof value === 'string' ? value : '');
-  const named = (value: string, what: string) => {
-    if (!value) throw new IngestError(`The import named no ${what}.`);
-    return value;
-  };
-  switch (input.kind) {
-    case 'greenhouse':
-      return { token: named(greenhouseToken(text(config.token) || input.name), 'Greenhouse board') };
-    case 'lever':
-      return {
-        site: named(leverSite(text(config.site) || input.name), 'Lever site'),
-        region: text(config.region).toLowerCase() === 'eu' ? 'eu' : 'global',
-      };
-    case 'ashby':
-      return { board: named(ashbyBoard(text(config.board) || input.name), 'Ashby board') };
-    case 'workable':
-      return { account: named(workableAccount(text(config.account) || input.name), 'Workable account') };
-    case 'workday_site': {
-      const site = workdaySiteOf(config);
-      return { host: site.host, tenant: site.tenant, careerSite: site.careerSite };
-    }
-    // v37 BOARDS
-    case 'bamboohr':
-      return { company: named(bamboohrCompany(text(config.company) || input.name), 'BambooHR company') };
-    case 'icims':
-      return { board: named(icimsBoardOf(text(config.board) || input.name), 'iCIMS site') };
-    default:
-      throw new IngestError(NO_IMPORT_KIND);
-  }
+  return board.importConfig ? board.importConfig(config, input.name) : importBoardConfig(board.board, config, input.name);
 }
 
 /** The import's company name, trimmed and capped; null for none. */
@@ -153,7 +135,8 @@ export async function rememberImportBoard(
       await noteFind(t, input.runId, keeper.id, true, at);
       return { sourceId: keeper.id, created: true };
     }
-    const label = n === 1 ? name : `${name} (${n})`;
+    const base = sourceNameOf(input.kind, name, company); // v38 FIX-APP (REVIEW38-ux L12): an id-named board by its company
+    const label = n === 1 ? base : `${base} (${n})`;
     const made = await t.one<{ id: number }>(
       `INSERT INTO ${NEW_SOURCE_COLUMNS} VALUES (${NEW_SOURCE_PLACEHOLDERS}) ON CONFLICT(kind, name) DO NOTHING RETURNING id`,
       newSourceValues({ kind: input.kind, name: label, config }, at),
@@ -200,11 +183,12 @@ export function importBoardOfPosting(posting: AddablePosting | null): Omit<Impor
 /**
  * v37 BOARDS (SP v37 PLAN B4, I4): the BambooHR company or iCIMS site a link names (any page on its host that names it:
  * a BambooHR careers page, any iCIMS page), as rememberImportBoard takes it, or null (the other boards come from
- * importBoardOfPosting). For an admin import's link, whatever its read gave (C7).
+ * importBoardOfPosting). For an admin import's link, whatever its read gave (C7). v38 FRAME (SP v38 PLAN A9): any
+ * importable board kind's but the five a read posting names, its config its descriptor's.
  */
 export function importBoardOfUrl(address: string): Omit<ImportBoardInput, 'runId' | 'companyName'> | null {
-  const board = boardOfUrl(address);
-  if (board?.kind === 'bamboohr') return { kind: 'bamboohr', name: board.name, config: { company: board.name } };
-  if (board?.kind === 'icims') return { kind: 'icims', name: board.name, config: { board: board.name } };
-  return null;
+  const found = boardOfUrl(address);
+  if (!found || POSTING_BOARD_KINDS.includes(found.kind)) return null;
+  const board = apiBoardOf(found.kind);
+  return board?.importable ? { kind: found.kind as BoardSourceKind, name: found.name, config: boardSourceConfig(board, found.name) } : null;
 }

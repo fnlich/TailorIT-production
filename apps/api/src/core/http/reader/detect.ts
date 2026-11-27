@@ -43,5 +43,6 @@ export function wallOf(html: string): 'bot_check' | 'captcha' | 'login' | null {
 
 /** Whether an answer's headers say it is a bot check (Cloudflare's managed challenge). */
 export function isChallengeAnswer(headers: { get(name: string): string | null }): boolean {
-  return (headers.get('cf-mitigated') ?? '').toLowerCase() === 'challenge';
+  // v38 ATS-D (SP v38 EVIDENCE.md §23): AWS WAF's challenge or CAPTCHA (`x-amzn-waf-action`, a 202 with no page) too.
+  return (headers.get('cf-mitigated') ?? '').toLowerCase() === 'challenge' || /^(?:challenge|captcha)$/i.test((headers.get('x-amzn-waf-action') ?? '').trim());
 }

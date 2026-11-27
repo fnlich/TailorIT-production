@@ -13,6 +13,8 @@
 // v31 FIX-LINK (SEC-2): shareableJobUrl, the form a link takes when TailorIT stores or shares it from an add: the
 // canonical form without a person's secret parameters (?email=, ?token=, ?session_id=, ...: the one list below).
 
+import { cleanBoardLink, hostHasCleanLinks } from '../sourcing/boards/index'; // v38 FRAME (A2): a platform's clean link
+
 interface UrlLike {
   protocol: string;
   hostname: string;
@@ -277,18 +279,40 @@ function portOf(url: UrlLike): string {
   return url.port && url.port !== '80' && url.port !== '443' ? `:${url.port}` : '';
 }
 
-/**
- * A job's link in its one canonical form (see the top), or null for anything that is not an http(s) address with a
- * host. Idempotent: canonicalJobUrl(canonicalJobUrl(x)) === canonicalJobUrl(x), and linkKey(canonicalJobUrl(x)) ===
- * linkKey(x).
- */
-export function canonicalJobUrl(link: unknown): string | null {
+/** The generic canonical form (every host's rules above), before a platform's clean link. */
+function genericCanonical(link: unknown): string | null {
   const url = parse(link);
   if (!url) return null;
   const host = hostOf(url);
   if (!host) return null;
   const search = linkQueryOf(keptLinkParameters(url.searchParams, host));
   return `https://${host}${portOf(url)}${canonicalPath(url.pathname)}${search}${postingFragmentOf(url.hash, host)}`;
+}
+
+/**
+ * A job's link in its one canonical form (see the top), or null for anything that is not an http(s) address with a
+ * host. Idempotent: canonicalJobUrl(canonicalJobUrl(x)) === canonicalJobUrl(x), and linkKey(canonicalJobUrl(x)) ===
+ * linkKey(x). v38 FRAME (SP v38 PLAN A2): on a board platform's host, the platform's clean link (its descriptor's
+ * cleanLink, sourcing/boards: REQUEST.md's "Clean job link"), itself in the generic form; every other link as before.
+ */
+export function canonicalJobUrl(link: unknown): string | null {
+  const generic = genericCanonical(link);
+  if (!generic) return null;
+  const host = /^https:\/\/([^/:?#]+)/.exec(generic)?.[1] ?? '';
+  if (!hostHasCleanLinks(host)) return generic;
+  const cleaned = cleanBoardLink(generic);
+  return cleaned === generic ? generic : withCleanSlash(cleaned, genericCanonical(cleaned) ?? generic);
+}
+
+/**
+ * v38 ATS-D: a platform's clean link whose path ends in '/' keeps it (JobDiva's portal, /portal/?a=…#/jobs/…: REQUEST.md
+ * #25), where the generic form drops one trailing slash; its query and fragment stay the generic form's.
+ */
+function withCleanSlash(cleaned: string, generic: string): string {
+  const path = /^https:\/\/[^/?#]+(\/[^?#]*)/.exec(cleaned)?.[1];
+  if (!path || path.length < 2 || !path.endsWith('/')) return generic;
+  const parts = /^(https:\/\/[^/?#]+)(\/[^?#]*)([\s\S]*)$/.exec(generic);
+  return parts && parts[2] === path.slice(0, -1) ? `${parts[1]}${path}${parts[3]}` : generic;
 }
 
 // v31 FIX-LINK (SEC-2): the parameters a link TailorIT stores for everyone never carries. v3.0 kept these rules in the

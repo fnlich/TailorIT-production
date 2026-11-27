@@ -49,7 +49,8 @@ function ToolButton({
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
       className={clsx(
-        'inline-flex size-7 items-center justify-center rounded-md transition-colors duration-150',
+        // v38 FIX-APP (REVIEW38-ux L16): 44 px touch targets on a phone.
+        'inline-flex size-7 items-center justify-center rounded-md transition-colors duration-150 max-sm:size-11',
         active ? 'bg-primary-soft text-primary-ink' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
       )}
     >

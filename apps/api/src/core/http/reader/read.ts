@@ -157,6 +157,7 @@ export function createSiteReader(options: SiteReaderOptions = {}): SiteReader {
         gapMs,
         maxTurnWaitMs: gapMs * c.get('SITE_READER_TURN_WAIT_GAPS'),
         now,
+        botCheckHoldMs: c.get('INGEST_BOT_CHECK_HOLD_HOURS') * 3_600_000, // v38 FIX-C (beh-L3): a bot check on robots.txt
       };
       const record = (host: string, outcome: HostOutcome) => gate.record(host, outcome).catch(() => undefined);
       /** v37 LANE: a Workday host's turn (the lane's; v37 FIX-LANE: any lane's) is given back once its request is over. */

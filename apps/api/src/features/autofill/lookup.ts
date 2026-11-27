@@ -10,6 +10,7 @@ import {
 } from '@tailorit/shared';
 import {
   addablePosting,
+  AUTOFILL_ADDABLE_ATS,
   AUTOFILL_POSTING_TEXT_MAX,
   AutofillLookupMatchSchema,
   isLinkedInHost,
@@ -28,16 +29,12 @@ import {
   type ResumeChoiceReason,
   type WorkArrangement,
 } from '@tailorit/shared/autofill';
+import { BOARD_DESCRIPTORS } from '@tailorit/shared/sourcing'; // v38 FRAME
 import type { AppDeps } from '../../core/context';
 import type { Dialect } from '../../core/db/dialect';
 import { capUtf16 } from '../../core/files/index';
 import { notFound } from '../../core/http/errors';
 import { bestResumes } from '../applications/resume-choice';
-import { ashbyBoard } from '../ingest/adapters/ashby';
-import { greenhouseToken } from '../ingest/adapters/greenhouse';
-import { leverSite } from '../ingest/adapters/lever';
-import { workableAccount } from '../ingest/adapters/workable';
-import { workdayTenant } from '../ingest/adapters/workday';
 import { creditFieldOf, jobCreditSql } from '../jobs/credit'; // v30 FIX-B
 import { matchResumeForJob } from '../jobs/match';
 import { currentJobId } from '../jobs/store';
@@ -93,13 +90,15 @@ const POSTING_URL_SCAN = 2000;
  * The board a source's config names, read by its adapter's own rule (a token, site, board or account name, or its
  * URL).
  */
-export const SOURCE_BOARD: Partial<Record<AtsKind, (config: Record<string, unknown>) => string>> = {
-  greenhouse: (config) => greenhouseToken(typeof config.token === 'string' ? config.token : ''),
-  lever: (config) => leverSite(typeof config.site === 'string' ? config.site : ''),
-  ashby: (config) => ashbyBoard(typeof config.board === 'string' ? config.board : ''),
-  workable: (config) => workableAccount(typeof config.account === 'string' ? config.account : ''),
-  workday: (config) => workdayTenant(typeof config.tenant === 'string' ? config.tenant : ''),
-};
+export const SOURCE_BOARD: Partial<Record<AtsKind, (config: Record<string, unknown>) => string>> = Object.fromEntries(
+  // v38 FRAME: each board kind's descriptor's (its config key read by its normaliser), for the ATSs the extension's
+  // contract adds (AUTOFILL_ADDABLE_ATS, pinned: Greenhouse's token, Lever's site, Ashby's board, Workable's account,
+  // Workday's tenant).
+  AUTOFILL_ADDABLE_ATS.map((kind) => {
+    const board = BOARD_DESCRIPTORS.find((descriptor) => descriptor.atsKind === kind)!;
+    return [kind, (config: Record<string, unknown>) => board.boardOf(board.boardOfConfig!(config) ?? '')];
+  }),
+);
 
 function configOf(json: string): Record<string, unknown> {
   try {

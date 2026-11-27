@@ -1,17 +1,14 @@
-import { addablePosting, parseAtsUrl } from '@tailorit/shared/autofill';
+import type { BoardSourceKind } from '@tailorit/shared/sourcing';
 import { nowIso, type AppDeps } from '../../core/context';
-import { ashbyBoard } from './adapters/ashby';
-import { greenhouseToken } from './adapters/greenhouse';
-import { leverSite } from './adapters/lever';
-import { workableAccount } from './adapters/workable';
-import { workdayTenant } from './adapters/workday';
-import { bamboohrCompany } from './adapters/bamboohr'; // v37 BOARDS
-import { icimsBoardOf } from './career/platforms'; // v37 BOARDS
+import { apiBoardOf, BOARD_READABLE_KINDS } from './boards/index'; // v38 FRAME: the board registry
+import { linkFeedReads } from './boards/feed-cache'; // v38 FRAME (A3); v38 FIX-C (beh-M2): linkFeedReads
+import { clearGoneSighting, settleGoneSighting } from './boards/sightings'; // v38 FIX-C (D2)
+import type { LinkToRead } from './boards/types';
 import type { IngestHttp } from './http';
 import { sourceHashOf } from './normalize';
 import { fetchPosting, type AshbyBoardReads, type PostingRef, type WorkableNames } from './postings';
+import { storedCompanyName } from '../jobs/add/kept-read'; // v38 FIX-APP (D1)
 import type { IngestStore } from './store';
-import type { SourceRecord } from './types';
 
 // One posting's own read, by the link that names it: the read today's liveness check made, kept for the re-checks of
 // the extension's closed reports (recheck.ts, 14 §5.1 step 3) with today's identity. v30 S1-API: the daily check of
@@ -32,65 +29,21 @@ export { ADDED_BY_AUTOFILL } from './types';
 /**
  * The kinds whose postings TailorIT can read one at a time. v30 FIX-A (INT-4 open item S3 C): a Workday career site's
  * (S3's workday_site) too: its posting is read as Add job's Workday posting is (the job's own page link), a new kind of
- * read, so the re-check reads it only once BOT_USER_AGENT is set, and with it (recheck.ts).
+ * read, so the re-check reads it only once BOT_USER_AGENT is set, and with it (recheck.ts). v37 BOARDS: and a BambooHR
+ * opening's and an iCIMS posting's (new kinds of read, as a Workday site's). v38 FRAME (SP v38 PLAN A3): every board kind
+ * whose descriptor reads a stored link's posting (ingest/boards: `posting.refOf`), in the registry's order.
  */
-// v37 BOARDS: and a BambooHR opening's and an iCIMS posting's (new kinds of read, as a Workday site's).
-export const READABLE_KINDS = ['greenhouse', 'lever', 'ashby', 'workable', 'workday', 'workday_site', 'bamboohr', 'icims'] as const;
+export const READABLE_KINDS: readonly BoardSourceKind[] = BOARD_READABLE_KINDS;
 
 /** A link to read: its source (kind and config) and posting id, and its job's own link (Workday's address parts). */
-export interface LinkToRead {
-  source: SourceRecord;
-  sourceJobId: string;
-  jobUrl: string;
-}
+export type { LinkToRead } from './boards/types';
 
-/** The posting a link names, read from its source's config by the adapters' own rules; null when it names none. */
+/**
+ * The posting a link names, read from its source's config by the adapters' own rules (v38 FRAME: its board
+ * descriptor's `posting.refOf`); null when it names none.
+ */
 export function postingRefOf(link: LinkToRead): PostingRef | null {
-  const { source, sourceJobId } = link;
-  const config = source.config;
-  if (source.kind === 'workday' || source.kind === 'workday_site') {
-    // The tenant is the source's; the site, location and name are the job's own link's, the posting the link's id.
-    const tenant = workdayTenant(typeof config.tenant === 'string' ? config.tenant : '');
-    const posting = addablePosting(parseAtsUrl(link.jobUrl));
-    if (!tenant || posting?.kind !== 'workday' || !posting.workday || posting.board !== tenant) return null;
-    // The job's link names the posting the link's id names, or (a posting added by its requisition's address, …_JR123,
-    // whose job links the page Workday named, …_JR123-2) one of that requisition's postings.
-    const id = sourceJobId.toLowerCase();
-    const named = posting.externalId.toLowerCase();
-    const ofRequisition = named.startsWith(`${id}-`) && /^\d+$/.test(named.slice(id.length + 1));
-    if (named !== id && !ofRequisition) return null;
-    return { kind: 'workday', board: tenant, externalId: sourceJobId, region: 'global', workday: posting.workday };
-  }
-  if (source.kind === 'ashby') {
-    const board = ashbyBoard(typeof config.board === 'string' ? config.board : '');
-    return board ? { kind: 'ashby', board, externalId: sourceJobId, region: 'global' } : null;
-  }
-  if (source.kind === 'workable') {
-    const account = workableAccount(typeof config.account === 'string' ? config.account : '');
-    return account ? { kind: 'workable', board: account, externalId: sourceJobId, region: 'global' } : null;
-  }
-  if (source.kind === 'greenhouse') {
-    const board = greenhouseToken(typeof config.token === 'string' ? config.token : '');
-    return board ? { kind: 'greenhouse', board, externalId: sourceJobId, region: 'global' } : null;
-  }
-  if (source.kind === 'lever') {
-    const board = leverSite(typeof config.site === 'string' ? config.site : '');
-    const region = typeof config.region === 'string' && config.region.toLowerCase() === 'eu' ? 'eu' : 'global';
-    return board ? { kind: 'lever', board, externalId: sourceJobId, region } : null;
-  }
-  // v37 BOARDS (SP v37 PLAN B1, I2): a BambooHR opening by its company and id; an iCIMS posting by its board, its id and
-  // its job's own page (postings.ts reads that page when it is the posting's, else its plain page).
-  if (source.kind === 'bamboohr') {
-    const company = bamboohrCompany(typeof config.company === 'string' ? config.company : '');
-    return company && /^\d{1,20}$/.test(sourceJobId) ? { kind: 'bamboohr', board: company, externalId: sourceJobId, region: 'global' } : null;
-  }
-  if (source.kind === 'icims') {
-    const board = icimsBoardOf(typeof config.board === 'string' ? config.board : '');
-    return board && /^\d{1,12}$/.test(sourceJobId)
-      ? { kind: 'icims', board, externalId: sourceJobId, region: 'global', page: link.jobUrl }
-      : null;
-  }
-  return null;
+  return apiBoardOf(link.source.kind)?.posting?.refOf?.(link) ?? null;
 }
 
 /** What one link's read found: still there (stored again), gone (nothing written), or not answered. */
@@ -119,14 +72,33 @@ export async function readLink(
 ): Promise<LinkReadState> {
   let answer;
   try {
-    answer = await fetchPosting(http, ref, { config: link.source.config, signal: options.signal, boards: options.boards, names: options.names });
+    // v38 FRAME (A3): a feed-based platform's board feed, read once and reused briefly. v38 FIX-C (REVIEW38-beh M2): a
+    // posting missing from a feed kept from an earlier read has the feed read again (fresh) once before it reads gone.
+    const read = (feeds: ReturnType<typeof linkFeedReads>['feeds']) =>
+      fetchPosting(http, ref, { config: link.source.config, signal: options.signal, boards: options.boards, names: options.names, feeds });
+    const reads = linkFeedReads(deps);
+    answer = await read(reads.feeds);
+    if (!answer.found && reads.reused()) answer = await read(linkFeedReads(deps, { fresh: true }).feeds);
   } catch (error) {
     options.onFailure?.(error);
     return 'unreadable';
   }
-  if (!answer.found) return 'gone';
+  if (!answer.found) {
+    // v38 FIX-C (SP v38 FIXES-38 D2): a gone sign that needs a second sighting (Paycom's empty portal) is gone only once
+    // two reads a day apart see it; the first is recorded (boards/sightings.ts), and the read is unanswered for now.
+    if (answer.confirmTwice) {
+      const sighting = await settleGoneSighting(deps.db, { sourceId: link.source.id, sourceJobId: link.sourceJobId }, deps.now());
+      if (!sighting.close) return 'unreadable';
+    }
+    return 'gone';
+  }
   const now = nowIso(deps);
-  const item = { raw: answer.raw, sourceHash: sourceHashOf(answer.raw) };
+  // v38 FIX-APP (SP v38 FIXES-38 D1): a posting that names no company (ADP's, UKG's, ... read with no source Company name)
+  // keeps the company its job has (a name given before), never one made up; with none, it is live and not stored again.
+  const unnamed = !answer.raw.company.name.trim();
+  const given = unnamed ? await storedCompanyName(deps.db, link.source.id, link.sourceJobId) : null;
+  const raw = given ? { ...answer.raw, company: { ...answer.raw.company, name: given } } : answer.raw;
+  const item = { raw, sourceHash: sourceHashOf(raw) };
   try {
     await deps.db.tx(
       async (t) => {
@@ -135,7 +107,8 @@ export async function readLink(
           link.source.id,
           link.sourceJobId,
         ]);
-        await store.upsertBatch(link.source, [item], now);
+        await clearGoneSighting(t, { sourceId: link.source.id, sourceJobId: link.sourceJobId }); // v38 FIX-C (D2)
+        if (!unnamed || given) await store.upsertBatch(link.source, [item], now); // v38 FIX-APP (D1)
       },
       { label: 'posting read: still listed' },
     );

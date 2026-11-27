@@ -12,9 +12,10 @@ import { companyHref } from '@/features/companies/routes';
 import { usePublicConstants } from '@/lib/constants';
 import { CompanyLogo } from '../CompanyLogo';
 import { DetailCredit } from '../credits/JobCredit';
-import { cardCompanyFacts, placesOf } from '../format';
+import { cardCompanyFacts, headerPlacesOf, postedDateKnown } from '../format'; // v38 FIX-APP (ux L1, L6)
 import { BuildingIcon, HouseLineIcon, LaptopIcon, MoneyIcon } from '../icons';
 import { VerificationNotice } from '../verification/VerificationNotice';
+import { EditedJobBadge, useEditedMark } from '../verification/EditedJobBadge'; // v38 REVEDIT
 import { AddedFromChip } from './AddedFrom';
 import { checkedLiveWhen, postedText } from './glance';
 import { HeldNotice } from './held/HeldNotice';
@@ -109,8 +110,8 @@ export function JobHeader({
   const reposted = repostedText(job, now); // v35 OPSWEB (PLAN H5): "Reposted today" beside "Posted 3 weeks ago"
   // v36 IMPORTTIME (SP v36 PLAN.md I1 refined): a job an admin's import dated reads from the import, "Reposted today" or
   // "Posted 1 hour ago", never both (its board's older date is not shown).
-  const posted = reposted ? null : postedText(job.postedAt, now);
-  const { first, others } = placesOf(job.primaryLocation, job.locations);
+  const posted = reposted ? null : postedText(job.postedAt, now, postedDateKnown(job)); // v38 FIX-APP (D7): "First seen"
+  const { first, others } = headerPlacesOf(job.primaryLocation, job.locations, job.workArrangement); // v38 FIX-APP (ux L1)
 
   const meta: Array<{ key: string; node: ReactNode }> = [];
   if (category) {
@@ -127,7 +128,8 @@ export function JobHeader({
   if (posted) meta.push({ key: 'posted', node: <span data-posted="">{posted}</span> });
   if (reposted) meta.push({ key: 'reposted', node: <span data-reposted="">{reposted}</span> });
 
-  const states = Boolean(job.addedFrom || job.held || job.verification || hidden || companyHidden || savedOn.length > 0);
+  const edited = useEditedMark(job); // v38 REVEDIT (PLAN E4): admins only
+  const states = Boolean(job.addedFrom || job.held || job.verification || hidden || companyHidden || savedOn.length > 0 || edited);
 
   return (
     // v33 FIX-1: its place and look (a band above the cards, or the left column's top) are the panel's (HEADER_PLACE).
@@ -209,7 +211,9 @@ export function JobHeader({
           {/* v32 JOBS2 (E4): the job's states are chips with a "?" (no banners): held for an admin (v30 X1-WEB), only
               you (v31 JOBSWEB, with Retry read), hidden (with its way back). */}
           <HeldNotice held={job.held} />
-          <VerificationNotice jobId={job.id} verification={job.verification} />
+          <VerificationNotice jobId={job.id} verification={job.verification} url={job.applyUrl} />
+          {/* v38 REVEDIT (PLAN E4): "Edited by an admin", for admins only. */}
+          <EditedJobBadge job={job} />
           {(hidden || companyHidden) && (
             <span className="inline-flex flex-wrap items-center gap-1.5" data-hidden-state="">
               <Badge tone="neutral" icon={<EyeSlashIcon size={12} weight="bold" aria-hidden="true" />}>

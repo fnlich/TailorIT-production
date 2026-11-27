@@ -368,6 +368,7 @@ interface ListRow {
   run_id: number | null; // v35 IMPORT
   import_name: string | null; // v35 OPSWEB
   import_row: number | null; // v35 OPSWEB
+  admin_edited: boolean; // v38 REVEDIT
 }
 
 /** A page cursor of the list: the last row's check time and link key. */
@@ -411,7 +412,8 @@ export async function listUnverifiedLinks(
        (SELECT ii.name FROM job_import_rows ir JOIN job_imports ii ON ii.id = ir.import_id WHERE ir.job_id = g.job_id
          ORDER BY ir.import_id DESC LIMIT 1) AS import_name,
        (SELECT ir.row_number FROM job_import_rows ir WHERE ir.job_id = g.job_id
-         ORDER BY ir.import_id DESC, ir.row_number LIMIT 1) AS import_row FROM (
+         ORDER BY ir.import_id DESC, ir.row_number LIMIT 1) AS import_row,
+       EXISTS (SELECT 1 FROM job_admin_edits ae WHERE ae.job_id = g.job_id) AS admin_edited FROM (
        SELECT min(v.job_id) AS job_id, v.url_key, min(v.url) AS url, min(v.host) AS host,
          (array_agg(v.reason ORDER BY v.checked_at DESC))[1] AS reason, max(v.checked_at) AS checked_at,
          min(v.created_at) AS first_added_at, count(*)::int AS adders, sum(v.attempts)::int AS attempts,
@@ -448,6 +450,8 @@ export async function listUnverifiedLinks(
     // v35 OPSWEB: "Import · jobs.csv, row 12".
     importName: row.import_name ?? null,
     importRow: row.import_row === null ? null : Number(row.import_row),
+    // v38 REVEDIT (SP v38 PLAN.md E4): an admin edited the row's job.
+    ...(row.admin_edited === true ? { adminEdited: true } : {}),
   }));
   return { items, nextCursor: rows.length > limit ? cursorOf(page[page.length - 1]!) : null };
 }

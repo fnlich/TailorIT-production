@@ -1,5 +1,5 @@
 import type { EmploymentType } from '@tailorit/shared';
-import { isWorkableAccountName } from '@tailorit/shared/autofill';
+import { workableAccount } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's normaliser
 import { IngestHttpError, type IngestHttp } from '../http';
 import { IngestError, SourceNotFoundError, type FetchFailure, type ListingValidators, type RawPosting, type RawSalary } from '../types';
 import { arrangementOf, configText, isRecord, nameFromSlug, num, periodOf, records, str, type Json } from './common';
@@ -43,26 +43,8 @@ export const WORKABLE_FAILURES_IN_A_ROW = 5;
 
 const SHORTCODE = /^[0-9A-F]{10}$/;
 
-/**
- * The account as typed: its name, its careers page (apply.workable.com/<account>) or its own host
- * (<account>.workable.com), in lower case; '' when it names none: a workable.com address that names no account
- * (apply.workable.com/j/<shortcode>, www., jobs., help., the bare host) or one of Workable's own names
- * (WORKABLE_SERVICE_NAMES).
- */
-export function workableAccount(input: string): string {
-  const text = input.trim();
-  let named: string;
-  if (/workable\.com/i.test(text)) {
-    named =
-      /apply\.workable\.com\/(?:api\/v\d+\/(?:widget\/)?accounts\/)?([A-Za-z0-9-]+)(?=[/?#]|$)/i.exec(text)?.[1] ??
-      /^(?:https?:\/\/)?([A-Za-z0-9-]+)\.workable\.com(?:[/?#:]|$)/i.exec(text)?.[1] ??
-      '';
-  } else {
-    named = text.replace(/[^A-Za-z0-9-]/g, '');
-  }
-  const account = named.toLowerCase();
-  return account && isWorkableAccountName(account) ? account : '';
-}
+/** v38 FRAME: the account as typed (the shared board registry's WORKABLE_BOARD normaliser). */
+export { workableAccount };
 
 /** The account's list of postings (no text). */
 export const workableListUrl = (account: string) =>

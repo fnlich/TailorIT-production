@@ -38,7 +38,7 @@ export interface AddOnProfiles {
  */
 export async function addJobOnProfiles(body: AddJobBody, tab: ProfileChoice, also: readonly ProfileChoice[]): Promise<AddOnProfiles> {
   if (also.length === 0) return { result: await addJobByLink(body), refused: null, others: [] };
-  const answer = await addJobTo([tab, ...also.filter((choice) => choice !== tab)], body.url, body.details);
+  const answer = await addJobTo([tab, ...also.filter((choice) => choice !== tab)], body.url, body.details, body.company); // v38 FIX-APP: company
   const others = answer.results.filter((entry) => entry.profile !== tab);
   const own = answer.results.find((entry) => entry.profile === tab);
   if (!own || !own.ok) {
@@ -53,6 +53,7 @@ export async function addJobOnProfiles(body: AddJobBody, tab: ProfileChoice, als
     created: own.created,
     needsDetails: own.needsDetails,
     message: own.message,
+    ...(own.needsCompany ? { needsCompany: true } : {}), // v38 FIX-APP (D1)
   };
   return { result, refused: null, others };
 }

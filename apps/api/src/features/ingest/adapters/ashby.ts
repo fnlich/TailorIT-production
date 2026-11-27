@@ -1,4 +1,5 @@
 import { parseLocations, type EmploymentType } from '@tailorit/shared';
+import { ashbyBoard } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's normaliser
 import { IngestError, SourceNotFoundError, type FetchFailure, type ListingValidators, type RawPosting, type RawSalary } from '../types';
 import { arrangementOf, configText, isRecord, nameFromSlug, num, periodOf, records, str, type Json } from './common';
 import { conditionalOf, defineAdapter, notModifiedResult } from './define';
@@ -8,19 +9,8 @@ import { conditionalOf, defineAdapter, notModifiedResult } from './define';
 
 export const ASHBY_API = 'https://api.ashbyhq.com/posting-api/job-board';
 
-/** The board name as typed: a name or a jobs.ashbyhq.com URL. */
-export function ashbyBoard(input: string): string {
-  const text = input.trim();
-  const fromUrl = /ashbyhq\.com\/(?:posting-api\/job-board\/)?([A-Za-z0-9_.%-]+)/i.exec(text);
-  const typed = fromUrl?.[1] ?? text;
-  let name = typed;
-  try {
-    name = decodeURIComponent(typed);
-  } catch {
-    // "acme%": not percent-encoding after all (decodeURIComponent throws a URIError); the name is used as typed.
-  }
-  return name.replace(/[^A-Za-z0-9_. -]/g, '');
-}
+/** v38 FRAME: the board name as typed (the shared board registry's ASHBY_BOARD normaliser). */
+export { ashbyBoard };
 
 const EMPLOYMENT: Record<string, EmploymentType> = {
   fulltime: 'full_time',

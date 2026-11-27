@@ -4,7 +4,6 @@ import { HourglassIcon } from '@phosphor-icons/react/Hourglass'; // v36 SOURCES
 import {
   JOB_SOURCE_DISCOVERED_VIA_LABEL,
   JOB_SOURCE_FOUND_VIA,
-  JOB_SOURCE_KIND_LABEL,
   JOB_SOURCE_ROBOTS_LABEL,
   JOB_SOURCE_ROBOTS_STATUSES,
   JOB_SOURCE_TERMS_LABEL,
@@ -21,6 +20,7 @@ import { Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuRadioGroup, MenuRadi
 import { Select } from '@/components/ui/Select';
 import {
   FILTER_KINDS,
+  FILTER_KIND_LABEL, // v38 FIX-APP (ux L13)
   SOURCE_ENABLED_LABEL,
   SOURCE_SORT_OPTIONS,
   TURNED_OFF_LABEL,
@@ -104,7 +104,7 @@ export function SourceFiltersBar({
         <Select aria-label="Order" options={SOURCE_SORT_OPTIONS} value={filters.sort} onValueChange={(sort) => onChange({ sort })} className="w-48" />
       </div>
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
-        <ChoiceMenu label="Kind" values={FILTER_KINDS} labels={JOB_SOURCE_KIND_LABEL} chosen={filters.kinds} onChange={(kinds) => onChange({ kinds })} />
+        <ChoiceMenu label="Kind" values={FILTER_KINDS} labels={FILTER_KIND_LABEL} chosen={filters.kinds} onChange={(kinds) => onChange({ kinds })} />
         <ChoiceMenu label="Tier" values={JOB_SOURCE_TIERS} labels={JOB_SOURCE_TIER_LABEL} chosen={filters.tiers} onChange={(tiers) => onChange({ tiers })} />
         <ChoiceMenu label="Terms" values={JOB_SOURCE_TERMS_STATUSES} labels={JOB_SOURCE_TERMS_LABEL} chosen={filters.terms} onChange={(terms) => onChange({ terms })} />
         <ChoiceMenu

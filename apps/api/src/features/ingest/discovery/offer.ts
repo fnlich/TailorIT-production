@@ -3,7 +3,7 @@ import type { AppDeps } from '../../../core/context';
 import type { DbQueries, DbTx } from '../../../core/db/types';
 import type { DiscoveryOfferInput, DiscoveryOfferResult, OfferToDiscovery } from '../../../core/seams';
 import { BOARD_KINDS, boardNameOf, candidateName } from './boards';
-import { icimsBoardOf } from '../career/platforms'; // v37 BOARDS
+import { apiBoardOf, boardOfInput, boardSourceConfig, boardSourceHost } from '../boards/index'; // v38 FRAME: the board registry
 
 // v30 X1-API (wave 3), then S2's (wave 4): offerToDiscovery, the seam that makes a board a discovery candidate
 // (docs/design/part2/12-job-sourcing.md §4.1, 14-extension-reports.md §5.2 step 3, §5.3 step 2, core/seams.ts
@@ -86,17 +86,28 @@ export interface BoardRef {
   name: string;
 }
 
-/** What a board's lookup compares: the board its config names, or a Workday career site's tenant and site. */
-function lookupKeyOf(kind: JobSourceKind, name: string): { board: string | null; tenant: string | null; site: string | null } {
+/**
+ * What a board's lookup compares: the board its config names, or a Workday career site's tenant and site; and (v38
+ * FRAME) for a kind whose descriptor adopts career sites (iCIMS), the host a career site on its board has.
+ */
+function lookupKeyOf(
+  kind: JobSourceKind,
+  name: string,
+): { board: string | null; tenant: string | null; site: string | null; site_host: string | null } {
   if (kind === 'workday_site') {
     // <host>/<site> (the tenant is the host's first label) or <host>/recruiting/<tenant>/<site> (boards.ts).
     const [host, ...path] = name.split('/');
     const site = path[path.length - 1] ?? '';
     const tenant = path[0] === 'recruiting' && path.length >= 3 ? path[1]! : (host ?? '').split('.')[0]!;
-    return { board: null, tenant: tenant.toLowerCase(), site: site.toLowerCase() };
+    return { board: null, tenant: tenant.toLowerCase(), site: site.toLowerCase(), site_host: null };
   }
-  // A Personio board on the .com host names its tenant in `company` (v30 FIX-A).
-  return { board: kind === 'personio' ? name.replace(/\.jobs\.personio\.com$/i, '') : name, tenant: null, site: null };
+  // v38 FRAME: the board's config key's value, as its source config holds it (a Personio board on the .com host names
+  // its tenant in `company`, v30 FIX-A); the board as named for any other kind.
+  const api = apiBoardOf(kind);
+  const config = api ? boardSourceConfig(api, name) : null;
+  const value = api && config ? config[api.board.configKey] : null;
+  const siteHost = api?.board.adoptsCareerSites && config ? boardSourceHost(api, config) : null;
+  return { board: typeof value === 'string' ? value : name, tenant: null, site: null, site_host: siteHost };
 }
 
 /** A board's key in the maps below (kind and name as kept). */
@@ -126,7 +137,7 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
     terms_status: string | null; // v37 INT-B
   }>(
     `SELECT b.i, s.id, s.kind, s.enabled, s.name, s.config::text AS config, s.discovered_via, s.enabled_at, s.terms_status
-     FROM json_to_recordset(CAST(? AS json)) AS b(i integer, kind text, name text, board text, tenant text, site text)
+     FROM json_to_recordset(CAST(? AS json)) AS b(i integer, kind text, name text, board text, tenant text, site text, site_host text)
      CROSS JOIN LATERAL (
        SELECT n.id FROM job_sources n WHERE n.kind = b.kind AND lower(n.name) = lower(b.name)
        UNION
@@ -139,7 +150,7 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
            AND ${WORKDAY_SITE_KEY_SQL.site.replace(/config->>/g, 'w.config->>')} = b.site
        UNION
        SELECT h.id FROM job_sources h
-         WHERE b.kind = 'icims' AND b.board IS NOT NULL AND h.kind = 'career_site' AND h.host = lower(b.board) || '.icims.com'
+         WHERE b.site_host IS NOT NULL AND h.kind = 'career_site' AND h.host = b.site_host
      ) f
      JOIN job_sources s ON s.id = f.id
      ORDER BY b.i, s.id`,
@@ -157,7 +168,8 @@ export async function sourcesOfBoards(t: DbQueries, boards: readonly BoardRef[])
     // v37 BOARDS: an iCIMS board's career site is matched by its host, and only as the site's reading source (never Add
     // job's keeper of its links: 0063 made those iCIMS sources).
     const other = row.kind !== board.kind;
-    const named = other ? icimsBoardOf(typeof config.host === 'string' ? config.host : '') || null : boardNameOf(board.kind, config);
+    const api = apiBoardOf(board.kind);
+    const named = other ? (api ? boardOfInput(api, typeof config.host === 'string' ? config.host : '') : '') || null : boardNameOf(board.kind, config);
     if ((named ?? row.name).toLowerCase() !== board.name.toLowerCase()) continue;
     const source: BoardSourceRow = {
       id: row.id,

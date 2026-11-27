@@ -129,6 +129,13 @@ export const JobSummarySchema = z.object({
    * PLAN.md I1 refined): a job an admin's import dated later (or the approval of a job it held) reads from then.
    */
   postedAt: IsoDateTime.nullable(),
+  /**
+   * v38 FIX-C (SP v38 FIXES-38 D7): whether `postedAt` is a date a posting named (its board's posted date, or an admin's
+   * import's time, which dates a job it imports): false when no read of the posting named one, and `postedAt` is when
+   * TailorIT first saw the job (the card says "First seen {when}", not "Posted {when}"). Sorting and the Posted filter use
+   * `postedAt` either way. Absent from an API older than v3.8: read as true.
+   */
+  postedDateKnown: z.boolean().optional(),
   /** Its board's last update; v36 IMPORTTIME: an admin's import's time when later (the "Last updated" filter's). */
   updatedAt: IsoDateTime.nullable(),
   /**
@@ -169,6 +176,11 @@ export const JobSummarySchema = z.object({
    * everyone sees.
    */
   verification: JobVerificationSchema.optional(),
+  /**
+   * v38 REVEDIT (SP v38 PLAN.md E4): when an admin last edited the job from Admin › Review ("Edited by an admin"). Sent to
+   * administrators only (as `admin_approved`: jobs/add/approval-view.ts); absent for a job no admin edited.
+   */
+  adminEditedAt: IsoDateTime.optional(),
 });
 export type JobSummary = z.infer<typeof JobSummarySchema>;
 

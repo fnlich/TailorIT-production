@@ -9,6 +9,7 @@ import { DETERMINISTIC_VERSION } from '../job-analysis/deterministic';
 import { applyAiFacts, fillFacets, refreshAnalysisLinks, saveAnalysis } from '../job-analysis/store';
 import { writeJobText } from '../jobs/text';
 import { RESTORE_AI_INPUT_SQL } from '../jobs/add/held'; // v35 FIX-PIPE (data D10)
+import { keepAdminEdits } from '../job-reviews/edit/apply'; // v38 REVEDIT (PLAN E4)
 // v30 E0-API: the company through companies/resolve.ts (companies' v2.0 columns are gone: migrations-pg/0014).
 import { boardAliasOfSource, companyOfAlias } from '../companies/aliases';
 import { minConfidenceOf } from '../companies/profile';
@@ -465,6 +466,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
     await writeSalary(row.id, posting, now);
     await writeLocations(row.id, posting);
     await writeAnalyses(posting.contentHash, posting, now);
+    await keepAdminEdits(db, row.id, now); // v38 REVEDIT (PLAN E4): an admin's edits stay over a rewrite of the posting
   }
 
   /** A posting seen again: its last-seen time, and its last-verified time when this read verified it. */
@@ -506,6 +508,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
     // Its analysis reads the same posting (same link or same text): file it under the job's text.
     if (posting.provided) await writeAnalyses(row.content_hash, posting, now);
     else await applyAiFacts(db, row.content_hash);
+    await keepAdminEdits(db, row.id, now); // v38 REVEDIT (PLAN E4): and over a fill of what the job left empty
   }
 
   async function outranks(source: SourceRecord, jobId: number): Promise<boolean> {
@@ -688,6 +691,7 @@ export function createIngestStore(db: DbClient, deps?: AppDeps): IngestStore {
         const current = await job(link.job_id);
         if (current && current.salary_min === null && current.salary_max === null && (await outranks(source, current.id))) {
           await writeSalary(current.id, posting, now);
+          await keepAdminEdits(db, current.id, now); // v38 REVEDIT (PLAN E4): an admin's "no salary" stays
           effects.facts.add(current.id);
           moved = true;
         }

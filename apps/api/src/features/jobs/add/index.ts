@@ -1,5 +1,6 @@
 import type { Feature } from '../../../core/feature';
 import { canonicalLinksStep } from './canonical-pass';
+import { boardLinksStep } from './clean-link-pass'; // v38 ATS-D
 import { legacyLinksStep } from './legacy'; // v31 LINK2
 import { linkQueuePruneStep, startLinkQueueWorker } from './queue';
 import { pageRecheckStep } from './recheck'; // v31 LINK2
@@ -33,6 +34,7 @@ export const jobLinksFeature: Feature = {
     { path: '/api/admin/imports', router: createAdminImportsRouter, acting: ADMIN_IMPORTS_ACTING },
   ],
   // v31 LINK2: the legacy jobs held and read once (legacy.ts), the weekly re-read of jobs read from their page (recheck.ts).
-  daily: [canonicalLinksStep, legacyLinksStep, pageRecheckStep, linkQueuePruneStep],
+  // v38 ATS-D: the stored links of a platform that gained a clean link, re-cleaned once (clean-link-pass.ts).
+  daily: [canonicalLinksStep, boardLinksStep, legacyLinksStep, pageRecheckStep, linkQueuePruneStep],
   worker: startLinkQueueWorker,
 };

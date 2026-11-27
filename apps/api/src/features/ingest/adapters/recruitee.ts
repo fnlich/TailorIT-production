@@ -1,7 +1,7 @@
 import type { EmploymentType, WorkArrangement } from '@tailorit/shared';
 import { assertNewReadAllowed, type NewReadKind } from '../../../core/http/identity';
-import { feedHostOf } from '../sources';
-import { tenantOf } from '../sitemap';
+import { RECRUITEE_BOARD, recruiteeCompany } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's rules
+import type { IngestHttp } from '../http'; // v38 ATS-A
 import { IngestError, SourceNotFoundError, type FetchFailure, type ListingValidators, type RawPosting, type RawSalary } from '../types';
 import { isRecord, nameFromSlug, num, periodOf, records, str, type Json } from './common';
 import { conditionalOf, defineAdapter, notModifiedResult } from './define';
@@ -19,19 +19,32 @@ import { conditionalOf, defineAdapter, notModifiedResult } from './define';
 // host as a refusal). The owner decides what follows (a partner feed, or the employers' tokens): handoff open item.
 //
 // A source: config `{ company, companyName? }`. A new kind of read: the identity guard first ('feed_read').
+//
+// v38 ATS-A (SP v38 PLAN "Final coverage" row 9; REQUEST.md 9; EVIDENCE.md 9, read 2026-11-25): the list runs to about
+// 5 MB on a large company (5,135,145 bytes), so it is read at most RECRUITEE_LIST_MAX_BYTES; one offer is read on its own
+// (GET /api/offers/{slug}: { offer: {...} }, the list's fields; 404 for an unknown slug; status "published" while it is
+// live): an offer's link, Add job, imports and the re-checks (readRecruiteeOffer). The apply form's questions
+// (open_questions) and the company's mailbox (mailbox_email) are never read or kept.
 
 const NEW_READ: NewReadKind = 'feed_read';
 
 /** The day Recruitee's careers API starts to need each employer's token (docs.recruitee.com, authentication). */
 export const RECRUITEE_TOKEN_REQUIRED_FROM = '2027-02-10T00:00:00.000Z';
+/** v38 ATS-A: the most of a company's list read (about 5 MB on a large one, with every offer's text): 24 MB. */
+export const RECRUITEE_LIST_MAX_BYTES = 24 * 1024 * 1024;
+/** v38 ATS-A: the most of one offer's answer read: 2 MB. */
+export const RECRUITEE_OFFER_MAX_BYTES = 2 * 1024 * 1024;
 
-/** The company's name on Recruitee as typed: a name or an address on recruitee.com. */
-export const recruiteeCompany = (input: string) => tenantOf(input, ['recruitee.com']);
+/** v38 ATS-A: whether Recruitee's careers API wants each employer's token by `now` (TailorIT has none). */
+export const recruiteeNeedsToken = (now: Date) => now.getTime() >= Date.parse(RECRUITEE_TOKEN_REQUIRED_FROM);
+
+/** The company's name on Recruitee as typed: a name or an address on recruitee.com (v38 FRAME: the registry's). */
+export { recruiteeCompany };
 
 /** A Recruitee source's listing: its host and address. */
 export function recruiteeFeedOf(config: Record<string, unknown>): { company: string; host: string; url: string } {
   const company = recruiteeCompany(str(config.company) ?? '');
-  const host = company ? feedHostOf('recruitee', { company }) : null;
+  const host = company ? RECRUITEE_BOARD.hostOf({ company }) : null;
   if (!host) throw new IngestError('This source has no Recruitee company name ({company}.recruitee.com). Edit the source and add it.');
   return { company, host, url: `https://${host}/api/offers/` };
 }
@@ -120,6 +133,41 @@ export function recruiteePosting(offer: Json, host: string, companyName: string)
   };
 }
 
+/**
+ * v38 ATS-A: one offer read on its own (at most RECRUITEE_OFFER_MAX_BYTES, on the company's host only): the offer as a
+ * RawPosting and its company's name on Recruitee, or null when it is gone (404, or a status other than published).
+ * Named by `named`, else the offer's company_name, else the company's name in its address made readable. Throws
+ * IngestHttpError when Recruitee fails, IngestError for an answer that is no offer. v38 FIX-A (SP v38 FIXES-38 item 12,
+ * REVIEW38-beh L9): with `expectedId` (a stored offer's id), an offer of another id at that slug (the slug reused) is
+ * IngestError: can't read, never the stored offer still live.
+ */
+export async function readRecruiteeOffer(
+  http: IngestHttp,
+  company: string,
+  slug: string,
+  named: string | null,
+  signal?: AbortSignal,
+  expectedId: string | null = null,
+): Promise<{ raw: RawPosting; companyName: string | null } | null> {
+  const feed = recruiteeFeedOf({ company });
+  const answer = await http.getJson(`https://${feed.host}/api/offers/${encodeURIComponent(slug)}`, {
+    signal,
+    allow: [404],
+    maxBytes: RECRUITEE_OFFER_MAX_BYTES,
+    allowRedirectHost: (host) => host === feed.host,
+  });
+  if (answer.status === 404) return null;
+  const offer = isRecord(answer.data) && isRecord(answer.data.offer) ? answer.data.offer : null;
+  if (!offer) throw new IngestError('Recruitee answered without an offer.');
+  if (expectedId !== null && str(offer.id) !== expectedId) throw new IngestError("Recruitee's link now names another offer.");
+  const status = str(offer.status);
+  if (status && status !== 'published') return null;
+  const listedName = str(offer.company_name);
+  const raw = recruiteePosting(offer, feed.host, named ?? listedName ?? nameFromSlug(feed.company));
+  if (!raw) throw new IngestError("Recruitee's offer has no id, title or page.");
+  return { raw, companyName: listedName };
+}
+
 export const recruiteeAdapter = defineAdapter({
   kind: 'recruitee',
   label: 'Recruitee careers site',
@@ -136,7 +184,7 @@ export const recruiteeAdapter = defineAdapter({
   async fetch(source, ctx) {
     assertNewReadAllowed(ctx.deps, NEW_READ);
     const feed = recruiteeFeedOf(source.config);
-    if (ctx.deps.now().getTime() >= Date.parse(RECRUITEE_TOKEN_REQUIRED_FROM)) {
+    if (recruiteeNeedsToken(ctx.deps.now())) {
       throw new IngestError(
         "From 10 February 2027 Recruitee's careers API needs each employer's own token, and TailorIT has none: nothing was read.",
       );
@@ -145,6 +193,7 @@ export const recruiteeAdapter = defineAdapter({
     const answer = await ctx.http.getJson(feed.url, {
       signal: ctx.signal,
       allow: [404],
+      maxBytes: RECRUITEE_LIST_MAX_BYTES, // v38 ATS-A: a safe cap over the 5 MB seen
       allowRedirectHost: (host) => host === feed.host,
       ...conditionalOf(ctx),
       meta: (meta) => (validators = { etag: meta.etag, lastModified: meta.lastModified }),

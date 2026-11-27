@@ -258,10 +258,11 @@ export async function runCompanySiteStep(deps: AppDeps, input: EnrichmentStepInp
       if (previous[key] !== undefined) fields[key] = previous[key];
     }
     // A JobPosting's hiringOrganization.logo (S5's hand-off, kept by E0-API as the posting row's logoSourceUrl) is the
-    // company's own word too: after the homepage's own logo and icons, before its og:image.
+    // company's own word too: after the homepage's own logo and icons, before its og:image. v38 FRAME (SP v38 PLAN A6):
+    // so is the logo its job board's platform shows for it (its `ats_board` row's logoSourceUrl: ingest/boards/company.ts).
     const stated = await deps.db.all<{ url: string }>(
       `SELECT DISTINCT fields->>'logoSourceUrl' AS url FROM company_sources
-       WHERE company_id = ? AND kind = 'job_posting' AND status = 'ok' AND fields->>'logoSourceUrl' IS NOT NULL LIMIT 3`,
+       WHERE company_id = ? AND kind IN ('job_posting', 'ats_board') AND status = 'ok' AND fields->>'logoSourceUrl' IS NOT NULL LIMIT 3`,
       [input.companyId],
     );
     const fromPostings: LogoCandidate[] = stated.map(({ url }) => ({ url, from: 'organization', declared: null, vector: /\.svg(?:$|[?#])/i.test(url) }));

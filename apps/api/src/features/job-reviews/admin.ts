@@ -57,6 +57,8 @@ interface LaneRow extends ReviewRow {
   apply_platform: string;
   strongest_signal: JobReviewSignal | null;
   sort_at: string;
+  /** v38 REVEDIT (PLAN E4): an admin edited the job. */
+  admin_edited?: boolean;
 }
 
 const LANE_SELECT = (sort: string) =>
@@ -67,7 +69,8 @@ const LANE_SELECT = (sort: string) =>
      (SELECT p.signal FROM job_review_reports p WHERE p.review_id = r.id AND p.signal IS NOT NULL
       ORDER BY CASE p.strength WHEN 'strong' THEN 3 WHEN 'person' THEN 2 WHEN 'weak' THEN 1 ELSE 0 END DESC, p.seen_at DESC
       LIMIT 1) AS strongest_signal,
-     ${sort} AS sort_at, COALESCE(ji.name, iso.name) AS import_name
+     ${sort} AS sort_at, COALESCE(ji.name, iso.name) AS import_name,
+     EXISTS (SELECT 1 FROM job_admin_edits ae WHERE ae.job_id = j.id) AS admin_edited
    FROM job_reviews r JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id
      LEFT JOIN job_source_runs ir ON ir.id = r.import_run_id LEFT JOIN job_sources iso ON iso.id = ir.source_id
      LEFT JOIN job_imports ji ON ji.run_id = r.import_run_id`;
@@ -82,7 +85,16 @@ function sortOf(state: AdminReviewsQuery['state']): string {
   return 'r.last_reported_at';
 }
 
-function jobRef(row: { job_id: number; title: string; company_id: number; company_name: string; active: boolean; held: boolean; apply_url: string }): ReviewJobRef {
+function jobRef(row: {
+  job_id: number;
+  title: string;
+  company_id: number;
+  company_name: string;
+  active: boolean;
+  held: boolean;
+  apply_url: string;
+  admin_edited?: boolean;
+}): ReviewJobRef {
   return {
     id: row.job_id,
     title: row.title,
@@ -91,6 +103,8 @@ function jobRef(row: { job_id: number; title: string; company_id: number; compan
     active: row.active === true,
     held: row.held === true,
     applyUrl: row.apply_url,
+    // v38 REVEDIT (SP v38 PLAN.md E4): "Edited by an admin" (Review is admins' only).
+    ...(row.admin_edited === true ? { adminEdited: true } : {}),
   };
 }
 
@@ -336,12 +350,15 @@ export interface FlagRow {
   active: boolean;
   held: boolean;
   apply_url: string;
+  /** v38 REVEDIT (PLAN E4): an admin edited the job. */
+  admin_edited?: boolean;
 }
 
 export const FLAG_SELECT =
   'SELECT r.id, r.status, r.reason, r.details, r.created_at, r.resolved_at, r.resolved_by, rb.email AS resolver_email, ' +
   'r.user_id, u.email, u.name AS user_name, r.job_id, j.title, j.company_id, c.name AS company_name, j.active, ' +
-  'j.held_since IS NOT NULL AS held, j.apply_url ' +
+  'j.held_since IS NOT NULL AS held, j.apply_url, ' +
+  'EXISTS (SELECT 1 FROM job_admin_edits ae WHERE ae.job_id = j.id) AS admin_edited ' + // v38 REVEDIT
   'FROM job_reports r JOIN users u ON u.id = r.user_id JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id ' +
   'LEFT JOIN users rb ON rb.id = r.resolved_by';
 

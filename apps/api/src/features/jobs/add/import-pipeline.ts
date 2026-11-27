@@ -170,6 +170,8 @@ async function settlePersonLink(deps: AppDeps, row: ImportQueueRow, userId: stri
     userId,
     origin,
     details: null,
+    // v38 FIX-APP (SP v38 FIXES-38 D1): the row's company names a posting TailorIT read that names none.
+    ...(details.company ? { company: details.company } : {}),
     privateJob: false,
     save: true,
     inFlight,

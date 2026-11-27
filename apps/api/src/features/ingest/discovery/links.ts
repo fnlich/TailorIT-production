@@ -1,4 +1,5 @@
 import type { JobSourceDiscoveredVia } from '@tailorit/shared';
+import { boardDescriptorOf, LATER_BOARD_SOURCE_KINDS } from '@tailorit/shared/sourcing'; // v38 FRAME
 import { constantsOf } from '../../../core/constants/index';
 import { nowIso, type AppDeps } from '../../../core/context';
 import type { DbTx } from '../../../core/db/types';
@@ -47,6 +48,17 @@ const NO_MARKS: LinkMarks = { applicationSeq: 0, pageJobId: 0, crossJobId: 0 };
 
 /** The kinds whose sources read a board's own listing (Add job's one-posting Workday kind is none). */
 const LISTING_BOARD_KINDS = Object.keys(BOARD_KINDS).filter((kind) => kind !== 'workday');
+
+/**
+ * The platforms (jobs.apply_platform) whose shared jobs' Apply links may name a board no board source of theirs reads
+ * (signal 5). v38 FRAME (SP v38 PLAN A9): v3.7's, then every later board kind's platform (its descriptor's), so a new
+ * platform's boards are offered as its own kind.
+ */
+const V37_CROSS_LINK_PLATFORMS = ['greenhouse', 'lever', 'ashby', 'workable', 'workday', 'bamboohr', 'breezy', 'icims', 'site'];
+const CROSS_LINK_PLATFORMS = [
+  ...V37_CROSS_LINK_PLATFORMS,
+  ...LATER_BOARD_SOURCE_KINDS.map((kind) => boardDescriptorOf(kind)!.platform).filter((platform) => !V37_CROSS_LINK_PLATFORMS.includes(platform)),
+].filter((platform, at, all) => all.indexOf(platform) === at);
 
 /** What a link pass did. */
 export interface LinkPass {
@@ -164,12 +176,12 @@ export async function sweepLinks(deps: AppDeps, options: { budgetMs?: number } =
       t.all(
         `SELECT j.id AS at,
            CASE WHEN j.held_since IS NULL
-             AND j.apply_platform IN ('greenhouse', 'lever', 'ashby', 'workable', 'workday', 'bamboohr', 'breezy', 'icims', 'site')
+             AND j.apply_platform = ANY(string_to_array(?, ','))
              AND NOT EXISTS (SELECT 1 FROM job_source_links l JOIN job_sources s ON s.id = l.source_id
                                              WHERE l.job_id = j.id AND s.kind = ANY(string_to_array(?, ',')))
            THEN j.apply_url END AS url
          FROM jobs j WHERE j.id > ? AND j.owner_user_id IS NULL ORDER BY j.id LIMIT ?`,
-        [LISTING_BOARD_KINDS.join(','), after, LINK_BATCH],
+        [CROSS_LINK_PLATFORMS.join(','), LISTING_BOARD_KINDS.join(','), after, LINK_BATCH],
       ),
     'cross_link',
     pass,

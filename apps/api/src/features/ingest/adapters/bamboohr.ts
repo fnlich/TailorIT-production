@@ -13,8 +13,7 @@ import { HostHeldError, IngestHttpError, type GetJsonOptions, type HttpAnswer, t
 import { holdOf } from '../hosts'; // v37 INT-B
 import { salaryFromText, storedSourceJobId } from '../normalize';
 import { RobotsRefusal } from '../robots';
-import { feedHostOf } from '../sources';
-import { tenantOf } from '../sitemap';
+import { BAMBOOHR_BOARD, BAMBOOHR_OWN_LABELS, bamboohrCompany } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's rules
 import { IngestError, SourceNotFoundError, type FetchFailure, type ListingValidators, type RawPosting, type RawSalary } from '../types';
 import { isRecord, nameFromSlug, num, records, str, type Json } from './common';
 import { conditionalOf, defineAdapter, notModifiedResult } from './define';
@@ -60,6 +59,8 @@ import { loadReadFailures, orderByFailures, saveReadFailures, type ReadFailures 
 //     hides openings a run still has to read.
 //   - F8: an opening whose detail read failed is read after the others and backed off (adapters/read-failures.ts).
 //   - F12: an unknown company (its list answers a redirect to BambooHR's own site) is a missing board, not a refused one.
+//     v38 FIX-C (REVIEW38-beh L2): only a redirect to BambooHR's home page (www.bamboohr.com or bamboohr.com at "/") is;
+//     any other redirect (a sign-in page, no address) fails the read and closes nothing.
 //   - REVIEW37-ux L1: BambooHR's own hosts (www, app, ...) are never a company.
 //
 // A source: config `{ company, companyName? }`. A new kind of read: the identity guard first ('feed_read').
@@ -78,23 +79,41 @@ const OPENING_ID = /^[0-9]{1,20}$/;
  * v37 FIX-37A (REVIEW37-ux L1): the labels of BambooHR's own hosts, never a company's. v37 INT-2b: the one API list
  * (FIX-37B's Add source list joined in; the web's sources.ts BAMBOOHR_OWN_LABELS says the same under the field).
  */
-export const BAMBOOHR_OWN_LABELS: ReadonlySet<string> = new Set([
-  'www', 'app', 'api', 'help', 'marketing', 'partners', 'status', 'support', 'blog', 'developers', 'login', 'marketplace', 'docs', 'static', 'cdn',
-]);
+export { BAMBOOHR_OWN_LABELS };
 
-/** The company's name on BambooHR as typed: a name or an address on bamboohr.com ('' for none, or BambooHR's own host). */
-export const bamboohrCompany = (input: string) => {
-  const company = tenantOf(input, ['bamboohr.com']);
-  return BAMBOOHR_OWN_LABELS.has(company) ? '' : company;
-};
+/**
+ * The company's name on BambooHR as typed: a name or an address on bamboohr.com ('' for none, or BambooHR's own host).
+ * v38 FRAME: the shared board registry's BAMBOOHR_BOARD normaliser (moved there unchanged).
+ */
+export { bamboohrCompany };
 
 /** v37 FIX-37A (F12): the redirects an unknown company's addresses answer (to BambooHR's own site). */
 const REDIRECT_STATUSES = [301, 302, 303, 307, 308] as const;
 const isBamboohrHost = (host: string) => host === 'bamboohr.com' || host.endsWith('.bamboohr.com');
+/** v38 FIX-C (beh-L2): the redirects of one request on the company's own host followed, at most. */
+const SAME_HOST_HOPS = 3;
+
+/**
+ * v38 FIX-C (REVIEW38-beh L2; SP v38 EVIDENCE.md §6): BambooHR's own home page, www.bamboohr.com (or bamboohr.com) at
+ * "/", where it sends an unknown company. No other redirect is that sign (a sign-in page, another company's host).
+ */
+function isBamboohrHome(location: string | null | undefined): boolean {
+  let url: URL;
+  try {
+    url = new URL(location ?? '');
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' && ['www.bamboohr.com', 'bamboohr.com'].includes(url.hostname.toLowerCase()) && (url.pathname === '/' || url.pathname === '');
+}
 
 /**
  * v37 FIX-37A (F12): a request that stays on the company's host, and says whether it was sent away to BambooHR's own
  * site (an unknown company: its list, detail and careers page answer a redirect to bamboohr.com).
+ * v38 FIX-C (REVIEW38-beh L2): an unknown company is ONLY its redirect to BambooHR's home page (isBamboohrHome): the
+ * client answers each redirect (never following it), a hop on the company's own host is followed here (at most
+ * SAME_HOST_HOPS), a redirect with no address or to another BambooHR page (app.bamboohr.com's sign-in, another company's
+ * host) fails the read (can't read: IngestError), and one to any other host is refused as before (OutboundRefusedError).
  */
 async function onTenant(
   http: IngestHttp,
@@ -102,29 +121,33 @@ async function onTenant(
   host: string,
   options: Omit<GetJsonOptions, 'allowRedirectHost'>,
 ): Promise<{ answer: HttpAnswer | null; unknownCompany: boolean }> {
-  let away: string | null = null;
-  try {
-    const answer = await http.getJson(url, {
-      ...options,
-      allow: [...(options.allow ?? []), ...REDIRECT_STATUSES],
-      allowRedirectHost: (to) => {
-        if (to === host) return true;
-        away = to;
-        return false;
-      },
-    });
-    if ((REDIRECT_STATUSES as readonly number[]).includes(answer.status)) return { answer: null, unknownCompany: true };
-    return { answer, unknownCompany: false };
-  } catch (error) {
-    if (error instanceof OutboundRefusedError && away !== null && isBamboohrHost(away)) return { answer: null, unknownCompany: true };
-    throw error;
+  let address = url;
+  for (let hop = 0; ; hop += 1) {
+    const answer = await http.getJson(address, { ...options, followRedirects: false, allowRedirectHost: (to) => to === host });
+    // v38 INT (closed only on a positive sign): a page answered on the company's own host where JSON was asked for (a
+    // challenge page) says nothing of the opening: it fails the read (ATS-D read it as an unknown company).
+    if (!(REDIRECT_STATUSES as readonly number[]).includes(answer.status)) return { answer, unknownCompany: false };
+    if (isBamboohrHome(answer.location)) return { answer: null, unknownCompany: true };
+    let next: URL | null = null;
+    try {
+      next = answer.location ? new URL(answer.location) : null;
+    } catch {
+      next = null;
+    }
+    const nextHost = next?.hostname.toLowerCase() ?? '';
+    if (next && next.protocol === 'https:' && nextHost === host && hop < SAME_HOST_HOPS) {
+      address = next.href;
+      continue;
+    }
+    if (!next || isBamboohrHost(nextHost)) throw new IngestError('BambooHR answered with a redirect that is no answer about the company: TailorIT reads it again later.');
+    throw new OutboundRefusedError('TailorIT follows no redirect away from the service it asked.');
   }
 }
 
 /** A BambooHR source's listing: its host and address. */
 export function bamboohrFeedOf(config: Record<string, unknown>): { company: string; host: string; url: string } {
   const company = bamboohrCompany(str(config.company) ?? '');
-  const host = company ? feedHostOf('bamboohr', { company }) : null;
+  const host = company ? BAMBOOHR_BOARD.hostOf({ company }) : null;
   if (!host) throw new IngestError('This source has no BambooHR company name ({company}.bamboohr.com). Edit the source and add it.');
   return { company, host, url: `https://${host}/careers/list` };
 }
@@ -244,7 +267,7 @@ export async function readBamboohrPosting(
   companyName: string,
   signal?: AbortSignal,
 ): Promise<RawPosting | null> {
-  const host = feedHostOf('bamboohr', { company });
+  const host = BAMBOOHR_BOARD.hostOf({ company });
   if (!host || !OPENING_ID.test(id)) throw new IngestError('TailorIT does not know this BambooHR opening.');
   // v37 FIX-37A (F12): an unknown company's detail is no opening (gone, as a 404).
   const { answer, unknownCompany } = await onTenant(http, bamboohrDetailUrl(host, id), host, {
@@ -285,7 +308,7 @@ export function bamboohrNameOfPage(html: string): string | null {
  * the page names none or cannot be read now (best effort: a failure never fails the read it serves).
  */
 export async function readBamboohrCompanyName(http: IngestHttp, company: string, signal?: AbortSignal): Promise<string | null> {
-  const host = feedHostOf('bamboohr', { company });
+  const host = BAMBOOHR_BOARD.hostOf({ company });
   if (!host) return null;
   try {
     const { answer } = await onTenant(http, bamboohrCareersUrl(host), host, {
@@ -479,11 +502,20 @@ export const bamboohrAdapter = defineAdapter({
       try {
         const posting = await readBamboohrPosting(ctx.http, feed.company, id, companyName, signal);
         failedInARow = 0;
-        answered.push(id);
         if (link) checked.push(id);
-        if (posting) postings.push(posting);
-        else if (link?.live) gone.push(link);
-        else goneUnstored += 1;
+        if (posting) {
+          postings.push(posting);
+          answered.push(id);
+        } else if (link?.live) {
+          gone.push(link);
+          answered.push(id);
+        } else {
+          // v38 INT (ATS-B's rule, adapters/listed-reads.ts): listed, yet its own read says gone, and never stored (or
+          // closed): new to every run, it was read before the stale ones each time. Backed off as a failed read is (read
+          // after the others, less often: read-failures.ts), never counted a failure.
+          goneUnstored += 1;
+          detailFailed.push(id);
+        }
       } catch (error) {
         if (signal.aborted) throw error;
         // v37 INT-B: a 429 past the request's retries (no hold of its own) stops the reads as a held host does.

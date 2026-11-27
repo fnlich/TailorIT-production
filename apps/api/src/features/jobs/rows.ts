@@ -41,7 +41,8 @@ export const SUMMARY_COLUMNS = `
   a.id AS application_id, a.current_status AS application_status, a.archived_at AS application_archived_at,
   ${appliedOnSql('a')} AS applied_on,
   ${jobCreditSql('j')} AS credit_json,
-  ${verificationColumns('j')}`; // v30 S4: the source's credit line (jobs/credit.ts); v31 LINK: the verification
+  ${verificationColumns('j')},
+  (SELECT max(e.edited_at) FROM job_admin_edits e WHERE e.job_id = j.id) AS admin_edited_at`; // v30 S4: the source's credit line (jobs/credit.ts); v31 LINK: the verification; v38 REVEDIT: an admin's edit
 
 /**
  * The viewer's application for the job (at most one: applications(user_id, job_id) is unique). Bind `@userId`.
@@ -94,6 +95,8 @@ export interface SummaryRow {
   /** v31 LINK: the job is its viewer's own (TailorIT could not read its link), and why (job_verifications). */
   owned_job?: boolean | null;
   verification_json?: unknown;
+  /** v38 REVEDIT (PLAN E4): when an admin last edited the job (admins only: approval-view.ts). */
+  admin_edited_at?: string | null;
 }
 
 export interface DetailRow extends SummaryRow {
@@ -247,19 +250,26 @@ export function postedRuleOf(constants: { get(key: 'ADMIN_IMPORT_REPOSTED_AFTER_
  * or the admin's import's when later; `updatedAt`: its board's update, or the import's when later (the "Last updated"
  * filter's time: the search projection's updated_sort); `repostedAt` (the import's time) only when it reads "Reposted"
  * (PostedRule). A job no admin imported reads as before.
+ * v38 FIX-C (SP v38 FIXES-38 D7): `postedDateKnown`, whether `postedAt` is a date a posting named (its board's
+ * posted_at, or the admin's import's time, which dates the job it imports) or only when TailorIT first saw the job
+ * (first_seen_at: a read of a posting that names no date, as Taleo's, Avature's and a Paylocity link's pages). The times
+ * are unchanged (sorting and the Posted filter read them as before).
  */
 export function postingTimesOf(
   row: Pick<SummaryRow, 'posted_at' | 'first_seen_at' | 'source_updated_at' | 'reposted_at'>,
   rule: PostedRule,
-): Pick<JobSummary, 'postedAt' | 'updatedAt' | 'repostedAt'> {
+): Pick<JobSummary, 'postedAt' | 'postedDateKnown' | 'updatedAt' | 'repostedAt'> {
   const board = isoTimestamp(row.posted_at);
   const own = board ?? isoTimestamp(row.first_seen_at);
   const updated = isoTimestamp(row.source_updated_at);
   const imported = isoTimestamp(row.reposted_at);
-  if (imported === null || (own !== null && Date.parse(imported) <= Date.parse(own))) return { postedAt: own, updatedAt: updated };
+  if (imported === null || (own !== null && Date.parse(imported) <= Date.parse(own))) {
+    return { postedAt: own, postedDateKnown: board !== null, updatedAt: updated };
+  }
   const reposted = board !== null && Date.parse(board) < Date.parse(imported) - rule.repostedAfterDays * DAY_MS;
   return {
     postedAt: imported,
+    postedDateKnown: true, // v38 FIX-C (D7): the import's time dates the job (v36 IMPORTTIME)
     updatedAt: updated !== null && Date.parse(updated) > Date.parse(imported) ? updated : imported,
     ...(reposted ? { repostedAt: imported } : {}),
   };
@@ -299,6 +309,8 @@ export function toListItem(row: SummaryRow, rule: PostedRule = DEFAULT_POSTED_RU
     ...creditOf(row),
     // v31 LINK (21-jobs-from-links.md §6): a job others do not see says why (absent: everyone sees it).
     ...verificationOf(row),
+    // v38 REVEDIT (SP v38 PLAN.md E4): "Edited by an admin", for administrators only (approval-view.ts drops it).
+    ...(row.admin_edited_at ? { adminEditedAt: new Date(row.admin_edited_at).toISOString() } : {}),
   };
 }
 

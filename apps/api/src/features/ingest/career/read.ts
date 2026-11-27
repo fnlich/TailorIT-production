@@ -1,10 +1,12 @@
 import { constantsOf } from '../../../core/constants/index';
 import type { AppDeps } from '../../../core/context';
 import { NewReadRefusedError } from '../../../core/http/identity';
+import { OutboundRefusedError } from '../../../core/http/outbound'; // v38 FIX-C (D3)
 import { siteReader, type SiteReadResult } from '../../../core/seams';
 import { HostHeldError } from '../http';
 import { RobotsRefusal } from '../robots';
 import type { RobotsCheck } from './guards';
+import { careerSiteRefusalOfHost } from './platforms'; // v38 FIX-C (D3)
 import { CareerPagesOffError, CareerSiteOptedOutError } from './switch';
 
 // v30 S5: one career-site read through the shared reader (core/seams.ts siteReader, E2's; purpose `career_page`), with
@@ -73,6 +75,10 @@ export async function readPage(
   accept: 'html' | 'xml',
 ): Promise<PageRead> {
   const host = hostOf(address);
+  // v38 FIX-C (SP v38 FIXES-38 D3): a host TailorIT never reads (SuccessFactors, Phenom, JobDiva) is asked nothing, its
+  // robots.txt neither: the run stops (a career site kept on one from before is refused at its start: run.ts).
+  const never = careerSiteRefusalOfHost(host);
+  if (never) return { kind: 'stop', error: new OutboundRefusedError(never) };
   const verdict = await robots.verdict(address);
   if (verdict === 'disallowed') return { kind: 'disallowed' };
   if (verdict === 'unreachable') {

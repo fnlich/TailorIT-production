@@ -31,14 +31,13 @@ import {
 } from '@tailorit/shared';
 import { constantDefault } from '@tailorit/shared/constants'; // v36 SOURCES
 import { decodeCursor, encodeCursor, likeText, Where } from '../../core/admin/index';
-import { careerHostOfConfig } from './career/config'; // v30 S5
 import { optedOutSourceSql, optedOutSources } from './opt-out-gate'; // v30 FIX-A; v35 ADMIN: optedOutSourceSql
 import { turnedOffSql } from './turned-off'; // v36 SOURCES
 import type { DbQueries, SqlParams } from '../../core/db/types';
 import { validationFailed } from '../../core/http/errors';
-import { isWorkdayHost } from './adapters/workday'; // v30 S3
-import { icimsBoardOf, icimsHostOf } from './career/platforms'; // v37 BOARDS
+import { apiBoardOf, BOARD_KIND_TERMS, BOARD_NO_ROBOTS_KINDS, boardSourceHost, type KindTerms } from './boards/index'; // v38 FRAME: the board registry
 import { laneSql, onLaneSql } from './hosts'; // v37 INT-B (LANE W1 + TRANSFER T3); v37 INT-2b: every lane
+import { neverReadPlatformOfHost } from './career/platforms'; // v38 FIX-C (D3)
 import {
   RUN_STATUSES,
   RUN_TRIGGERS,
@@ -212,25 +211,13 @@ export interface NewSource {
 /**
  * The host a source's reads go to, from its kind and config (migration 0013 writes the same for older rows): the four
  * board APIs' hosts; null for a kind with no outside read or whose host differs per posting (Workday: the tenant's
- * hosts, read one posting at a time).
+ * hosts, read one posting at a time). v38 FRAME (SP v38 PLAN A1): a board kind's host is its board descriptor's (a feed
+ * ATS's company host, a Workday career site's tenant host, a career site's own host, an iCIMS board's host...).
  */
 export function hostOf(kind: string, config: Record<string, unknown>): string | null {
+  const board = apiBoardOf(kind);
+  if (board) return boardSourceHost(board, config);
   switch (kind) {
-    case 'greenhouse':
-      return 'boards-api.greenhouse.io';
-    case 'lever':
-      return typeof config.region === 'string' && config.region.toLowerCase() === 'eu' ? 'api.eu.lever.co' : 'api.lever.co';
-    case 'ashby':
-      return 'api.ashbyhq.com';
-    case 'workable':
-      return 'apply.workable.com';
-    // v30 S3
-    case 'workday_site':
-    case 'personio':
-    case 'recruitee':
-    case 'breezy':
-    case 'bamboohr':
-      return feedHostOf(kind, config);
     // v30 S4: the feeds' API hosts (12 §3.6-3.7).
     case 'usajobs':
       return 'data.usajobs.gov';
@@ -238,97 +225,49 @@ export function hostOf(kind: string, config: Record<string, unknown>): string | 
       return 'himalayas.app';
     case 'jobicy':
       return 'jobicy.com';
-    // v30 S5: a career site's own host (its config's host, as career/config.ts reads it).
-    case 'career_site':
-      return careerHostOfConfig(config);
-    // v37 BOARDS (SP v37 PLAN I1): an iCIMS source's board's host (config `board`: careers-acme -> careers-acme.icims.com).
-    case 'icims': {
-      const board = icimsBoardOf(typeof config.board === 'string' ? config.board : '');
-      return board ? icimsHostOf(board) : null;
-    }
     default:
       return null;
   }
 }
 
-/** v30 S3: a company's name on a feed host, one DNS label ("acme-robotics"), as its adapter normalised it. */
-const FEED_COMPANY = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-
 /**
  * v30 S3 (12 §3.2-3.3): a Workday career site's tenant host (config `host`), or a feed's company host (config `company`,
- * and Personio's `domain`, `de` or `com`); null when the config names none TailorIT reads.
+ * and Personio's `domain`, `de` or `com`); null when the config names none TailorIT reads. v38 FRAME: its board
+ * descriptor's host (hostOf), for those kinds only.
  */
 export function feedHostOf(kind: string, config: Record<string, unknown>): string | null {
-  if (kind === 'workday_site') {
-    const host = typeof config.host === 'string' ? config.host.trim().toLowerCase() : '';
-    return isWorkdayHost(host) ? host : null;
-  }
-  const company = typeof config.company === 'string' ? config.company.trim().toLowerCase() : '';
-  if (!FEED_COMPANY.test(company)) return null;
-  if (kind === 'personio') return `${company}.jobs.personio.${config.domain === 'com' ? 'com' : 'de'}`;
-  if (kind === 'recruitee') return `${company}.recruitee.com`;
-  if (kind === 'breezy') return `${company}.breezy.hr`;
-  if (kind === 'bamboohr') return `${company}.bamboohr.com`;
-  return null;
+  return ['workday_site', 'personio', 'recruitee', 'breezy', 'bamboohr'].includes(kind) ? hostOf(kind, config) : null;
 }
 
 /**
- * v37 BOARDS (SP v37 PLAN B2): a BambooHR source's recorded terms note (job_sources.terms_note, at most 1,000 characters),
- * word for word as migration 0063 writes it.
+ * v37 BOARDS (SP v37 PLAN B2, I3): BambooHR's and iCIMS's recorded terms notes, word for word as migration 0063 writes
+ * them (v38 FRAME: their board descriptors').
  */
-export const BAMBOOHR_TERMS_NOTE =
-  '2026-11-24: the owner decided TailorIT reads BambooHR careers lists. Checked that day: the list (/careers/list) and ' +
-  "each opening's detail (/careers/<id>/detail) are the public careers JSON the company's own careers page loads " +
-  "(BambooHR documents no such API; its own API needs a customer's key); robots.txt allows everything. Conditions: one " +
-  'request at a time per host, with the bot user agent (BOT_USER_AGENT); the apply form is never read or stored.';
-
-/**
- * v37 BOARDS (SP v37 PLAN I3): an iCIMS source's recorded terms note, word for word as migration 0063 writes it.
- */
-export const ICIMS_TERMS_NOTE =
-  '2026-11-24: the owner decided TailorIT reads iCIMS career sites. Checked that day: robots.txt names the sitemap ' +
-  '(/sitemap.xml) and allows the job pages (/jobs/<id>/<slug>/job; it disallows the referral, login and candidate ' +
-  "pages, never read); each job page's content (?in_iframe=1) carries one schema.org JobPosting and says index,follow. " +
-  'Conditions: one request at a time per host, with the bot user agent (BOT_USER_AGENT).';
+export { BAMBOOHR_TERMS_NOTE } from './boards/bamboohr';
+export { ICIMS_TERMS_NOTE } from './boards/icims';
 
 /**
  * The terms recorded for each kind TailorIT reads today (12 §3.1, §3.11, read 2026-11-14: "use"): the owner's rule
  * that only sources allowing automated access run. A kind not listed starts `unchecked` and never runs until an admin
- * (or its package) records its terms.
+ * (or its package) records its terms. v38 FRAME (SP v38 PLAN A5): a board kind's are its board descriptor's (Greenhouse's,
+ * Lever's, Ashby's and Workable's documented APIs; Workday's and its career sites' own reads; Personio's documented feed;
+ * Recruitee's careers API, "allowed with conditions" until 2027-02-10; BambooHR's and iCIMS's dated notes of 2026-11-24;
+ * career sites' "allowed with conditions"; Breezy none: unchecked). The kinds that are no board are listed here.
  */
-export const KIND_TERMS: Partial<Record<string, { status: 'allowed' | 'allowed_with_conditions'; url: string | null; note?: string }>> = {
-  greenhouse: { status: 'allowed', url: 'https://developers.greenhouse.io/job-board.html' },
-  lever: { status: 'allowed', url: 'https://github.com/lever/postings-api' },
-  ashby: { status: 'allowed', url: 'https://developers.ashbyhq.com/docs/public-job-posting-api' },
-  workable: { status: 'allowed', url: 'https://workable.readme.io/reference/jobs' },
-  workday: { status: 'allowed', url: null },
+export const KIND_TERMS: Partial<Record<string, KindTerms>> = {
   ft_lake: { status: 'allowed', url: null },
   csv: { status: 'allowed', url: null },
   json: { status: 'allowed', url: null },
   seed: { status: 'allowed', url: null },
   page: { status: 'allowed', url: null },
   ext_page: { status: 'allowed', url: null },
-  // v30 S3 (12 §3.2-3.3; the docs read 2026-11-16, SP\p2\build\S3.md): a Workday career site's own sitemap (the owner's
-  // answer to question 11: sitemaps only) and per-posting reads; Personio's documented XML feed, which the employer turns
-  // on; Recruitee's documented careers API, open until 2027-02-10 (then each employer's token: the adapter stops). Breezy
-  // is undocumented: no entry, so `unchecked`, never run until an admin records its terms (v37 BOARDS: BambooHR's below).
-  workday_site: { status: 'allowed', url: null },
-  personio: { status: 'allowed', url: 'https://developer.personio.de/v1.0/reference/get_xml' },
-  recruitee: { status: 'allowed_with_conditions', url: 'https://docs.recruitee.com/reference/offers' },
   // v30 S4 (12 §3.6-3.7, read 2026-11-14): USAJOBS' public data may be stored and republished for commercial use (a
   // credit is encouraged); Himalayas and Jobicy allow commercial display and storage with a visible credit and their
   // own apply links (Himalayas: expired jobs removed, never passed on to aggregators; Jobicy: one read an hour).
   usajobs: { status: 'allowed', url: 'https://developer.usajobs.gov/guides/terms-of-service' },
   himalayas: { status: 'allowed_with_conditions', url: 'https://himalayas.app/docs/remote-jobs-api' },
   jobicy: { status: 'allowed_with_conditions', url: 'https://jobicy.com/jobs-rss-feed' },
-  // v30 S5: career sites' own terms cannot be read site by site (12 §3.4): reading them at all waits for the owner's
-  // lawyer's view (SITE_READER_CAREER_PAGES, off), and robots.txt decides every read.
-  career_site: { status: 'allowed_with_conditions', url: null },
-  // v37 BOARDS (SP v37 PLAN B2, I3): the owner decided on 2026-11-24 that TailorIT reads BambooHR careers lists and iCIMS
-  // career sites; each source starts "allowed with conditions" with the dated note of that decision and the facts read
-  // that day (migration 0063 writes the same on the sources still unchecked with no note).
-  bamboohr: { status: 'allowed_with_conditions', url: null, note: BAMBOOHR_TERMS_NOTE },
-  icims: { status: 'allowed_with_conditions', url: null, note: ICIMS_TERMS_NOTE },
+  ...BOARD_KIND_TERMS,
 };
 
 /**
@@ -356,7 +295,10 @@ export const termsParams = (status: string | null | undefined): { status: string
   status: JOB_SOURCE_TERMS_LABEL[(status ?? 'unchecked') as JobSourceTermsStatus] ?? JOB_SOURCE_TERMS_LABEL.unchecked,
 });
 
-/** Kinds that read no outside host: robots.txt does not apply (12 §1: keyed APIs are `not_applicable` too). */
+/**
+ * Kinds that read no outside host: robots.txt does not apply (12 §1: keyed APIs are `not_applicable` too). v38 FRAME: and
+ * every board kind whose descriptor says so (Workday's one-posting kind: each posting's read asks its tenant's robots.txt).
+ */
 export const NO_ROBOTS_KINDS: readonly string[] = [
   'ft_lake',
   'csv',
@@ -364,7 +306,7 @@ export const NO_ROBOTS_KINDS: readonly string[] = [
   'seed',
   'page',
   'ext_page',
-  'workday',
+  ...BOARD_NO_ROBOTS_KINDS,
   // v30 S4: a keyed API (12 §1: data.usajobs.gov's `Disallow: /` is for crawlers; the key's terms govern).
   'usajobs',
 ];
@@ -973,6 +915,8 @@ const SKIP_WORDS = {
   paused: 'It is paused: continue it first.',
   /** v35 ADMIN (PLAN H6): an import's record (Admin › Import lists it). */
   import: 'An import is not a source: Admin › Import lists it.',
+  /** v38 FIX-C (SP v38 FIXES-38 D3): a career site on a host TailorIT never reads (SuccessFactors, Phenom, JobDiva). */
+  never_read: "TailorIT doesn't read this platform, so this career site can't be turned on.",
 } as const;
 
 /**
@@ -1013,6 +957,7 @@ export async function bulkSources(
     else if (body.action === 'enable') {
       if (UNRUN_KINDS.includes(source.kind)) skip('never_run');
       else if (source.enabled) skip('already_enabled');
+      else if (source.kind === 'career_site' && neverReadPlatformOfHost(source.host ?? '')) skip('never_read'); // v38 FIX-C (D3)
       else chosen.push(id);
     } else if (body.action === 'disable') {
       if (!source.enabled) skip('already_disabled');

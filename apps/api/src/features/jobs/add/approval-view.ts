@@ -14,6 +14,12 @@ import { actorOf } from '../../../core/auth/guards';
 /** The verification state only admins are sent. */
 export const ADMIN_ONLY_STATE = 'admin_approved';
 
+/**
+ * v38 REVEDIT (SP v38 PLAN.md E4: "Admins see an 'Edited by an admin' mark (admin-only, like 'Approved by an admin');
+ * people see the job normally"): the job DTOs' key of that mark (jobs/rows.ts), dropped the same way for everyone else.
+ */
+export const ADMIN_ONLY_KEY = 'adminEditedAt';
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value) as unknown;
@@ -39,9 +45,9 @@ export function withoutAdminApproval<T>(value: T): T {
   if (!isPlainObject(value)) return value;
   let out: Record<string, unknown> | null = null;
   for (const [key, child] of Object.entries(value)) {
-    if (key === 'verification' && isAdminApproval(child)) {
+    if ((key === 'verification' && isAdminApproval(child)) || key === ADMIN_ONLY_KEY) {
       out ??= { ...value };
-      delete out.verification;
+      delete out[key];
       continue;
     }
     const next = withoutAdminApproval(child);

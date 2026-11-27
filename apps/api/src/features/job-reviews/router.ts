@@ -19,6 +19,7 @@ import { countAllFlags, decideAllFlags, decideFlag, decideFlags, listFlags } fro
 import { retryReviewRead } from './page-read'; // v32 ADMINAPP (E6)
 import { countAllReviews, decideAllReviews, decideReview, decideReviews } from './service';
 import { parseInput } from '../../core/http/validate'; // v35 ADMIN
+import { addJobEditRoutes } from './edit/routes'; // v38 REVEDIT (SP v38 PLAN.md E1-E6)
 
 // v30 X1-API: Admin › Review's API (docs/design/part2/14-extension-reports.md §6; administrators only, on adminRouter;
 // the shapes are CT's @tailorit/shared/reviews). It replaces Admin › Reports' API (/api/admin/reports, which INT-3
@@ -40,6 +41,9 @@ import { parseInput } from '../../core/http/validate'; // v35 ADMIN
 //   GET   /api/admin/flags/all/count?state=&q=                              v37 REVIEW (R3): the open flags the filter
 //                                                                          matches, and `upTo` (what was counted)
 //   POST  /api/admin/flags/all {status, filter, after?, upTo?}              v37 REVIEW (R3): Resolve all / Dismiss all
+//   GET   /api/admin/reviews/jobs/:jobId                                    v38 REVEDIT (PLAN E1-E6): Edit job's editor;
+//   PATCH /api/admin/reviews/jobs/:jobId; POST .../read; POST .../restore    its save, "Read this link", "Use the posting's
+//                                                                          text again" (edit/routes.ts)
 // v37 REVIEW (SP v37 PLAN.md R1-R3): every list is Waiting by default (pending, Checking too), 100 a page, with `total`,
 // `decidable` and `unfiltered`; /reviews/all takes the Closed links lane as well as New jobs.
 // The paths are the ones X1-WEB's Admin › Review calls (apps/web/.../settings/admin/review/api.ts REVIEW_ROUTES).
@@ -87,6 +91,8 @@ export function createReviewRouter(deps: AppDeps): Router {
     patch: { body: AdminReviewDecisionBodySchema, run: (_deps, id, change, admin) => decideReview(deps, id, change, admin) },
     bulk: { body: AdminReviewBulkBodySchema, run: (_deps, bulk, admin) => decideReviews(deps, bulk, admin) },
     routes: (router, helpers) => {
+      // v38 REVEDIT (PLAN E1-E6): Edit job on every lane (/jobs/:jobId, its read and its restore: edit/routes.ts).
+      addJobEditRoutes(deps, router, helpers);
       router.get(
         '/counts',
         helpers.handle(() => reviewCounts(deps.db)),

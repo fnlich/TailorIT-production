@@ -1,6 +1,7 @@
 'use client';
 
 import type { UnverifiedLink, UnverifiedVersion } from '@tailorit/shared/jobs';
+import { isNeverRead } from '@/features/jobs/verification/copy'; // v38 FIX-APP (ux L3)
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -25,7 +26,8 @@ import { reviewKeys } from './api';
 import { REVIEW_POLL_MS } from './copy';
 import { LOADED_ROWS_NOTE, selectAllTip, selectAllWords } from './all'; // v37 REVIEW (R3); v37 FIX-REV: LOADED_ROWS_NOTE
 import { UNVERIFIED_WAYS, fetchRecentImports, fromOptions, unverifiedFilterOf, unverifiedFromValue } from './from'; // v35 OPSWEB
-import { AccentBar, RowActions, TOUCH } from './ReviewRows';
+import { AccentBar, EditJobButton, RowActions, TOUCH } from './ReviewRows'; // v38 REVEDIT: EditJobButton
+import { EditedBadge } from './edit/EditedBadge'; // v38 REVEDIT
 import {
   LIST_OFF_NOTE, // v37 FIX-REV (M2)
   PAGE_READS_OFF,
@@ -99,10 +101,13 @@ const PANE = '[data-review-pane]';
 export function UnverifiedLane({
   onLive,
   onFilterCount,
+  onEdit,
 }: {
   onLive: (text: string) => void;
   /** v35 FIX-WEB (L5): the From filter's count while one is on (the header's "2 of 7"), else null. */
   onFilterCount?: (count: number | null) => void;
+  /** v38 REVEDIT (PLAN E1): Edit job on each row (the pane's editor); absent: no button. */
+  onEdit?: (row: UnverifiedLink) => void;
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -424,6 +429,7 @@ export function UnverifiedLane({
               onApprove={canApprove(row) ? () => setApproving(row) : undefined}
               onRetry={() => void retry(row)}
               onReject={() => setRejecting(row)}
+              {...(onEdit ? { onEdit: () => onEdit(row) } : {})}
             />
           ))}
         </ul>
@@ -674,6 +680,7 @@ export function UnverifiedRow({
   onApprove,
   onRetry,
   onReject,
+  onEdit,
   checked,
   onChecked,
   outcome = null,
@@ -684,6 +691,8 @@ export function UnverifiedRow({
   onApprove?: (() => void) | undefined;
   onRetry: () => void;
   onReject: () => void;
+  /** v38 REVEDIT (PLAN E1): Edit job; absent: no button. */
+  onEdit?: () => void;
   /** v35 OPSWEB: the row's checkbox (absent: none) and what a bulk action did to it. */
   checked?: boolean;
   onChecked?: (on: boolean, shiftKey: boolean) => void;
@@ -722,7 +731,7 @@ export function UnverifiedRow({
               {captured}
             </p>
           )}
-          {(versions || row.approvedBefore) && (
+          {(versions || row.approvedBefore || row.adminEdited) && (
             <p className="flex flex-wrap gap-1.5 py-0.5">
               {versions && (
                 <Badge tone="tint" data-unverified-versions={row.versions}>
@@ -734,6 +743,7 @@ export function UnverifiedRow({
                   Approved before
                 </Badge>
               )}
+              {row.adminEdited && <EditedBadge />}
             </p>
           )}
           <a
@@ -778,20 +788,23 @@ export function UnverifiedRow({
               Approve
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            className={TOUCH}
-            icon={<ArrowsClockwiseIcon size={14} weight="bold" aria-hidden="true" />}
-            loading={busy}
-            focusableWhenDisabled
-            aria-label={`Retry read: ${name}`}
-            onClick={onRetry}
-            // v32 FIX-API: without Approve, Retry read leads the row (the focus lands on it when a row leaves).
-            {...(onApprove ? {} : ROW_ACTION)}
-          >
-            Retry read
-          </Button>
+          {/* v38 FIX-APP (REVIEW38-ux L3): no Retry read for a site TailorIT never reads (it answers the same). */}
+          {!isNeverRead(row.reason, row.url) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className={TOUCH}
+              icon={<ArrowsClockwiseIcon size={14} weight="bold" aria-hidden="true" />}
+              loading={busy}
+              focusableWhenDisabled
+              aria-label={`Retry read: ${name}`}
+              onClick={onRetry}
+              // v32 FIX-API: without Approve, Retry read leads the row (the focus lands on it when a row leaves).
+              {...(onApprove ? {} : ROW_ACTION)}
+            >
+              Retry read
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -805,6 +818,7 @@ export function UnverifiedRow({
           >
             Reject
           </Button>
+          {onEdit && <EditJobButton name={name} onEdit={onEdit} disabled={busy} />}
         </RowActions>
       </div>
     </li>

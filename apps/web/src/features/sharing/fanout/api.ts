@@ -107,8 +107,13 @@ export function startShareAll(
   );
 }
 
-export function addJobTo(targets: FanoutTargets, url: string, details?: JobAddDetails): Promise<FanoutAddJobAnswer> {
-  return api.post('/api/profiles/jobs/add', { targets, url, ...(details ? { details } : {}) }, { ...OWN, schema: FanoutAddJobAnswerSchema });
+// v38 FIX-APP (SP v38 FIXES-38 D1): `company`, Add job's company step (a posting TailorIT read names none).
+export function addJobTo(targets: FanoutTargets, url: string, details?: JobAddDetails, company?: string): Promise<FanoutAddJobAnswer> {
+  return api.post(
+    '/api/profiles/jobs/add',
+    { targets, url, ...(details ? { details } : {}), ...(company ? { company } : {}) },
+    { ...OWN, schema: FanoutAddJobAnswerSchema },
+  );
 }
 
 export function fetchSavedOn(jobIds: readonly number[], signal?: AbortSignal): Promise<FanoutSavedOn> {

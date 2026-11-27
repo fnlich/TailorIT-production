@@ -1,10 +1,16 @@
 import { SheetSourceConfigSchema, type SheetSourceConfig } from '@tailorit/shared/ingest';
 import {
+  BAMBOOHR_OWN_LABELS, // v38 FRAME: the board registry's (the API's normaliser reads the same list)
+  bamboohrCompanyOfTyped,
+  BOARD_DESCRIPTORS,
+  boardDescriptorOf,
+  icimsBoardOfTyped,
   JOB_SOURCE_ROBOTS_LABEL,
   JOB_SOURCE_WAITING_LABEL,
   JOB_SOURCE_RUNNABLE_ROBOTS,
   JOB_SOURCE_RUNNABLE_TERMS,
   JOB_SOURCE_TERMS_LABEL,
+  type BoardDescriptor, // v38 FIX-APP
   type AdminSourceRow,
   type AdminSourcesTurnedOff, // v36 FIX-SRC
   type JobSourceKind,
@@ -17,7 +23,7 @@ import {
 import type { MessageRenderer } from '../../../../components/limits/limits';
 import type { BadgeTone } from '../../../../components/ui/Badge';
 import { formatDate } from '../../../../lib/format';
-import type { AddableKind } from '../types';
+import { FIELD_KINDS, type AddableKind } from '../types';
 
 // The words Admin › Sources shows for a source (pure, so the web unit tests can import it). v30 S1-WEB: a row is CT's
 // AdminSourceRow (12 §12.1's columns: tier, terms, robots, the next run, the last complete listing); a source's
@@ -35,8 +41,9 @@ const ADDABLE_KIND_ITEMS: ReadonlyArray<{ value: AddableKind; label: string }> =
   { value: 'jobicy', label: 'Jobicy' },
   { value: 'career_site', label: 'Career site' }, // v30 FIX-WEB (REQ-5)
   { value: 'workday_site', label: 'Workday career site' }, // v35 OPSWEB (PLAN H7)
-  { value: 'bamboohr', label: 'BambooHR' }, // v37 BOARDS (PLAN B4)
-  { value: 'icims', label: 'iCIMS' }, // v37 BOARDS (PLAN I1)
+  // v37 BOARDS (PLAN B4, I1): BambooHR, iCIMS; v38 FRAME (SP v38 PLAN A10): every field-added board kind, its words its
+  // descriptor's label.
+  ...FIELD_KINDS.map((kind) => ({ value: kind, label: boardDescriptorOf(kind)!.label })),
   { value: 'ft_lake', label: 'free_tailor lake' },
   { value: 'seed', label: 'Demo jobs' },
 ];
@@ -72,21 +79,13 @@ export function sheetOf(source: SourceWithSettings): SheetSourceConfig | null {
  * json) are no sources, so they have no words here; a Workday career site names its host and site.
  */
 export function sourceDetail(source: SourceWithSettings): string | null {
+  // v38 FRAME (SP v38 PLAN A10): a board kind's words are its descriptor's (Board gitlab, Site palantir (EU), Account
+  // huggingface, Tenant nvidia, a Workday career site's host and site, a career site's host, a BambooHR company, an iCIMS
+  // site; null for a feed ATS's, whose row says all).
+  const board = boardDescriptorOf(source.kind);
+  if (board) return board.detail?.(source.config) ?? null;
   const text = (key: string) => (typeof source.config[key] === 'string' ? (source.config[key] as string) : '');
   switch (source.kind) {
-    case 'greenhouse':
-      return `Board ${text('token')}`;
-    case 'lever':
-      return `Site ${text('site')}${text('region') === 'eu' ? ' (EU)' : ''}`;
-    case 'ashby':
-      return `Board ${text('board')}`;
-    case 'workable':
-      return `Account ${text('account')}`;
-    case 'workday':
-      return `Tenant ${text('tenant')}`;
-    // v35 OPSWEB (PLAN H7)
-    case 'workday_site':
-      return text('host') && text('careerSite') ? `Career site ${text('host')}, site ${text('careerSite')}` : null;
     case 'page':
       return 'Jobs added from the pages people saw';
     case 'ft_lake':
@@ -104,14 +103,6 @@ export function sourceDetail(source: SourceWithSettings): string | null {
       return [`Region ${text('geo') || 'usa'}`, text('industry') && `industry ${text('industry')}`, text('tag') && `tag ${text('tag')}`]
         .filter(Boolean)
         .join(', ');
-    // v30 FIX-WEB (REQ-5): a career site reads its own host.
-    case 'career_site':
-      return text('host') ? `Career site ${text('host')}` : null;
-    // v37 BOARDS (PLAN B1, I1): a BambooHR company's careers list, an iCIMS site's sitemap.
-    case 'bamboohr':
-      return text('company') ? `Company ${text('company')} (${text('company')}.bamboohr.com)` : null;
-    case 'icims':
-      return text('board') ? `iCIMS site ${text('board')}.icims.com` : null;
     default:
       return null;
   }
@@ -176,8 +167,11 @@ export function sourceLine(row: Pick<AdminSourceRow, 'kindLabel' | 'host' | 'com
   return [row.kindLabel, row.host, company].filter(Boolean).join(' · ');
 }
 
-/** Kinds whose sources are never run: Workday's single postings, the job pages', an admin's published page jobs. */
-const UNRUN_KINDS: readonly JobSourceKind[] = ['workday', 'page', 'ext_page'];
+/**
+ * Kinds whose sources are never run: Workday's single postings, the job pages', an admin's published page jobs. v38
+ * FRAME: a board kind's whose row runs not (its descriptor's).
+ */
+const UNRUN_KINDS: readonly JobSourceKind[] = [...BOARD_DESCRIPTORS.filter((board) => !board.row.runs).map((board) => board.kind), 'page', 'ext_page'];
 
 /** Whether a source is never run (Workday's, the job pages'): Run now and turning it on are not offered. */
 export function isUnrun(source: { kind: JobSourceKind }): boolean {
@@ -191,13 +185,35 @@ export function isDeletable(source: { kind: JobSourceKind }): boolean {
 
 /**
  * A Workday or job-page source is never run: this says why (null for other sources). v35 OPSWEB (PLAN H6): an import's
- * sheet is read again from Admin › Import's Recent imports, not from Sources.
+ * sheet is read again from Admin › Import's Recent imports, not from Sources. v38 FIX-APP (REVIEW38-ux L10): every
+ * links-only board kind's too (SmartRecruiters, Taleo, Paycom, Dayforce, UKG: its descriptor's row runs not).
  */
 export function runNowHint(source: { kind: JobSourceKind }): string | null {
   if (source.kind === 'workday') return 'TailorIT reads Workday postings one at a time, when someone adds one; their re-checks keep them up to date.';
   if (source.kind === 'page' || source.kind === 'ext_page') return 'These jobs keep the text people saw on their pages: TailorIT never reads those pages.';
+  const board = linksOnlyBoard(source);
+  if (board) return `TailorIT reads ${board.runLabel ?? board.label} postings one at a time, when someone adds one; it doesn't list this board.`;
   return null;
 }
+
+// v38 FIX-APP (REVIEW38-ux L10): a links-only board kind's source (made by a link read): it is never run, and says so.
+/** The words of a links-only source (Admin › Sources' row, its sheet). */
+export const LINKS_ONLY = {
+  label: 'Links only',
+  text: "TailorIT checks this site's job links but doesn't list its jobs.",
+} as const;
+
+/** A links-only board kind's descriptor (its row runs not: Workday's one posting, SmartRecruiters, ...), else null. */
+export function linksOnlyBoard(source: { kind: JobSourceKind }): BoardDescriptor | null {
+  const board = boardDescriptorOf(source.kind);
+  return board && !board.row.runs ? board : null;
+}
+
+/** v38 FIX-APP (REVIEW38-ux L10): robots.txt in words: a links-only kind with no source-level verdict asks it on each read. */
+export function robotsLabelOf(source: { kind: JobSourceKind; robotsStatus: JobSourceRobotsStatus }): string {
+  return source.robotsStatus === 'not_applicable' && linksOnlyBoard(source) ? 'Checked on each read' : JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus];
+}
+// end v38 FIX-APP
 
 /** v31 RUNS: whether an admin paused it (no run of it starts until Continue). */
 export function isPaused(row: Pick<AdminSourceRow, 'pausedAt'>): boolean {
@@ -268,6 +284,7 @@ export function scheduleText(
   now: number,
 ): string {
   if (row.running) return 'Running now';
+  if (linksOnlyBoard(row)) return LINKS_ONLY.label; // v38 FIX-APP (ux L10)
   if (isUnrun(row)) return 'Never run';
   if (row.pausedAt) return 'Paused';
   if (row.waitingForAdmin) return 'Not until turned on'; // v36 SOURCES
@@ -373,6 +390,7 @@ const RUNS_WHILE_OFF_KINDS: readonly JobSourceKind[] = ['csv', 'json', 'seed'];
  */
 export function offRunNowHint(row: Pick<AdminSourceRow, 'enabled' | 'kind'>, t: MessageRenderer): string | null {
   if (row.enabled || RUNS_WHILE_OFF_KINDS.includes(row.kind)) return null;
+  if (linksOnlyBoard(row)) return null; // v38 FIX-APP (ux L10): never turned on: Run now says why it never runs
   return t('MSG_INGEST_SOURCE_OFF');
 }
 
@@ -452,49 +470,48 @@ export function formatCount(count: number): string {
 // v37 BOARDS (SP v37 PLAN B4, I1): Add source's BambooHR and iCIMS fields, read as the API reads them (it checks again).
 
 /**
- * iCIMS's own hosts' first labels: never an employer's site (the API's career/platforms.ts ICIMS_BOARD_HOST). v37 FIX-37A
- * (REVIEW37-beh F11): the shared lookup's rule (www, api, login; internal-<co> below), as the API's now.
- */
-const ICIMS_OWN_LABELS = new Set(['www', 'api', 'login']);
-const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-
-/** The host an address or bare host names (lower case), or the text itself when it names none. */
-function hostOfInput(input: string): string {
-  const text = input.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9+.-]*:\/\//.test(text) && !text.includes('/') && !text.includes('.')) return text;
-  try {
-    return new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`).hostname.replace(/\.$/, '');
-  } catch {
-    return '';
-  }
-}
-
-/**
  * v37 FIX-37B (the ux review's L1): BambooHR's own hosts' first labels: never a company's (the API's router refuses them
- * too).
+ * too). v38 FRAME: the board registry's one list.
  */
-export const BAMBOOHR_OWN_LABELS: ReadonlySet<string> = new Set([
-  'www', 'app', 'api', 'help', 'marketing', 'support', 'status', 'login', 'partners', 'marketplace', 'developers', 'docs', 'blog', 'static', 'cdn',
-]);
+export { BAMBOOHR_OWN_LABELS };
 
 /**
  * A BambooHR company from what an admin typed: its name ("acme") or an address on <name>.bamboohr.com; null when it
- * names none (v37 FIX-37B: or one of BambooHR's own hosts, www.bamboohr.com).
+ * names none (v37 FIX-37B: or one of BambooHR's own hosts, www.bamboohr.com). v38 FRAME: its descriptor's field check.
  */
-export function bamboohrCompanyOf(input: string): string | null {
-  const host = hostOfInput(input);
-  const label = host.includes('.') ? (host.endsWith('.bamboohr.com') ? host.slice(0, -'.bamboohr.com'.length) : '') : host;
-  return DNS_LABEL.test(label) && !BAMBOOHR_OWN_LABELS.has(label) ? label : null;
-}
+export const bamboohrCompanyOf = bamboohrCompanyOfTyped;
 
 /**
  * An iCIMS site's board from what an admin typed: its board ("careers-acme"), its host or any page of it; null when it
- * names none (another domain, iCIMS's own hosts, an employees' internal-<co> portal).
+ * names none (another domain, iCIMS's own hosts, an employees' internal-<co> portal). v38 FRAME: its descriptor's.
  */
-export function icimsBoardOfInput(input: string): string | null {
-  const host = hostOfInput(input);
-  const label = host.includes('.') ? (host.endsWith('.icims.com') ? host.slice(0, -'.icims.com'.length) : '') : host;
-  return DNS_LABEL.test(label) && !ICIMS_OWN_LABELS.has(label) && !label.startsWith('internal-') ? label : null;
+export const icimsBoardOfInput = icimsBoardOfTyped;
+
+/**
+ * v38 FRAME (SP v38 PLAN A10): the board what an admin typed in a field-added board kind's field names, as its descriptor
+ * reads it (its own check, else its normaliser); null when it names none. The API checks again.
+ */
+export function fieldBoardOf(kind: AddableKind, input: string): string | null {
+  const add = boardDescriptorOf(kind)?.addSource;
+  if (!add) return null;
+  const named = add.boardOfInput ? add.boardOfInput(input) : boardDescriptorOf(kind)!.boardOf(input) || null;
+  // v38 FIX-APP (REVIEW38-ux L18): a job's own link of a kind whose links name no board (the API reads its page once).
+  return named ?? (add.postingLink && postingLinkOf(kind, input) ? POSTING_LINK : null);
+}
+
+/** v38 FIX-APP (REVIEW38-ux L18): what fieldBoardOf answers for a job's own link (its board is read from its page). */
+export const POSTING_LINK = 'posting link';
+
+/** v38 FIX-APP (REVIEW38-ux L18): whether a typed address is a job's own link of the kind (its descriptor's parseLink). */
+function postingLinkOf(kind: AddableKind, input: string): boolean {
+  const board = boardDescriptorOf(kind);
+  const text = input.trim();
+  if (!board?.parseLink || !/^https?:\/\//i.test(text)) return false;
+  try {
+    return board.parseLink(new URL(text)) !== null;
+  } catch {
+    return false;
+  }
 }
 // end v37 BOARDS
 
@@ -503,9 +520,8 @@ export function icimsBoardOfInput(input: string): string | null {
  * company: TailorIT reads the name from the company's careers page once (adapters/bamboohr.ts), unless one is typed.
  */
 export function companyNameHint(kind: AddableKind): string {
-  return kind === 'bamboohr'
-    ? "BambooHR doesn't name the company: TailorIT reads it from the company's careers page once. Type it to choose it yourself."
-    : "Shown when the board doesn't name the company.";
+  // v38 FRAME: a field-added board kind's descriptor may say why (BambooHR's).
+  return boardDescriptorOf(kind)?.addSource?.companyHint ?? "Shown when the board doesn't name the company.";
 }
 
 // v37 BOARDS (SP v37 PLAN B3): a source's Terms editor (status, terms page, note), every kind's. The API checks again.

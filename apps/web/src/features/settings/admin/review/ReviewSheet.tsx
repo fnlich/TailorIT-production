@@ -41,6 +41,8 @@ import {
   VIA_LABEL,
 } from './copy';
 import { ReportersDisclosure } from './Reporters';
+import { EditJobButton } from './ReviewRows'; // v38 REVEDIT
+import { EditedBadge } from './edit/EditedBadge'; // v38 REVEDIT
 
 // v30 X1-WEB: a review's evidence (14 §6.2, "The detail sheet"), on components/queue's RowDetailSheet: each report
 // (signal, marker, how it came, when; who reported, on expand, administrators only), TailorIT's check, the job's
@@ -61,9 +63,11 @@ export interface ReviewSheetProps {
   onOpenChange: (open: boolean) => void;
   busy: boolean;
   onDecide: (row: AdminReviewRow, decision: ReviewDecision, note: string) => void;
+  /** v38 REVEDIT (PLAN E1): Edit job, in the sheet too (the editor opens over it); absent: no button. */
+  onEdit?: (row: AdminReviewRow) => void;
 }
 
-export function ReviewSheet({ row, open, onOpenChange, busy, onDecide }: ReviewSheetProps) {
+export function ReviewSheet({ row, open, onOpenChange, busy, onDecide, onEdit }: ReviewSheetProps) {
   const [note, setNote] = useState('');
   const { t } = usePublicConstants();
   const problem = noteProblem(note, JOB_REVIEW_NOTE_MAX, (max) => t('MSG_TEXT_TOO_LONG', { max }));
@@ -111,7 +115,7 @@ export function ReviewSheet({ row, open, onOpenChange, busy, onDecide }: ReviewS
         )
       }
     >
-      {(item) => <SheetBody row={item} note={note} onNote={setNote} problem={problem} />}
+      {(item) => <SheetBody row={item} note={note} onNote={setNote} problem={problem} {...(onEdit ? { onEdit: () => onEdit(item) } : {})} />}
     </RowDetailSheet>
   );
 }
@@ -128,7 +132,19 @@ function Section({ title, children, mark }: { title: string; children: ReactNode
   );
 }
 
-function SheetBody({ row, note, onNote, problem }: { row: AdminReviewRow; note: string; onNote: (note: string) => void; problem: string | null }) {
+function SheetBody({
+  row,
+  note,
+  onNote,
+  problem,
+  onEdit,
+}: {
+  row: AdminReviewRow;
+  note: string;
+  onNote: (note: string) => void;
+  problem: string | null;
+  onEdit?: () => void;
+}) {
   const now = useNow();
   const detail = useQuery({ queryKey: reviewKeys.detail(row.id), queryFn: ({ signal }) => fetchReview(row.id, signal) });
   // v32 FIX-API (UXREQ-9): the sheet has no group heading, so it says "Needs review" itself.
@@ -139,6 +155,13 @@ function SheetBody({ row, note, onNote, problem }: { row: AdminReviewRow; note: 
       <div>
         <StateLine icon={line.icon} text={line.text} detail={line.detail} tone={line.tone} />
         {row.decidedAt && <p className="mt-1 text-[13px] text-muted-foreground">Decided {relativeTime(row.decidedAt, now)}</p>}
+        {/* v38 REVEDIT (PLAN E1, E4): the job's mark and Edit job. */}
+        {(row.job.adminEdited || onEdit) && (
+          <p className="mt-2 flex flex-wrap items-center gap-2" data-review-sheet-edit="">
+            {row.job.adminEdited && <EditedBadge />}
+            {onEdit && <EditJobButton name={name} onEdit={onEdit} />}
+          </p>
+        )}
       </div>
       {detail.isError ? (
         <Notice

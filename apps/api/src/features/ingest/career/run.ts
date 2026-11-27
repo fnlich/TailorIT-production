@@ -20,6 +20,7 @@ import { careerSiteConfigOf, type CareerSiteConfig } from './config';
 import { createRobotsCheck, hostOptedOut, type RobotsCheck } from './guards';
 import { expiredAt, pageJobPosting, type JobPostingData } from './jsonld';
 import { careerKeysOf } from './keys';
+import { careerSiteRefusalOfHost } from './platforms'; // v38 FIX-C (D3)
 import { readPage } from './read';
 import { isPostingAddress, parseSitemap, sitemapsByPromise, sitemapText } from './sitemap';
 import { assertCareerPagesAllowed, CareerSiteOptedOutError } from './switch';
@@ -334,6 +335,10 @@ export async function readCareerSite(source: SourceRecord, ctx: AdapterContext):
   const deps = ctx.deps;
   assertCareerPagesAllowed(deps);
   const config = careerSiteConfigOf(source.config);
+  // v38 FIX-C (SP v38 FIXES-38 D3): a career site kept on a host TailorIT never reads (from before v3.8; migration 0070
+  // turned those off) is never run: refused in words, nothing sent.
+  const never = careerSiteRefusalOfHost(config.host);
+  if (never) throw new IngestError(never);
   if (await hostOptedOut(deps.db, config.host)) throw new CareerSiteOptedOutError(config.host);
   const robots = createRobotsCheck(deps);
   const now = deps.now();

@@ -6,7 +6,7 @@ import { lanePauseOf } from '../../ingest/hosts'; // v37 INT-A (one pause signal
 import { HostHeldError, type HostHoldReason } from '../../ingest/http';
 import { RobotsRefusal } from '../../ingest/robots';
 import { TermsRefusalError } from '../../ingest/terms'; // v37 FIX-37B (E2)
-import { IngestError } from '../../ingest/types';
+import { IngestError, PostingUnreadableError } from '../../ingest/types';
 
 // v37 CLOSED (SP v37 PLAN.md C1, C3): the one verdict on TailorIT's read of a job link, for every path that reads one
 // (Add job, Add by link and the tracker's link, the extension's add and From page, the MCP tool, an admin's and a
@@ -17,7 +17,9 @@ import { IngestError } from '../../ingest/types';
 //     timeout, a robots.txt that could not be read (`unavailable`), a sign-in wall or a bot check (`blocked`);
 //   - can't read: the read's lasting word: robots.txt disallows it, no posting on the page, an address that names no
 //     posting, a site TailorIT never reads, page reads not set up, an opt-out, an admin's rejection; v37 FIX-37B (E2):
-//     a board whose source's terms an admin recorded as not allowing automated access (`terms`, nothing sent).
+//     a board whose source's terms an admin recorded as not allowing automated access (`terms`, nothing sent); v38 ATS-D:
+//     a platform TailorIT never reads (`robots`: SAP SuccessFactors; `bot_check`: a bot check on every page, Phenom and
+//     JobDiva; `needs_login`: a job site behind the employer's own login), nothing sent.
 // A read while the site's host (or every Workday site: the LANE package's `workday.lane`) is paused carries the pause
 // (`pause`: its end, the site's name, and whether the site asked TailorIT to slow down): the link queue reads it again
 // after the pause without using a try (queue.ts), and a person's read answers at once with the time to try again
@@ -39,7 +41,9 @@ export interface ReadPause {
 export type LinkRead =
   | { kind: 'shared'; jobId: number; created: boolean; held: boolean }
   | { kind: 'closed' }
-  | { kind: 'unreadable'; reason: JobVerifyReason; pause?: ReadPause };
+  // v38 FIX-APP (D1): `needsCompany`, a posting read that names no company (`no_posting` to every path but a
+  // person's add, which asks for the company: pipeline.ts).
+  | { kind: 'unreadable'; reason: JobVerifyReason; pause?: ReadPause; needsCompany?: true };
 
 /** The reasons a read failed for now, never a lasting answer about the job: try later (v31 FIX-LINK's BEH-3 set). */
 export const TRY_LATER_REASONS: ReadonlySet<JobVerifyReason> = new Set(['unavailable', 'blocked']);
@@ -85,6 +89,9 @@ export function atsFailure(error: unknown, site: string): LinkRead {
   if (error.code === 'not_found') return { kind: 'closed' };
   // v37 FIX-37B (E2): the board's source has terms that don't allow automated access: nothing was read.
   if (error.cause instanceof TermsRefusalError) return { kind: 'unreadable', reason: 'terms' };
+  // v38 FRAME (SP v38 PLAN A3): the platform's own word that the posting can't be read now or at all (a readPosting's
+  // signal): try later or can't read, with its reason.
+  if (error.cause instanceof PostingUnreadableError) return { kind: 'unreadable', reason: error.cause.reason };
   if (error.code === 'unsupported') {
     return { kind: 'unreadable', reason: error.cause instanceof RobotsRefusal ? 'robots' : 'unlisted' };
   }

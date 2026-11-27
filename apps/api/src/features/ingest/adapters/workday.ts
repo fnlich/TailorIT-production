@@ -1,5 +1,6 @@
 import { COUNTRIES, parseLocations, type ParsedLocation, type WorkArrangement } from '@tailorit/shared';
 import { unsafeWorkdaySegment, WORKDAY_PATH_MAX, type AddablePosting, type WorkdayPostingRef } from '@tailorit/shared/autofill';
+import { isWorkdayHost, workdayTenant } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's rules
 import type { IngestHttp } from '../http';
 import { assertRobotsAllow } from '../robots';
 import { IngestError, type RawPosting } from '../types';
@@ -21,16 +22,16 @@ import { defineAdapter } from './define';
  */
 export const WORKDAY_ANSWER_MAX_BYTES = 2 * 1024 * 1024;
 
+/**
+ * v38 FRAME: the tenant as a source's config names it, and a Workday host (the shared board registry's WORKDAY_BOARD
+ * rules, moved there unchanged).
+ */
+export { isWorkdayHost, workdayTenant };
+
 /** A posting the read names: the tenant (lower case), its requisition id and its address parts. */
 export interface WorkdayRef extends WorkdayPostingRef {
   tenant: string;
   reqId: string;
-}
-
-/** The tenant as a source's config names it: letters, digits, '-' and '_', in lower case; '' when it names none. */
-export function workdayTenant(input: string): string {
-  const text = input.trim().toLowerCase();
-  return /^[a-z0-9_-]{1,100}$/.test(text) ? text : '';
 }
 
 /** On myworkdaysite.com the tenant sits in the path, before the site. */
@@ -279,9 +280,6 @@ export function workdayLinkPosting(address: string): AddablePosting | null {
   return { kind: 'workday', board: tenant, externalId: match[2]!, region: 'global', workday: ref };
 }
 
-/** Workday's own hosts (a tenant's on myworkdayjobs.com, the shared wd<n>.myworkdaysite.com): its reads stay on them. */
-export const isWorkdayHost = (host: string) =>
-  /^[a-z0-9-]+\.(?:wd\d{1,3}\.)?myworkdayjobs\.com$/.test(host) || /^wd\d{1,3}\.myworkdaysite\.com$/.test(host);
 
 /**
  * Whether the answer is the posting the read named. Its posting id (<slug>_<reqId>) decides when it has one: its id

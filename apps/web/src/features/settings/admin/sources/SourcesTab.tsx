@@ -4,7 +4,6 @@ import { PauseIcon } from '@phosphor-icons/react/Pause';
 import { PlayIcon } from '@phosphor-icons/react/Play';
 import {
   ADMIN_SOURCE_BULK_ACTIONS,
-  JOB_SOURCE_ROBOTS_LABEL,
   JOB_SOURCE_TERMS_LABEL,
   JOB_SOURCE_TIER_LABEL,
   type AdminSourceAllAction,
@@ -75,6 +74,9 @@ import {
   pausedRunNowHint,
   robotsTone,
   runNowHint,
+  LINKS_ONLY, // v38 FIX-APP (ux L10)
+  linksOnlyBoard, // v38 FIX-APP (ux L10)
+  robotsLabelOf, // v38 FIX-APP (ux L10)
   scheduleText,
   sourceLine,
   termsRunNowHint, // v37 FIX-37B (E8)
@@ -418,7 +420,7 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
               Terms: {JOB_SOURCE_TERMS_LABEL[source.termsStatus]}
             </Badge>
             <Badge tone={robotsTone(source.robotsStatus)} className={SOURCES_WIDE.hide} wrap>
-              Robots: {JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}
+              Robots: {robotsLabelOf(source)}
             </Badge>
           </span>
         </div>
@@ -429,12 +431,19 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
       header: 'Enabled',
       className: 'w-24',
       cell: (source) => (
-        <Switch
-          checked={source.enabled}
-          onCheckedChange={() => toggle.mutate(source)}
-          disabled={toggle.isPending || (!source.enabled && isUnrun(source))}
-          aria-label={`${source.enabled ? 'Disable' : 'Enable'} ${source.name}`}
-        />
+        // v38 FIX-APP (REVIEW38-ux L10): a links-only source has no run switch (it is never run): it says so.
+        !source.enabled && linksOnlyBoard(source) ? (
+          <span className="text-[13px] leading-5 text-muted-foreground" data-links-only="">
+            {LINKS_ONLY.label}
+          </span>
+        ) : (
+          <Switch
+            checked={source.enabled}
+            onCheckedChange={() => toggle.mutate(source)}
+            disabled={toggle.isPending || (!source.enabled && isUnrun(source))}
+            aria-label={`${source.enabled ? 'Disable' : 'Enable'} ${source.name}`}
+          />
+        )
       ),
     },
     {
@@ -444,14 +453,17 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
       cell: (source) => (
         // v31 FIX-WEB (REV-UX UX-2): at least 128 px, so a line wraps between phrases, never a word a line.
         <div className="min-w-32 text-[13px] leading-5">
-          {source.nextRunAt && source.enabled && !source.running ? (
+          {linksOnlyBoard(source) && !source.running ? null : source.nextRunAt && source.enabled && !source.running ? (
             <Tooltip content={new Date(source.nextRunAt).toLocaleString('en-US')}>
               <span className="block">{scheduleText(source, now)}</span>
             </Tooltip>
           ) : (
             <span className="block">{scheduleText(source, now)}</span>
           )}
-          <span className="block text-muted-foreground">{source.lastRunAt ? `Last ${relativeTime(source.lastRunAt, now)}` : 'Never run'}</span>
+          {/* v38 FIX-APP (REVIEW38-ux L10): a links-only source says what TailorIT does with it (no "Never run"). */}
+          <span className="block text-muted-foreground">
+            {linksOnlyBoard(source) && !source.lastRunAt ? LINKS_ONLY.text : source.lastRunAt ? `Last ${relativeTime(source.lastRunAt, now)}` : 'Never run'}
+          </span>
         </div>
       ),
     },
@@ -462,7 +474,10 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
       cell: (source) => (
         <div className="flex flex-col items-start gap-1">
           {/* v31 RUNS: a paused source reads Paused, by whom and since when. */}
-          <RunStatusBadge status={source.running ? 'running' : isPaused(source) ? 'paused' : source.lastStatus} />
+          {/* v38 FIX-APP (REVIEW38-ux L10): a links-only source that never ran has no run status (no "Never run"). */}
+          {!(linksOnlyBoard(source) && !source.lastStatus && !source.running) && (
+            <RunStatusBadge status={source.running ? 'running' : isPaused(source) ? 'paused' : source.lastStatus} />
+          )}
           {isPaused(source) && <span className="text-[13px] text-muted-foreground">{sourcePausedText(source, now)}</span>}
           {/* v35 OPSWEB (PLAN H7): switched on, but it cannot run now: why, in its "?". */}
           {source.enabled && <WaitingBadge waiting={source.waiting} name={source.name} />}
@@ -482,7 +497,7 @@ export function SourcesTab({ onShowRuns }: { onShowRuns: (sourceId: number) => v
             Terms: {JOB_SOURCE_TERMS_LABEL[source.termsStatus]}
           </Badge>
           <Badge tone={robotsTone(source.robotsStatus)} wrap>
-            Robots: {JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}
+            Robots: {robotsLabelOf(source)}
           </Badge>
         </div>
       ),

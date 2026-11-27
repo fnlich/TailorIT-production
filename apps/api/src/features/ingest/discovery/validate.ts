@@ -16,6 +16,7 @@ import { BOARD_KINDS } from './boards';
 import { isLinkKeeper, optedOut, sourcesOfBoard } from './offer';
 import { claimCount, counterOf, discoveryDayOf, releaseCount, VALIDATIONS_COUNTER } from './state';
 import { DAY_MS } from '@tailorit/shared';
+import { sourceNameOf } from '@tailorit/shared/sourcing'; // v38 FIX-APP (REVIEW38-ux L12)
 
 // v30 S2: validation (docs/design/part2/12-job-sourcing.md §4.2): a candidate becomes a source after one read through
 // its adapter in listingOnly mode (today's Test), at most DISCOVERY_VALIDATIONS_PER_DAY reads a day (an exact count per
@@ -306,8 +307,10 @@ export async function sourceForCandidate(
     sourceId = keeper.id;
   } else {
     let made: number | null = null;
+    // v38 FIX-APP (REVIEW38-ux L12): an id-named board (ADP's client id) by its company, else its kind's words.
+    const base = sourceNameOf(candidate.kind, candidate.name, typeof found.config.companyName === 'string' ? found.config.companyName : null);
     for (let n = 1; made === null; n += 1) {
-      const name = n === 1 ? candidate.name : `${candidate.name} (${n})`;
+      const name = n === 1 ? base : `${base} (${n})`;
       const row = await t.one<{ id: number }>(
         `INSERT INTO ${NEW_SOURCE_COLUMNS} VALUES (${NEW_SOURCE_PLACEHOLDERS}) ON CONFLICT(kind, name) DO NOTHING RETURNING id`,
         newSourceValues({ kind: candidate.kind as SourceKind, name, config: found.config }, at),

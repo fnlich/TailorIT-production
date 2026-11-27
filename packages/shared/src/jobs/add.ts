@@ -66,6 +66,14 @@ export const JOB_VERIFY_REASONS = [
    * access (Forbidden, Needs a contract; or not checked yet): TailorIT doesn't read it, by any path.
    */
   'terms',
+  /**
+   * v38 ATS-D (SP v38 PLAN "Final coverage"): the platform guards every page with a bot check (an AWS WAF challenge,
+   * Cloudflare Turnstile, reCAPTCHA): TailorIT never sends a request there, and never tries to get past one. Can't read
+   * (a sign-in wall or a check a read met is `blocked`, try later).
+   */
+  'bot_check',
+  /** v38 ATS-D (SP v38 PLAN A8): the employer's job site needs its own login (a customer's key): can't read. */
+  'needs_login',
 ] as const;
 export type JobVerifyReason = (typeof JOB_VERIFY_REASONS)[number];
 
@@ -83,6 +91,8 @@ export const JOB_VERIFY_REASON_MESSAGE: Record<JobVerifyReason, MessageKey> = {
   closed: 'MSG_JOB_ADD_REFUSED_CLOSED',
   invalid_link: 'MSG_JOB_ADD_REFUSED_LINK',
   terms: 'MSG_JOB_VERIFY_TERMS', // v37 FIX-37B (E8)
+  bot_check: 'MSG_JOB_VERIFY_BOT_CHECK', // v38 ATS-D
+  needs_login: 'MSG_JOB_VERIFY_NEEDS_LOGIN', // v38 ATS-D
 };
 
 /**
@@ -92,7 +102,8 @@ export const JOB_VERIFY_REASON_MESSAGE: Record<JobVerifyReason, MessageKey> = {
  */
 export const JOB_VERIFY_REASON_ADMIN_TEXT: Record<JobVerifyReason, string> = {
   unreadable_host: 'A site TailorIT never reads (a job board or a sign-in page).',
-  no_posting: "The page doesn't describe its job as a schema.org JobPosting.",
+  // v38 FIX-APP (REVIEW38-ux H1, decision D1): a read posting that names no company is no job TailorIT lists either.
+  no_posting: 'No job TailorIT can list on the page: no posting data, or a posting that names no company.',
   robots: "The site's robots.txt asks automated readers not to read it.",
   blocked: 'The site asked for a sign-in or a bot check.',
   unavailable: 'No answer from the site this time. Retry read later.',
@@ -105,6 +116,10 @@ export const JOB_VERIFY_REASON_ADMIN_TEXT: Record<JobVerifyReason, string> = {
   invalid_link: 'Not an https job link TailorIT may read.',
   // v37 FIX-37B (E8): an admin recorded its board's terms as not allowing automated access (Admin › Sources › Terms).
   terms: 'Its terms say no to automated reading (Admin › Sources › Terms).',
+  // v38 ATS-D: the platform's lasting answer; nothing is sent there. v38 FIX-APP (REVIEW38-ux L3): Couldn't verify adds
+  // what the admin can do (Approve or Reject: Retry read is not offered for a site TailorIT never reads).
+  bot_check: 'The site checks every visitor for robots, so TailorIT never reads it.',
+  needs_login: "The employer's job site needs its own login, so TailorIT never reads it.",
 };
 
 /** Each state's words (constants, public): what the Add job dialog says. */
@@ -139,6 +154,12 @@ export type JobAddDetails = z.infer<typeof JobAddDetailsSchema>;
 export const AddJobBodySchema = z.object({
   url: z.string().trim().min(1).max(JOB_LINK_MAX_CHARS),
   details: JobAddDetailsSchema.optional(),
+  /**
+   * v38 FIX-APP (REVIEW38-ux H1, decision D1): the company the person typed when TailorIT read the posting and it names
+   * no employer (an answer with `needsCompany`): the shared job is saved under it. Used only when the read names none
+   * (the posting's own employer, its list's single organisation, its source's or an import row's company come first).
+   */
+  company: z.string().trim().min(1).max(200).optional(),
 });
 export type AddJobBody = z.infer<typeof AddJobBodySchema>;
 
@@ -157,6 +178,12 @@ export const AddJobResultSchema = z.object({
   needsDetails: z.boolean(),
   /** What happened, in words (the state's or the reason's message, rendered by the server). */
   message: z.string(),
+  /**
+   * v38 FIX-APP (REVIEW38-ux H1, decision D1): TailorIT read the posting, and it names no company (ADP's, an Oracle site
+   * whose list names no single organisation, UKG's, Dayforce's): nothing was saved; the same add with `company` saves
+   * it (TailorIT keeps its read a while, so it is not read again). Absent otherwise (every other answer as before).
+   */
+  needsCompany: z.boolean().optional(),
 });
 export type AddJobResult = z.infer<typeof AddJobResultSchema>;
 
@@ -264,6 +291,8 @@ export const UnverifiedLinkSchema = z.object({
    */
   importName: z.string().nullable().optional(),
   importRow: z.number().int().positive().nullable().optional(),
+  /** v38 REVEDIT (SP v38 PLAN.md E4): an admin edited the row's job (Admin › Review › Edit job). */
+  adminEdited: z.boolean().optional(),
 });
 export type UnverifiedLink = z.infer<typeof UnverifiedLinkSchema>;
 

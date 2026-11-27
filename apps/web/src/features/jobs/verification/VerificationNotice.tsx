@@ -10,7 +10,7 @@ import { relativeTime } from '@/lib/format';
 import { useNow } from '@/lib/useNow';
 import { reasonText } from '../add/outcome';
 import { HelpTip } from '@/components/ui/HelpTip';
-import { RETRY_READ_COPY } from './copy';
+import { isNeverRead, RETRY_READ_COPY } from './copy'; // v38 FIX-APP (ux L3): isNeverRead
 import { ApprovedJobBadge } from './VerificationBadge';
 import { useIsAdmin } from '@/lib/auth'; // v36 JOBS
 import { useRetryRead } from './useRetryRead';
@@ -24,11 +24,14 @@ import { useRetryRead } from './useRetryRead';
 export function VerificationNotice({
   jobId,
   verification,
+  url = null,
   onRead,
   className,
 }: {
   jobId: number;
   verification: JobVerification | undefined;
+  /** v38 FIX-APP (REVIEW38-ux L3): the job's link (a site TailorIT never reads has no Retry read). */
+  url?: string | null;
   /** The shared job that took the place of this one after a Retry read that worked. */
   onRead?: (jobId: number) => void;
   className?: string;
@@ -43,6 +46,8 @@ export function VerificationNotice({
   if (verification?.state !== 'private_unverified') return null;
   const why = reasonText(verification.reason, t);
   const title = t('LABEL_JOB_FROM_BROWSER');
+  // v38 FIX-APP (REVIEW38-ux L3): a site TailorIT never reads: the job stays its adder's (no "until verified", no Retry).
+  const never = isNeverRead(verification.reason, url);
   return (
     <span className={clsx('inline-flex flex-wrap items-center gap-1.5', className)} data-private-state="">
       <span className="inline-flex items-center gap-1">
@@ -50,22 +55,24 @@ export function VerificationNotice({
           {title}
         </Badge>
         <HelpTip label={title}>
-          <span data-only-you-line="">{t('MSG_JOB_ONLY_YOU_UNTIL_VERIFIED')}</span>
+          <span data-only-you-line="">{never ? t('MSG_JOB_ADD_NEVER_READ') : t('MSG_JOB_ONLY_YOU_UNTIL_VERIFIED')}</span>
           {why && ` ${why}`}
           {verification.checkedAt && ` ${RETRY_READ_COPY.checked} ${relativeTime(verification.checkedAt, now)}.`}
         </HelpTip>
       </span>
-      <Button
-        variant="outline"
-        size="sm"
-        icon={<ArrowsClockwiseIcon size={14} />}
-        loading={pending}
-        onClick={() => retry(jobId)}
-        className="h-7 px-2.5"
-        data-retry-read=""
-      >
-        {RETRY_READ_COPY.button}
-      </Button>
+      {!never && (
+        <Button
+          variant="outline"
+          size="sm"
+          icon={<ArrowsClockwiseIcon size={14} />}
+          loading={pending}
+          onClick={() => retry(jobId)}
+          className="h-7 px-2.5"
+          data-retry-read=""
+        >
+          {RETRY_READ_COPY.button}
+        </Button>
+      )}
     </span>
   );
 }

@@ -1,4 +1,5 @@
-import type { AddJobResult, JobVerification } from '@tailorit/shared';
+import type { AddJobResult, JobVerification, JobVerifyReason } from '@tailorit/shared';
+import { isNeverReadLink } from '@tailorit/shared/sourcing'; // v38 FIX-APP (ux L3)
 import type { MessageRenderer } from '@/lib/messages';
 import { reasonText } from '../add/outcome';
 
@@ -26,8 +27,21 @@ export function verificationMark(item: { held?: boolean; verification?: JobVerif
   return null;
 }
 
-/** Retry read applies: a job only its adder sees because TailorIT could not read its link. */
-export const canRetryRead = (item: { verification?: JobVerification }): boolean => item.verification?.state === 'private_unverified';
+/**
+ * v38 FIX-APP (REVIEW38-ux L3): a link on a site TailorIT never reads: its reason is the platform's lasting answer (a bot
+ * check on every page, the employer's own login), or robots.txt's refusal on a platform TailorIT never reads (SAP
+ * SuccessFactors). Its job is its adder's for good: no Retry read (it would only spend a try and answer the same).
+ */
+export function isNeverRead(reason: JobVerifyReason | null | undefined, url?: string | null): boolean {
+  return reason === 'bot_check' || reason === 'needs_login' || (reason === 'robots' && isNeverReadLink(url));
+}
+
+/**
+ * Retry read applies: a job only its adder sees because TailorIT could not read its link. v38 FIX-APP (ux L3): never one
+ * of a site TailorIT never reads (the entry's link, or the job's).
+ */
+export const canRetryRead = (item: { verification?: JobVerification; postingUrl?: string | null; applyUrl?: string | null }): boolean =>
+  item.verification?.state === 'private_unverified' && !isNeverRead(item.verification.reason, item.postingUrl ?? item.applyUrl);
 
 /** The Retry read button's words, and its results' titles. */
 export const RETRY_READ_COPY = {

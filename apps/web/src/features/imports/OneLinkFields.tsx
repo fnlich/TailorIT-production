@@ -43,15 +43,18 @@ export interface OneLinkFieldsProps {
   required?: ReadonlyArray<keyof LinkDetails>;
   /** The title field's ref (focus goes there in the details step). */
   titleRef?: Ref<HTMLInputElement>;
+  /** v38 FIX-APP (REVIEW38-ux L5): the company field's ref (the details step's first field, focused while it is empty). */
+  companyRef?: Ref<HTMLInputElement>;
 }
 
-export function OneLinkFields({ details, onChange, limits, disabled = false, errors = {}, required = [], titleRef }: OneLinkFieldsProps) {
+export function OneLinkFields({ details, onChange, limits, disabled = false, errors = {}, required = [], titleRef, companyRef }: OneLinkFieldsProps) {
   const set = (key: keyof LinkDetails) => (value: string) => onChange({ ...details, [key]: value });
   const optional = (key: keyof LinkDetails) => !required.includes(key);
   return (
     <div className="grid gap-4 sm:grid-cols-2" data-link-details="">
       <Field label="Company" optional={optional('company')} required={!optional('company')} error={errors.company}>
         <Input
+          ref={companyRef}
           value={details.company}
           maxLength={limits.company}
           autoComplete="organization"

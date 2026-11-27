@@ -21,6 +21,7 @@ import { linkRejected } from './verification';
 import { isWorkdayPageHost, pauseOfHold, type LinkRead, type ReadPause } from './verdict'; // v37 CLOSED (C1, C3, C4); v37 INT-A pauseOfHold
 import { readBoardLinkToSharedJob } from './board-link'; // v37 BOARDS
 import { termsRefusalOfLink } from '../../ingest/terms'; // v37 FIX-37B (E2)
+import { isBoardKindHost, neverReadPlatformOfHost } from '../../ingest/career/platforms'; // v38 FIX-C (M13, H2)
 
 // v31 LINK (D3, docs/design/v3.1/21-jobs-from-links.md §4): an added job's own page, read once by TailorIT for its
 // schema.org JobPosting, when no ATS API reads the posting. The read goes through the shared reader (core/seams
@@ -73,6 +74,9 @@ export async function readJobPage(
 ): Promise<{ kind: 'posting'; posting: JobPostingData; finalUrl: string } | { kind: 'closed' } | { kind: 'unreadable'; reason: JobVerifyReason; pause?: ReadPause }> {
   const host = new URL(url).hostname.toLowerCase();
   if (isWorkdayPageHost(host)) return { kind: 'unreadable', reason: 'no_posting' }; // v37 CLOSED (C4)
+  // v38 FIX-C (D3): a host TailorIT never reads is asked nothing, whoever calls (its robots.txt neither).
+  const never = neverReadPlatformOfHost(host);
+  if (never) return { kind: 'unreadable', reason: never.reason };
   const result = await siteReader.read(deps, { url, purpose: 'add_page', accept: 'html' });
   if (!result.ok) {
     // v37 CLOSED (C3): a host held, or a 429, says until when. v37 INT-A: a held host's pause is the one helper's
@@ -107,6 +111,22 @@ export async function readJobPage(
   // 12 §8.1: a past validThrough is a closed posting.
   if (expiredAt(posting, deps.now())) return { kind: 'closed' };
   return { kind: 'posting', posting, finalUrl: result.finalUrl };
+}
+
+/**
+ * v38 FIX-C (REVIEW38-beh M13, H2): the can't-read reason of a page on a host a board kind claims (its board's, never a
+ * career site's: career/platforms.ts isBoardKindHost), or null for any other host: a never-read platform's own reason,
+ * else `no_posting`.
+ */
+export function boardKindPageRefusal(url: string): JobVerifyReason | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!isBoardKindHost(host)) return null;
+  return neverReadPlatformOfHost(host)?.reason ?? 'no_posting';
 }
 
 /**
@@ -189,6 +209,16 @@ export interface PageReadOptions {
    * (jobs/add/board-link.ts); a person's read keeps ADD_JOB_FETCH_TIMEOUT_MS.
    */
   timeoutMs?: number;
+  /**
+   * v38 FIX-C (REVIEW38-beh M2): a person's or an admin's own read of one job's link (Retry read, Edit job's "Read this
+   * link": pipeline.ts ReadLinkOptions.freshFeed): a board feed kept from another link's read is not used (read afresh).
+   */
+  freshFeed?: boolean;
+  /**
+   * v38 FIX-APP (SP v38 FIXES-38 D1): the company the person typed (Add job's `company`, or their details' company), for
+   * a board posting that names none (jobs/add/board-link.ts; a read kept for it is used then: kept-read.ts).
+   */
+  company?: string | null;
 }
 
 /**
@@ -205,6 +235,12 @@ export async function readPageToSharedJob(deps: AppDeps, url: string, options: P
   // source, made off: never as a career page (jobs/add/board-link.ts).
   const board = await readBoardLinkToSharedJob(deps, url, options);
   if (board) return board;
+  // v38 FIX-C (REVIEW38-beh M13, H2; SP v38 FIXES-38 D3): a link on a host a board kind claims that its reader can't read
+  // (no posting its descriptor reads: a platform's home or search page, a link form it does not know) is never read as a
+  // page and never makes a career site of the platform's host: can't read, nothing sent (not even robots.txt). A host
+  // TailorIT never reads (SuccessFactors, Phenom, JobDiva) answers that platform's reason; any other `no_posting`.
+  const refused = boardKindPageRefusal(url);
+  if (refused) return unreadable(refused);
   const read = await readJobPage(deps, url);
   if (read.kind !== 'posting') return read;
   const address = sharedAddress(read.finalUrl) ?? sharedAddress(url);

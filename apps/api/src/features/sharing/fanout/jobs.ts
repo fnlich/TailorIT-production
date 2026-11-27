@@ -151,6 +151,7 @@ export async function addByLinkOnProfiles(
         userId: target.ownerId,
         origin: options.origin ?? 'web',
         details: body.details ?? null,
+        ...(body.company ? { company: body.company } : {}), // v38 FIX-APP (D1): Add job's company step
         save: true,
         inFlight,
         ...(failedRead ? { knownRead: failedRead } : {}),

@@ -2373,11 +2373,15 @@ export const CONSTANTS = {
     'Verify: a site TailorIT never reads',
     "TailorIT doesn't read this site: add the job from the employer's own posting.",
   ),
+  // v38 FIX-APP (REVIEW38-ux L2): plain words (what may have happened, what to do); every closed Paycom posting and any
+  // page without posting data answers it.
   MSG_JOB_VERIFY_NO_POSTING: message(
     'Verify: no posting data',
-    'The page has no job posting TailorIT can read (schema.org JobPosting).',
+    "TailorIT couldn't find a job on this page: it may have closed or moved. Check the link.",
   ),
-  MSG_JOB_VERIFY_ROBOTS: message('Verify: robots.txt', "The site's robots.txt asks readers to skip this page."),
+  // v38 ATS-D (SP v38 PLAN "Final coverage"): the words a person understands (robots.txt is the site's rule for robots).
+  // v38 FIX-APP (REVIEW38-ux L8): one verb with the bot check's ("can't read this job").
+  MSG_JOB_VERIFY_ROBOTS: message('Verify: robots.txt', "This site doesn't allow automated reading, so TailorIT can't read this job."),
   MSG_JOB_VERIFY_BLOCKED: message('Verify: blocked', 'The site asked for a sign-in or a check TailorIT does not pass.'),
   MSG_JOB_VERIFY_UNAVAILABLE: message('Verify: unavailable', "The site didn't answer: try again later."),
   // v31 FIX-WEB (REV-UX UX-15): plain words for the reason most people see on a new install.
@@ -3108,6 +3112,153 @@ export const CONSTANTS = {
     help: 'How many iCIMS boards discovery may check in an hour (0 stops those checks), so it never takes the lane from the runs.',
   },
   // end v37 INT-2b
+  // v38 FRAME (SP v38 PLAN A4, A3): a platform's lane (one request at a time to all of the platform) takes these unless
+  // its board descriptor names constants of its own (Workday's, BambooHR's and iCIMS's do); a feed-based platform's
+  // board feed is read once per run, and a link's read reuses a feed read this recent.
+  LANE_DEFAULT_MIN_INTERVAL_MS: {
+    kind: 'int', default: 2000, adminEditable: true, public: false, group: 'jobs', min: 1000, max: 600_000,
+    label: 'Platform lane gap (ms)',
+    help: 'The least time between two requests to a platform whose lane names no gap of its own, as all its employers share one lane.',
+  },
+  LANE_DEFAULT_DISCOVERY_PER_HOUR: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'jobs', min: 0, max: 3600,
+    label: 'Platform boards checked an hour',
+    help: 'How many boards of a platform whose lane names no cap of its own discovery may check in an hour (0 stops those checks).',
+  },
+  BOARD_FEED_CACHE_SECONDS: {
+    kind: 'int', default: 120, adminEditable: true, public: false, group: 'jobs', min: 0, max: 3600,
+    label: 'Board feed reuse (seconds)',
+    help: "How long a link's read reuses a board's whole feed read just before (0 reads it again each time).",
+  },
+  BOARD_FEED_CACHE_MAX: {
+    kind: 'int', default: 4, adminEditable: true, public: false, group: 'jobs', min: 0, max: 50,
+    label: 'Board feeds kept',
+    help: "How many boards' feeds the server keeps at once for those reads (the oldest goes first; 0 keeps none).",
+  },
+  // end v38 FRAME
+  // v38 ATS-A (SP v38 PLAN "Final coverage" rows 7, 24): a Rippling run reads its board's list (no text), then each
+  // posting's own record, new ones first, then those not read for some days, at most this many a run (one request
+  // each, on the Rippling lane). A Teamtailor run reads the company's feed, then the pages of its jobs the feed no longer
+  // lists (an unlisted job is still open: only its page's 404 closes it), each at most once in this many hours.
+  RIPPLING_READS_PER_RUN: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'jobs', min: 1, max: 2000,
+    label: 'Rippling postings read per run',
+    help: 'Postings one run of a Rippling source reads in full (one request each, on the Rippling lane); the rest wait.',
+  },
+  RIPPLING_RECHECK_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: false, group: 'jobs', min: 1, max: 29,
+    label: 'Rippling postings read again (days)',
+    help: "A posting its board still lists is read in full again after this many days (under the unverified jobs' 30).",
+  },
+  TEAMTAILOR_UNLISTED_READS_PER_RUN: {
+    kind: 'int', default: 50, adminEditable: true, public: false, group: 'jobs', min: 0, max: 2000,
+    label: 'Unlisted Teamtailor jobs read per run',
+    help: "Jobs a Teamtailor company's feed no longer lists whose own page one run reads, to see whether they closed (0 reads none).",
+  },
+  TEAMTAILOR_UNLISTED_RECHECK_HOURS: {
+    kind: 'int', default: 24, adminEditable: true, public: false, group: 'jobs', min: 1, max: 720,
+    label: 'Unlisted Teamtailor jobs read again (hours)',
+    help: "A Teamtailor job its company's feed no longer lists is read again from its own page after this many hours.",
+  },
+  // end v38 ATS-A
+  // v38 ATS-B (SP v38 PLAN "Final coverage" 12, 13, 14, 19, 21): a run of an Oracle Recruiting Cloud site, an ADP Workforce
+  // Now career center, a Join.com company or a Recruiterflow board reads its list, then each job's own details or page
+  // (a Zoho Recruit job only when its list gave no text): new jobs first, then closed ones listed again, then the ones
+  // not read for some days, at most this many a run (one request each, at the platform's pace). Oracle's and ADP's lists
+  // are paged: a run reads at most this many listed jobs.
+  ORACLE_LIST_MAX: {
+    kind: 'int', default: 2000, adminEditable: true, public: false, group: 'jobs', min: 25, max: 20_000,
+    label: 'Oracle jobs listed per run',
+    help: "The most jobs one run of an Oracle Recruiting Cloud source reads from the site's list (100 a page); past it the list is not whole.",
+  },
+  ORACLE_READS_PER_RUN: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'jobs', min: 1, max: 2000,
+    label: 'Oracle jobs read per run',
+    help: "Jobs one run of an Oracle Recruiting Cloud source reads in full (one request each, at the platform's pace); the rest wait.",
+  },
+  ADP_LIST_MAX: {
+    kind: 'int', default: 2000, adminEditable: true, public: false, group: 'jobs', min: 25, max: 20_000,
+    label: 'ADP jobs listed per run',
+    help: "The most jobs one run of an ADP Workforce Now source reads from the career center's list (50 a page); past it the list is not whole.",
+  },
+  ADP_READS_PER_RUN: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'jobs', min: 1, max: 2000,
+    label: 'ADP jobs read per run',
+    help: "Jobs one run of an ADP Workforce Now source reads in full (one request each, at the host's pace); the rest wait.",
+  },
+  ZOHO_RECRUIT_READS_PER_RUN: {
+    kind: 'int', default: 25, adminEditable: true, public: false, group: 'jobs', min: 1, max: 500,
+    label: 'Zoho Recruit job pages read per run',
+    help: "Job pages one run of a Zoho Recruit source reads when its list leaves out a job's text (each about 2 MB); the rest wait.",
+  },
+  JOIN_READS_PER_RUN: {
+    kind: 'int', default: 50, adminEditable: true, public: false, group: 'jobs', min: 1, max: 1000,
+    label: 'Join.com job pages read per run',
+    help: "Job pages one run of a Join.com source reads in full (one request each, at the host's pace); the rest wait.",
+  },
+  RECRUITERFLOW_READS_PER_RUN: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'jobs', min: 1, max: 2000,
+    label: 'Recruiterflow job pages read per run',
+    help: "Job pages one run of a Recruiterflow source reads in full (one request each, at the host's pace); the rest wait.",
+  },
+  LISTED_POSTINGS_RECHECK_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: false, group: 'jobs', min: 1, max: 29,
+    label: 'Listed jobs read again (days)',
+    help: 'An Oracle, ADP, Zoho Recruit, Join.com or Recruiterflow job its list still names is read in full again after this many days.',
+  },
+  // end v38 ATS-B
+  // v38 ATS-C (SP v38 PLAN "Final coverage" rows 8, 15, 22): a Jobvite, Paylocity or Avature run reads its board's list,
+  // then each job's own page (the list holds no full text): new jobs first, then those not read for some days, at most
+  // this many a run (one request each, on the platform's lane). An Avature site's list is read a page at a time (6 jobs
+  // each), at most this many pages a run (a list cut short closes nothing by its absence).
+  BOARD_PAGE_READS_PER_RUN: {
+    kind: 'int', default: 100, adminEditable: true, public: false, group: 'jobs', min: 1, max: 2000,
+    label: 'Job pages read per run',
+    help: "Job pages one run of a Jobvite, Paylocity or Avature source reads (one request each, on the platform's lane); the rest wait.",
+  },
+  BOARD_PAGE_RECHECK_DAYS: {
+    kind: 'int', default: 7, adminEditable: true, public: false, group: 'jobs', min: 1, max: 29,
+    label: 'Job pages read again (days)',
+    help: "A job its board's list still names is read again after this many days (under the unverified jobs' 30).",
+  },
+  AVATURE_LIST_PAGES_PER_RUN: {
+    kind: 'int', default: 50, adminEditable: true, public: false, group: 'jobs', min: 1, max: 1000,
+    label: 'Avature list pages per run',
+    help: "Pages of an Avature site's job search (6 jobs each) one run reads; a longer list is read in part and closes nothing.",
+  },
+  // end v38 ATS-C
+  // v38 ATS-D (SP v38 PLAN A8, "Final coverage"): the reasons a platform's job link can't be read at all, in a person's
+  // words (Add job, imports, Retry read, notifications): a site that checks every visitor for robots (TailorIT never
+  // sends it a request), and an employer's job site behind its own login. robots.txt's refusal is MSG_JOB_VERIFY_ROBOTS.
+  // v38 FIX-APP (REVIEW38-ux L8): re-worded beside MSG_JOB_VERIFY_ROBOTS.
+  MSG_JOB_VERIFY_BOT_CHECK: message('Verify: a bot check', "This site blocks automated visitors, so TailorIT can't read this job."),
+  MSG_JOB_VERIFY_NEEDS_LOGIN: message(
+    "Verify: the employer's own login",
+    "This employer's job site needs its own login, so TailorIT can't read it.",
+  ),
+  // end v38 ATS-D
+  // v38 REVEDIT (SP v38 PLAN.md E4, E6): an admin edits a job from Admin › Review (its saves, "Read this link" and "Use
+  // the posting's text again" each take one of the admin's hour), and the job's admin-only mark and its "?".
+  ADMIN_JOB_EDITS_PER_HOUR: {
+    kind: 'int', default: 300, adminEditable: true, public: false, group: 'jobs', min: 1, max: 10_000,
+    label: 'Job edits one admin makes per hour',
+    help: 'How many saves, link reads and restores of a job one admin may make from Admin › Review in an hour.',
+  },
+  LABEL_JOB_EDITED_BY_ADMIN: message('Job: edited by an admin (mark)', 'Edited by an admin', [] as const, LABEL_MAX),
+  MSG_JOB_EDITED_BY_ADMIN: message(
+    'Job: edited by an admin, why',
+    "An admin corrected this job in Review, and later reads of its posting keep those changes.",
+  ),
+  // end v38 REVEDIT
+  // v38 FIX-APP (SP v38 FIXES-38 D1; REVIEW38-ux H1, L3): TailorIT read a posting that names no company (it never makes
+  // one up from a host, an id or the platform's name): Add job asks for it; and a job of a site TailorIT never reads
+  // (a bot check on every page, robots.txt's refusal of every page, the employer's own login) is its adder's for good.
+  MSG_JOB_ADD_NEEDS_COMPANY: message(
+    'Add job: the company is needed',
+    "TailorIT read the posting, but it doesn't name the company. Type the company to add the job.",
+  ),
+  MSG_JOB_ADD_NEVER_READ: message('Add job: a site TailorIT never reads', 'TailorIT never reads this site, so only you see this job.'),
+  // end v38 FIX-APP
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

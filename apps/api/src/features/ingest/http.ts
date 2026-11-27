@@ -1,5 +1,23 @@
 import { assertOutboundAllowed, assertRedirectAllowed, crossOriginHeaders, MAX_REDIRECTS, OutboundRefusedError } from '../../core/http/outbound';
 import { isRobotsExempt } from '../../core/http/robots-exemptions';
+import { neverReadPlatformOfHost } from './career/platforms'; // v38 FIX-C (D3)
+
+/**
+ * v38 FIX-C (SP v38 FIXES-38 D3; REVIEW38-beh H2): a host TailorIT never reads (SAP SuccessFactors, Phenom, JobDiva:
+ * career/platforms.ts) is refused before anything is sent, its robots.txt too, by this client whoever calls it (a
+ * redirect hop to one as well). The links are answered before they reach here (jobs/add/board-link.ts); this is the
+ * last word for any other path.
+ */
+function assertNotNeverRead(address: string | URL): void {
+  let host: string;
+  try {
+    host = (typeof address === 'string' ? new URL(address) : address).hostname;
+  } catch {
+    return; // assertOutboundAllowed refuses an address that is none
+  }
+  const platform = neverReadPlatformOfHost(host);
+  if (platform) throw new OutboundRefusedError(`TailorIT never sends a request to ${platform.label}: it doesn't read that platform.`);
+}
 
 // The job boards' HTTP client: one request a second per host (shared by every run in this process, so two sources
 // on one host take turns), a contact User-Agent, a per-request timeout, Retry-After honoured on 429, and a lenient
@@ -48,6 +66,8 @@ export class IngestHttpError extends Error {
 export interface HttpAnswer {
   status: number;
   data: unknown;
+  /** v38 ATS-C: a redirect's Location, resolved against the request (followRedirects: false), else absent. */
+  location?: string | null;
 }
 
 /** What the client tells a caller about each answer it read (GetJsonOptions.meta): its size and validators. */
@@ -182,6 +202,12 @@ export interface GetJsonOptions {
    * assertRedirectAllowed allows when absent.
    */
   allowRedirectHost?: (host: string) => boolean;
+  /**
+   * v38 ATS-C: false answers a redirect as it is (its status, `location` the address it names, its body when `text`) and
+   * sends nothing more: a platform whose "gone" is a redirect (Jobvite's 303 to ?error=404, Paylocity's 302 to
+   * JobNotFound, Avature's 302 to /careers/Error) reads that without following it. Default: followed (allowRedirectHost).
+   */
+  followRedirects?: boolean;
   /** v30 S1-API: a conditional GET: the last answer's ETag and Last-Modified. A 304 is then an answer. */
   etag?: string | null;
   lastModified?: string | null;
@@ -368,9 +394,25 @@ export function parseJsonLenient(text: string): unknown {
   }
 }
 
+/** v38 ATS-C: a redirect's Location resolved against its request's address, or null (none, or not an address). */
+function resolvedLocation(location: string | null, url: string): string | null {
+  if (!location) return null;
+  try {
+    return new URL(location, url).href;
+  } catch {
+    return null;
+  }
+}
+
 /** Whether an answer is a bot check by its headers (Cloudflare's challenge); a 401 or 403 is one by its status. */
 function isBotCheck(response: Response): boolean {
-  return (response.headers.get('cf-mitigated') ?? '').toLowerCase() === 'challenge';
+  // v38 ATS-D (SP v38 EVIDENCE.md §23): AWS WAF's challenge or CAPTCHA (Phenom's sites answer 202 with it) is one too.
+  return (response.headers.get('cf-mitigated') ?? '').toLowerCase() === 'challenge' || isAwsWafCheck(response.headers);
+}
+
+/** v38 ATS-D: an AWS WAF answer that is a bot check (`x-amzn-waf-action: challenge` or `captcha`), never a page. */
+export function isAwsWafCheck(headers: { get(name: string): string | null }): boolean {
+  return /^(?:challenge|captcha)$/i.test((headers.get('x-amzn-waf-action') ?? '').trim());
 }
 
 export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
@@ -431,7 +473,7 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
     url: string,
     init: RequestInit,
     hop: { host: string; held: boolean },
-    rules: { allowHost?: (host: string) => boolean; robots: boolean; added: readonly string[]; signal?: AbortSignal },
+    rules: { allowHost?: (host: string) => boolean; robots: boolean; added: readonly string[]; signal?: AbortSignal; follow?: boolean },
   ): Promise<Response> {
     const origin = new URL(url).origin;
     let current = url;
@@ -439,7 +481,7 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
     for (let count = 0; ; count += 1) {
       const response = await doFetch(current, hopInit);
       const location = response.status >= 300 && response.status < 400 ? response.headers.get('Location') : null;
-      if (!location) return response;
+      if (!location || rules.follow === false) return response; // v38 ATS-C: followRedirects false answers it as it is
       await response.body?.cancel().catch(() => undefined);
       let next: URL;
       try {
@@ -449,6 +491,7 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
       }
       if (count >= MAX_REDIRECTS) throw new IngestHttpError(`${url} redirected too often.`, response.status, url);
       assertRedirectAllowed(next, rules.allowHost);
+      assertNotNeverRead(next); // v38 FIX-C (D3)
       // The hop's answer (the redirect) was the previous host's, which is free again.
       await record(hop.host, { kind: 'answered', status: response.status });
       await release(hop.host);
@@ -507,6 +550,7 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
     const { signal, allow = [], text: asText, allowRedirectHost, etag, lastModified, meta } = request;
     const maxBytes = request.maxBytes ?? clientMaxBytes();
     assertOutboundAllowed(url);
+    assertNotNeverRead(url); // v38 FIX-C (D3): before robots.txt, before anything
     const parsed = new URL(url);
     const host = parsed.host;
     // v30 FIX-C SEC-5 (DECISIONS P6.2; applied by FIX-INT): robots.txt is skipped only for an address on the one
@@ -550,6 +594,7 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
             robots: request.robots !== false,
             added,
             signal,
+            follow: request.followRedirects, // v38 ATS-C
           });
           // A bot check, a 401 or a 403 is a stop (12 §9.4): the host is held, the request never retried.
           if (isBotCheck(response) || ((response.status === 401 || response.status === 403) && !allow.includes(response.status))) {
@@ -616,6 +661,10 @@ export function createIngestHttp(options: IngestHttpOptions): IngestHttp {
           lastModified: response.headers.get('Last-Modified'),
         });
         if (response.status === 304 && (etag || lastModified)) return { status: 304, data: null };
+        // v38 ATS-C: a redirect not followed is the answer, with the address it names.
+        if (request.followRedirects === false && response.status >= 300 && response.status < 400) {
+          return { status: response.status, data: asText ? text : null, location: resolvedLocation(response.headers.get('Location'), url) };
+        }
         if (!response.ok && !allow.includes(response.status)) {
           throw new IngestHttpError(`${url} answered HTTP ${response.status}.`, response.status, url);
         }

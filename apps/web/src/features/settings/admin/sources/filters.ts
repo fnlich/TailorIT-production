@@ -3,7 +3,12 @@ import {
   ADMIN_SOURCE_LIST_KINDS,
   ADMIN_SOURCE_SORTS,
   JOB_SOURCE_KINDS_NOT_BUILT,
+  LATER_BOARD_SOURCE_KINDS, // v38 FRAME
+  JOB_SOURCE_KIND_LABEL, // v38 FIX-APP (ux L13)
+  NEVER_READ_BOARD_KINDS, // v38 FIX-APP (ux L13)
+  boardDescriptorOf, // v38 FIX-APP (ux L13)
   type AdminSourceEnabledFilter,
+  type BoardSourceKind, // v38 FRAME
   type AdminSourceListKind,
   type AdminSourceTurnedOffPart,
   type AdminSourcesFilter,
@@ -61,10 +66,41 @@ export const EMPTY_SOURCE_FILTERS: SourceFilters = {
  * The kinds the Kind filter offers: every kind v3.0 builds (the Nordic feeds and a licensed feed are not). v35 OPSWEB
  * (PLAN H6): an import is not a source, so its records' kinds (csv, json) are not offered (ADMIN_SOURCE_LIST_KINDS).
  */
-export const FILTER_KINDS: readonly AdminSourceListKind[] = ADMIN_SOURCE_LIST_KINDS.filter(
+const BUILT_KINDS: readonly AdminSourceListKind[] = ADMIN_SOURCE_LIST_KINDS.filter(
   (kind) => !(JOB_SOURCE_KINDS_NOT_BUILT as readonly JobSourceKind[]).includes(kind),
-  // v37 FIX-37B (the ux review's L6): iCIMS among the boards, after BambooHR (the table's kinds list it last).
-).flatMap((kind): AdminSourceListKind[] => (kind === 'icims' ? [] : kind === 'bamboohr' ? ['bamboohr', 'icims'] : [kind]));
+  // v37 FIX-37B (the ux review's L6): iCIMS among the boards, after BambooHR (the table's kinds list it last). v38 FRAME:
+  // and every later board kind after iCIMS, in the registry's order (the table's kinds list them after v3.7's).
+).flatMap((kind): AdminSourceListKind[] =>
+  kind === 'icims' || LATER_BOARD_SOURCE_KINDS.includes(kind as BoardSourceKind)
+    ? []
+    : kind === 'bamboohr'
+      ? ['bamboohr', 'icims', ...LATER_BOARD_SOURCE_KINDS]
+      : [kind],
+);
+
+/**
+ * v38 FIX-APP (REVIEW38-ux L13): each kind's one name in the Kind filter: a board kind's platform name where no other
+ * kind's label starts with it ("Dayforce", as Add job, Hosts and the rows say; Workday's one-posting kind keeps
+ * "(one posting)" beside "Workday career site"), else the kind's label.
+ */
+export const FILTER_KIND_LABEL: Record<JobSourceKind, string> = (() => {
+  const labels: Record<string, string> = { ...JOB_SOURCE_KIND_LABEL };
+  for (const kind of BUILT_KINDS) {
+    const run = boardDescriptorOf(kind)?.runLabel;
+    // "Workday" stays "Workday (one posting)": "Workday career site" names the other Workday kind.
+    const others = Object.entries(JOB_SOURCE_KIND_LABEL).filter(([other]) => other !== kind).map(([, label]) => label);
+    if (run && !others.some((label) => label === run || label.startsWith(`${run} `))) labels[kind] = run;
+  }
+  return labels as Record<JobSourceKind, string>;
+})();
+
+/**
+ * v38 FIX-APP (REVIEW38-ux L13): the kinds the Kind filter offers, by name (as Add source lists them), without the
+ * platforms TailorIT never reads (no source of theirs ever exists).
+ */
+export const FILTER_KINDS: readonly AdminSourceListKind[] = BUILT_KINDS.filter(
+  (kind) => !(NEVER_READ_BOARD_KINDS as readonly string[]).includes(kind),
+).sort((a, b) => FILTER_KIND_LABEL[a].localeCompare(FILTER_KIND_LABEL[b], 'en', { sensitivity: 'base' }));
 
 export const SOURCE_SORT_LABEL: Record<AdminSourceSort, string> = {
   next_run: 'Next run',

@@ -35,7 +35,7 @@ export const PLATFORM_HOSTS: ReadonlyArray<readonly [string, readonly string[]]>
   ['pinpoint', ['pinpointhq.com']],
   ['paycor', ['recruitingbypaycor.com']],
   ['hibob', ['hibob.com']],
-  ['ultipro', ['ultipro.com']],
+  ['ultipro', ['ultipro.com', 'rec.pro.ukg.net']], // v38 ATS-D: a UKG tenant's host (migration 0068)
   ['dayforce', ['dayforcehcm.com']],
   ['paylocity', ['paylocity.com']],
   ['dice', ['dice.com']],
@@ -46,6 +46,23 @@ export const PLATFORM_HOSTS: ReadonlyArray<readonly [string, readonly string[]]>
   // tailorit_url_platform; its existing jobs are read again there).
   ['personio', ['personio.de', 'personio.com']],
   ['recruitee', ['recruitee.com']],
+  // v38 ATS-A: Gem's and Teamtailor's boards (migration 0065 adds their platforms rows and the same lines to
+  // tailorit_url_platform; its existing jobs are read again there).
+  ['gem', ['gem.com']],
+  ['teamtailor', ['teamtailor.com']],
+  // v38 ATS-B: Zoho Recruit, Join.com and Recruiterflow (migration 0066 adds their platforms rows and the same lines to
+  // tailorit_url_platform; its existing jobs are read again there).
+  ['zohorecruit', ['zohorecruit.com', 'zohorecruit.eu', 'zohorecruit.in', 'zohorecruit.com.au']],
+  ['join', ['join.com']],
+  ['recruiterflow', ['recruiterflow.com']],
+  // v38 ATS-C: Paycom's and Avature's hosts (migration 0067 adds Avature's platforms row and the same lines).
+  ['paycom', ['paycomonline.net']],
+  ['avature', ['avature.net']],
+  // v38 ATS-D: JobDiva's portals and Phenom's hosted sites (migration 0068 adds phenom's platforms row and both lines).
+  ['jobdiva', ['jobdiva.com']],
+  ['phenom', ['phenompro.com']],
+  // v38 INT: LinkedIn last, as in 0068's tailorit_url_platform (the same order; a UKG tenant's host rec.pro.ukg.net,
+  // the function's rank 42, is in ultipro's line above: one line per platform, and no suffix overlaps another).
   ['linkedin', ['linkedin.com']],
 ];
 

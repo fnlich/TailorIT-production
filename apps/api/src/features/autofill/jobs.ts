@@ -1,6 +1,8 @@
 import { canonicalJobUrl, normalizeCompanyName, normalizeJobTitle, STATUS, type CreateApplicationBody } from '@tailorit/shared';
+import { BOARD_DESCRIPTORS } from '@tailorit/shared/sourcing'; // v38 FRAME
 import {
   addablePosting,
+  AUTOFILL_ADDABLE_ATS,
   type AddablePosting,
   type AtsKind,
   type AutofillAddJobRequest,
@@ -21,7 +23,7 @@ import { fetchPosting, type AshbyBoardReads, type PostingAnswer } from '../inges
 import { RobotsRefusal } from '../ingest/robots';
 import { requireIngest } from '../ingest/service';
 import { termsRefusalOfPosting, TermsRefusalError } from '../ingest/terms'; // v37 FIX-37B (E2)
-import { IngestError, type SourceRecord } from '../ingest/types';
+import { IngestError, PostingUnreadableError, type SourceRecord } from '../ingest/types';
 import { holdNewJob, noteHeldAdd, type HeldAdder } from '../job-reviews/new-jobs'; // v30 X1-API; v33 SHARE-6: HeldAdder
 import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
 import { readPageToSharedJob, type ImportRead } from '../jobs/add/page'; // v31 LINK; v35 INT-A: ImportRead
@@ -29,7 +31,7 @@ import { readWaitsForAdmin, settleHeldAfterRead } from '../jobs/add/held'; // v3
 import { dateImported } from '../jobs/add/import-time'; // v36 IMPORTTIME
 import { REVIEW_HELD_SQL } from '../jobs/add/review-held'; // v31 FIX-LINK (a leaf: the SQL below is built at load)
 import { offerBoardOfClosedLink } from '../jobs/add/closed-link'; // v37 CLOSED (C7)
-import { pauseMessage, pauseOf } from '../jobs/add/verdict'; // v37 CLOSED (C1, C3)
+import { pauseMessage, pauseOf, TRY_LATER_REASONS } from '../jobs/add/verdict'; // v37 CLOSED (C1, C3); v38 FRAME: TRY_LATER_REASONS
 import { aliasValueHash } from './alias-key';
 import { jobPlaces, placesMeet } from './places';
 import { insertSourceIfNameFree, sourcesOfKind } from './sources';
@@ -49,6 +51,7 @@ import {
   type PageReading,
   type SourceLinkRow,
 } from './lookup';
+import { moveAdminEdits } from '../job-reviews/edit/apply'; // v38 REVEDIT (PLAN E4)
 
 // Adding the posting an application page shows (POST /api/autofill/jobs, the extension's "Add this job to TailorIT"
 // and "Save to tracker"): to TailorIT's jobs when it has not got it, and to the person's tracker as Saved either way.
@@ -80,13 +83,16 @@ import {
 /** How long the board has to answer, the client's turn-taking and retries included (the extension waits 25 s). */
 export const ADD_JOB_FETCH_TIMEOUT_MS = 15_000;
 
-export const ATS_NAMES: Record<AddablePosting['kind'], string> = {
-  greenhouse: 'Greenhouse',
-  lever: 'Lever',
-  ashby: 'Ashby',
-  workable: 'Workable',
-  workday: 'Workday',
-};
+/**
+ * The ATSs Add job reads one posting of, in their words (v38 FRAME: each board kind's descriptor's whose atsKind the
+ * extension's contract adds: AUTOFILL_ADDABLE_ATS, pinned).
+ */
+export const ATS_NAMES: Readonly<Record<AddablePosting['kind'], string>> = Object.fromEntries(
+  AUTOFILL_ADDABLE_ATS.map((kind) => {
+    const board = BOARD_DESCRIPTORS.find((descriptor) => descriptor.atsKind === kind)!;
+    return [kind, board.runLabel ?? board.label];
+  }),
+) as Record<AddablePosting['kind'], string>;
 
 const UNLISTED =
   'This Ashby posting is not on its board\'s public list (it is reached by its own link only), so TailorIT cannot add ' +
@@ -186,6 +192,13 @@ function boardFailure(deps: AppDeps, error: unknown, kind: AddablePosting['kind'
     // v37 CLOSED (C1): a 404 or a 410 a reader did not expect (a Workable posting's 410, a board's) is a closed posting.
     if (error.status === 404 || error.status === 410) return new AppError('not_found', `${ats} no longer has this posting: it has closed.`);
     return new AppError('ats_failed', `${ats} refused to send this posting (HTTP ${error.status}).`);
+  }
+  // v38 FRAME (SP v38 PLAN A3): the platform's own word that the posting can't be read now (try later) or at all, its
+  // reason riding along (`cause`: verdict.ts atsFailure reads it).
+  if (error instanceof PostingUnreadableError) {
+    return TRY_LATER_REASONS.has(error.reason)
+      ? new AppError('ats_unavailable', `${ats} could not be reached. ${later}`, { cause: error })
+      : new AppError('ats_failed', `${ats}'s answer is not a posting TailorIT can read.`, { cause: error });
   }
   // An answer that is not a posting TailorIT can read is the ATS's lasting word (`cause`): adding from the page then
   // keeps the page's text (from-page.ts).
@@ -478,6 +491,8 @@ export async function upgradeOwnPageJob(
     // v31 LINK: the page job's "Couldn't verify" row goes with it (it is read now).
     await t.run('DELETE FROM job_verifications WHERE job_id = ?', [ownedJobId]);
     const now = nowIso(deps);
+    // v38 REVEDIT (SP v38 PLAN.md E3, E4): what an admin edited on the page job stays over the posting's text.
+    await moveAdminEdits(t, ownedJobId, sharedJobId, now);
     const d = t.dialect;
     const posting = sharedIdentity(shared);
     const aliases = await t.all<{ id: number; alias: string; kind: string }>(

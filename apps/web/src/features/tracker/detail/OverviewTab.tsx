@@ -71,7 +71,10 @@ function ReadView({ application, onEdit }: { application: ApplicationDetail; onE
   return (
     <div className="flex flex-col gap-6">
       {/* v31 JOBSWEB: the entry's job is the person's own (TailorIT could not read its link): only they see it; Retry read. */}
-      {application.jobId !== null && <VerificationNotice jobId={application.jobId} verification={application.verification} />}
+      {application.jobId !== null && (
+        // v38 FIX-APP (ux L3): its link (a site TailorIT never reads has no Retry read)
+        <VerificationNotice jobId={application.jobId} verification={application.verification} url={application.postingUrl} />
+      )}
       <div className="grid gap-5 sm:grid-cols-2">
         <Fact icon={<MapPinIcon size={16} />} label="Location">
           {application.location || <span className="font-normal text-muted-foreground">No location</span>}

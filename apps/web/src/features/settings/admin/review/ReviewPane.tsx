@@ -70,6 +70,8 @@ import {
 import { FlagRowView, ReviewRowView, type FlagChange } from './ReviewRows';
 import { ReviewSheet } from './ReviewSheet';
 import { UnverifiedLane } from './UnverifiedLane'; // v31 ADMINWEB
+import { JobEditor, type JobEditTarget } from './edit/JobEditor'; // v38 REVEDIT (SP v38 PLAN.md E1)
+import { linkName as unverifiedName } from './unverified'; // v38 REVEDIT
 import { ADMIN_REVIEW_LANE_LABEL, ADMIN_REVIEW_LANES, fetchUnverifiedCount, filteredHeadCount, isQueueLane, type AdminReviewLane } from './unverified'; // v31 ADMINWEB
 import { NEW_JOB_WAYS, fetchRecentImports, fromOptions, newJobFilterFromAddress, newJobFilterOf, newJobFilterQuery, newJobFromValue, type NewJobFilter } from './from'; // v35 OPSWEB
 
@@ -155,6 +157,9 @@ export function ReviewPane({
   const [sheetRow, setSheetRow] = useState<AdminReviewRow | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [capturing, setCapturing] = useState<{ row: AdminReviewRow; note: string } | null>(null); // v32 ADMINAPP (E6)
+  // v38 REVEDIT (PLAN E1): the job Edit job opened (a row's of any lane, or the evidence sheet's).
+  const [editing, setEditing] = useState<JobEditTarget | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [live, setLive] = useState('');
   // v35 OPSWEB (PLAN H3): New jobs' From filter (`run=` in the address: one import).
   const [newJobFilter, setNewJobFilter] = useState<NewJobFilter>(() => newJobFilterFromAddress(searchParams));
@@ -310,6 +315,11 @@ export function ReviewPane({
   }, [q]);
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: reviewKeys.all });
+  // v38 REVEDIT (PLAN E1): opens the editor on a job.
+  const editJob = (jobId: number, name: string) => {
+    setEditing({ jobId, name });
+    setEditorOpen(true);
+  };
   const markBusy = (id: number, on: boolean) =>
     setBusy((current) => {
       const next = new Set(current);
@@ -731,6 +741,7 @@ export function ReviewPane({
                     busy={busy.has(flag.id) || (bulkBusy && selected.has(flag.id))}
                     outcome={rowOutcomeText(outcomes.get(flag.id))}
                     onChange={(change) => void changeFlag(flag, change)}
+                    onEdit={() => editJob(flag.job.id, rowName(flag.job))}
                   />
                 ))
               : reviewRows.map((row) => (
@@ -745,6 +756,7 @@ export function ReviewPane({
                     outcome={rowOutcomeText(outcomes.get(row.id))}
                     onDecide={(decision) => void decide(row, decision)}
                     {...(retriesRead(row) ? { onRetry: () => void retry(row) } : {})}
+                    onEdit={() => editJob(row.job.id, rowName(row.job))}
                     onOpen={() => {
                       setSheetRow(row);
                       setSheetOpen(true);
@@ -806,7 +818,11 @@ export function ReviewPane({
               {body}
             </>
           ) : (
-            <UnverifiedLane onLive={setLive} onFilterCount={setUnverifiedFiltered} />
+            <UnverifiedLane
+              onLive={setLive}
+              onFilterCount={setUnverifiedFiltered}
+              onEdit={(row) => editJob(row.jobId, row.title ? `${row.title} · ${unverifiedName(row.url)}` : unverifiedName(row.url))}
+            />
           )}
           <p className="sr-only" role="status" aria-live="polite" data-review-live="">
             {live}
@@ -820,8 +836,11 @@ export function ReviewPane({
           onOpenChange={setSheetOpen}
           busy={sheetRow !== null && busy.has(sheetRow.id)}
           onDecide={(row, decision, note) => void decide(row, decision, note)}
+          onEdit={(row) => editJob(row.job.id, rowName(row.job))}
         />
       )}
+      {/* v38 REVEDIT (PLAN E1-E6): Edit job, over the lane or the evidence sheet; a change reads the lanes again. */}
+      <JobEditor target={editing} open={editorOpen} onOpenChange={setEditorOpen} onChanged={refresh} onLive={setLive} />
       <ConfirmDialog
         open={capturing !== null}
         onOpenChange={(open) => !open && setCapturing(null)}

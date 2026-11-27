@@ -36,6 +36,7 @@ import {
 } from './store';
 import type { EnsuredAnalysis, JobAnalysisService } from './types';
 import { ADDED_BY_AUTOFILL } from '../ingest/types'; // v31 FIX-LINK (SEC-7)
+import { keepAdminEditsOf } from '../job-reviews/edit/apply'; // v38 REVEDIT (PLAN E4)
 
 // The analysis a job shows (docs/ARCHITECTURE.md §9): the best one stored for its text (AI > free_tailor lake >
 // deterministic), with the posting's facets (soft skills, certifications and industries, required years).
@@ -514,6 +515,7 @@ export function createJobAnalysisService(deps: AppDeps, memory: JobAnalysisMemor
         );
         await refreshAnalysisLinks(t, job.content_hash);
         const jobIds = await applyAiFacts(t, job.content_hash);
+        await keepAdminEditsOf(t, jobIds, nowIso(deps)); // v38 REVEDIT (PLAN E4): an AI reading never fills what an admin set
         // v3.0 PG-F: the jobs of this text take the reading's facts and analysis: their search rows follow, in this
         // transaction (PG-SEARCH's projection; ingest projects its own writes).
         await projectJobs(t, jobIds);

@@ -12,6 +12,7 @@ import { isAddableLink, readLink } from './pipeline';
 import { queueJobLinks } from './queue';
 import { noteUnverified } from './verification';
 import { TRY_LATER_REASONS } from './verdict'; // v37 INT-A: the verdict's try-later reasons (was TRANSIENT_REASONS here)
+import { moveAdminEdits } from '../../job-reviews/edit/apply'; // v38 REVEDIT (PLAN E4)
 
 // v31 LINK2 (21-jobs-from-links.md §9; the coordinator's decision of 2026-11-17): the shared jobs stored before v3.1
 // from what a person or a file said, never from TailorIT's own read: an import's rows (CSV, JSON, a Google Sheet, the
@@ -168,6 +169,8 @@ async function settleUnread(deps: AppDeps, jobId: number, url: string, reason: J
  * missing, superseded by the shared job. In one transaction.
  */
 export async function retireLegacyJob(t: DbTx, legacyId: number, sharedId: number, at: string): Promise<void> {
+  // v38 REVEDIT (SP v38 PLAN.md E4): what an admin edited on the legacy job stays over the shared job's posting text.
+  await moveAdminEdits(t, legacyId, sharedId, at);
   const moved = await t.all<{ id: string }>(
     `UPDATE applications SET job_id = ?, updated_at = ? WHERE job_id = ?
        AND NOT EXISTS (SELECT 1 FROM applications o WHERE o.user_id = applications.user_id AND o.job_id = ?)

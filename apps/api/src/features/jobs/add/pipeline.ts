@@ -89,6 +89,12 @@ export interface AddJobByLinkInput {
   // end v34 FANOUT
   /** v37 CLOSED (C3): the read's budget (the link queue's LINK_QUEUE_READ_TIMEOUT_MS; a person's add keeps 15 s). */
   timeoutMs?: number;
+  /**
+   * v38 FIX-APP (SP v38 FIXES-38 D1): the company the person typed for a posting TailorIT read that names none (Add job's
+   * company step, a person's import row's company); their details' company when they gave details. Never over a company
+   * the read names.
+   */
+  company?: string | null;
 }
 
 export interface AddJobByLinkOutcome {
@@ -104,6 +110,11 @@ export interface AddJobByLinkOutcome {
    * the answer says when to try again (router.ts addJobResultOf). Absent otherwise (every other answer as before).
    */
   pause?: ReadPause;
+  /**
+   * v38 FIX-APP (D1): TailorIT read the posting and it names no company: a person's add answers `private_unverified`
+   * with no job and asks for the company (the same add with `company` saves it). Absent otherwise.
+   */
+  needsCompany?: true;
 }
 
 /** How readLink reads. */
@@ -121,6 +132,14 @@ export interface ReadLinkOptions {
   importRead?: ImportRead;
   /** v37 CLOSED (C3): an ATS read's budget (the link queue's LINK_QUEUE_READ_TIMEOUT_MS; people's reads keep 15 s). */
   timeoutMs?: number;
+  /**
+   * v38 FIX-C (REVIEW38-beh M2): a person's or an admin's own read of one job's link (Retry read, Edit job's "Read this
+   * link"): a board feed kept from another link's read is not used (read afresh). Imports and the queue keep the short
+   * reuse (a posting missing from a kept feed has the feed read again before it reads closed, whoever asks).
+   */
+  freshFeed?: boolean;
+  /** v38 FIX-APP (D1): the person's typed company, for a posting that names none (page.ts PageReadOptions.company). */
+  company?: string | null;
 }
 
 /** What TailorIT's own read of a link came to (v37 CLOSED: verdict.ts, with a paused read's pause). */
@@ -184,6 +203,8 @@ export async function readLink(
     approved: options.approved === true,
     ...(options.importRead ? { importRead: options.importRead } : {}),
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}), // v37 FIX-37A (F9): a BambooHR/iCIMS link's budget too
+    ...(options.freshFeed ? { freshFeed: true } : {}), // v38 FIX-C (beh-M2): Retry read and Edit job's read use no kept board feed
+    ...(options.company ? { company: options.company } : {}), // v38 FIX-APP (D1)
   });
 }
 
@@ -243,8 +264,15 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
   }
 
   // 3. TailorIT's own read (v34 FANOUT: or the failed one this request already made of the link).
+  // v38 FIX-APP (D1): the person's typed company (Add job's company step, else their details' company).
+  const company = input.company?.trim() || input.details?.company?.trim() || null;
   const read =
-    input.knownRead ?? (await readLink(deps, url, input.inFlight, page, { readAt: given, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }));
+    input.knownRead ??
+    (await readLink(deps, url, input.inFlight, page, {
+      readAt: given,
+      ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+      ...(company ? { company } : {}),
+    }));
   input.onRead?.(read);
   if (read.kind === 'shared') {
     if (userId) {
@@ -265,6 +293,11 @@ export async function addJobByLink(deps: AppDeps, input: AddJobByLinkInput): Pro
   // import-pipeline.ts). A host TailorIT holds for another reason (a bot check, the breaker, an admin) is answered as any
   // link it cannot read now, as before.
   if (read.pause?.slowDown) return { ...outcome('refused', own, 'unavailable'), pause: read.pause };
+
+  // v38 FIX-APP (SP v38 FIXES-38 D1): TailorIT read the posting, and nothing names its company: a person's add asks for
+  // it (nothing kept, nothing noted for Couldn't verify: the posting was read); an import's or an admin's link adds
+  // nothing (`no_posting`, as a page whose posting names no employer).
+  if (read.needsCompany && userId) return { ...outcome('private_unverified', own, 'no_posting'), needsCompany: true };
 
   // 4. A link TailorIT cannot read.
   const reason = read.reason;
@@ -351,7 +384,7 @@ export async function verifyJob(
   }
   if (job.owner_user_id !== actor.id && !actor.admin) throw refuse(deps, 'forbidden', 'MSG_JOB_VERIFY_NOT_YOURS');
   if (!url || !isAddableLink(url)) return answer('private_unverified', jobId, 'invalid_link');
-  const read = await readLink(deps, url, undefined, undefined, { fresh: true });
+  const read = await readLink(deps, url, undefined, undefined, { fresh: true, freshFeed: true }); // v38 FIX-C (beh-M2): freshFeed
   if (read.kind === 'shared') {
     const key = linkKey(url);
     const owners = key ? await ownJobsOfLink(deps.db, key) : [];

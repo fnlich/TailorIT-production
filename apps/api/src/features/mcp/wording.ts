@@ -38,9 +38,11 @@ export function bannedWordingIn(text: string): Array<{ why: string; pattern: Reg
 /**
  * The tools/list answer's budget, in tokens estimated at 4 characters a token (estimatedTokens): what a person's AI
  * reads once per session. v34 MCPDIR (PLAN G8 addendum): 8,600 for v3.4 (the read and write tools apart, descriptions
- * that state each tool's side effects). The directory sets no number; it asks a server to be frugal with tokens.
+ * that state each tool's side effects). The directory sets no number; it asks a server to be frugal with tokens. v38 INT
+ * (SP v38 INT-BRIEF section 4): 8,650 for v3.8, the next 50 above the 8,613 measured, the whole growth search_jobs'
+ * source enum (20 more board kinds, 214 characters; every other text byte-identical to v3.7's).
  */
-export const MCP_TOOLS_LIST_TOKEN_BUDGET = 8_600;
+export const MCP_TOOLS_LIST_TOKEN_BUDGET = 8_650;
 
 /** A JSON text's size in tokens, estimated at 4 characters a token (the budget tests' measure). */
 export function estimatedTokens(text: string): number {

@@ -264,7 +264,10 @@ async function finishShared(
     });
   }
   const { key, merge } = sourceKeyOf(input, confidence);
-  const source = await upsertSource(t, companyId, key, postingFields(input.company), at, merge);
+  // v38 FRAME (SP v38 PLAN A6): a platform's logo address rides in its row for the logo pipeline to copy (site/step.ts),
+  // as a career page's hiringOrganization.logo does (hiring-org.ts): never a profile value itself, never hot-linked.
+  const logo = input.company.logoSourceUrl ? { logoSourceUrl: input.company.logoSourceUrl } : {};
+  const source = await upsertSource(t, companyId, key, { ...postingFields(input.company), ...logo }, at, merge);
   if (source.changed || created) {
     const result = await recomputeProfile(t, companyId, at, options.minConfidence);
     // v30 FIX-PERF (PGL-19): a new name rewrites the open jobs' words (projected with the batch); a new industry, size or

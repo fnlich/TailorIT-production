@@ -104,16 +104,44 @@ export function cardSalary(job: Pick<JobSummary, 'salary'>): string {
  * "Reposted 1 hour ago" (v3.5's words, as the Jobs page's row: list/age.ts), so a company's job list never shows the
  * board's older date for it.
  */
-export function cardAge(job: Pick<JobSummary, 'postedAt' | 'updatedAt' | 'repostedAt'>, sort: JobSort, now: DateInput): string {
+export function cardAge(job: Pick<JobSummary, 'postedAt' | 'updatedAt' | 'repostedAt'> & PostedDateKnown, sort: JobSort, now: DateInput): string {
   if (sort === 'updated') {
     const when = relativeTime(job.updatedAt ?? job.postedAt, now);
     return when ? `Updated ${when}` : '';
   }
-  return repostedAgo(job, now) ?? relativeTime(job.postedAt, now); // v36 IMPORTTIME
+  const reposted = repostedAgo(job, now); // v36 IMPORTTIME
+  if (reposted) return reposted;
+  // v38 FIX-APP (SP v38 FIXES-38 D7; REVIEW38-ux L6): a posting that names no date reads when TailorIT first saw it.
+  const when = relativeTime(job.postedAt, now);
+  return when && !postedDateKnown(job) ? `First seen ${when}` : when;
+}
+
+/**
+ * v38 FIX-APP (SP v38 FIXES-38 D7): whether the job's posted date is the posting's own (FIX-C's job DTO field
+ * `postedDateKnown`: false when no read of the posting named a date, so the stored date is when TailorIT first saw it).
+ * v38 INT-2: FIX-C's field is in JobSummary (the API always sends it); the stand-in for it before the merge is gone. An
+ * answer without it (an API older than v3.8) reads as known, the DTO's own rule.
+ */
+export type PostedDateKnown = Pick<JobSummary, 'postedDateKnown'>;
+export const postedDateKnown = (job: PostedDateKnown): boolean => job.postedDateKnown !== false;
+
+/**
+ * v38 FIX-APP (REVIEW38-ux L1): the header's places, "Remote" said once: with a remote work mode (its own pill says
+ * Remote), a place that is only "Remote" is left out ("Remote in USA", a country, stays).
+ */
+export function headerPlacesOf(
+  primary: string,
+  locations: readonly JobLocation[],
+  arrangement: JobSummary['workArrangement'] | null | undefined,
+): { first: string; others: string[] } {
+  const { first, others } = placesOf(primary, locations);
+  if (arrangement !== 'remote') return { first, others };
+  const kept = [first, ...others].filter((place) => place && !/^remote$/i.test(place.trim()));
+  return { first: kept[0] ?? '', others: kept.slice(1) };
 }
 
 /** The card's last line: salary and age joined with " · ". */
-export function cardMetaLine(job: Pick<JobSummary, 'salary' | 'postedAt' | 'updatedAt' | 'repostedAt'>, sort: JobSort, now: DateInput): string {
+export function cardMetaLine(job: Pick<JobSummary, 'salary' | 'postedAt' | 'updatedAt' | 'repostedAt'> & PostedDateKnown, sort: JobSort, now: DateInput): string {
   return [cardSalary(job), cardAge(job, sort, now)].filter(Boolean).join(' · ');
 }
 

@@ -1,4 +1,6 @@
 import { escapeHtml } from '@tailorit/shared';
+import { leverSite } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's normaliser
+import { companySourceText } from '../../companies/about'; // v38 ATS-A (A6)
 import { listItemsOf, sectionsOfLists } from '../../job-analysis/sections';
 import { IngestError, SourceNotFoundError, type AdapterContext, type FetchFailure, type ListingValidators, type RawPosting } from '../types';
 import { arrangementOf, configText, isRecord, nameFromSlug, num, periodOf, records, str, type Json } from './common';
@@ -12,15 +14,26 @@ import { conditionalOf, defineAdapter, notModifiedResult } from './define';
 export const LEVER_PAGE_SIZE = 100;
 const MAX_PAGES = 50;
 
+/** v38 FRAME: the site as typed (the shared board registry's LEVER_BOARD normaliser). */
+export { leverSite };
+
 export function leverHost(region: unknown): string {
   return str(region)?.toLowerCase() === 'eu' ? 'https://api.eu.lever.co' : 'https://api.lever.co';
 }
 
-/** The site as typed: a site name or a jobs.lever.co URL. */
-export function leverSite(input: string): string {
-  const text = input.trim();
-  const fromUrl = /lever\.co\/(?:v0\/postings\/)?([A-Za-z0-9_.-]+)/i.exec(text);
-  return (fromUrl?.[1] ?? text).replace(/[^A-Za-z0-9_.-]/g, '');
+/**
+ * v38 ATS-A (SP v38 PLAN "Final coverage" row 3, A6): the company's own words a posting carries: Lever has no company
+ * endpoint, and its postings close with the company's blurb in `additional` (REQUEST.md 3, EVIDENCE.md 3). Its plain
+ * text without the lines that say nothing (a recruiter's #LI- tag), as the company record keeps source text (at most
+ * COMPANY_SUMMARY_MAX; none under 80 characters).
+ */
+export function leverCompanyAbout(posting: Json): string | null {
+  const plain = typeof posting.additionalPlain === 'string' ? posting.additionalPlain : '';
+  const lines = plain
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^#[A-Za-z0-9_-]+$/.test(line));
+  return companySourceText(lines.map((line) => escapeHtml(line)).join('<br>'));
 }
 
 /** One posting as a RawPosting; null when it lacks an id, a title or a link. */
@@ -47,10 +60,11 @@ export function leverPosting(posting: Json, companyName: string): RawPosting | n
   const location = str(categories.location);
   const range = isRecord(posting.salaryRange) ? posting.salaryRange : null;
   const created = num(posting.createdAt);
+  const about = leverCompanyAbout(posting); // v38 ATS-A (A6)
   return {
     sourceJobId: id,
     title,
-    company: { name: companyName },
+    company: { name: companyName, ...(about ? { about } : {}) },
     descriptionHtml: html,
     descriptionText: html ? null : str(posting.descriptionPlain),
     sections: sectionsOfLists(lists.map((list) => ({ heading: list.heading, items: listItemsOf(list.content) }))),

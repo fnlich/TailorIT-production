@@ -46,6 +46,9 @@ async function countryOf(db: DbQueries, jobId: number): Promise<string | null> {
  * H4: the Rate as the job's pay when the job has no amount of pay; nothing otherwise. Answers whether it wrote. In the
  * caller's transaction. v35 FIX-PIPE (data D7): only a Rate that names an amount is pay ("DOE", "Competitive" are
  * never written), and a job whose pay has words but no amount ("Competitive") takes it: "no pay" is no amount.
+ * v38 FIX-APP (REVIEW38-ux M1, beh L14; PLAN E4 "edits stick"): never a job whose pay an admin edited in Admin › Review
+ * (job_admin_edits holds its `salary`): an admin's "no salary" stays empty whatever a later import row's Rate says. Both
+ * callers (an import's landing, Add job's details) meet it here.
  */
 export async function fillPayFromRate(t: DbQueries, jobId: number, rate: string | null | undefined, at: string): Promise<boolean> {
   if (!rate?.trim()) return false;
@@ -54,7 +57,8 @@ export async function fillPayFromRate(t: DbQueries, jobId: number, rate: string 
   const { changes } = await t.run(
     `UPDATE jobs SET salary_min = ?, salary_max = ?, salary_currency = ?, salary_period = ?, salary_annual_usd_min = ?,
        salary_annual_usd_max = ?, salary_raw = ?, updated_at = ?
-     WHERE id = ? AND salary_min IS NULL AND salary_max IS NULL`,
+     WHERE id = ? AND salary_min IS NULL AND salary_max IS NULL
+       AND NOT EXISTS (SELECT 1 FROM job_admin_edits e WHERE e.job_id = jobs.id AND e.field = 'salary')`,
     [salary.min, salary.max, salary.currency, salary.period, salary.annualUsdMin, salary.annualUsdMax, salary.raw, at, jobId],
   );
   if (changes > 0) await projectJob(t, jobId);

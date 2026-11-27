@@ -78,7 +78,8 @@ function Details() {
       <Bullets>
         <li>
           <Ui>The header</Ui>: the company and the title, the category, when TailorIT last found the posting live, when it
-          was posted (and reposted, when it was), and pills for the job type, the place, the pay and the work mode.
+          was posted (and reposted, when it was; <Ui>First seen</Ui> when the posting names no date: when TailorIT first found
+          it), and pills for the job type, the place, the pay and the work mode.
         </li>
         <li>
           <Ui>{t('LABEL_JOB_ABOUT_ROLE')}</Ui>: a <Ui>{t('LABEL_JOB_SUMMARY')}</Ui> or the <Ui>{t('LABEL_JOB_FULL_POSTING')}</Ui>, then the
@@ -159,8 +160,12 @@ function AddJob() {
           rate and location: TailorIT uses them only when it cannot read the link, and the rate only when the posting names no
           pay. A link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read
           (a Retry read that finds the posting closed marks that job closed). When the site has asked TailorIT to slow down (Workday
-          sites often do), Add job says when to try again and keeps nothing. Some companies&apos; job sites TailorIT doesn&apos;t
-          read at all (their terms say no): add the title and company to save such a job for yourself. You can add{' '}
+          sites often do), Add job says when to try again and keeps nothing. A posting that doesn&apos;t name its company (some
+          ADP, Oracle, UKG, Dayforce, Paycom and Paylocity postings) asks you for it: type the company and TailorIT adds the job. Some job sites
+          TailorIT doesn&apos;t read at all
+          (their terms say no, the site doesn&apos;t allow automated reading or checks for robots, or the employer&apos;s job site
+          needs its own login): Add job says which, and you add the title and company to save such a job for yourself (it
+          stays yours, with no Retry read). You can add{' '}
           {get('JOB_ADDS_PER_HOUR')} links an hour.
         </li>
         <li>

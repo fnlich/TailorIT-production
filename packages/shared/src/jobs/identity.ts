@@ -2,7 +2,8 @@
 // saved. Pure string work; the API hashes `normalizeJobText` with SHA-256 for `jobs.content_hash`.
 // v31 LINK: a link's noise (tracking marks, `source`/`src`, a job board's name as a value, the keep-only boards) is
 // canonical.ts' one list (isLinkNoise), shared with canonicalJobUrl.
-import { canonicalPath, keptLinkParameters, linkQueryOf } from './canonical';
+import { canonicalJobUrl, canonicalPath, keptLinkParameters, linkQueryOf } from './canonical';
+import { hostHasCleanLinks } from '../sourcing/boards/index'; // v38 FRAME (A2)
 
 interface UrlLike {
   protocol: string;
@@ -54,7 +55,20 @@ export function linkKey(link: unknown): string | null {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
   if (!url.hostname) return null;
 
-  const host = url.hostname.toLowerCase().replace(/\.+$/, '');
+  let host = url.hostname.toLowerCase().replace(/\.+$/, '');
+  // v38 FRAME (SP v38 PLAN A2): on a board platform that cleans its links, the key is its clean link's (canonicalJobUrl
+  // applies its cleanLink), so two spellings of one posting are one key.
+  if (hostHasCleanLinks(host)) {
+    const clean = canonicalJobUrl(trimmed);
+    if (clean && clean !== trimmed) {
+      try {
+        url = new runtime.URL(clean);
+        host = url.hostname.toLowerCase().replace(/\.+$/, '');
+      } catch {
+        // The clean link is always an address; the link keeps its own key otherwise.
+      }
+    }
+  }
   const job = fragmentJob(url);
   const params = [...url.searchParams].filter(([name]) => !(job !== null && name === 'id'));
   if (job !== null) params.push(['id', job]);

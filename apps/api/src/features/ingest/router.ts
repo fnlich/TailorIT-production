@@ -29,8 +29,8 @@ import { leverSite } from './adapters/lever';
 import { importFilePath, tablePostings } from './adapters/tabular';
 import { workableAccount } from './adapters/workable';
 import { workdaySiteOfPage } from './adapters/workdaySite'; // v35 ADMIN
-import { bamboohrCompany } from './adapters/bamboohr'; // v37 BOARDS
-import { icimsBoardOf, isIcimsBoardHost } from './career/platforms'; // v37 BOARDS
+import { boardDescriptorOfHost, sourceNameOf } from '@tailorit/shared/sourcing'; // v38 FRAME; v38 FIX-APP: sourceNameOf
+import { API_BOARDS, boardOfInput, boardSourceConfig, type ApiBoardDescriptor } from './boards/index'; // v38 FRAME: the board registry
 import { boardNameOf } from './discovery/boards'; // v35 ADMIN
 import { isLinkKeeper, sourcesOfBoard } from './discovery/offer'; // v35 ADMIN
 import { waitingOfSources } from './waiting'; // v35 ADMIN
@@ -38,10 +38,16 @@ import { HimalayasConfigSchema, himalayasCountry } from './adapters/himalayas'; 
 import { JobicyConfigSchema } from './adapters/jobicy'; // v30 S4
 import { UsajobsConfigSchema } from './adapters/usajobs'; // v30 S4
 import { CAREER_CONFIG_LIST_MAX, careerSiteConfigOf } from './career/config'; // v30 FIX-A (REQ-5)
+import { careerSiteRefusalOfHost } from './career/platforms'; // v38 FIX-C (D3)
 import { storeAndRunImport } from './imports';
 import { lakeFileInfo, noLakeAt, readLake } from './lake';
 import { closedNoteOf, closeOrphanJobs } from './close'; // v37 FIX-REV (D1): closedNoteOf
 import { requireIngest } from './service';
+import { readBoardLink } from './boards/links'; // v38 FIX-APP (ux L18)
+import { fetchPosting } from './postings'; // v38 FIX-APP (ux L18)
+import { newReadsAllowed } from '../../core/http/identity'; // v38 FIX-APP (ux L18)
+import { ADD_JOB_FETCH_TIMEOUT_MS } from '../autofill/jobs'; // v38 FIX-APP (ux L18)
+import { termsRefusalOfLink } from './terms'; // v38 FIX-APP (ux L18)
 import { createSheetImportRouter } from './sheets/router';
 import { runnableKinds } from './scheduler'; // v30 INT-4
 import { sourceOptedOut } from './opt-out-gate'; // v30 FIX-A
@@ -82,7 +88,7 @@ import {
   readTable,
   type ImportMapping,
 } from './tabular';
-import { IngestError, SOURCE_KIND_LABEL, UNRUN_KINDS } from './types';
+import { IngestError, SOURCE_KIND_LABEL, UNRUN_KINDS, type SourceKind } from './types';
 import { importLinksNote } from '../jobs/add/imports'; // v31 LINK2
 
 // Admin > Sources, Runs and Import jobs (docs/ARCHITECTURE.md §8). Every route is administrator-only. v30 ST4: each
@@ -144,40 +150,35 @@ const WorkdaySiteConfig = z.object({
   url: z.string().trim().min(1, 'Paste a page of the Workday career site.').max(2048, 'Paste a shorter address of the career site.'),
   companyName,
 });
-/**
- * v37 BOARDS (SP v37 PLAN B4): a BambooHR company, by its name or any address on its host
- * (https://acme.bamboohr.com/careers, .../careers/41).
- */
-const BamboohrConfig = z.object({
-  company: z.string().trim().min(1, "Enter the company's BambooHR name or careers address.").max(2048, 'Paste a shorter address.'),
-  companyName,
-});
-/** v37 BOARDS (SP v37 PLAN I1): an iCIMS site, by its board (careers-acme), its host or any address on it. */
-const IcimsConfig = z.object({
-  board: z.string().trim().min(1, 'Enter the iCIMS site address (careers-acme.icims.com).').max(2048, 'Paste a shorter address.'),
-  companyName,
-});
-/** The words of a BambooHR name or address TailorIT cannot read a company from. */
-const NO_BAMBOOHR = "Enter the company's name on BambooHR, or an address on <company>.bamboohr.com.";
-/** The words of an iCIMS address TailorIT cannot read a site from. */
-const NO_ICIMS = "Enter the iCIMS site's address, such as careers-acme.icims.com.";
+// v37 BOARDS (SP v37 PLAN B4, I1): a BambooHR company by its name or any address on its host (https://acme.bamboohr.com/
+// careers, .../careers/41), an iCIMS site by its board (careers-acme), its host or any address on it. v38 FRAME (SP v38
+// PLAN A10): every board kind whose descriptor has Add source's one field (`addSource`: BambooHR, iCIMS, each v3.8
+// platform) is added the same way: its field, read by its normaliser (v37 FIX-37B, the ux review's L1: never the
+// platform's own hosts, www.bamboohr.com), its refusals' words its descriptor's, one source per board.
 
-/**
- * v37 BOARDS: a BambooHR source's config as stored, or the field's refusal. v37 FIX-37B (the ux review's L1): never
- * BambooHR's own hosts (www.bamboohr.com, app.bamboohr.com): bamboohrCompany refuses their labels (v37 INT-2b: the one
- * list, adapters/bamboohr.ts BAMBOOHR_OWN_LABELS).
- */
-function bamboohrConfig(input: z.infer<typeof BamboohrConfig>): Record<string, unknown> {
-  const company = bamboohrCompany(input.company);
-  if (!company) throw validationFailed(NO_BAMBOOHR, { 'config.company': 'Enter the name in <name>.bamboohr.com, or its address.' });
-  return { company, ...(input.companyName ? { companyName: input.companyName } : {}) };
+/** v38 FRAME: the board kinds Add source adds by one field, by kind. */
+const FIELD_BOARDS: ReadonlyMap<string, ApiBoardDescriptor> = new Map(
+  API_BOARDS.filter((board) => board.board.addSource).map((board) => [board.board.kind, board as ApiBoardDescriptor]),
+);
+
+/** v38 FRAME: a field-added board kind's settings: its field (a name or an address), and the employer's name. */
+function fieldConfigSchema(board: ApiBoardDescriptor) {
+  const add = board.board.addSource!;
+  return z.object({
+    [add.field]: z.string().trim().min(1, add.required).max(2048, 'Paste a shorter address.'),
+    companyName,
+  }) as z.ZodType<Record<string, string | undefined>>;
 }
 
-/** v37 BOARDS: an iCIMS source's config as stored, or the field's refusal. */
-function icimsConfig(input: z.infer<typeof IcimsConfig>): Record<string, unknown> {
-  const board = icimsBoardOf(input.board);
-  if (!board) throw validationFailed(NO_ICIMS, { 'config.board': 'Enter an address on <name>.icims.com.' });
-  return { board, ...(input.companyName ? { companyName: input.companyName } : {}) };
+/** v38 FRAME: a field-added board kind's config as stored (its board's own config, its employer's name), or the field's refusal. */
+function fieldConfig(board: ApiBoardDescriptor, input: Record<string, string | undefined>): Record<string, unknown> {
+  const add = board.board.addSource!;
+  const named = boardOfInput(board, input[add.field] ?? '');
+  if (!named) throw validationFailed(add.refusal, { [`config.${add.field}`]: add.refusalField });
+  // v38 FIX-APP (SP v38 FIXES-38 D1): a platform that names no employer anywhere (ADP) needs its Company name: TailorIT
+  // never makes one up from the board's id.
+  if (add.companyRequired && !input.companyName) throw validationFailed(add.companyRequired, { 'config.companyName': add.companyRequired });
+  return { ...boardSourceConfig(board, named), ...(input.companyName ? { companyName: input.companyName } : {}) };
 }
 
 /** The words of a Workday address TailorIT cannot read a career site from. */
@@ -208,10 +209,18 @@ function careerSiteConfig(input: z.infer<typeof CareerSiteConfig>, kept: string 
   } catch (error) {
     throw validationFailed((error as Error).message, { 'config.host': 'Give a host name TailorIT may read (careers.example.org).' });
   }
-  // v37 BOARDS (SP v37 PLAN I1, I5): an iCIMS host is an iCIMS source's, never a career site's (one source per host).
-  if (isIcimsBoardHost(checked.host) && checked.host !== kept) {
-    throw validationFailed(`${checked.host} is an iCIMS site: add it as iCIMS.`, { 'config.host': 'Add this site as iCIMS.' });
+  // v37 BOARDS (SP v37 PLAN I1, I5): an iCIMS host is an iCIMS source's, never a career site's (one source per host). v38
+  // FRAME: any board kind's whose descriptor adopts career sites on its hosts.
+  const owner = boardDescriptorOfHost(checked.host);
+  if (owner?.adoptsCareerSites && checked.host !== kept) {
+    const label = owner.runLabel ?? owner.label;
+    const article = /^[aeiou]/i.test(label) ? 'an' : 'a';
+    throw validationFailed(`${checked.host} is ${article} ${label} site: add it as ${label}.`, { 'config.host': `Add this site as ${label}.` });
   }
+  // v38 FIX-C (SP v38 FIXES-38 D3): a host TailorIT never reads (SAP SuccessFactors, Phenom, JobDiva) is no career site;
+  // a kept one's settings may still change (it stays off: patchSource, bulkSources).
+  const never = checked.host !== kept ? careerSiteRefusalOfHost(checked.host) : null;
+  if (never) throw validationFailed(never, { 'config.host': "TailorIT doesn't read this platform." });
   return {
     host: checked.host,
     ...(checked.sitemaps.length > 0 ? { sitemaps: checked.sitemaps } : {}),
@@ -235,10 +244,13 @@ const CreateSourceBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('career_site'), name, enabled, config: CareerSiteConfig }),
   // v35 ADMIN (PLAN H7): a Workday career site; it runs by itself once BOT_USER_AGENT is set and robots.txt allows it.
   z.object({ kind: z.literal('workday_site'), name, enabled, config: WorkdaySiteConfig }),
-  // v37 BOARDS (SP v37 PLAN B4, I1): a BambooHR company and an iCIMS site; each runs once BOT_USER_AGENT is set.
-  z.object({ kind: z.literal('bamboohr'), name, enabled, config: BamboohrConfig }),
-  z.object({ kind: z.literal('icims'), name, enabled, config: IcimsConfig }),
+  // v37 BOARDS (SP v37 PLAN B4, I1): a BambooHR company and an iCIMS site (v38 FRAME: every field-added board kind) are
+  // read by their own body (fieldSourceBody); each runs once BOT_USER_AGENT is set.
 ]);
+
+/** v38 FRAME: a field-added board kind's Add source body. */
+const fieldSourceBody = (board: ApiBoardDescriptor) =>
+  z.object({ kind: z.literal(board.board.kind), name, enabled, config: fieldConfigSchema(board) });
 
 /** v30 S4: a feed source's settings as stored (only the keys given), and the name it gets when none is typed. */
 function feedSource(kind: 'usajobs' | 'himalayas' | 'jobicy', config: Record<string, unknown>, typed: string | undefined) {
@@ -326,12 +338,8 @@ function readImport(fileName: string, text: string) {
   }
 }
 
-/**
- * POST /api/admin/sources: a new source of a kind an admin adds (a board, the lake, the demo jobs). v36 SOURCES (PLAN
- * S4): made off, then turned on by the admin (enableSources: `enabled_by`, `enabled_at`) unless "Turn on now" is unticked
- * (`enabled: false`); a source of a company that opted out stays off.
- */
-async function createSource(deps: AppDeps, input: unknown, actor: AdminActor) {
+/** A new source of a kind Add source has a form of its own for (a v2.0 board, the lake, the demo jobs, the feeds...). */
+async function formSource(deps: AppDeps, input: unknown): Promise<NewSourceInput & { body: z.infer<typeof CreateSourceBody> }> {
   const db = deps.db;
   const body = parseInput(CreateSourceBody, input ?? {}, 'job source');
   let config: Record<string, unknown>;
@@ -409,24 +417,83 @@ async function createSource(deps: AppDeps, input: unknown, actor: AdminActor) {
       label = body.name || board;
       break;
     }
-    // v37 BOARDS (SP v37 PLAN B4, I1, I5): named by the board unless the admin names it; one source per board (an iCIMS
-    // site's career-site source an admin turned on counts: discovery/offer.ts sourcesOfBoards).
-    case 'bamboohr':
-    case 'icims': {
-      config = body.kind === 'bamboohr' ? bamboohrConfig(body.config) : icimsConfig(body.config);
-      const board = boardNameOf(body.kind, config)!;
-      const existing = (await sourcesOfBoard(db, body.kind, board)).find((source) => !isLinkKeeper(source));
-      if (existing) {
-        // v37 FIX-37B (the ux review's L7): where it is and what state it is in (the admin is in Sources already).
-        throw conflict(
-          `TailorIT has this ${SOURCE_KIND_LABEL[body.kind]} site already: "${existing.name}", ${existing.enabled ? 'on' : 'off'}. ` +
-            `Search the list for it${existing.enabled ? '' : ' to turn it on'}.`,
-        );
-      }
-      label = body.name || board;
-      break;
-    }
   }
+  return { body, config, label };
+}
+
+/**
+ * v37 BOARDS (SP v37 PLAN B4, I1, I5): a field-added board kind's new source (v38 FRAME: its descriptor's field, read by
+ * its normaliser), named by the board unless the admin names it; one source per board (an iCIMS site's career-site source
+ * an admin turned on counts: discovery/offer.ts sourcesOfBoards).
+ */
+async function fieldSource(deps: AppDeps, board: ApiBoardDescriptor, input: unknown): Promise<NewSourceInput> {
+  const body = parseInput(fieldSourceBody(board), input ?? {}, 'job source');
+  const kind = board.board.kind as SourceKind;
+  // v38 FIX-APP (REVIEW38-ux L18): a job's own link of a kind whose links name no board (Paylocity's): its board read
+  // from the job's page, once, as Add job reads it.
+  const field = board.board.addSource!.field;
+  const typed = body.config[field] ?? '';
+  const fromPage = boardOfInput(board, typed) ? null : await boardOfPostingLink(deps, board, typed);
+  const config = fieldConfig(board, fromPage ? { ...body.config, [field]: fromPage } : body.config);
+  const named = boardNameOf(kind, config)!;
+  const existing = (await sourcesOfBoard(deps.db, kind, named)).find((source) => !isLinkKeeper(source));
+  if (existing) {
+    // v37 FIX-37B (the ux review's L7): where it is and what state it is in (the admin is in Sources already).
+    const what = board.board.addSource!.what ?? `${SOURCE_KIND_LABEL[kind]} site`;
+    throw conflict(
+      `TailorIT has this ${what} already: "${existing.name}", ${existing.enabled ? 'on' : 'off'}. ` +
+        `Search the list for it${existing.enabled ? '' : ' to turn it on'}.`,
+    );
+  }
+  // v38 FIX-APP (REVIEW38-ux L12): an id-named board (ADP's client id) is named by its company (sourceNameOf).
+  const companyName = typeof config.companyName === 'string' ? config.companyName : null;
+  return { body: { ...body, kind }, config, label: body.name || sourceNameOf(kind, named, companyName) };
+}
+
+/**
+ * v38 FIX-APP (REVIEW38-ux L18): the board a job's own link names through its page (Paylocity's Details page names its
+ * board's All Jobs page: PostingAnswer.board), for a field kind whose descriptor takes such a link (addSource.postingLink):
+ * one read, with the bot user agent, through the platform's lane and robots.txt, within Add job's budget; null for any
+ * other input or a read that names none (Add source then says what to paste). Never read while page reads wait for
+ * BOT_USER_AGENT, or when the link's board's terms say no.
+ */
+async function boardOfPostingLink(deps: AppDeps, board: ApiBoardDescriptor, typed: string): Promise<string | null> {
+  const add = board.board.addSource!;
+  const text = typed.trim();
+  if (!add.postingLink || !/^https:\/\//i.test(text)) return null;
+  const read = readBoardLink(text);
+  const ref = read && read.kind === board.board.kind && !read.board ? (board.posting?.refOfLink?.(read) ?? null) : null;
+  if (!ref) return null;
+  if (!newReadsAllowed(deps)) {
+    throw validationFailed(`TailorIT can't read the job's page yet (BOT_USER_AGENT is not set): ${add.required}`, { [`config.${add.field}`]: add.refusalField });
+  }
+  if (await termsRefusalOfLink(deps.db, text)) return null;
+  try {
+    const answer = await fetchPosting(requireIngest(deps).botHttp, ref, { signal: AbortSignal.timeout(ADD_JOB_FETCH_TIMEOUT_MS), now: deps.now });
+    return answer.found && answer.board ? answer.board : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A new source to make: what was asked (its kind and "Turn on now"), its config and its name. */
+interface NewSourceInput {
+  body: { kind: SourceKind; enabled?: boolean };
+  config: Record<string, unknown>;
+  label: string;
+}
+
+/**
+ * POST /api/admin/sources: a new source of a kind an admin adds (a board, the lake, the demo jobs). v36 SOURCES (PLAN
+ * S4): made off, then turned on by the admin (enableSources: `enabled_by`, `enabled_at`) unless "Turn on now" is unticked
+ * (`enabled: false`); a source of a company that opted out stays off. v38 FRAME: a field-added board kind's by its
+ * descriptor (fieldSource), any other by its form (formSource).
+ */
+async function createSource(deps: AppDeps, input: unknown, actor: AdminActor) {
+  const db = deps.db;
+  const asked = input && typeof input === 'object' ? (input as { kind?: unknown }).kind : undefined;
+  const fieldBoard = typeof asked === 'string' ? FIELD_BOARDS.get(asked) : undefined;
+  const { body, config, label } = fieldBoard ? await fieldSource(deps, fieldBoard, input) : await formSource(deps, input);
   const taken = () => conflict(`A ${SOURCE_KIND_LABEL[body.kind]} source named "${label}" already exists.`);
   if (await findSourceRecord(db, body.kind, label)) throw taken();
   // Null: the name was taken after the look (UNIQUE(kind, name)).
@@ -489,6 +556,9 @@ async function patchSource(
   if (patch.enabled === true && !source.enabled && UNRUN_KINDS.includes(source.kind)) {
     throw validationFailed(`A ${kindLabelOf(source.kind, source.config)} source is never run, so it cannot be turned on.`);
   }
+  // v38 FIX-C (SP v38 FIXES-38 D3): a career site on a host TailorIT never reads stays off (migration 0070 turned those off).
+  const neverRead = source.kind === 'career_site' && patch.enabled === true && !source.enabled ? careerSiteRefusalOfHost(source.host ?? hostOf(source.kind, source.config) ?? '') : null;
+  if (neverRead) throw validationFailed(neverRead);
   // v30 FIX-A (SEC-2, BEH-3): a source of a company that opted out stays off (409).
   if (patch.enabled === true && (await sourceOptedOut(db, id))) throw refuse(deps, 'conflict', 'MSG_INGEST_SOURCE_OPTED_OUT');
   let config = source.config;
@@ -514,12 +584,11 @@ async function patchSource(
     } else if (source.kind === 'career_site') {
       // v30 FIX-A (REQ-5): its host, sitemaps, posting paths and employer name.
       config = careerSiteConfig(parseInput(CareerSiteConfig, merged, 'source settings'), source.host ?? null); // v37 BOARDS: its own host kept
-    } else if (source.kind === 'bamboohr') {
-      // v37 BOARDS: its company (a name or an address) and employer name.
-      config = { ...merged, ...bamboohrConfig(parseInput(BamboohrConfig, merged, 'source settings')) };
-    } else if (source.kind === 'icims') {
-      // v37 BOARDS: its site (a board, a host or an address) and employer name.
-      config = { ...merged, ...icimsConfig(parseInput(IcimsConfig, merged, 'source settings')) };
+    } else if (FIELD_BOARDS.has(source.kind)) {
+      // v37 BOARDS: a BambooHR company (a name or an address), an iCIMS site (a board, a host or an address), and the
+      // employer's name (v38 FRAME: every field-added board kind's, by its descriptor).
+      const board = FIELD_BOARDS.get(source.kind)!;
+      config = { ...merged, ...fieldConfig(board, parseInput(fieldConfigSchema(board), merged, 'source settings')) };
     } else if (source.kind === 'usajobs' || source.kind === 'himalayas' || source.kind === 'jobicy') {
       // v30 S4: the feeds' search settings.
       const schema = { usajobs: UsajobsConfigSchema, himalayas: HimalayasConfigSchema, jobicy: JobicyConfigSchema }[source.kind];

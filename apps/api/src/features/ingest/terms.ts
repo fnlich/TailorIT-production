@@ -1,7 +1,11 @@
 import type { JobSourceTermsStatus } from '@tailorit/shared';
 import { addablePosting, parseAtsUrl, type AddablePosting } from '@tailorit/shared/autofill';
+import { boardHostOf, boardUrlOf } from '@tailorit/shared/sourcing'; // v38 ATS-D
 import type { DbQueries } from '../../core/db/types';
 import { workdayLinkPosting } from './adapters/workday';
+import { apiBoardOf } from './boards/index'; // v38 INT: every board kind's link names its board
+import { readBoardLink } from './boards/links'; // v38 INT
+import { isNewBoardKindHost } from './career/platforms'; // v38 ATS-D; v38 INT: the one board-kind host rule
 import { boardNameOf, boardOfUrl, candidateName, careerSiteOfUrl } from './discovery/boards';
 import { sourcesOfBoards, type BoardRef } from './discovery/offer';
 import { termsForbidReads } from './sources';
@@ -57,6 +61,30 @@ export function boardsOfPosting(posting: AddablePosting): BoardRef[] {
   return boards;
 }
 
+/**
+ * v38 ATS-D: the career site of a link's host when a board kind claims the host (a career site a server kept there from
+ * before the kind existed: v3.7's on a Taleo, Oracle, UKG or Teamtailor host...; see boardsOfLink), else none. v38 INT:
+ * every v3.8 board kind's host (career/platforms.ts isNewBoardKindHost, beside the one rule isBoardKindHost), not only the
+ * employer-platform host forms v3.7 offered: a career site an admin kept on any of them (an Avature host too) still
+ * answers for its links.
+ */
+function keptCareerSiteOf(url: string): BoardRef[] {
+  const address = boardUrlOf(url);
+  const host = address ? boardHostOf(address) : '';
+  return host && isNewBoardKindHost(host) ? refOf('career_site', host) : [];
+}
+
+/**
+ * v38 INT (INT-BRIEF wiring 6): the board a link's posting is kept under (the link reader's board kind and its refOfLink's
+ * board, as jobs/add/board-link.ts keeps it): a links-only kind (SmartRecruiters, Taleo, Paycom, Dayforce, UKG...) names
+ * no board to discovery (no boardOfUrl), yet its Add job keeper's terms stop its links too. None for a link no kind reads.
+ */
+function boardOfPostingLink(url: string): BoardRef[] {
+  const read = readBoardLink(url);
+  const ref = read ? apiBoardOf(read.kind)?.posting?.refOfLink?.(read) : null;
+  return read && ref?.board ? refOf(read.kind as BoardRef['kind'], ref.board) : [];
+}
+
 /** The boards a link names (its ATS posting's, the board its address names, its career site's host), each once. */
 export function boardsOfLink(url: string): BoardRef[] {
   const boards: BoardRef[] = [];
@@ -64,8 +92,12 @@ export function boardsOfLink(url: string): BoardRef[] {
   if (posting) boards.push(...boardsOfPosting(posting));
   const named = boardOfUrl(url);
   if (named) boards.push(named);
+  boards.push(...boardOfPostingLink(url)); // v38 INT
   const site = careerSiteOfUrl(url);
   if (site) boards.push(site);
+  // v38 ATS-D: a host a board kind claims is no career site any more (careerSiteOfUrl), yet a career site a server kept on
+  // it from before (v3.7's on a UKG Recruiting, Taleo or Oracle host) still says whether that host's pages may be read.
+  else boards.push(...keptCareerSiteOf(url));
   const seen = new Set<string>();
   return boards.filter((board) => {
     const key = `${board.kind}\n${board.name.toLowerCase()}`;

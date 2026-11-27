@@ -18,13 +18,13 @@ import { isProfileRefusal, userMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { usePublicConstants } from '@/lib/constants';
 import { EMPTY_LINK_DETAILS, OneLinkFields, filledDetails, type LinkDetailLimits, type LinkDetails } from '../../imports/OneLinkFields';
-import { jobsKeys } from '../api';
+import { fetchJob, jobsKeys } from '../api'; // v38 FIX-APP (ux L7): fetchJob
 import { LinkSimpleIcon } from '../icons';
 import { addJobOnProfiles, type AddOnProfiles } from './api';
 import { ImportPanel } from './ImportPanel';
 import { fetchLatestImport, importKeys } from '../../imports/api'; // v35 FIX-WEB
 import { latestImportKey, latestOfSummary, latestShown, openingTab, readLatestImport, writeLatestImport, type LatestImport } from './latest';
-import { ADD_JOB_COPY, addOutcomeView, alsoSavedLine, linkInput, refusedHereView, savedToLine, type AddOutcomeView } from './outcome';
+import { ADD_JOB_COPY, addOutcomeView, alsoSavedLine, linkInput, readJobLine, refusedHereView, savedToLine, type AddOutcomeView } from './outcome';
 import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
 import { refusalText } from '../../sharing/fanout/results';
 import { missingReason } from '../../sharing/fanout/targets';
@@ -53,6 +53,10 @@ const TRACKER_KEY = ['tracker'] as const;
 
 const FORM_ID = 'add-job-form';
 const DETAILS_FORM_ID = 'add-job-details-form';
+const COMPANY_FORM_ID = 'add-job-company-form'; // v38 FIX-APP (D1)
+
+/** v38 FIX-APP (REVIEW38-ux L4): on a phone the dialog's buttons are 44 px tall (as Add source's, v38 INT). */
+const PHONE_TALL = 'max-sm:h-11';
 
 /** Add job's own details' limits (JobAddDetailsSchema: a person's job of their own). */
 const DETAIL_LIMITS: LinkDetailLimits = { company: 200, title: 300, description: 20_000, rate: 120, location: 300 };
@@ -62,6 +66,8 @@ type AddTab = 'link' | 'file' | 'sheet';
 type Step =
   | { kind: 'link' }
   | { kind: 'details'; url: string; view: AddOutcomeView }
+  // v38 FIX-APP (SP v38 FIXES-38 D1): TailorIT read the posting, which names no company: the person types it.
+  | { kind: 'company'; url: string; view: AddOutcomeView }
   | { kind: 'outcome'; view: AddOutcomeView; also: string | null };
 
 type DetailErrors = Partial<Record<keyof LinkDetails, string>>;
@@ -91,7 +97,8 @@ export interface AddJobDialogProps {
 export function AddJobDialog({ open, onOpenChange, onOpenJob, finalFocus }: AddJobDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={ADD_JOB_COPY.title} size="xl" finalFocus={finalFocus}>
+      {/* v38 FIX-APP (REVIEW38-ux L4): a 44 px ✕ on a phone, as Add source's. */}
+      <DialogContent title={ADD_JOB_COPY.title} size="xl" finalFocus={finalFocus} closeClassName="max-sm:top-2.5 max-sm:right-2.5 max-sm:size-11">
         {open && <AddJobTabs onClose={() => onOpenChange(false)} onOpenJob={onOpenJob} />}
       </DialogContent>
     </Dialog>
@@ -193,6 +200,9 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
   const [detailErrors, setDetailErrors] = useState<DetailErrors>({});
   const linkRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const companyRef = useRef<HTMLInputElement>(null); // v38 FIX-APP (ux L5; D1's company step)
+  const [company, setCompany] = useState(''); // v38 FIX-APP (D1)
+  const [companyError, setCompanyError] = useState<string | null>(null);
   const nextRef = useRef<HTMLButtonElement>(null);
   // v34 FANWEB (PLAN G4): "Also save to" the other profiles (shown only with a shared profile; off without its box).
   const choices = useFanoutChoices(['tracker:edit']);
@@ -210,7 +220,8 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
         setStep({ kind: 'outcome', view: refusedHereView(why), also });
       } else {
         const view = addOutcomeView(result, t);
-        if (view.next === 'details' && !body.details) setStep({ kind: 'details', url: result.url ?? body.url, view });
+        if (view.next === 'company' && !body.company) setStep({ kind: 'company', url: result.url ?? body.url, view }); // v38 FIX-APP (D1)
+        else if (view.next === 'details' && !body.details) setStep({ kind: 'details', url: result.url ?? body.url, view });
         else setStep({ kind: 'outcome', view, also });
       }
       if ((result && result.jobId !== null) || others.length > 0) {
@@ -230,8 +241,13 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
     if (step.kind === 'link') {
       if (focusLink.current) linkRef.current?.focus();
       focusLink.current = true;
-    } else if (step.kind === 'details') titleRef.current?.focus();
+    } else if (step.kind === 'details') {
+      // v38 FIX-APP (REVIEW38-ux L5): the first empty required field (Company comes first), else the title.
+      (details.company.trim() ? titleRef : companyRef).current?.focus();
+    } else if (step.kind === 'company') companyRef.current?.focus();
     else nextRef.current?.focus();
+    // Only when the step changes (typing never moves the focus).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   const submitLink = (event: FormEvent) => {
@@ -260,8 +276,24 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
     add.mutate({ url: step.url, details: given });
   };
 
+  // v38 FIX-APP (SP v38 FIXES-38 D1): the company of a posting TailorIT read that names none; the job is added with it.
+  const submitCompany = (event: FormEvent) => {
+    event.preventDefault();
+    if (step.kind !== 'company') return;
+    const typed = company.trim();
+    if (!typed) {
+      setCompanyError(ADD_JOB_COPY.companyRequired);
+      companyRef.current?.focus();
+      return;
+    }
+    setCompanyError(null);
+    add.mutate({ url: step.url, company: typed });
+  };
+
   const restart = (keepLink: boolean) => {
     add.reset();
+    setCompany(''); // v38 FIX-APP (D1)
+    setCompanyError(null);
     if (!keepLink) {
       setLink('');
       setDetails(EMPTY_LINK_DETAILS);
@@ -281,26 +313,27 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
         <DialogFooter>
           {view.next === 'later' ? (
             // v37 FIX-REV (REVIEW361-ux L10): the site asked TailorIT to slow down: nothing to change, try again later.
-            <Button ref={nextRef} onClick={onClose}>
+            <Button ref={nextRef} onClick={onClose} className={PHONE_TALL}>
               {ADD_JOB_COPY.close}
             </Button>
           ) : view.next === 'retry' ? (
             <>
-              <Button variant="outline" onClick={onClose}>
+              <Button variant="outline" onClick={onClose} className={PHONE_TALL}>
                 {ADD_JOB_COPY.close}
               </Button>
-              <Button ref={nextRef} onClick={() => restart(true)}>
+              <Button ref={nextRef} onClick={() => restart(true)} className={PHONE_TALL}>
                 {ADD_JOB_COPY.tryAnother}
               </Button>
             </>
           ) : (
             <>
-              <Button variant="outline" icon={<PlusIcon size={16} />} onClick={() => restart(false)}>
+              <Button variant="outline" icon={<PlusIcon size={16} />} onClick={() => restart(false)} className={PHONE_TALL}>
                 {ADD_JOB_COPY.addAnother}
               </Button>
               {view.jobId !== null && (
                 <Button
                   ref={nextRef}
+                  className={PHONE_TALL}
                   onClick={() => {
                     onOpenJob(view.jobId!);
                     onClose();
@@ -313,6 +346,38 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
           )}
         </DialogFooter>
       </div>
+    );
+  }
+
+  if (step.kind === 'company') {
+    // v38 FIX-APP (SP v38 FIXES-38 D1): TailorIT read the posting; it names no company. The person types it and the job
+    // is added (everyone sees it as any posting TailorIT read); the read is kept, so the posting is not read again.
+    return (
+      <form id={COMPANY_FORM_ID} onSubmit={submitCompany} noValidate className="mt-5 flex flex-col gap-4" data-add-job-company="">
+        <OutcomeNotice view={step.view} />
+        <Field label={ADD_JOB_COPY.companyLabel} required hint={ADD_JOB_COPY.companyHint} error={companyError}>
+          <Input
+            ref={companyRef}
+            value={company}
+            maxLength={DETAIL_LIMITS.company}
+            autoComplete="organization"
+            disabled={add.isPending}
+            onChange={(event) => {
+              setCompany(event.target.value);
+              setCompanyError(null);
+            }}
+          />
+        </Field>
+        {failure && <Notice tone="error">{failure}</Notice>}
+        <DialogFooter flush className="mt-2">
+          <Button variant="outline" onClick={() => restart(true)} disabled={add.isPending} className={PHONE_TALL}>
+            {ADD_JOB_COPY.back}
+          </Button>
+          <Button type="submit" form={COMPANY_FORM_ID} loading={add.isPending} className={PHONE_TALL}>
+            {ADD_JOB_COPY.add}
+          </Button>
+        </DialogFooter>
+      </form>
     );
   }
 
@@ -335,14 +400,15 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
           required={['title', 'company']}
           errors={detailErrors}
           titleRef={titleRef}
+          companyRef={companyRef}
           disabled={add.isPending}
         />
         {failure && <Notice tone="error">{failure}</Notice>}
         <DialogFooter flush className="mt-2">
-          <Button variant="outline" onClick={() => restart(true)} disabled={add.isPending}>
+          <Button variant="outline" onClick={() => restart(true)} disabled={add.isPending} className={PHONE_TALL}>
             {ADD_JOB_COPY.back}
           </Button>
-          <Button type="submit" form={DETAILS_FORM_ID} loading={add.isPending}>
+          <Button type="submit" form={DETAILS_FORM_ID} loading={add.isPending} className={PHONE_TALL}>
             {ADD_JOB_COPY.saveForMe}
           </Button>
         </DialogFooter>
@@ -378,7 +444,7 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
           <Button
             variant="ghost"
             size="sm"
-            className="-ml-2"
+            className="-ml-2 max-sm:h-11"
             aria-expanded={detailsOpen}
             aria-controls={detailsId}
             trailingIcon={<CaretDownIcon size={14} className={detailsOpen ? 'rotate-180' : undefined} aria-hidden="true" />}
@@ -439,10 +505,10 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
         </Notice>
       )}
       <DialogFooter>
-        <Button variant="outline" onClick={onClose} disabled={add.isPending}>
+        <Button variant="outline" onClick={onClose} disabled={add.isPending} className={PHONE_TALL}>
           Cancel
         </Button>
-        <Button type="submit" form={FORM_ID} loading={add.isPending}>
+        <Button type="submit" form={FORM_ID} loading={add.isPending} className={PHONE_TALL}>
           {ADD_JOB_COPY.add}
         </Button>
       </DialogFooter>
@@ -450,10 +516,28 @@ function AddJobFlow({ onClose, onOpenJob, focusOnStart }: { onClose: () => void;
   );
 }
 
-/** The outcome's notice: its title, the server's words, why TailorIT could not read the link, and the other profiles. */
+/**
+ * The outcome's notice: its title, the server's words, why TailorIT could not read the link, and the other profiles.
+ * v38 FIX-APP (REVIEW38-ux L7): a job TailorIT read (published, or waiting for an admin) says what it read first:
+ * "Senior Robotics Engineer at Acme Robotics", so the person sees the right posting was read.
+ */
 function OutcomeNotice({ view, also = null }: { view: AddOutcomeView; also?: string | null }) {
+  const read = view.next === 'open' && (view.tone === 'success' || view.tone === 'info') ? view.jobId : null;
+  const job = useQuery({
+    queryKey: jobsKeys.detail(read ?? 0),
+    queryFn: ({ signal }) => fetchJob(read!, signal),
+    enabled: read !== null,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const line = read !== null ? readJobLine(job.data) : null;
   return (
     <Notice tone={view.tone} title={view.title}>
+      {line && (
+        <p className="font-medium" data-add-job-read="">
+          {line}
+        </p>
+      )}
       <p data-add-job-message="">{view.body}</p>
       {view.why && (
         <p className="mt-1" data-add-job-why="">

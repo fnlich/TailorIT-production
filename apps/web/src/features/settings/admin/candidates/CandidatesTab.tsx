@@ -2,6 +2,7 @@
 
 import {
   ADMIN_CANDIDATE_BULK_ACTIONS,
+  BOARD_SOURCE_KINDS, // v38 FRAME
   JOB_SOURCE_CANDIDATE_STATUSES,
   JOB_SOURCE_CANDIDATE_STATUS_LABEL,
   JOB_SOURCE_DISCOVERED_VIA,
@@ -67,21 +68,11 @@ import {
 export const CANDIDATES_TAB_READY = true;
 
 const SEARCH_DELAY_MS = 300;
-/** The board kinds a candidate may have, for the kind filter. */
-const CANDIDATE_KINDS: readonly JobSourceKind[] = [
-  'greenhouse',
-  'lever',
-  'ashby',
-  'workable',
-  'workday',
-  'workday_site',
-  'personio',
-  'recruitee',
-  'breezy',
-  'bamboohr',
-  'icims', // v37 BOARDS (SP v37 PLAN I5): an employer's iCIMS site
-  'career_site',
-];
+/**
+ * The board kinds a candidate may have, for the kind filter (v37 BOARDS: an employer's iCIMS site too). v38 FRAME (SP v38
+ * PLAN A10): every board kind, in the board registry's order (career sites last).
+ */
+const CANDIDATE_KINDS: readonly JobSourceKind[] = BOARD_SOURCE_KINDS;
 const KIND_LABELS = Object.fromEntries(CANDIDATE_KINDS.map((kind) => [kind, JOB_SOURCE_KIND_LABEL[kind]])) as Record<JobSourceKind, string>;
 
 /** The funnel: found, then each state with its count (a click filters the list), and the signals that found them. */

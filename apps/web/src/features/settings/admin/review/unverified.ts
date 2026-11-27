@@ -18,6 +18,7 @@ import {
   type UnverifiedLinksResponse,
   type UnverifiedVersion,
 } from '@tailorit/shared/jobs';
+import { isNeverRead } from '@/features/jobs/verification/copy'; // v38 FIX-APP (ux L3)
 import { REVIEW_LANE_LABEL, REVIEW_PAGE_LANES, REVIEW_PAGE_SIZE, type ReviewPageLane } from '@tailorit/shared/reviews';
 import { z } from 'zod';
 import { api } from '@/lib/api';
@@ -282,9 +283,14 @@ export function versionLabel(version: Pick<UnverifiedVersion, 'adders' | 'yours'
  * v32 FIX-API (UXREQ-9): the reason a row shows, or null when the lane says it once ("Page reads are off": a server
  * setting, the same for every row).
  */
-export function rowReasonText(row: Pick<UnverifiedLink, 'reason'>): string | null {
-  return row.reason === 'not_set_up' ? null : REASON_ADMIN_TEXT[row.reason];
+export function rowReasonText(row: Pick<UnverifiedLink, 'reason'> & Partial<Pick<UnverifiedLink, 'url'>>): string | null {
+  if (row.reason === 'not_set_up') return null;
+  // v38 FIX-APP (REVIEW38-ux L3): a site TailorIT never reads: what the admin can do (no Retry read is offered).
+  return isNeverRead(row.reason, row.url) ? `${REASON_ADMIN_TEXT[row.reason]} ${NEVER_READ_ADMIN_NEXT}` : REASON_ADMIN_TEXT[row.reason];
 }
+
+/** v38 FIX-APP (REVIEW38-ux L3): a never-read site's row: its two ways on. */
+export const NEVER_READ_ADMIN_NEXT = "Approve to publish the person's version, or Reject.";
 
 /** v32 FIX-API (UXREQ-9): the lane's one "Page reads are off" mark and its "?", when any row says so. */
 export const PAGE_READS_OFF = {

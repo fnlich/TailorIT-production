@@ -17,6 +17,7 @@ import { CardCredit } from '../credits/JobCredit'; // v30 S4
 import { cardLocationLine, cardSalary } from '../format';
 import { rowAge } from './age'; // v35 OPSWEB
 import { VerificationBadge, useVerificationMark } from '../verification/VerificationBadge'; // v31 JOBSWEB; v36 JOBS
+import { EditedJobBadge, useEditedMark } from '../verification/EditedJobBadge'; // v38 REVEDIT
 import { FANOUT_COPY } from '../../sharing/fanout/copy'; // v34 FANWEB
 import { SaveToMenu, SavedOnChips } from '../../sharing/fanout/parts'; // v34 FANWEB
 import type { FanoutProfile, LabelOf } from '../../sharing/fanout/targets'; // v34 FANWEB
@@ -165,6 +166,7 @@ export const JobCard = memo(function JobCard({
   const kind = job.employmentType && job.employmentType !== 'full_time' ? EMPLOYMENT_TYPE_LABEL[job.employmentType] : '';
   const saveLabel = job.saved ? `Remove ${job.title} from saved jobs` : `Save ${job.title}`;
   const marked = useVerificationMark(job) !== null; // v36 JOBS (PLAN J7): "Approved by an admin" for admins only
+  const edited = useEditedMark(job); // v38 REVEDIT (PLAN E4): "Edited by an admin" for admins only
   const markId = useId();
   const canApply = Boolean(onApply) && job.active && !job.appliedOn;
   const hasWhen = Boolean(salary || kind || age);
@@ -331,14 +333,15 @@ export const JobCard = memo(function JobCard({
             </span>
           )}
         </div>
-        {(marked || applied || others.length > 0) && (
+        {(marked || edited || applied || others.length > 0) && (
           // The marks of a job others do not see; in a narrow list the Applied mark too (the wide row has it by the title).
           // v34 FANWEB: the other profiles that have the job saved ("Saved on Ana · Ben").
           <div
-            className={clsx('mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5', !marked && others.length === 0 && '@min-[30rem]/job-list:hidden')}
+            className={clsx('mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5', !marked && !edited && others.length === 0 && '@min-[30rem]/job-list:hidden')}
           >
             {applied && <span className="flex @min-[30rem]/job-list:hidden">{appliedMark('narrow')}</span>}
             {marked && <VerificationBadge held={job.held} verification={job.verification} sentenceId={markId} />}
+            {edited && <EditedJobBadge job={job} />}
             <SavedOnChips names={others} />
           </div>
         )}

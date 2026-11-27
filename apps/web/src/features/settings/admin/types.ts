@@ -1,4 +1,5 @@
 import type { AiHealth } from '@tailorit/shared';
+import { BOARD_DESCRIPTORS, type BoardSourceKind } from '@tailorit/shared/sourcing'; // v38 FRAME
 
 /*
  * The admin console's view of the API where @tailorit/shared has no contract: the Add source dialog's bodies and tests,
@@ -36,8 +37,8 @@ export const SOURCE_KINDS = [
 ] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
-/** Kinds an admin adds from the "Add source" dialog (files and sheets are imports: Admin › Import, v3.5). */
-export const ADDABLE_KINDS = [
+/** The kinds Add source has a form of its own for (a v2.0 board, the feeds, a career site, a Workday career site). */
+const FORM_KINDS = [
   'greenhouse',
   'lever',
   'ashby',
@@ -47,12 +48,19 @@ export const ADDABLE_KINDS = [
   'jobicy', // v30 S4
   'career_site', // v30 FIX-WEB (REQ-5): an employer's own career site, added by hand
   'workday_site', // v35 OPSWEB (PLAN H7): a Workday career site, from any page of it
-  'bamboohr', // v37 BOARDS (PLAN B4): a BambooHR company, by its name or careers address
-  'icims', // v37 BOARDS (PLAN I1): an employer's iCIMS site, by its address
-  'ft_lake',
-  'seed',
 ] as const;
-export type AddableKind = (typeof ADDABLE_KINDS)[number];
+
+/**
+ * v37 BOARDS (PLAN B4, I1): a BambooHR company by its name or careers address, an employer's iCIMS site by its address.
+ * v38 FRAME (SP v38 PLAN A10): every board kind whose descriptor has Add source's one field (@tailorit/shared/sourcing
+ * `addSource`), in the registry's order: one form for all of them (AddSourceDialog's field kinds).
+ */
+export const FIELD_KINDS: readonly BoardSourceKind[] = BOARD_DESCRIPTORS.filter((board) => board.addSource).map((board) => board.kind);
+export type FieldKind = BoardSourceKind;
+
+/** Kinds an admin adds from the "Add source" dialog (files and sheets are imports: Admin › Import, v3.5). */
+export const ADDABLE_KINDS: readonly AddableKind[] = [...FORM_KINDS, ...FIELD_KINDS, 'ft_lake', 'seed'];
+export type AddableKind = (typeof FORM_KINDS)[number] | FieldKind | 'ft_lake' | 'seed';
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'partial' | 'not_modified' | 'paused'; // v31 RUNS: paused
 export type RunTrigger = 'schedule' | 'manual' | 'upload' | 'startup';

@@ -1,6 +1,6 @@
 'use client';
 
-import { ADMIN_CANDIDATES_ADD_MAX, JOB_SOURCE_KIND_LABEL, type AdminCandidatesAddResult, type JobSourceKind } from '@tailorit/shared/sourcing';
+import { ADMIN_CANDIDATES_ADD_MAX, BOARD_DESCRIPTORS, JOB_SOURCE_KIND_LABEL, type AdminCandidatesAddResult, type JobSourceKind } from '@tailorit/shared/sourcing';
 import { useMutation } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
@@ -17,8 +17,17 @@ import { notBoardEntries, parseEntries } from './candidates';
 // name their own kind) or bare names (of the kind chosen), one per line; each becomes a candidate that validation reads
 // once, as discovery's own finds. A board a source reads already, or an opted-out company's, is answered as such.
 
-/** The kinds a bare name may be. v37 BOARDS (SP v37 PLAN B4, I5): a BambooHR company's and an iCIMS site's too. */
-const NAME_KINDS: readonly JobSourceKind[] = ['greenhouse', 'lever', 'ashby', 'workable', 'bamboohr', 'icims'];
+/**
+ * The kinds a bare name may be. v37 BOARDS (SP v37 PLAN B4, I5): a BambooHR company's and an iCIMS site's too. v38 FRAME
+ * (SP v38 PLAN A10): the v2.0 boards and every board kind Add source adds by its one field (its descriptor's addSource).
+ */
+const NAME_KINDS: readonly JobSourceKind[] = [
+  'greenhouse',
+  'lever',
+  'ashby',
+  'workable',
+  ...BOARD_DESCRIPTORS.filter((board) => board.addSource).map((board) => board.kind),
+];
 
 export function AddCandidatesDialog({
   open,

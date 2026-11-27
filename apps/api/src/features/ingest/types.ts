@@ -4,23 +4,32 @@ import type {
   ExperienceLevel,
   JobKeyKind,
   JobKeywords,
+  JobVerifyReason,
   Leadership,
   ParsedLocation,
   SalaryPeriod,
   WorkArrangement,
 } from '@tailorit/shared';
+import { boardDescriptorOf, BOARD_SOURCE_KINDS, type BoardSourceKind } from '@tailorit/shared/sourcing'; // v38 FRAME
 import type { AppDeps } from '../../core/context';
 import type { IngestHttp } from './http';
 
 // The ingestion pipeline's shapes (docs/ARCHITECTURE.md §8): every adapter turns its source into RawPosting-s; the
 // pipeline normalises them with the shared parsers and upserts companies, jobs, locations, links, FTS and analyses.
 
+// v38 FRAME (SP v38 PLAN A1): a board kind's words, row (precedence, runs) and place in these lists are its descriptor's
+// (@tailorit/shared/sourcing BOARD_DESCRIPTORS); the lists keep v3.7's kinds in their pinned order (SOURCE_KINDS is the
+// MCP tool search_jobs' source filter) and take each later board kind after them, in the registry's order.
+
+/** The board kinds after v3.7's (a v3.8 platform's), in the registry's order. */
+const laterBoardKinds = (known: readonly string[]): BoardSourceKind[] => BOARD_SOURCE_KINDS.filter((kind) => !known.includes(kind));
+
 /**
- * Every kind of source. 'workday' (autofill API version 5) holds the Workday postings Add job read, one at a time (the
+ * v3.7's kinds of source. 'workday' (autofill API version 5) holds the Workday postings Add job read, one at a time (the
  * read a posting's own page makes): never run as a board. 'page' (version 5) holds the jobs added from the text a
  * person saw on a page no ATS API reads (POST /api/autofill/jobs/from-page): never run, checked or closed.
  */
-export const SOURCE_KINDS = [
+const V37_SOURCE_KINDS = [
   'greenhouse',
   'lever',
   'ashby',
@@ -52,72 +61,59 @@ export const SOURCE_KINDS = [
   // client (adapters/icims.ts): a new kind of read (scheduler.ts NEW_READ_KIND_OF).
   'icims',
 ] as const;
-export type SourceKind = (typeof SOURCE_KINDS)[number];
+export type SourceKind = (typeof V37_SOURCE_KINDS)[number] | BoardSourceKind;
+
+/** Every kind of source: v3.7's (V37_SOURCE_KINDS), then each later board kind (v38 FRAME). */
+export const SOURCE_KINDS: readonly [SourceKind, ...SourceKind[]] = [...V37_SOURCE_KINDS, ...laterBoardKinds(V37_SOURCE_KINDS)];
 
 /** Public ATS boards: fetched over HTTP on the daily schedule. */
 export const ATS_KINDS = ['greenhouse', 'lever', 'ashby', 'workable'] as const;
 export type AtsKind = (typeof ATS_KINDS)[number];
 
+/** The kinds that are no board the worker's due queue runs: the lake (v30 S4: and the feeds of many employers). */
+const SCHEDULED_OTHER_KINDS: readonly SourceKind[] = ['ft_lake', 'usajobs', 'himalayas', 'jobicy'];
+
 /**
  * Kinds the ingest worker's due queue runs (uploads and the demo seed run by hand). v30 S1-API: a new source of these
- * kinds is due at once (job_sources.next_run_at), then at its tier's cadence (scheduler.ts).
+ * kinds is due at once (job_sources.next_run_at), then at its tier's cadence (scheduler.ts). v30 S3: the feeds are due
+ * at once when made, like the boards (they still run only once the identity allows a new kind of read); v30 S5: a career
+ * site runs on the due queue too, once SITE_READER_CAREER_PAGES and BOT_USER_AGENT allow it (scheduler.ts runnableKinds).
+ * v38 FRAME: every board kind whose row runs (its descriptor's), in SOURCE_KINDS' order.
  */
-export const SCHEDULED_KINDS: readonly SourceKind[] = [
-  'greenhouse',
-  'lever',
-  'ashby',
-  'workable',
-  'ft_lake',
-  // v30 S3: due at once when made, like the boards (they still run only once the identity allows a new kind of read).
-  'workday_site',
-  'personio',
-  'recruitee',
-  'breezy',
-  'bamboohr',
-  'usajobs', // v30 S4
-  'himalayas', // v30 S4
-  'jobicy', // v30 S4
-  // v30 S5: a career site runs on the due queue too, once SITE_READER_CAREER_PAGES and BOT_USER_AGENT allow it
-  // (scheduler.ts runnableKinds).
-  'career_site',
-  'icims', // v37 BOARDS: due at once when an admin turns it on, like the feeds
-];
+export const SCHEDULED_KINDS: readonly SourceKind[] = SOURCE_KINDS.filter(
+  (kind) => boardDescriptorOf(kind)?.row.runs ?? SCHEDULED_OTHER_KINDS.includes(kind),
+);
 
 /**
  * Kinds whose sources are never run, by the schedule or by hand: a Workday source's postings are read one at a time
- * (Add job, the daily check), and a job page's text is never read again.
+ * (Add job, the daily check), and a job page's text is never read again. v38 FRAME: a board kind whose row runs not.
  */
-export const UNRUN_KINDS: readonly SourceKind[] = ['workday', 'page', 'ext_page'];
+export const UNRUN_KINDS: readonly SourceKind[] = SOURCE_KINDS.filter(
+  (kind) => (boardDescriptorOf(kind) ? !boardDescriptorOf(kind)!.row.runs : kind === 'page' || kind === 'ext_page'),
+);
 
-/**
- * Which source's fields win when two describe one job: ATS > CSV/JSON > lake > seed > a page's text (what a person
- * saw, kept only until a source TailorIT reads describes the job).
- */
-export const SOURCE_PRECEDENCE: Record<SourceKind, number> = {
-  greenhouse: 4,
-  lever: 4,
-  ashby: 4,
-  workable: 4,
-  workday: 4,
+/** v38 FRAME: the precedence of the kinds that are no board (a board kind's is its descriptor's row's). */
+const OTHER_PRECEDENCE: Record<Exclude<SourceKind, BoardSourceKind>, number> = {
   csv: 3,
   json: 3,
   ft_lake: 2,
   seed: 1,
   page: 0,
   ext_page: 0,
-  // v30 S3: job_source_kinds' precedence (4: an ATS's own data).
-  workday_site: 4,
-  personio: 4,
-  recruitee: 4,
-  breezy: 4,
-  bamboohr: 4,
   // v30 S4: job_source_kinds' precedence (12 §12.1): a government feed's fields under an ATS's, a remote API's under both.
   usajobs: 3,
   himalayas: 2,
   jobicy: 2,
-  career_site: 3, // v30 S5 (job_source_kinds' precedence: below the ATS APIs)
-  icims: 4, // v37 BOARDS (0063's row: the ATS's own posting data, as a Workday career site's)
 };
+
+/**
+ * Which source's fields win when two describe one job: ATS > CSV/JSON > lake > seed > a page's text (what a person
+ * saw, kept only until a source TailorIT reads describes the job). v38 FRAME: a board kind's is its job_source_kinds row's
+ * (its descriptor's: 4 for an ATS's own data, a career site 3).
+ */
+export const SOURCE_PRECEDENCE: Readonly<Record<SourceKind, number>> = Object.fromEntries(
+  SOURCE_KINDS.map((kind) => [kind, boardDescriptorOf(kind)?.row.precedence ?? OTHER_PRECEDENCE[kind as Exclude<SourceKind, BoardSourceKind>]]),
+) as Record<SourceKind, number>;
 
 /** What a source Add job made carries in its config (`addedBy`; liveness.ts names it ADDED_BY_AUTOFILL too). */
 export const ADDED_BY_AUTOFILL = 'autofill';
@@ -139,30 +135,26 @@ export function isAddedPageSource(source: Pick<SourceRecord, 'kind' | 'enabled' 
  */
 export const ROW_SOURCE_KINDS = ['csv', 'json', 'ft_lake', 'ext_page'] as const satisfies readonly SourceKind[];
 
-export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
-  greenhouse: 'Greenhouse',
-  lever: 'Lever',
-  ashby: 'Ashby',
-  workable: 'Workable',
-  workday: 'Workday',
+/** The words of the kinds that are no board (a board kind's are its descriptor's runLabel, else its label). */
+const OTHER_KIND_LABEL: Record<Exclude<SourceKind, BoardSourceKind>, string> = {
   page: 'Job pages',
   ext_page: 'Published page jobs',
   csv: 'CSV import',
   json: 'JSON import',
   ft_lake: 'free_tailor lake',
   seed: 'Demo seed',
-  // v30 S3
-  workday_site: 'Workday career site',
-  personio: 'Personio',
-  recruitee: 'Recruitee',
-  breezy: 'Breezy HR',
-  bamboohr: 'BambooHR',
   usajobs: 'USAJOBS', // v30 S4
   himalayas: 'Himalayas', // v30 S4
   jobicy: 'Jobicy', // v30 S4
-  career_site: 'Career site', // v30 S5
-  icims: 'iCIMS', // v37 BOARDS
 };
+
+/** Each kind in the API's words ("Workday" for Workday's one-posting kind). */
+export const SOURCE_KIND_LABEL: Readonly<Record<SourceKind, string>> = Object.fromEntries(
+  SOURCE_KINDS.map((kind) => {
+    const board = boardDescriptorOf(kind);
+    return [kind, board ? (board.runLabel ?? board.label) : OTHER_KIND_LABEL[kind as Exclude<SourceKind, BoardSourceKind>]];
+  }),
+) as Record<SourceKind, string>;
 
 export const RUN_TRIGGERS = ['schedule', 'manual', 'upload', 'startup'] as const;
 export type RunTrigger = (typeof RUN_TRIGGERS)[number];
@@ -237,6 +229,11 @@ export interface RawCompany {
   links?: Array<{ label: string; url: string }>;
   sponsorsH1b?: boolean | null;
   logoPath?: string | null;
+  /**
+   * v38 FRAME (SP v38 PLAN A6): the company's logo on the platform (https): kept in its company source row for the logo
+   * pipeline to copy (companies/site/step.ts), never hot-linked.
+   */
+  logoSourceUrl?: string | null;
 }
 
 export interface RawSalary {
@@ -414,5 +411,18 @@ export class SourceNotFoundError extends IngestError {
   constructor(message: string) {
     super(message);
     this.name = 'SourceNotFoundError';
+  }
+}
+
+/**
+ * v38 FRAME (SP v38 PLAN A3): a platform's own word that one posting can't be read, now (`unavailable`, `blocked`: try
+ * later) or at all (any other reason: can't read, e.g. a job site behind its employer's own login): a board descriptor's
+ * readPosting answers it, and postings.ts fetchPosting throws it, so every link read gives it as its verdict
+ * (jobs/add/verdict.ts atsFailure, jobs/add/board-link.ts boardLinkFailure) and a re-check leaves the link as it is.
+ */
+export class PostingUnreadableError extends IngestError {
+  constructor(readonly reason: JobVerifyReason) {
+    super(`The posting can't be read (${reason}).`);
+    this.name = 'PostingUnreadableError';
   }
 }

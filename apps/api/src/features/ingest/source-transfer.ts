@@ -24,7 +24,10 @@ import { UsajobsConfigSchema } from './adapters/usajobs';
 import { workdaySiteOf } from './adapters/workdaySite';
 import { careerSiteConfigOf } from './career/config';
 import { icimsBoardOf, isIcimsBoardHost } from './career/platforms'; // v37 INT-B (BOARDS I5)
+import { careerSiteRefusalOfHost } from './career/platforms'; // v38 FIX-C (D3)
+import { isOracleHost, oracleBoardOf, teamtailorCompany } from '@tailorit/shared/sourcing'; // v38 ATS-A; v38 FIX-A: Oracle
 import { BOARD_KINDS, boardNameOf } from './discovery/boards';
+import { BOARD_TRANSFER_KEYS } from './boards/index'; // v38 FRAME: the board registry
 import { isLinkKeeper, sourcesOfBoards, type BoardRef } from './discovery/offer';
 import { KIND_TERMS, newSourceValues, sourcesWhere } from './sources'; // v37 FIX-37B (E3): KIND_TERMS
 import { SOURCE_KIND_LABEL, type SourceKind } from './types';
@@ -58,17 +61,11 @@ import { SOURCE_KIND_LABEL, type SourceKind } from './types';
  * feed host, a career site's host and sitemaps, a feed's search): nothing secret (the feeds' keys live in .env).
  */
 export const TRANSFER_CONFIG_KEYS: Readonly<Partial<Record<SourceKind, readonly string[]>>> = {
-  greenhouse: ['token'],
-  lever: ['site', 'region'],
-  ashby: ['board'],
-  workable: ['account'],
-  workday_site: ['host', 'tenant', 'careerSite'],
-  personio: ['company', 'domain'],
-  recruitee: ['company'],
-  breezy: ['company'],
-  bamboohr: ['company'],
-  icims: ['board'], // v37 INT-B (BOARDS I1): the site's board; its company name travels at the entry level, as every kind's
-  career_site: ['host', 'sitemaps', 'postingPaths'],
+  // v38 FRAME (SP v38 PLAN A9): each board kind's are its board descriptor's `transferKeys` (Greenhouse's token, Lever's
+  // site and region, a Workday career site's host, tenant and site, a feed ATS's company, iCIMS's board: its company name
+  // travels at the entry level, as every kind's; a career site's host, sitemaps and posting paths), in the registry's
+  // order; Workday's one-posting kind has none (never run).
+  ...BOARD_TRANSFER_KEYS,
   usajobs: ['params'],
   himalayas: ['country'],
   jobicy: ['geo', 'industry', 'tag'],
@@ -321,6 +318,9 @@ function boardOf(kind: SourceKind, given: Record<string, unknown>): { config: Re
     } catch (error) {
       throw new EntryProblem((error as Error).message);
     }
+    // v38 FIX-C (SP v38 FIXES-38 D3): a host TailorIT never reads (SuccessFactors, Phenom, JobDiva) is no career site.
+    const neverRead = careerSiteRefusalOfHost(checked.host);
+    if (neverRead) throw new EntryProblem(neverRead);
     const stored = {
       host: checked.host,
       ...(checked.sitemaps.length > 0 ? { sitemaps: checked.sitemaps } : {}),
@@ -361,7 +361,35 @@ function decidedTerms(kind: SourceKind, given: SourcesFileEntry['kind'], terms: 
   if (!terms) return null;
   if (kind === 'bamboohr' && terms.status === 'unchecked' && !terms.note) return null;
   if (kind === 'icims' && given === 'career_site' && !terms.note && !terms.url && ['unchecked', 'allowed_with_conditions'].includes(terms.status)) return null;
+  // v38 ATS-A: a Teamtailor company's that came as a career site, as migration 0065 converts them.
+  if (kind === 'teamtailor' && given === 'career_site' && !terms.note && !terms.url && ['unchecked', 'allowed_with_conditions'].includes(terms.status)) return null;
+  // v38 FIX-A (L15): an Oracle career site's that came as a career site, as migration 0066 converts them.
+  if (kind === 'oracle' && given === 'career_site' && !terms.note && !terms.url && ['unchecked', 'allowed_with_conditions'].includes(terms.status)) return null;
   return terms;
+}
+
+/** v38 FIX-A (L15): a path or address naming an Oracle career site (/hcmUI/CandidateExperience/<lang>/sites/<site>). */
+const ORACLE_SITE_PATH = /\/hcmUI\/CandidateExperience\/[A-Za-z0-9-]{2,12}\/sites\/([A-Za-z0-9_-]{1,40})(?:[/?#]|$)/;
+
+/**
+ * v38 FIX-A (SP v38 FIXES-38 item 12, REVIEW38-beh L15): the Oracle career site (<host>/<site>, its site as the file
+ * writes it) a v3.7 file's career site on an Oracle Recruiting Cloud tenant's host reads, as migration 0066 converts
+ * them: its sitemaps and posting paths name exactly one site; else the entry is refused with what to do.
+ */
+function oracleSiteOfCareerSite(host: string, config: Record<string, unknown>): string {
+  const texts = [config.sitemaps, config.postingPaths].flatMap((value) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []));
+  const sites = new Map<string, string>();
+  for (const text of texts) {
+    const site = ORACLE_SITE_PATH.exec(text)?.[1];
+    if (site && !sites.has(site.toLowerCase())) sites.set(site.toLowerCase(), site);
+  }
+  const board = sites.size === 1 ? oracleBoardOf(`${host}/${[...sites.values()][0]!}`) : '';
+  if (!board) {
+    throw new EntryProblem(
+      'This career site is on Oracle Recruiting Cloud: add it as Oracle Recruiting Cloud instead, with a page of the career site (its address has /sites/<site> in it).',
+    );
+  }
+  return board;
 }
 
 function checkEntry(raw: unknown): CheckedEntry {
@@ -379,8 +407,14 @@ function checkEntry(raw: unknown): CheckedEntry {
   // them, and Add source refuses one): a v3.6 file (LAND re-imports the owner's) imports it as an iCIMS source.
   const host = entry.kind === 'career_site' ? String(entry.config.host ?? '') : '';
   const icims = host && isIcimsBoardHost(host) ? icimsBoardOf(host) : '';
-  const kind: SourceKind = icims ? 'icims' : entry.kind;
-  const { config, board, label } = boardOf(kind, icims ? { board: icims } : entry.config);
+  // v38 ATS-A (SP v38 WAVE2 item 7): a career site on a company's Teamtailor host is that Teamtailor company now (as
+  // migration 0065 converts them, and Add source refuses one): a v3.7 file imports it as a Teamtailor source.
+  const teamtailor = !icims && host ? teamtailorCompany(host) : '';
+  // v38 FIX-A (L15): a career site on an Oracle Recruiting Cloud tenant's host is that Oracle career site now (as
+  // migration 0066 converts them, and Add source refuses one): imported as an Oracle source, or refused with what to do.
+  const oracle = !icims && !teamtailor && host && isOracleHost(host) ? oracleSiteOfCareerSite(host.toLowerCase(), entry.config) : '';
+  const kind: SourceKind = icims ? 'icims' : teamtailor ? 'teamtailor' : oracle ? 'oracle' : entry.kind;
+  const { config, board, label } = boardOf(kind, icims ? { board: icims } : teamtailor ? { company: teamtailor } : oracle ? { site: oracle } : entry.config);
   // v37 FIX-37B (F5): a setting that can't be stored (a NUL, a control character) refuses the entry, never the file.
   if (configUnstorable(config)) throw new EntryProblem(SOURCES_FILE_UNSTORABLE);
   const company = textOf(entry.companyName);

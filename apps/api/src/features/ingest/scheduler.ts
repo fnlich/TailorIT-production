@@ -6,6 +6,7 @@ import { nowIso, type AppDeps } from '../../core/context';
 import type { DbQueries } from '../../core/db/types';
 import { ADAPTERS } from './adapters/index';
 import { isDefinedAdapter, missingOutsideKey } from './adapters/define';
+import { BOARD_NEW_READ_KIND_OF } from './boards/index'; // v38 FRAME
 import { HostHeldError, nothingSent, type IngestHttp } from './http';
 import { createHostGate, createRobotsStore, laneSql, onLaneSql, sameLaneSql } from './hosts'; // v30 FIX-A (SEC-7); v37 LANE; v37 FIX-LANE (any lane)
 import { hostRobots, robotsVerdict, type StoredRobots } from './robots';
@@ -76,14 +77,11 @@ export const ROBOTS_VERDICT_MAX_AGE_MS = 24 * 3_600_000;
  * then read with that identity. v2.0's kinds keep today's (INGEST_USER_AGENT). Wave 4's adapters (S3, S4, S5) land on
  * these entries; a kind with no adapter never runs.
  */
+// v38 FRAME (SP v38 PLAN A1): a board kind's is its board descriptor's `readKind` (the Workday career sites, the feed
+// ATSs, BambooHR and iCIMS read feeds, `feed_read`; career sites the shared reader, `site_reader`); the feeds of many
+// employers' are listed here.
 export const NEW_READ_KIND_OF: Readonly<Partial<Record<string, NewReadKind>>> = {
-  workday_site: 'feed_read',
-  personio: 'feed_read',
-  recruitee: 'feed_read',
-  breezy: 'feed_read',
-  bamboohr: 'feed_read',
-  icims: 'feed_read', // v37 BOARDS (SP v37 PLAN I2): robots.txt, the sitemap and each posting's page, with BOT_USER_AGENT
-  career_site: 'site_reader',
+  ...BOARD_NEW_READ_KIND_OF,
   usajobs: 'usajobs',
   himalayas: 'remote_api',
   jobicy: 'remote_api',

@@ -102,7 +102,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <BaseToast.Provider limit={3}>
       {children}
       <BaseToast.Portal>
-        <BaseToast.Viewport className="pointer-events-none fixed right-4 bottom-4 z-[80] flex max-sm:[body:has([data-kit-modal])_&]:z-40 w-[calc(100vw-2rem)] flex-col-reverse gap-2.5 outline-none sm:right-6 sm:bottom-6 sm:w-[360px]">
+        {/* v38 FIX-APP (REVIEW38-ux L14): above an open sheet's footer (Sheet.tsx writes --sheet-footer-h; 0 without one). */}
+        <BaseToast.Viewport className="pointer-events-none fixed right-4 bottom-[calc(var(--sheet-footer-h,0px)+1rem)] z-[80] flex max-sm:[body:has([data-kit-modal])_&]:z-40 w-[calc(100vw-2rem)] flex-col-reverse gap-2.5 outline-none sm:right-6 sm:bottom-[calc(var(--sheet-footer-h,0px)+1.5rem)] sm:w-[360px]">
           <ToastList />
         </BaseToast.Viewport>
       </BaseToast.Portal>

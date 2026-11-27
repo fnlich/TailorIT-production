@@ -83,6 +83,8 @@ export interface DialogContentProps {
   size?: DialogSize;
   /** The ✕ in the corner (default on). */
   showClose?: boolean;
+  /** v38 INT: extra classes for the ✕ (a dialog whose phone layout wants it 44 px: Add source). */
+  closeClassName?: string;
   className?: string;
   initialFocus?: ComponentProps<typeof BaseDialog.Popup>['initialFocus'];
   finalFocus?: ComponentProps<typeof BaseDialog.Popup>['finalFocus'];
@@ -99,6 +101,7 @@ export function DialogContent({
   help,
   size = 'md',
   showClose = true,
+  closeClassName,
   className,
   initialFocus,
   finalFocus,
@@ -148,7 +151,7 @@ export function DialogContent({
           {children}
           {showClose && (
             <BaseDialog.Close
-              render={<IconButton label="Close" icon={<XIcon size={18} />} size="sm" tooltip={false} className="absolute top-4 right-4" />}
+              render={<IconButton label="Close" icon={<XIcon size={18} />} size="sm" tooltip={false} className={clsx('absolute top-4 right-4', closeClassName)} />}
             />
           )}
         </BaseDialog.Popup>

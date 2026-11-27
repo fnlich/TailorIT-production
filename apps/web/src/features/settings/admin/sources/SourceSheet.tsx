@@ -2,7 +2,6 @@
 
 import {
   JOB_SOURCE_DISCOVERED_VIA_LABEL,
-  JOB_SOURCE_ROBOTS_LABEL,
   JOB_SOURCE_TERMS_LABEL,
   JOB_SOURCE_TIER_LABEL,
   type AdminSourceRow,
@@ -34,6 +33,7 @@ import {
   isUnrun,
   robotsTone,
   runNowHint,
+  robotsLabelOf, // v38 FIX-APP (ux L10)
   scheduleText,
   sourceDetail,
   sourceLine,
@@ -296,7 +296,7 @@ export function SourceDetails({
         <dl className="mt-1 divide-y divide-divider-soft">
           <Fact label="Terms">{terms ?? <TermsFacts status={source.termsStatus} settings={settings} now={now} />}</Fact>
           <Fact label="robots.txt">
-            <Badge tone={robotsTone(source.robotsStatus)}>{JOB_SOURCE_ROBOTS_LABEL[source.robotsStatus]}</Badge>
+            <Badge tone={robotsTone(source.robotsStatus)}>{robotsLabelOf(source)}</Badge>
           </Fact>
           <Fact label="AI">{source.aiInput ? 'Its postings may be read by AI' : 'Its postings are never sent to AI'}</Fact>
           <Fact label="Found by">{source.discoveredVia ? JOB_SOURCE_DISCOVERED_VIA_LABEL[source.discoveredVia] : 'Added before discovery'}</Fact>

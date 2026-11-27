@@ -1,7 +1,7 @@
 import type { EmploymentType } from '@tailorit/shared';
 import { assertNewReadAllowed, type NewReadKind } from '../../../core/http/identity';
-import { feedHostOf } from '../sources';
-import { parseXml, tenantOf, xmlChild, xmlChildren, xmlText, type XmlElement } from '../sitemap';
+import { PERSONIO_BOARD, personioCompany } from '@tailorit/shared/sourcing'; // v38 FRAME: the board registry's rules
+import { parseXml, xmlChild, xmlChildren, xmlText, type XmlElement } from '../sitemap';
 import { IngestError, SourceNotFoundError, type FetchFailure, type ListingValidators, type RawPosting } from '../types';
 import { nameFromSlug, str } from './common';
 import { conditionalOf, defineAdapter, notModifiedResult } from './define';
@@ -24,14 +24,14 @@ const NEW_READ: NewReadKind = 'feed_read';
 /** The feed's languages (Personio's reference); a career site answers in the ones it has. */
 export const PERSONIO_LANGUAGES = ['en', 'de', 'fr', 'es', 'nl', 'it', 'pt'] as const;
 
-/** The company's name on Personio as typed: a name or an address on jobs.personio.de / .com. */
-export const personioCompany = (input: string) => tenantOf(input, ['jobs.personio.de', 'jobs.personio.com']);
+/** The company's name on Personio as typed: a name or an address on jobs.personio.de / .com (v38 FRAME: the registry's). */
+export { personioCompany };
 
 /** A Personio source's feed: its host, address and language. */
 export function personioFeedOf(config: Record<string, unknown>): { company: string; host: string; language: string; url: string } {
   const company = personioCompany(str(config.company) ?? '');
   const domain = /jobs\.personio\.com/i.test(str(config.company) ?? '') ? 'com' : config.domain;
-  const host = company ? feedHostOf('personio', { company, domain }) : null;
+  const host = company ? PERSONIO_BOARD.hostOf({ company, domain }) : null;
   if (!host) throw new IngestError('This source has no Personio company name ({company}.jobs.personio.de). Edit the source and add it.');
   const wanted = (str(config.language) ?? 'en').toLowerCase();
   const language = (PERSONIO_LANGUAGES as readonly string[]).includes(wanted) ? wanted : 'en';

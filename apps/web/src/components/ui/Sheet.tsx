@@ -2,7 +2,7 @@
 
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { clsx } from 'clsx';
-import { useRef, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { BACKDROP } from './Dialog';
 import { firstFocusSkippingTips, HelpTip } from './HelpTip';
 import { IconButton } from './IconButton';
@@ -44,6 +44,28 @@ export interface SheetContentProps {
   initialFocus?: ComponentProps<typeof BaseDialog.Popup>['initialFocus'];
   /** A long title wraps (up to three lines) instead of being cut: a job and its company on a phone. */
   wrapTitle?: boolean;
+  /** v38 FIX-APP (REVIEW38-ux L16): extra classes for the ✕ (a sheet whose phone layout wants it 44 px: Edit job). */
+  closeClassName?: string;
+}
+
+/**
+ * v38 FIX-APP (REVIEW38-ux L14): while a sheet with a footer is open, the toasts sit above its footer (the viewport reads
+ * --sheet-footer-h: Toast.tsx), so a save's toast never covers the footer's buttons (Cancel, Save changes).
+ */
+function useFooterHeight(node: HTMLDivElement | null) {
+  useEffect(() => {
+    // The footer mounts inside the dialog's portal: its node (a callback ref's) is known once it is drawn.
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const root = document.documentElement;
+    const write = () => root.style.setProperty('--sheet-footer-h', `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    write();
+    const observer = new ResizeObserver(write);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--sheet-footer-h');
+    };
+  }, [node]);
 }
 
 export function SheetContent({
@@ -59,9 +81,12 @@ export function SheetContent({
   bodyClassName,
   initialFocus,
   wrapTitle = false,
+  closeClassName,
 }: SheetContentProps) {
   // v32 COPY: by default the sheet opens on its first control that is not a "?".
   const popup = useRef<HTMLDivElement>(null);
+  const [footerNode, setFooterNode] = useState<HTMLDivElement | null>(null); // v38 FIX-APP (ux L14)
+  useFooterHeight(footerNode);
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className={BACKDROP} />
@@ -100,10 +125,14 @@ export function SheetContent({
             )}
           </div>
           {headerActions && <div className="flex shrink-0 items-center gap-2">{headerActions}</div>}
-          <BaseDialog.Close render={<IconButton label="Close" icon={<XIcon size={18} />} tooltip={false} />} />
+          <BaseDialog.Close render={<IconButton label="Close" icon={<XIcon size={18} />} tooltip={false} className={closeClassName} />} />
         </div>
         <div className={clsx('min-h-0 flex-1 overflow-y-auto px-6 py-5', bodyClassName)}>{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2.5 border-t border-border bg-surface-low px-6 py-3.5">{footer}</div>}
+        {footer && (
+          <div ref={setFooterNode} className="flex items-center justify-end gap-2.5 border-t border-border bg-surface-low px-6 py-3.5" data-sheet-footer="">
+            {footer}
+          </div>
+        )}
       </BaseDialog.Popup>
     </BaseDialog.Portal>
   );

@@ -1,3 +1,4 @@
+import { tenantLabelOf } from '@tailorit/shared/sourcing'; // v38 FRAME
 import type { IngestHttp } from './http';
 import { IngestError } from './types';
 
@@ -106,20 +107,8 @@ export function xmlText(element: XmlElement | null | undefined, name: string): s
  * one DNS label in lower case, under one of `suffixes` when an address is given; '' when there is none.
  */
 export function tenantOf(input: string, suffixes: readonly string[]): string {
-  let text = input.trim().toLowerCase();
-  if (!text) return '';
-  if (/^[a-z][a-z0-9+.-]*:\/\//.test(text) || text.includes('.') || text.includes('/')) {
-    let host: string;
-    try {
-      host = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`).hostname;
-    } catch {
-      return '';
-    }
-    const suffix = suffixes.find((candidate) => host.endsWith(`.${candidate}`));
-    if (!suffix) return '';
-    text = host.slice(0, -(suffix.length + 1));
-  }
-  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(text) ? text : '';
+  // v38 FRAME: the shared board registry's rule (@tailorit/shared/sourcing tenantLabelOf), moved there unchanged.
+  return tenantLabelOf(input, suffixes);
 }
 
 // ------------------------------------------------------------------------------------------------- sitemaps
