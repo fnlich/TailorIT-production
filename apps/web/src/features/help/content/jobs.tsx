@@ -158,7 +158,10 @@ function AddJob() {
         <li>
           <Ui>One link</Ui>: paste a posting&apos;s link. <Ui>Add details</Ui> (optional) takes its company, title, description,
           rate and location: TailorIT uses them only when it cannot read the link, and the rate only when the posting names no
-          pay. A link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read
+          pay. A job on a company&apos;s own careers page that shows a Greenhouse or Ashby job board (its link has gh_jid= or
+          ashby_jid=) is read from that board. Apply opens the page the board names for the job, and adding the company&apos;s
+          link again finds the same job.
+          A link it cannot read makes a job only you see, marked <Ui>{t('LABEL_JOB_FROM_BROWSER')}</Ui>, with Retry read
           (a Retry read that finds the posting closed marks that job closed). When the site has asked TailorIT to slow down (Workday
           sites often do), Add job says when to try again and keeps nothing. A posting that doesn&apos;t name its company (some
           ADP, Oracle, UKG, Dayforce, Paycom and Paylocity postings) asks you for it: type the company and TailorIT adds the job. Some job sites
@@ -245,7 +248,7 @@ export const JOBS_SECTION: GuideSection = {
       id: 'jobs-save',
       title: 'Save, apply and add a job',
       // v35 OPSWEB: importing a file or a sheet.
-      keywords: ['select', 'unsave', 'mark as applied', 'add job', 'link', 'import', 'csv', 'xlsx', 'google sheet', 'download these rows'],
+      keywords: ['select', 'unsave', 'mark as applied', 'add job', 'link', 'import', 'csv', 'xlsx', 'google sheet', 'download these rows', 'greenhouse', 'ashby', 'embedded', 'careers page', 'gh_jid', 'ashby_jid'], // v381 EMBED: greenhouse, ashby; v381 FIX (ux-L1): the last four
       Body: SaveAndApply,
     },
     { id: 'jobs-report', title: 'Report a job', keywords: ['closed', 'scam', 'wrong'], Body: Report },

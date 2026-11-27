@@ -358,6 +358,42 @@ async function currentOf(deps: AppDeps, row: DueRow): Promise<DueRow> {
   return now && now.origin !== row.origin ? { ...row, ...now } : row;
 }
 
+/** v381 FIX (REVIEW381-beh L3): PostgreSQL's deadlock and serialization failure codes (40P01, 40001). */
+const DB_CONFLICT_CODES: ReadonlySet<string> = new Set(['40P01', '40001']);
+/** v381 FIX (L3): the wait before a link whose read lost to a deadlock or a serialization failure is read again (once). */
+export const DB_CONFLICT_RETRY_MS = MINUTE_MS;
+
+/** The SQLSTATE of a database error (or of its cause, a few deep), or null: logged and judged, never its text. */
+export function sqlStateOf(error: unknown): string | null {
+  let at: unknown = error;
+  for (let depth = 0; depth < 4 && at && typeof at === 'object'; depth += 1) {
+    const code = (at as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code;
+    at = (at as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/** v381 FIX (L3): the queue rows whose last read lost to a database conflict and were given their one quick try (each app). */
+const QUICK_TRIED = new WeakMap<object, Set<number>>();
+
+/** Whether this is the row's first conflict in a row (then marked, so the next one in a row waits as any failure does). */
+function firstConflict(deps: AppDeps, id: number): boolean {
+  let tried = QUICK_TRIED.get(deps);
+  if (!tried) QUICK_TRIED.set(deps, (tried = new Set()));
+  if (tried.has(id)) {
+    tried.delete(id);
+    return false;
+  }
+  tried.add(id);
+  return true;
+}
+
+/** The row's read ended otherwise: its next conflict is a first one again. */
+function forgetConflict(deps: AppDeps, id: number): void {
+  QUICK_TRIED.get(deps)?.delete(id);
+}
+
 /** Reads one claimed link and writes its result (or puts it back for a later try). */
 async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
   const row = await currentOf(deps, claimed); // v35 FIX-STORE (D2)
@@ -369,6 +405,7 @@ async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
   const windowEnd = retryWindowEnd(deps, row);
   const lastTry = windowEnd !== null ? deps.now().getTime() >= windowEnd : row.attempts >= attemptsOf(deps, row.origin);
   let until: string | null = null;
+  let conflict = false; // v381 FIX (L3): the read lost to a deadlock or a serialization failure, read again soon
   try {
     if (row.origin === 'legacy' && row.for_job_id !== null) {
       // v31 LINK2: a job stored before v3.1 from what a row or a browser said (legacy.ts). v31 FIX-LINK (BEH-3): a
@@ -418,14 +455,28 @@ async function settle(deps: AppDeps, claimed: DueRow): Promise<void> {
       }
     }
   } catch (error) {
-    // Never the error's own text (it can hold the link).
-    deps.log.warn('[job-links] a queued link could not be read; tried again later', error instanceof Error ? error.name : 'unknown');
+    // Never the error's own text (it can hold the link). v381 FIX (REVIEW381-beh L3): the database's error code is said.
+    const code = sqlStateOf(error);
+    deps.log.warn('[job-links] a queued link could not be read; tried again later', `${error instanceof Error ? error.name : 'unknown'}${code ? ` ${code}` : ''}`);
+    conflict = code !== null && DB_CONFLICT_CODES.has(code) && firstConflict(deps, Number(row.id));
     state = 'refused';
     reason = 'unavailable';
     jobId = null;
-    if (lastTry && isImportOrigin(row.origin)) imported = { result: 'failed', reason: 'unavailable', jobId: null };
+    if (lastTry && isImportOrigin(row.origin) && !conflict) imported = { result: 'failed', reason: 'unavailable', jobId: null };
   }
   const now = deps.now();
+  if (!conflict) forgetConflict(deps, Number(row.id)); // v381 FIX (L3)
+  // v381 FIX (SP v381 FIXES-381 item 6; REVIEW381-beh L3): a deadlock or a serialization failure says nothing about the
+  // link (another read of the same rows won): read again once after DB_CONFLICT_RETRY_MS, its try given back, not after
+  // LINK_QUEUE_RETRY_MS; a second one in a row waits as any failure does.
+  if (conflict) {
+    await deps.db.run(
+      `UPDATE job_link_queue SET state = 'queued', lease_until = NULL, next_at = ?, reason = 'unavailable', attempts = GREATEST(attempts - 1, 0)
+       WHERE id = ?`,
+      [new Date(now.getTime() + DB_CONFLICT_RETRY_MS).toISOString(), row.id],
+    );
+    return;
+  }
   // v31 LINK2: a legacy job's read waits while page reads are not set up here (legacy.ts): asked again a day later.
   if (row.origin === 'legacy' && reason === 'not_set_up') {
     await deps.db.run("UPDATE job_link_queue SET state = 'queued', lease_until = NULL, next_at = ?, reason = ?, attempts = 0 WHERE id = ?", [

@@ -15,15 +15,17 @@ import { AppError } from '../../core/http/errors';
 import { refuse } from '../../core/http/refuse'; // v31 LINK
 import { bestResumes, SINGLE_SAVE_MATCH_BUDGET_MS } from '../applications/resume-choice';
 import { createApplication, wantsResumeMatch, type CreateOptions } from '../applications/service';
-import { IngestHttpError } from '../ingest/http';
+import { IngestHttpError, type HttpAnswer } from '../ingest/http'; // v381 INT-2: HttpAnswer
 import { workdayLinkPosting } from '../ingest/adapters/workday'; // v37 CLOSED (C4)
+import { ashbyBoardListing } from '../ingest/boards/ashby'; // v381 INT-2
+import { linkFeedCache, untilAborted } from '../ingest/boards/feed-cache'; // v381 INT-2
 import { ADDED_BY_AUTOFILL } from '../ingest/liveness';
 import { sourceHashOf } from '../ingest/normalize';
 import { fetchPosting, type AshbyBoardReads, type PostingAnswer } from '../ingest/postings';
 import { RobotsRefusal } from '../ingest/robots';
 import { requireIngest } from '../ingest/service';
 import { termsRefusalOfPosting, TermsRefusalError } from '../ingest/terms'; // v37 FIX-37B (E2)
-import { IngestError, PostingUnreadableError, type SourceRecord } from '../ingest/types';
+import { IngestError, PostingUnreadableError, type RawPosting, type SourceRecord } from '../ingest/types'; // v381 EMBED: RawPosting
 import { holdNewJob, noteHeldAdd, type HeldAdder } from '../job-reviews/new-jobs'; // v30 X1-API; v33 SHARE-6: HeldAdder
 import { isRefusedPageHost } from '../job-reviews/hosts'; // v31 LINK
 import { readPageToSharedJob, type ImportRead } from '../jobs/add/page'; // v31 LINK; v35 INT-A: ImportRead
@@ -209,10 +211,27 @@ function boardFailure(deps: AppDeps, error: unknown, kind: AddablePosting['kind'
 }
 
 /**
+ * v381 INT-2 (SP v381 INT-2-BRIEF, "one small addition"; FIX-381's M1 rule for the embedded path, jobs/add/embedded-
+ * board.ts primeAshbyList): a direct jobs.ashbyhq.com link's board list through the process's feed cache (boards/feed-
+ * cache.ts linkFeedCache, keyed `ashby:<board>` as the embedded path keys it, so both share one read): one read of a
+ * board within BOARD_FEED_CACHE_SECONDS, whatever the links, never the whole list once per link. `fresh` reads it again
+ * (Retry read and Edit job's read: ReadLinkOptions.freshFeed; a posting missing from a kept list). The shared read carries
+ * no caller's signal (v38 FIX-A); this read waits for it under its own. `reused`: the list is one kept from another read.
+ */
+function ashbyListOf(deps: AppDeps, posting: AddablePosting, signal: AbortSignal, fresh: boolean): { boards: AshbyBoardReads; reused: boolean } {
+  const http = requireIngest(deps).http;
+  const key = posting.board.toLowerCase();
+  const hit = linkFeedCache(deps).lookup(`ashby:${key}`, () => ashbyBoardListing(http, posting), { fresh });
+  return { boards: new Map([[key, untilAborted(hit.value as Promise<HttpAnswer>, signal)]]), reused: hit.reused };
+}
+
+/**
  * Reads the posting from its board and stores it (see above), answering its job and whether it is new to TailorIT
  * (dedupe may find it under another source's job). 404 `not_found` when the board no longer has it; 502 or 503 when the
  * board fails. Nothing is written until the posting has been read. v35 INT-A: `importRead`, an admin import's read: its
  * row fills what the posting lacks, and a new job it holds is the import's (jobs/add/page.ts ImportRead).
+ * v381 INT-2: an Ashby posting's board list through the feed cache (ashbyListOf), read again fresh once before a posting
+ * a kept list lacks is answered closed; `freshFeed` (Retry read, Edit job's read) uses no kept list.
  */
 async function readAndStore(
   deps: AppDeps,
@@ -220,6 +239,7 @@ async function readAndStore(
   boards: AshbyBoardReads,
   importRead?: ImportRead,
   timeoutMs: number = ADD_JOB_FETCH_TIMEOUT_MS, // v37 CLOSED (C3): the link queue's reads wait longer for their turn
+  freshFeed = false, // v381 INT-2
 ): Promise<{ jobId: number; created: boolean }> {
   const ingest = requireIngest(deps);
   // v37 FIX-37B (SP v37 FIXES-37 E2, E8): a board whose source's terms an admin recorded as not allowing automated access is
@@ -231,7 +251,15 @@ async function readAndStore(
   let answer: PostingAnswer;
   try {
     const config = (await boardSource(deps.db, posting))?.config;
-    answer = await fetchPosting(ingest.http, posting, { config, signal, boards, shareWhileReading: true });
+    const read = (lists: AshbyBoardReads) => fetchPosting(ingest.http, posting, { config, signal, boards: lists, shareWhileReading: true });
+    if (posting.kind === 'ashby') {
+      // v381 INT-2: the board's list through the feed cache; a posting a kept list lacks is read again (fresh) once.
+      const list = ashbyListOf(deps, posting, signal, freshFeed);
+      answer = await read(list.boards);
+      if (!answer.found && list.reused) answer = await read(ashbyListOf(deps, posting, signal, true).boards);
+    } else {
+      answer = await read(boards);
+    }
   } catch (error) {
     // Never the error's own text: it holds the board's API address.
     if (!(error instanceof IngestHttpError || error instanceof IngestError || error instanceof RobotsRefusal) && !signal.aborted) {
@@ -243,11 +271,61 @@ async function readAndStore(
     if (answer.unlisted) throw new AppError('unsupported', UNLISTED);
     throw new AppError('not_found', `${ATS_NAMES[posting.kind]} no longer has this posting: it has closed.`);
   }
-  const raw = importRead ? importRead.fill(answer.raw) : answer.raw; // v35 INT-A: the row fills what the read lacks
-  const listedCompany = answer.listedCompany;
+  return storeReadPosting(deps, posting, answer.raw, answer.listedCompany, { ...(importRead ? { importRead } : {}) }); // v381 EMBED
+}
+
+// v381 EMBED (SP v381 PLAN E4): readAndStore's store, split out for a posting read from a board a company's own site
+// embeds (jobs/add/embedded-board.ts: its Apply link the company's page, its keys the board's too); unchanged for
+// readAndStore. `approved`: an admin's approval of the link (published, never held), as a page read takes it.
+/** The source a posting of `posting`'s board is kept under (see boardSource), for its config (v381 EMBED). */
+export const boardSourceOfPosting = boardSource;
+
+/**
+ * v381 FIX (SP v381 FIXES-381 G3, G7; REVIEW381-ux M1): a board a person's link found on a company's own site
+ * (`foundOnCompanySite`: jobs/add/embedded-board.ts) is a source found on "A company's website" (discovered_via
+ * `company_site`, Add job's mark gone), still off: Admin › Sources says "Waiting for an admin" (sources.ts
+ * isWaitingForAdmin), as for a board an import found; only a source never on and found no other way yet. A board that
+ * names no company keeps the name the company's page gives (`sourceCompanyName`) when it has none, so its runs name the
+ * company the same way. In the store's transaction.
+ */
+async function markEmbeddedSource(
+  t: DbQueries,
+  sourceId: number,
+  options: { foundOnCompanySite?: boolean; sourceCompanyName?: string },
+  now: string,
+): Promise<void> {
+  if (options.foundOnCompanySite) {
+    await t.run(
+      `UPDATE job_sources SET discovered_via = 'company_site', config = config - 'addedBy', updated_at = CAST(? AS timestamptz)
+       WHERE id = ? AND NOT enabled AND enabled_at IS NULL AND discovered_via IS NULL`,
+      [now, sourceId],
+    );
+  }
+  const name = options.sourceCompanyName?.trim();
+  if (name) {
+    await t.run(
+      `UPDATE job_sources SET config = jsonb_set(config, '{companyName}', to_jsonb(CAST(? AS text))), updated_at = CAST(? AS timestamptz)
+       WHERE id = ? AND COALESCE(config->>'companyName', '') = ''`,
+      [name, now, sourceId],
+    );
+  }
+}
+
+/** Stores a posting read from its board (see readAndStore): its job, and whether it is new to TailorIT. */
+export async function storeReadPosting(
+  deps: AppDeps,
+  posting: AddablePosting,
+  read: RawPosting,
+  listedCompany: string | undefined,
+  options: { importRead?: ImportRead; approved?: boolean; foundOnCompanySite?: boolean; sourceCompanyName?: string } = {},
+): Promise<{ jobId: number; created: boolean }> {
+  const ingest = requireIngest(deps);
+  const { importRead } = options;
+  const raw = importRead ? importRead.fill(read) : read; // v35 INT-A: the row fills what the read lacks
   return deps.db.tx(async (t) => {
     const now = nowIso(deps);
     const source = await boardSourceOrNew(t, posting, now, listedCompany);
+    await markEmbeddedSource(t, source.id, options, now); // v381 FIX (SP v381 FIXES-381 G3, G7)
     // The ingest pipeline's store (ingest/store.ts) writes on the raw handle inside this transaction.
     const outcome = await ingest.store.upsertBatch(source, [{ raw, sourceHash: sourceHashOf(raw) }], now);
     const link = await t.one<{ job_id: number }>('SELECT job_id FROM job_source_links WHERE source_id = ? AND source_job_id = ?', [
@@ -264,11 +342,12 @@ async function readAndStore(
     // review (out of every search, its review opened), in this transaction; an enabled source's posting is public at
     // once (its next run lists it anyway). v3.0 held every such posting.
     // v35 INT-A: held by an admin import's read: the import's (its run), in this transaction.
-    if (created && readWaitsForAdmin(deps, { page: false, sourceEnabled: source.enabled })) {
+    const approved = options.approved === true; // v381 EMBED
+    if (created && readWaitsForAdmin(deps, { page: false, sourceEnabled: source.enabled, approved })) {
       await holdNewJob(t, link.job_id, now, importRead ? 'import' : 'ats', importRead?.runId ?? null);
     }
     // v31 FIX-LINK (BEH-4): a read that landed on a job the legacy pass holds settles it (jobs/add/held.ts).
-    else if (!created) await settleHeldAfterRead(deps, t, link.job_id, { page: false, sourceEnabled: source.enabled, at: now });
+    else if (!created) await settleHeldAfterRead(deps, t, link.job_id, { page: false, sourceEnabled: source.enabled, approved, at: now });
     // v36 IMPORTTIME (SP v36 PLAN.md I1): a job an admin's import read made is dated the import's (jobs/add/import-time.ts).
     if (created && importRead) await dateImported(t, link.job_id, now);
     return { jobId: link.job_id, created };
@@ -659,22 +738,25 @@ async function openHeldJobOf(deps: Pick<AppDeps, 'db'>, posting: AddablePosting)
  * v31 FIX-LINK (BEH-2): `fresh` reads the board whatever job holds the posting (the legacy pass's reads, Retry read).
  * v35 INT-A: `importRead`, an admin import's read (jobs/add/page.ts ImportRead), never shared with another read.
  * v37 CLOSED (C3): `timeoutMs`, the read's budget (the link queue's LINK_QUEUE_READ_TIMEOUT_MS; people's 15 s).
+ * v381 INT-2: `freshFeed`, no board list kept from another read (Retry read, Edit job's read: readAndStore).
  */
 export function readShared(
   deps: AppDeps,
   posting: AddablePosting,
   inFlight: InFlight,
-  options: { fresh?: boolean; importRead?: ImportRead; timeoutMs?: number } = {},
+  options: { fresh?: boolean; importRead?: ImportRead; timeoutMs?: number; freshFeed?: boolean } = {},
 ): Promise<{ jobId: number; created: boolean }> {
   const key =
     `${posting.kind}:${posting.region}:${posting.board.toLowerCase()}:${posting.externalId.toLowerCase()}` +
-    `${options.fresh ? ':fresh' : ''}${options.importRead ? ':import' : ''}`;
+    `${options.fresh ? ':fresh' : ''}${options.importRead ? ':import' : ''}${options.freshFeed ? ':freshfeed' : ''}`;
   let reading = inFlight.postings.get(key);
   if (!reading) {
     const held = options.fresh ? Promise.resolve(null) : openHeldJobOf(deps, posting);
     reading = held
       .then((found) =>
-        found !== null ? { jobId: found, created: false } : readAndStore(deps, posting, inFlight.boards, options.importRead, options.timeoutMs),
+        found !== null
+          ? { jobId: found, created: false }
+          : readAndStore(deps, posting, inFlight.boards, options.importRead, options.timeoutMs, options.freshFeed === true),
       )
       .finally(() => inFlight.postings.delete(key));
     inFlight.postings.set(key, reading);

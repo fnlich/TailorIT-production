@@ -501,6 +501,8 @@ export const AdminRunSourceSchema = z.object({
   waiting: JobSourceWaitingSchema.nullable().optional(),
   /** v36 INT-A: off, found (by this import or discovery) and never turned on by an admin: "Waiting for an admin". */
   waitingForAdmin: z.boolean().optional(),
+  /** v381 EMBED (SP v381 PLAN E5): the company sites whose job pages show its board ("found via acme.com"). */
+  embeddedSites: z.array(z.string()).optional(),
 });
 export type AdminRunSource = z.infer<typeof AdminRunSourceSchema>;
 export const AdminRunSourcesSchema = z.object({
@@ -515,6 +517,41 @@ export type AdminRunSources = z.infer<typeof AdminRunSourcesSchema>;
 export const AdminRunSourcesBodySchema = z.object({ action: z.enum(ADMIN_SOURCE_ALL_ACTIONS) });
 export type AdminRunSourcesBody = z.infer<typeof AdminRunSourcesBodySchema>;
 // end v35 ADMIN
+
+// v381 EMBED (SP v381 PLAN E2, E5): the company sites whose job pages show a Greenhouse or Ashby source's board
+// (embedded_boards): GET /api/admin/sources/:id/embedded-sites, the most recently confirmed first; an admin forgets one
+// with POST /api/admin/sources/:id/embedded-sites/forget {site} (its next job link reads the page again).
+export const EMBEDDED_BOARD_CONFIRMED_VIA = ['page', 'posting_url', 'admin'] as const;
+export type EmbeddedBoardConfirmedVia = (typeof EMBEDDED_BOARD_CONFIRMED_VIA)[number];
+/** One site whose job pages show the source's board. */
+export const AdminEmbeddedSiteSchema = z.object({
+  /** The site's registrable domain ("acme.com"). */
+  site: z.string(),
+  /** How TailorIT learned it: a job link's page named the board (`page`), or the board's posting links are there. */
+  confirmedVia: z.enum(EMBEDDED_BOARD_CONFIRMED_VIA),
+  /** The link that first confirmed it (its shared form), or null. */
+  firstLink: z.string().nullable(),
+  firstSeenAt: IsoDateTime,
+  lastConfirmedAt: IsoDateTime,
+  /**
+   * v381 FIX (SP v381 FIXES-381 G6): when an admin forgot it (kept: neither its links nor the board's runs remember it
+   * again until Remember again), or null.
+   */
+  forgottenAt: IsoDateTime.nullable().optional(),
+});
+export type AdminEmbeddedSite = z.infer<typeof AdminEmbeddedSiteSchema>;
+export const AdminEmbeddedSitesSchema = z.object({ items: z.array(AdminEmbeddedSiteSchema) });
+export type AdminEmbeddedSites = z.infer<typeof AdminEmbeddedSitesSchema>;
+export const AdminEmbeddedSiteForgetBodySchema = z.object({ site: z.string().trim().min(1).max(253) });
+export type AdminEmbeddedSiteForgetBody = z.infer<typeof AdminEmbeddedSiteForgetBodySchema>;
+export const AdminEmbeddedSiteForgetResultSchema = z.object({ forgotten: z.boolean() });
+export type AdminEmbeddedSiteForgetResult = z.infer<typeof AdminEmbeddedSiteForgetResultSchema>;
+// v381 FIX (G6): POST /api/admin/sources/:id/embedded-sites/remember {site}: an admin's Remember again of a forgotten site.
+export const AdminEmbeddedSiteRememberBodySchema = AdminEmbeddedSiteForgetBodySchema;
+export type AdminEmbeddedSiteRememberBody = z.infer<typeof AdminEmbeddedSiteRememberBodySchema>;
+export const AdminEmbeddedSiteRememberResultSchema = z.object({ remembered: z.boolean() });
+export type AdminEmbeddedSiteRememberResult = z.infer<typeof AdminEmbeddedSiteRememberResultSchema>;
+// end v381 EMBED
 
 export const AdminRunsListSchema = z.object({
   items: z.array(JobSourceRunSchema),

@@ -1,5 +1,5 @@
 import type { DbQueries } from '../../../core/db/types';
-import { companyDomainsOf, registrableDomain } from '../../companies/domain';
+import { companyDomainsOf, registrableDomain, siteOfAddress } from '../../companies/domain'; // v381 FIX: siteOfAddress
 import { atsKeyOf, ghjidKeyOf, ldKeyOf, tidyKeys, type JobKey } from '../keys';
 import type { HiringOrganizationData, JobPostingData } from './jsonld';
 
@@ -42,14 +42,32 @@ export function postingIdentifierUsable(identifier: string | null, org: HiringOr
   return text !== domain && text !== (org?.name ?? '').trim().toLowerCase();
 }
 
-/** The one Greenhouse board a domain's company has (`greenhouse:<board>` board alias), or null (none, or several). */
-export async function greenhouseBoardOfDomain(db: DbQueries, domain: string): Promise<string | null> {
+/** v381 FIX (REVIEW381-beh M2): the most Greenhouse boards a career page's ?gh_jid= is keyed with (one `ats` key each). */
+export const GREENHOUSE_DOMAIN_BOARDS_MAX = 6;
+
+/**
+ * The Greenhouse boards a career page's ?gh_jid=<id> may be a posting of, in lower case: the one board a domain's company
+ * has (`greenhouse:<board>` board alias; none when it has several, as v3.8.0 read it), then (v381 EMBED, SP v381 PLAN E2)
+ * the boards the page's site is known to embed (embedded_boards, the site memory ingest/embedded-boards.ts keeps; an
+ * admin's forgotten ones aside), at most GREENHOUSE_DOMAIN_BOARDS_MAX in all.
+ * v381 FIX (REVIEW381-beh M2; SP v381 FIXES-381 item 3): every one is a key (`greenhouse:<board>:<id>`). Greenhouse's job
+ * ids are global, so a key of a board that does not hold the posting matches no other job, and a second remembered board
+ * never takes away the alias board's key v3.8.0 gave.
+ */
+export async function greenhouseBoardsOfDomain(db: DbQueries, domain: string, site: string = domain): Promise<string[]> {
   const rows = await db.all<{ value: string }>(
-    `SELECT DISTINCT b.value FROM company_aliases d JOIN company_aliases b ON b.company_id = d.company_id
-     WHERE d.kind = 'domain' AND d.value = ? AND b.kind = 'board' AND b.value LIKE 'greenhouse:%' ORDER BY b.value LIMIT 2`,
-    [domain],
+    `SELECT value FROM (
+       SELECT lower(substr(b.value, length('greenhouse:') + 1)) AS value, 0 AS rank FROM company_aliases d
+         JOIN company_aliases b ON b.company_id = d.company_id
+         WHERE d.kind = 'domain' AND d.value = ? AND b.kind = 'board' AND b.value LIKE 'greenhouse:%'
+           AND (SELECT count(DISTINCT b2.value) FROM company_aliases d2 JOIN company_aliases b2 ON b2.company_id = d2.company_id
+                WHERE d2.kind = 'domain' AND d2.value = ? AND b2.kind = 'board' AND b2.value LIKE 'greenhouse:%') = 1
+       UNION ALL SELECT lower(e.board) AS value, 1 AS rank FROM embedded_boards e
+         WHERE e.site = lower(?) AND e.kind = 'greenhouse' AND e.forgotten_at IS NULL
+     ) boards GROUP BY value ORDER BY min(rank), value LIMIT ?`,
+    [domain, domain, site, GREENHOUSE_DOMAIN_BOARDS_MAX],
   );
-  return rows.length === 1 ? rows[0]!.value.slice('greenhouse:'.length) : null;
+  return rows.map((row) => row.value);
 }
 
 export interface CareerKeys {
@@ -96,8 +114,10 @@ export async function careerKeysOf(
     if (own && domain !== pageDomain) continue;
     const ghjid = ghjidKeyOf(domain, jobId);
     if (ghjid) keys.push({ kind: 'ghjid', key: ghjid });
-    const board = await greenhouseBoardOfDomain(db, domain);
-    if (board) keys.push({ kind: 'ats', key: `greenhouse:${board}:${jobId}`.toLowerCase() });
+    // v381 FIX (REVIEW381-beh M2): a key of each candidate board (ids are global); the memory read by the site (G5).
+    for (const board of await greenhouseBoardsOfDomain(db, domain, siteOfAddress(address) ?? domain)) {
+      keys.push({ kind: 'ats', key: `greenhouse:${board}:${jobId}`.toLowerCase() });
+    }
   }
   const claimed = organizationDomainOf(posting.hiringOrganization);
   const domain = own ? (claimed === null || claimed === pageDomain ? pageDomain : null) : (claimed ?? pageDomain);

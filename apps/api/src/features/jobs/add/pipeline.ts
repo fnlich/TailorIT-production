@@ -193,6 +193,7 @@ export async function readLink(
         fresh: options.fresh === true,
         ...(options.importRead ? { importRead: options.importRead } : {}),
         ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.freshFeed ? { freshFeed: true } : {}), // v381 INT-2: a direct Ashby link's list (autofill/jobs.ts ashbyListOf)
       });
       return { kind: 'shared', jobId: stored.jobId, created: stored.created, held: await isHeld(deps, stored.jobId) };
     } catch (error) {

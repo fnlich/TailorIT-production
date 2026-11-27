@@ -1,7 +1,7 @@
 import { ASHBY_BOARD, ashbyBoard } from '@tailorit/shared/sourcing';
 import { ASHBY_API, ashbyAdapter, ashbyPosting } from '../adapters/ashby';
 import { isRecord, nameFromSlug, records, str } from '../adapters/common';
-import type { IngestHttp } from '../http';
+import type { HttpAnswer, IngestHttp } from '../http'; // v381 INT-2: HttpAnswer
 import { IngestError } from '../types';
 import { configString } from './read-json';
 import type { ApiBoardDescriptor, PostingAnswer, PostingReadOptions, PostingRef } from './types';
@@ -15,6 +15,18 @@ import type { ApiBoardDescriptor, PostingAnswer, PostingReadOptions, PostingRef 
 export const ASHBY_BOARD_MAX_BYTES = 25 * 1024 * 1024;
 
 const apiUrl = (ref: PostingRef) => `${ASHBY_API}/${encodeURIComponent(ref.board)}?includeCompensation=true`;
+
+/**
+ * v381 INT-2: a board's whole listing for a link's read through the process's feed cache (autofill/jobs.ts ashbyListOf,
+ * jobs/add/embedded-board.ts primeAshbyList, both keyed `ashby:<board>`), sent with no caller's signal (v38 FIX-A). An
+ * answer that is neither a board nor Ashby's 404 fails the read (as ashbyFromBoard would fail it), so the cache never
+ * keeps it for the next link.
+ */
+export async function ashbyBoardListing(http: IngestHttp, ref: PostingRef): Promise<HttpAnswer> {
+  const answer = await http.getJson(apiUrl(ref), { allow: [404], maxBytes: ASHBY_BOARD_MAX_BYTES });
+  if (answer.status !== 404 && !(isRecord(answer.data) && Array.isArray(answer.data.jobs))) throw new IngestError('Ashby answered without a job board.');
+  return answer;
+}
 
 /**
  * An Ashby posting from its board's listing: gone when the board is (404) or no longer lists it (an unlisted posting

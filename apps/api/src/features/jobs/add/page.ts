@@ -22,6 +22,7 @@ import { isWorkdayPageHost, pauseOfHold, type LinkRead, type ReadPause } from '.
 import { readBoardLinkToSharedJob } from './board-link'; // v37 BOARDS
 import { termsRefusalOfLink } from '../../ingest/terms'; // v37 FIX-37B (E2)
 import { isBoardKindHost, neverReadPlatformOfHost } from '../../ingest/career/platforms'; // v38 FIX-C (M13, H2)
+import { readEmbeddedBoardLink } from './embedded-board'; // v381 EMBED
 
 // v31 LINK (D3, docs/design/v3.1/21-jobs-from-links.md §4): an added job's own page, read once by TailorIT for its
 // schema.org JobPosting, when no ATS API reads the posting. The read goes through the shared reader (core/seams
@@ -68,10 +69,38 @@ class PageRefusal extends Error {
  * a held host's refusal, and a 429's, carry the pause (until when, the host); a Workday host is never read as a page
  * (its posting is read from its JSON: workday.ts), so its link that names no posting is `no_posting` with no request.
  */
-export async function readJobPage(
-  deps: AppDeps,
-  url: string,
-): Promise<{ kind: 'posting'; posting: JobPostingData; finalUrl: string } | { kind: 'closed' } | { kind: 'unreadable'; reason: JobVerifyReason; pause?: ReadPause }> {
+export async function readJobPage(deps: AppDeps, url: string): Promise<JobPageRead> {
+  return jobPageOf(deps, await fetchJobPage(deps, url));
+}
+
+/** readJobPage's answer: the page's JobPosting, closed, or why there is none. */
+export type JobPageRead =
+  | { kind: 'posting'; posting: JobPostingData; finalUrl: string }
+  | { kind: 'closed' }
+  | { kind: 'unreadable'; reason: JobVerifyReason; pause?: ReadPause };
+
+/**
+ * v381 EMBED (SP v381 PLAN E3): the one read of a job's page (readJobPage's request, its refusals and verdicts as
+ * before), handing back the page itself: a company page that embeds a job board is scanned for the board
+ * (embedded-board.ts), and the same page's JobPosting is read after it: never a second request.
+ */
+export type JobPageFetch =
+  | { kind: 'page'; html: string; finalUrl: string }
+  | { kind: 'closed' }
+  | { kind: 'unreadable'; reason: JobVerifyReason; pause?: ReadPause };
+
+/** readJobPage's JobPosting of a page fetchJobPage read (a past validThrough: closed; none: `no_posting`). */
+export function jobPageOf(deps: AppDeps, fetched: JobPageFetch): JobPageRead {
+  if (fetched.kind !== 'page') return fetched;
+  const posting = pageJobPosting(fetched.html, fetched.finalUrl);
+  if (!posting) return { kind: 'unreadable', reason: 'no_posting' };
+  // 12 §8.1: a past validThrough is a closed posting.
+  if (expiredAt(posting, deps.now())) return { kind: 'closed' };
+  return { kind: 'posting', posting, finalUrl: fetched.finalUrl };
+}
+
+/** The request readJobPage makes (see there), the page handed back as it came (v381 EMBED). Outside any transaction. */
+export async function fetchJobPage(deps: AppDeps, url: string): Promise<JobPageFetch> {
   const host = new URL(url).hostname.toLowerCase();
   if (isWorkdayPageHost(host)) return { kind: 'unreadable', reason: 'no_posting' }; // v37 CLOSED (C4)
   // v38 FIX-C (D3): a host TailorIT never reads is asked nothing, whoever calls (its robots.txt neither).
@@ -106,11 +135,7 @@ export async function readJobPage(
   }
   if (result.status === 404 || result.status === 410) return { kind: 'closed' };
   if (result.notModified || result.status < 200 || result.status >= 300) return { kind: 'unreadable', reason: 'unavailable' };
-  const posting = pageJobPosting(result.body.toString('utf8'), result.finalUrl);
-  if (!posting) return { kind: 'unreadable', reason: 'no_posting' };
-  // 12 §8.1: a past validThrough is a closed posting.
-  if (expiredAt(posting, deps.now())) return { kind: 'closed' };
-  return { kind: 'posting', posting, finalUrl: result.finalUrl };
+  return { kind: 'page', html: result.body.toString('utf8'), finalUrl: result.finalUrl };
 }
 
 /**
@@ -241,7 +266,12 @@ export async function readPageToSharedJob(deps: AppDeps, url: string, options: P
   // TailorIT never reads (SuccessFactors, Phenom, JobDiva) answers that platform's reason; any other `no_posting`.
   const refused = boardKindPageRefusal(url);
   if (refused) return unreadable(refused);
-  const read = await readJobPage(deps, url);
+  // v381 EMBED (SP v381 PLAN E1-E4): a link on a company's own site that shows a Greenhouse or Ashby board (?gh_jid=,
+  // ?ashby_jid=) is read from that board (embedded-board.ts); when no board holds it, its page (read there once, or not
+  // at all) is read for its JobPosting as before, with no second request.
+  const embedded = await readEmbeddedBoardLink(deps, url, options, (address) => fetchJobPage(deps, address));
+  if (embedded?.kind === 'read') return embedded.read;
+  const read = embedded?.page ? jobPageOf(deps, embedded.page) : await readJobPage(deps, url);
   if (read.kind !== 'posting') return read;
   const address = sharedAddress(read.finalUrl) ?? sharedAddress(url);
   if (!address) return unreadable('invalid_link');

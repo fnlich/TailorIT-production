@@ -6,6 +6,7 @@ import { workdayLinkPosting } from '../../ingest/adapters/workday';
 import { boardOfUrl } from '../../ingest/discovery/boards';
 import { IMPORT_BOARD_KINDS, importBoardOfPosting, importBoardOfUrl, type ImportBoardInput } from '../../ingest/import-sources'; // v37 INT-B importBoardOfUrl
 import { readPage, type PageReading } from '../../autofill/lookup';
+import { embeddedBoardOfJob, embeddedBoardOfLink } from './embedded-board'; // v381 EMBED; v381 FIX: embeddedBoardOfJob
 
 // v37 CLOSED (SP v37 PLAN.md C7, the owner's "even if the job is closed, the source should be extracted and added"):
 //   - importBoardOfLink: the board an admin import's link names (a Greenhouse, Lever, Ashby or Workable board, or a
@@ -59,10 +60,30 @@ export function importBoardOfLink(page: PageReading, url: string): Omit<ImportBo
   }
 }
 
+/**
+ * v381 EMBED (SP v381 PLAN E5): the board a company page's link landed on, as rememberImportBoard takes it; null for none.
+ * v381 FIX (REVIEW381-beh L5, REVIEW381-ux L2): the board of the job the row landed on (embedded-board.ts
+ * embeddedBoardOfJob: the board this read, or an earlier one, read it from), never the site's newest board, and none for
+ * a row that landed on no job.
+ */
+export async function embeddedImportBoardOf(
+  deps: Pick<AppDeps, 'db'>,
+  url: string,
+  jobId: number,
+): Promise<Omit<ImportBoardInput, 'runId' | 'companyName'> | null> {
+  const found = await embeddedBoardOfJob(deps, url, jobId);
+  if (!found) return null;
+  return found.kind === 'greenhouse'
+    ? { kind: 'greenhouse', name: found.name, config: { token: found.name } }
+    : { kind: 'ashby', name: found.name, config: { board: found.name } };
+}
+
 /** A board of a closed link offered to discovery (see the top): `via` the extension's, or a link in an application. */
 export async function offerBoardOfClosedLink(deps: AppDeps, url: string, via: Extract<JobSourceDiscoveredVia, 'extension' | 'application_link'>): Promise<void> {
   const posted = importBoardOfPosting(postingOfLink(readPage(url), url));
-  const board = posted ? { kind: posted.kind, name: posted.name } : boardOfUrl(url);
+  // v381 EMBED (SP v381 PLAN E4): a company page's link offers the board its site is remembered with (embedded-board.ts;
+  // v381 FIX: only a site's one board).
+  const board = posted ? { kind: posted.kind, name: posted.name } : (boardOfUrl(url) ?? (await embeddedBoardOfLink(deps, url)));
   if (!board) return;
   try {
     await deps.db.tx((t) => offerToDiscovery(deps, t, { kind: board.kind, name: board.name, via, at: nowIso(deps) }), {

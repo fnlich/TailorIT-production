@@ -3259,6 +3259,27 @@ export const CONSTANTS = {
   ),
   MSG_JOB_ADD_NEVER_READ: message('Add job: a site TailorIT never reads', 'TailorIT never reads this site, so only you see this job.'),
   // end v38 FIX-APP
+  // v381 EMBED (SP v381 PLAN E2-E4): a job link on a company's own site that shows a Greenhouse or Ashby board
+  // (?gh_jid=, ?ashby_jid=) is read from that board. TailorIT remembers which boards a site shows (embedded_boards), at
+  // most this many a site and kind; tries at most this many boards a link (each one read of the board's API); and
+  // forgets a board after this many links in a row that it did not hold.
+  EMBEDDED_BOARDS_PER_SITE: {
+    kind: 'int', default: 5, adminEditable: true, public: false, group: 'jobs', min: 1, max: 20,
+    label: 'Boards remembered per company site',
+    help: "The most Greenhouse (or Ashby) boards TailorIT remembers for one company site's job pages; the least recently confirmed goes first.",
+  },
+  EMBEDDED_BOARD_CONFIRMS: {
+    kind: 'int', default: 3, adminEditable: true, public: false, group: 'jobs', min: 1, max: 5,
+    label: 'Boards tried per company job link',
+    help: "The most boards TailorIT asks about one job link on a company's own site (one read of each board's API).",
+  },
+  EMBEDDED_BOARD_MISSES: {
+    kind: 'int', default: 3, adminEditable: true, public: false, group: 'jobs', min: 1, max: 20,
+    label: 'Misses before a site board is forgotten',
+    // v381 INT-2: one tip of at most 140 characters (v32-fixux UXREQ-8); FIX-381's wording was 165.
+    help: "A board is forgotten after missing this many of the site's job links in a row whose pages no longer name it (never one its own runs name).",
+  },
+  // end v381 EMBED
 } as const satisfies Record<string, AnyConstantSpec>;
 
 export type Constants = typeof CONSTANTS;

@@ -25,6 +25,8 @@ import { relativeTime } from '@/lib/format';
 import { RunStatusBadge } from '../runs/parts';
 import { sourcePausedText } from '../runs/pause'; // v31 RUNS
 import { fetchSourceSettings, saveSourceTerms, sourceKeys, type SourceSettings } from './api';
+import { showsEmbeddedSites } from './embedded'; // v381 EMBED
+import { EmbeddedSites } from './EmbeddedSites'; // v381 EMBED
 import {
   TIER_TONE,
   failureText,
@@ -420,14 +422,18 @@ export function SourceSheet({
       }}
     >
       {(item) => (
-        <SourceDetails
-          source={item}
-          settings={settings.data ?? null}
-          now={now}
-          onShowHost={onShowHost}
-          // v37 BOARDS (PLAN B3): the Terms editor, afresh for each source.
-          terms={<TermsEditor key={item.id} source={item} settings={settings.data ?? null} now={now} onSaved={onTermsSaved} />}
-        />
+        <div className="flex flex-col gap-6">
+          <SourceDetails
+            source={item}
+            settings={settings.data ?? null}
+            now={now}
+            onShowHost={onShowHost}
+            // v37 BOARDS (PLAN B3): the Terms editor, afresh for each source.
+            terms={<TermsEditor key={item.id} source={item} settings={settings.data ?? null} now={now} onSaved={onTermsSaved} />}
+          />
+          {/* v381 EMBED (SP v381 PLAN E5): the company sites whose job pages show a Greenhouse or Ashby board. */}
+          {showsEmbeddedSites(item.kind) && <EmbeddedSites key={item.id} source={item} now={now} />}
+        </div>
       )}
     </RowDetailSheet>
   );

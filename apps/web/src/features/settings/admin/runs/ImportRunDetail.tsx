@@ -22,6 +22,7 @@ import { waitingTip } from '../sources/sources';
 import { WaitingForAdminBadge } from '../sources/SourcesTab'; // v36 INT-A
 import { changeRunSources, fetchRunSources, runKeys, type AdminRunRow } from './api';
 import { foundSourceState, importCountParts, importRunName, runSourcesConfirm, sourcesFoundLine, startedByText } from './imports';
+import { foundViaText } from '../sources/embedded'; // v381 EMBED
 
 // v35 OPSWEB (PLAN H6): an import run, opened on Admin › Runs: its counts, "Open results" (Admin › Import's results of
 // the run), and Sources found: each board source its links named (name, kind, company, state), the ones it made with a
@@ -70,12 +71,19 @@ function ImportCounts({ run }: { run: AdminRunRow }) {
  */
 export function FoundSource({ source, busy, onToggle }: { source: AdminRunSource; busy: boolean; onToggle: (source: AdminRunSource) => void }) {
   const state = foundSourceState(source);
-  const line = [source.kindLabel, source.companyName && source.companyName !== source.name ? source.companyName : null].filter(Boolean).join(' · ');
+  const line = [
+    source.kindLabel,
+    source.companyName && source.companyName !== source.name ? source.companyName : null,
+    foundViaText(source.embeddedSites), // v381 EMBED (SP v381 PLAN E5)
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2" data-found-source={source.id} data-found-created={source.created ? 'true' : 'false'}>
       <div className="min-w-0 flex-1 basis-48">
         <p className="truncate text-sm font-semibold text-foreground">{source.name}</p>
-        <p className="truncate text-[13px] text-muted-foreground">{line}</p>
+        {/* v381 FIX (REVIEW381-ux L3): the line wraps (its "Found via <site>" is never cut off at 390 px). */}
+        <p className="text-[13px] break-words text-muted-foreground">{line}</p>
       </div>
       <span className="flex items-center gap-1.5">
         <Badge tone={STATE_TONE[state]} data-found-state={state} {...(source.waiting ? { 'data-source-waiting': source.waiting.reason } : {})}>
@@ -138,7 +146,8 @@ function SourcesFound({ run }: { run: AdminRunRow }) {
     );
   } else if (!found.data) {
     body = (
-      <div aria-busy="true" aria-label="Loading the sources found" className="flex flex-col gap-2 py-2">
+      // v381 FIX (REVIEW381-ux L4): a status, so its label is read while the sources load.
+      <div role="status" aria-busy="true" aria-label="Loading the sources found" className="flex flex-col gap-2 py-2">
         <Skeleton className="h-3.5 w-1/3" />
         <Skeleton className="h-3 w-1/4" />
       </div>

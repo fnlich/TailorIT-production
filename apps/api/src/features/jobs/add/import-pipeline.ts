@@ -31,7 +31,7 @@ import type { ImportRead } from './page';
 import { addJobByLink, isAddableLink, readLink, type LinkRead } from './pipeline';
 import { listedSql, rejectionCovers } from './verification'; // v37 INT-A: listedSql (REVIEW's R5), as the list
 import { legacyHeld } from './held'; // v37 CLOSED (C2)
-import { importBoardOfLink } from './closed-link'; // v37 CLOSED (C7)
+import { embeddedImportBoardOf, importBoardOfLink } from './closed-link'; // v37 CLOSED (C7); v381 EMBED: embeddedImportBoardOf
 import { TRY_LATER_REASONS } from './verdict'; // v37 CLOSED (C1)
 
 // v35 IMPORT (SP v35 PLAN.md H2, H4, H5): what TailorIT's read of an import's queued link does, in the link queue's
@@ -498,10 +498,14 @@ async function settleAdminLink(deps: AppDeps, row: ImportQueueRow, details: JobR
   // v37 CLOSED (C7): the link's board becomes a source whatever the read gives: a landing names it with the job's
   // company; a row that lands on no job (closed, try later, needs details) with its own.
   const board = importBoardOfLink(page, url);
+  // v381 EMBED (SP v381 PLAN E5): a company page's link names the board its site embeds. v381 FIX (REVIEW381-beh L5,
+  // REVIEW381-ux L2): the board of the job the row landed on (the board the read stored it under), never the site's
+  // newest board; a row that lands on no job names none this way.
   let remembered = false;
   const landed = async (jobId: number) => {
     remembered = true;
-    await afterLanding(deps, runId, board, jobId, details); // v35 FIX-PIPE (data D11)
+    const found = board ?? (await embeddedImportBoardOf(deps, url, jobId)); // v381 FIX (L5)
+    await afterLanding(deps, runId, found, jobId, details); // v35 FIX-PIPE (data D11)
   };
   const settled = await settleAdminRead(deps, row, details, lastTry, { given, url, page, runId, landed });
   if (board && !remembered) await rememberBoard(deps, runId, board, details.company ?? null);

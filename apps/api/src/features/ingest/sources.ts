@@ -38,6 +38,7 @@ import { validationFailed } from '../../core/http/errors';
 import { apiBoardOf, BOARD_KIND_TERMS, BOARD_NO_ROBOTS_KINDS, boardSourceHost, type KindTerms } from './boards/index'; // v38 FRAME: the board registry
 import { laneSql, onLaneSql } from './hosts'; // v37 INT-B (LANE W1 + TRANSFER T3); v37 INT-2b: every lane
 import { neverReadPlatformOfHost } from './career/platforms'; // v38 FIX-C (D3)
+import { runEmbeddedSites } from './embedded-boards'; // v381 EMBED (E5); v381 FIX (ux-L2, beh-L5): this run's sites
 import {
   RUN_STATUSES,
   RUN_TRIGGERS,
@@ -1110,9 +1111,12 @@ export async function runSources(db: DbQueries, runId: number, waiting?: Sources
   );
   const records = rows.map(toSourceRecord);
   const reasons = waiting ? await waiting(records) : new Map<number, JobSourceWaiting>();
+  const embedded = await runEmbeddedSites(db, runId, records); // v381 EMBED (E5): "found via acme.com"; v381 FIX: through this run's rows
   const items: AdminRunSource[] = rows.map((row, i) => {
     const source = records[i]!;
+    const sites = embedded.get(source.id); // v381 EMBED
     return {
+      ...(sites ? { embeddedSites: sites } : {}), // v381 EMBED
       id: source.id,
       kind: source.kind as AdminRunSource['kind'],
       kindLabel: kindLabelOf(source.kind, source.config),

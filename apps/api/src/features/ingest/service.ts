@@ -44,6 +44,7 @@ import { lockNewCompanyNames } from '../companies/resolve';
 import { notifyRunFinished } from '../notifications/emitters'; // v31 NOTIFY
 import { PAUSABLE_TRIGGERS, pausedBy, RunPausedError, RUNS_PAUSED_KEY, runsPaused } from './pause-state'; // v31 RUNS
 import { isLinkListKind, queueLinksOfRun } from '../jobs/add/imports'; // v31 LINK
+import { rememberRunEmbeds } from './embedded-boards'; // v381 EMBED
 
 // Runs sources: one run per source at a time. Every run is a job_source_runs row with its counts and a log. Missing
 // postings are closed only after a successful, complete listing.
@@ -743,6 +744,9 @@ export function createIngestService(deps: AppDeps, options: IngestServiceOptions
           for (const failure of outcome.failures) noteFailure(`"${failure.title}" (${failure.sourceJobId}) was not saved: ${failure.message}`);
           await yieldToEventLoop();
         }
+        // v381 EMBED (SP v381 PLAN E2): a Greenhouse board's postings whose own links are on a company's site name that
+        // site's board (embedded-boards.ts: remembered, so the site's job links are read from the board at once).
+        if (items.length > 0) await rememberRunEmbeds(deps, source, [...unique.values()], nowIso(deps));
         runLog.add(
           `Saved: ${counts.created} new, ${counts.updated} updated, ${counts.unchanged} unchanged${counts.reactivated ? `, ${counts.reactivated} reopened` : ''}${counts.failed ? `, ${counts.failed} failed` : ''}.`,
         );

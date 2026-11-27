@@ -571,9 +571,17 @@ export interface RecomputeResult {
 /**
  * Computes the company's profile from its sources and writes it (company_profiles, and companies.name from the
  * display name), in the caller's transaction. The admin row's keys are the locked fields. Answers what changed.
+ *
+ * v381 GATE (SP v381 PLAN E7): the company row is locked FOR NO KEY UPDATE, never FOR UPDATE. Every caller has just
+ * written rows that reference the company (its alias, its source row, a job: their foreign keys take the row's FOR KEY
+ * SHARE lock), and two transactions storing postings of one company at once (two links of two platforms read side by
+ * side by the link queue, two runs) both hold that lock when they recompute: FOR UPDATE waits for every other KEY SHARE,
+ * so each waited for the other and PostgreSQL aborted one (deadlock detected), which the link queue read as "try later".
+ * FOR NO KEY UPDATE does not wait for a KEY SHARE: two recomputes of one company still take turns (the second waits for
+ * the first's commit, then reads every source), and a merge, an opt-out or a match (FOR UPDATE first) still waits.
  */
 export async function recomputeProfile(t: DbQueries, companyId: number, at: string, minConfidence: number): Promise<RecomputeResult> {
-  const company = await t.one<{ name: string }>('SELECT name FROM companies WHERE id = ? FOR UPDATE', [companyId]);
+  const company = await t.one<{ name: string }>('SELECT name FROM companies WHERE id = ? FOR NO KEY UPDATE', [companyId]); // v381 GATE
   if (!company) return { changed: false, searchChanged: false, nameChanged: false };
   await ensureProfile(t, companyId, company.name, at);
   const row = (await profileRowOf(t, companyId, true))!;

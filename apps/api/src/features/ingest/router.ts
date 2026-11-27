@@ -57,6 +57,8 @@ import { continueAllRuns, continueRun, continueSource, pauseAllRuns, pauseRun, p
 import { runsPausedState } from './pause-state'; // v31 RUNS
 import { dismissTurnedOff, turnedOffNotice } from './turned-off'; // v36 SOURCES
 import { exportSources, importSources, planImport, readSourcesFile } from './source-transfer'; // v37 TRANSFER
+import { embeddedSitesOfSource, forgetEmbeddedSiteOfSource, rememberEmbeddedSiteOfSource } from './embedded-boards'; // v381 EMBED; v381 FIX: remember
+import { AdminEmbeddedSiteForgetBodySchema, AdminEmbeddedSiteRememberBodySchema } from '@tailorit/shared/sourcing'; // v381 EMBED; v381 FIX: remember
 import {
   adminRun,
   adminRuns,
@@ -839,6 +841,44 @@ export function createSourcesRouter(deps: AppDeps): Router {
       );
 
       router.post('/ft-lake/test', handle((req) => testLake(deps, req.body)));
+
+      // v381 EMBED (SP v381 PLAN E5): the company sites whose job pages show a Greenhouse or Ashby source's board, and an
+      // admin's Forget of one (audited): its next job link reads the page again (ingest/embedded-boards.ts).
+      router.get(
+        '/:id/embedded-sites',
+        handle(async (req) => {
+          const id = parseInput(Id, req.params.id, 'source id');
+          const source = await getSourceRecord(db, id);
+          if (!source) throw notFound('That job source');
+          return embeddedSitesOfSource(db, source);
+        }),
+      );
+      router.post(
+        '/:id/embedded-sites/forget',
+        handle(async (req, actor) => {
+          const id = parseInput(Id, req.params.id, 'source id');
+          const body = parseInput(AdminEmbeddedSiteForgetBodySchema, req.body ?? {}, 'site');
+          const source = await getSourceRecord(db, id);
+          if (!source) throw notFound('That job source');
+          const result = await forgetEmbeddedSiteOfSource(deps, source, body.site, actor.id); // v381 FIX (G6): a mark, kept
+          await audit({ action: 'forget_embedded_site', ids: [id], actor, change: { site: body.site, forgotten: result.forgotten } });
+          return result;
+        }),
+      );
+      // v381 FIX (SP v381 FIXES-381 G6): an admin's Remember again of a site forgotten for the source's board (audited).
+      router.post(
+        '/:id/embedded-sites/remember',
+        handle(async (req, actor) => {
+          const id = parseInput(Id, req.params.id, 'source id');
+          const body = parseInput(AdminEmbeddedSiteRememberBodySchema, req.body ?? {}, 'site');
+          const source = await getSourceRecord(db, id);
+          if (!source) throw notFound('That job source');
+          const result = await rememberEmbeddedSiteOfSource(db, source, body.site);
+          await audit({ action: 'remember_embedded_site', ids: [id], actor, change: { site: body.site, remembered: result.remembered } });
+          return result;
+        }),
+      );
+      // end v381 EMBED
 
       router.delete(
         '/:id',
